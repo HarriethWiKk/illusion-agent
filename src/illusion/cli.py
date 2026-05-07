@@ -208,32 +208,30 @@ def plugin_uninstall(
     print(f"Uninstalled plugin: {name}")
 
 
-# ---- cron 子命令 ----
+# ---- cron 子命令（对齐 openclaw cron CLI） ----
 
 @cron_app.command("start")
 def cron_start() -> None:
-    """启动 cron 调度器守护进程
-    
-    在后台启动 cron 调度器，用于定时执行已配置的任务。
-    """
-    from illusion.services.cron_scheduler import is_scheduler_running, start_daemon  # 调度器相关功能
+    """启动 cron 调度器
 
-    if is_scheduler_running():  # 检查调度器是否已运行
+    在后台启动 cron 调度器，用于定时执行已配置的任务。
+    任务通过独立会话执行，不阻塞当前终端。
+    """
+    from illusion.services.cron_scheduler import is_scheduler_running, start_daemon
+
+    if is_scheduler_running():
         print("Cron scheduler is already running.")
         return
-    pid = start_daemon()  # 启动守护进程
+    pid = start_daemon()
     print(f"Cron scheduler started (pid={pid})")
 
 
 @cron_app.command("stop")
 def cron_stop() -> None:
-    """停止 cron 调度器守护进程
-    
-    停止当前运行的 cron 调度器。
-    """
-    from illusion.services.cron_scheduler import stop_scheduler  # 停止调度器
+    """停止 cron 调度器"""
+    from illusion.services.cron_scheduler import stop_scheduler
 
-    if stop_scheduler():  # 尝试停止调度器
+    if stop_scheduler():
         print("Cron scheduler stopped.")
     else:
         print("Cron scheduler is not running.")
@@ -241,14 +239,11 @@ def cron_stop() -> None:
 
 @cron_app.command("status")
 def cron_status_cmd() -> None:
-    """显示 cron 调度器状态和任务摘要
-    
-    显示调度器的运行状态、已启用任务数和总任务数。
-    """
-    from illusion.services.cron_scheduler import scheduler_status  # 调度器状态
+    """显示 cron 调度器状态和任务统计"""
+    from illusion.services.cron_scheduler import scheduler_status
 
-    status = scheduler_status()  # 获取调度器状态
-    state = "running" if status["running"] else "stopped"  # 运行状态
+    status = scheduler_status()
+    state = "running" if status["running"] else "stopped"
     print(f"Scheduler: {state}" + (f" (pid={status['pid']})" if status["pid"] else ""))
     print(f"Jobs:      {status['enabled_jobs']} enabled / {status['total_jobs']} total")
     print(f"Log:       {status['log_file']}")
@@ -256,46 +251,93 @@ def cron_status_cmd() -> None:
 
 @cron_app.command("list")
 def cron_list_cmd() -> None:
-    """列出所有已注册的 cron 任务及其调度和时间
-    
-    显示所有已配置的任务名称、启用状态、上次运行时间和下次运行时间。
-    """
-    from illusion.services.cron import load_cron_jobs  # 加载 cron 任务
+    """列出所有 cron 任务
 
-    jobs = load_cron_jobs()  # 加载所有任务
-    if not jobs:  # 如果没有任务
+    显示任务名称、启用状态、计划、提示词、上次/下次运行时间。
+    """
+    from illusion.services.cron import load_cron_jobs
+
+    jobs = load_cron_jobs()
+    if not jobs:
         print("No cron jobs configured.")
         return
-    for job in jobs:  # 遍历所有任务
-        enabled = "on " if job.get("enabled", True) else "off"  # 启用状态
-        last = job.get("last_run", "never")  # 上次运行时间
+    for job in jobs:
+        # 启用状态
+        enabled = "+" if job.get("enabled", True) else "-"
+        name = job.get("name", job.get("id", "?"))
+        schedule = job.get("schedule", "?")
+        recurring = "recurring" if job.get("recurring", True) else "one-shot"
+
+        # 时间格式化
+        last = job.get("last_run", "never")
         if last != "never":
-            last = last[:19]  # 修剪为可读日期时间
-        last_status = job.get("last_status", "")  # 上次运行状态
-        status_indicator = f" [{last_status}]" if last_status else ""  # 状态指示器
-        print(f"  [{enabled}] {job['name']}  {job.get('schedule', '?')}")
-        print(f"        cmd: {job['command']}")
-        print(f"        last: {last}{status_indicator}  next: {job.get('next_run', 'n/a')[:19]}")
+            last = last[:19]
+        last_status = job.get("last_status", "")
+        status_indicator = f" [{last_status}]" if last_status else ""
+
+        next_run = job.get("next_run", "n/a")
+        if next_run != "n/a":
+            next_run = next_run[:19]
+
+        # 连续错误
+        errors = job.get("consecutive_errors", 0)
+        error_str = f" [errors: {errors}]" if errors > 0 else ""
+
+        print(f"  [{enabled}] {name}  {schedule} ({recurring})")
+        print(f"        prompt: {job.get('prompt', '?')[:60]}")
+        print(f"        last: {last}{status_indicator}  next: {next_run}{error_str}")
 
 
 @cron_app.command("toggle")
 def cron_toggle_cmd(
-    name: str = typer.Argument(..., help="Cron job name"),
+    name: str = typer.Argument(..., help="Job name or ID"),
     enabled: bool = typer.Argument(..., help="true to enable, false to disable"),
 ) -> None:
-    """启用或禁用 cron 任务
-    
-    Args:
-        name: 任务名称
-        enabled: True 启用，False 禁用
-    """
-    from illusion.services.cron import set_job_enabled  # 设置任务启用状态
+    """启用或禁用 cron 任务"""
+    from illusion.services.cron import set_job_enabled
 
-    if not set_job_enabled(name, enabled):  # 设置启用状态
+    if not set_job_enabled(name, enabled):
         print(f"Cron job not found: {name}")
         raise typer.Exit(1)
-    state = "enabled" if enabled else "disabled"  # 状态描述
+    state = "enabled" if enabled else "disabled"
     print(f"Cron job '{name}' is now {state}")
+
+
+@cron_app.command("run")
+def cron_run_cmd(
+    name: str = typer.Argument(..., help="Job name or ID"),
+) -> None:
+    """手动触发执行 cron 任务
+
+    在独立会话中执行任务的 prompt，不阻塞当前终端。
+    """
+    import asyncio
+
+    from illusion.services.cron import get_cron_job
+    from illusion.services.cron_scheduler import execute_job
+
+    job = get_cron_job(name)
+    if job is None:
+        print(f"Cron job not found: {name}")
+        raise typer.Exit(1)
+
+    prompt = job.get("prompt", "")
+    if not prompt:
+        print(f"Job has no prompt: {name}")
+        raise typer.Exit(1)
+
+    print(f"Running job '{name}'...")
+    entry = asyncio.run(execute_job(job))
+    status = entry.get("status", "unknown")
+    rc = entry.get("returncode", "?")
+    print(f"Finished: {status} (rc={rc})")
+
+    stdout = entry.get("stdout", "").strip()
+    stderr = entry.get("stderr", "").strip()
+    if stdout:
+        print(f"Output:\n{stdout}")
+    if stderr and status != "success":
+        print(f"Error:\n{stderr}")
 
 
 @cron_app.command("history")
@@ -303,49 +345,42 @@ def cron_history_cmd(
     name: str | None = typer.Argument(None, help="Filter by job name"),
     limit: int = typer.Option(20, "--limit", "-n", help="Number of entries"),
 ) -> None:
-    """显示 cron 执行历史
-    
-    显示任务执行记录，包括时间、状态和返回码。
-    
-    Args:
-        name: 可选的任务名称过滤
-        limit: 显示的记录数，默认 20 条
-    """
-    from illusion.services.cron_scheduler import load_history  # 加载执行历史
+    """显示 cron 执行历史记录"""
+    from illusion.services.cron_scheduler import load_history
 
-    entries = load_history(limit=limit, job_name=name)  # 加载历史记录
-    if not entries:  # 如果没有记录
+    entries = load_history(limit=limit, job_name=name)
+    if not entries:
         print("No execution history.")
         return
-    for entry in entries:  # 遍历所有记录
-        ts = entry.get("started_at", "?")[:19]  # 获取时间戳
-        status = entry.get("status", "?")  # 获取状态
-        rc = entry.get("returncode", "?")  # 获取返回码
-        print(f"  {ts}  {entry.get('name', '?')}  {status} (rc={rc})")
-        stderr = entry.get("stderr", "").strip()  # 获取错误输出
-        if stderr and status != "success":  # 如果有错误输出且状态不是成功
-            for line in stderr.splitlines()[:3]:  # 只显示前 3 行
+    for entry in entries:
+        ts = entry.get("started_at", "?")[:19]
+        status = entry.get("status", "?")
+        rc = entry.get("returncode", "?")
+        job_name = entry.get("name", "?")
+        prompt_preview = entry.get("prompt", "")[:40]
+        print(f"  {ts}  {job_name}  {status} (rc={rc})")
+        if prompt_preview:
+            print(f"    prompt: {prompt_preview}")
+        stderr = entry.get("stderr", "").strip()
+        if stderr and status != "success":
+            for line in stderr.splitlines()[:3]:
                 print(f"    stderr: {line}")
 
 
 @cron_app.command("logs")
 def cron_logs_cmd(
-    lines: int = typer.Option(30, "--lines", "-n", help="Number of lines to show"),
+    lines: int = typer.Option(30, "--lines", "-n", help="Number of lines"),
 ) -> None:
-    """显示最近的 cron 调度器日志输出
-    
-    Args:
-        lines: 显示的行数，默认 30 行
-    """
-    from illusion.config.paths import get_logs_dir  # 获取日志目录
+    """显示 cron 调度器日志"""
+    from illusion.config.paths import get_logs_dir
 
-    log_path = get_logs_dir() / "cron_scheduler.log"  # 日志文件路径
-    if not log_path.exists():  # 如果日志文件不存在
+    log_path = get_logs_dir() / "cron_scheduler.log"
+    if not log_path.exists():
         print("No scheduler log found. Start the scheduler with: illusion cron start")
         return
-    content = log_path.read_text(encoding="utf-8", errors="replace")  # 读取日志内容
-    tail = content.splitlines()[-lines:]  # 获取最后 n 行
-    for line in tail:  # 遍历每一行
+    content = log_path.read_text(encoding="utf-8", errors="replace")
+    tail = content.splitlines()[-lines:]
+    for line in tail:
         print(line)
 
 
