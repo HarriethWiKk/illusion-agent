@@ -205,10 +205,7 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
     context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
 
     notebook = registry.get("notebook_edit")
-    cron_create = registry.get("cron_create")
-    cron_list = registry.get("cron_list")
-    remote_trigger = registry.get("remote_trigger")
-    cron_delete = registry.get("cron_delete")
+    cron = registry.get("cron")
 
     (tmp_path / "nb").mkdir(parents=True, exist_ok=True)
     (tmp_path / "nb" / "demo.ipynb").write_text('{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n', encoding="utf-8")
@@ -223,15 +220,19 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
     assert notebook_result.is_error is False
     assert "flow ok" in (tmp_path / "nb" / "demo.ipynb").read_text(encoding="utf-8")
 
-    create_result = await cron_create.execute(
-        cron_create.input_model(cron="0 0 * * *", prompt="printf 'FLOW_CRON_OK'"),
+    # 使用统一 cron 工具创建任务
+    create_result = await cron.execute(
+        cron.input_model(action="add", name="flow-test", schedule="0 0 * * *", prompt="printf 'FLOW_CRON_OK'"),
         context,
     )
-    list_result = await cron_list.execute(cron_list.input_model(), context)
+    assert create_result.is_error is False
+
+    # 列出任务
+    list_result = await cron.execute(cron.input_model(action="list"), context)
     assert "0 0 * * *" in list_result.output
 
-    created_name = create_result.output.split("'")[1]
-    delete_result = await cron_delete.execute(cron_delete.input_model(name=created_name), context)
+    # 删除任务
+    delete_result = await cron.execute(cron.input_model(action="remove", name="flow-test"), context)
     assert delete_result.is_error is False
 
 

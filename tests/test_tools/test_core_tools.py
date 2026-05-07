@@ -11,9 +11,6 @@ import pytest
 from illusion.tools.bash_tool import BashTool, BashToolInput
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.brief_tool import BriefTool, BriefToolInput
-from illusion.tools.cron_create_tool import CronCreateTool, CronCreateToolInput
-from illusion.tools.cron_delete_tool import CronDeleteTool, CronDeleteToolInput
-from illusion.tools.cron_list_tool import CronListTool, CronListToolInput
 from illusion.tools.config_tool import ConfigTool, ConfigToolInput
 from illusion.tools.enter_worktree_tool import EnterWorktreeTool, EnterWorktreeToolInput
 from illusion.tools.exit_worktree_tool import ExitWorktreeTool, ExitWorktreeToolInput
@@ -24,7 +21,6 @@ from illusion.tools.glob_tool import GlobTool, GlobToolInput
 from illusion.tools.grep_tool import GrepTool, GrepToolInput
 from illusion.tools.lsp_tool import LspTool, LspToolInput
 from illusion.tools.notebook_edit_tool import NotebookEditTool, NotebookEditToolInput
-from illusion.tools.remote_trigger_tool import RemoteTriggerTool, RemoteTriggerToolInput
 from illusion.tools.skill_tool import SkillTool, SkillToolInput
 from illusion.tools.todo_write_tool import TodoWriteTool, TodoWriteToolInput
 from illusion.tools.tool_search_tool import ToolSearchTool, ToolSearchToolInput
@@ -250,28 +246,116 @@ async def test_worktree_tools(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_cron_and_remote_trigger_tools(tmp_path: Path, monkeypatch):
+async def test_cron_tool_add_list_remove(tmp_path: Path, monkeypatch):
+    """测试统一 Cron 工具的 add/list/remove 操作。"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     context = ToolExecutionContext(cwd=tmp_path)
 
-    cron_command = "printf 'CRON_OK'"
-    if get_platform() == "windows":
-        cron_command = "Write-Output CRON_OK"
+    from illusion.tools.cron_tool import CronTool, CronToolInput
 
-    create_result = await CronCreateTool().execute(
-        CronCreateToolInput(cron="0 0 * * *", prompt=cron_command),
+    tool = CronTool()
+
+    # add: 创建任务
+    add_result = await tool.execute(
+        CronToolInput(
+            action="add",
+            name="test-job",
+            schedule="0 0 * * *",
+            prompt="echo hello",
+        ),
         context,
     )
-    assert create_result.is_error is False
+    assert add_result.is_error is False
+    assert "test-job" in add_result.output
 
-    list_result = await CronListTool().execute(CronListToolInput(), context)
+    # list: 列出任务
+    list_result = await tool.execute(
+        CronToolInput(action="list"),
+        context,
+    )
+    assert list_result.is_error is False
     assert "0 0 * * *" in list_result.output
+    assert "test-job" in list_result.output
 
-    delete_result = await CronDeleteTool().execute(
-        CronDeleteToolInput(name=create_result.output.split("'")[1]),
+    # remove: 删除任务
+    remove_result = await tool.execute(
+        CronToolInput(action="remove", name="test-job"),
         context,
     )
-    assert delete_result.is_error is False
+    assert remove_result.is_error is False
+    assert "test-job" in remove_result.output
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_status(tmp_path: Path, monkeypatch):
+    """测试 Cron 工具的 status 操作。"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    from illusion.tools.cron_tool import CronTool, CronToolInput
+
+    tool = CronTool()
+    result = await tool.execute(CronToolInput(action="status"), context)
+    assert result.is_error is False
+    assert "Scheduler" in result.output
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_update_toggle(tmp_path: Path, monkeypatch):
+    """测试 Cron 工具的 update 操作（启用/禁用）。"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    from illusion.tools.cron_tool import CronTool, CronToolInput
+
+    tool = CronTool()
+
+    # 先创建任务
+    await tool.execute(
+        CronToolInput(action="add", name="toggle-test", schedule="* * * * *", prompt="test"),
+        context,
+    )
+
+    # 禁用任务
+    update_result = await tool.execute(
+        CronToolInput(action="update", name="toggle-test", enabled=False),
+        context,
+    )
+    assert update_result.is_error is False
+
+    # 验证任务已禁用
+    list_result = await tool.execute(
+        CronToolInput(action="list", include_disabled=True),
+        context,
+    )
+    assert "toggle-test" in list_result.output
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_invalid_action(tmp_path: Path):
+    """测试无效操作返回错误。"""
+    from illusion.tools.cron_tool import CronTool, CronToolInput
+
+    tool = CronTool()
+    context = ToolExecutionContext(cwd=tmp_path)
+    result = await tool.execute(CronToolInput(action="invalid_action"), context)
+    assert result.is_error is True
+    assert "Unknown action" in result.output
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_missing_schedule(tmp_path: Path):
+    """测试 add 操作缺少 schedule 返回错误。"""
+    from illusion.tools.cron_tool import CronTool, CronToolInput
+
+    tool = CronTool()
+    context = ToolExecutionContext(cwd=tmp_path)
+    result = await tool.execute(
+        CronToolInput(action="add", prompt="test"),
+        context,
+    )
+    assert result.is_error is True
+    assert "Missing required parameter: schedule" in result.output
 
 
 def test_default_registry_matches_claude_tool_shape():
@@ -282,13 +366,14 @@ def test_default_registry_matches_claude_tool_shape():
     assert "repl" in names
     assert "structured_output" in names
 
-    # Claude source has create/list/delete cron operations in this tool family.
-    assert "cron_create" in names
-    assert "cron_list" in names
-    assert "cron_delete" in names
+    # 新的统一 cron 工具
+    assert "cron" in names
 
-    # Keep cron_toggle available as a module, but out of the default list.
-    assert "cron_toggle" not in names
+    # 旧的独立 cron 工具不应再存在
+    assert "cron_create" not in names
+    assert "cron_list" not in names
+    assert "cron_delete" not in names
+    assert "remote_trigger" not in names
 
 
 @pytest.mark.asyncio
