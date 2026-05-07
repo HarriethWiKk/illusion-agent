@@ -42,7 +42,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，由 OpenHarness
 
 **Markdown 富文本渲染**：终端内完整渲染表格、加粗、斜体、行内代码、链接等格式，AI 回复可读性大幅提升。
 
-**项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<projiect>.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
+**项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<projiect>/.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
 
 ---
 
@@ -116,6 +116,10 @@ illusion cron start              # 启动调度器
 illusion cron stop               # 停止调度器
 illusion cron status             # 查看状态
 illusion cron list               # 列出任务
+illusion cron toggle <name> <true|false>  # 启用/禁用任务
+illusion cron run <name>         # 手动触发执行任务
+illusion cron history            # 查看执行历史
+illusion cron logs               # 查看调度器日志
 ```
 
 ### 交互式斜杠命令
@@ -184,7 +188,7 @@ illusion-code/
 - **文件 I/O**: `bash`, `read_file`, `write_file`, `edit_file`
 - **搜索**: `glob`, `grep`, `web_fetch`, `web_search`
 - **任务管理**: `task_create`, `task_list`, `task_stop`
-- **定时任务**: `cron_create`, `cron_list`, `cron_toggle`
+- **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
 - **多智能体**: `agent`, `send_message`, `team_create`
 - **模式切换**: `enter_plan_mode`, `exit_plan_mode`
 

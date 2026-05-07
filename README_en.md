@@ -116,6 +116,10 @@ illusion cron start              # Start scheduler
 illusion cron stop               # Stop scheduler
 illusion cron status             # View status
 illusion cron list               # List tasks
+illusion cron toggle <name> <true|false>  # Enable/disable task
+illusion cron run <name>         # Manually trigger task
+illusion cron history            # View execution history
+illusion cron logs               # View scheduler logs
 ```
 
 ### Interactive Slash Commands
@@ -184,7 +188,7 @@ Provides 38+ core tools, covering:
 - **File I/O**: `bash`, `read_file`, `write_file`, `edit_file`
 - **Search**: `glob`, `grep`, `web_fetch`, `web_search`
 - **Task Management**: `task_create`, `task_list`, `task_stop`
-- **Scheduled Tasks**: `cron_create`, `cron_list`, `cron_toggle`
+- **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
 - **Multi-Agent**: `agent`, `send_message`, `team_create`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
 
