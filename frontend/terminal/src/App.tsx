@@ -516,6 +516,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						todoItems={session.todoItems}
 						language={language}
 						toolName={currentToolName}
+						sessionId={String(session.status.session_id ?? '')}
 					/>
 				</Box>
 			) : (

@@ -331,6 +331,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "bridge_sessions": state.bridge_sessions,
         "output_style": state.output_style,
         "phase": state.phase,
+        "session_id": state.session_id,
     }
 
 

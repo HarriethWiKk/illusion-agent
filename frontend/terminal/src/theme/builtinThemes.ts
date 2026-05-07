@@ -66,11 +66,11 @@ export const defaultTheme: ThemeConfig = {
 		permission: '#bb9af7',
 	},
 	icons: {
-		spinner: ['✻', '✶', '✢'],
+		spinner: ['·', '◌', '◎', '◌'],
 		tool: '●',
 		assistant: '●',
 		user: '❯',
-		system: '※',
+		system: '✻',
 		success: '✓',
 		error: '✗',
 		pending: '○',

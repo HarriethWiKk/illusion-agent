@@ -22,7 +22,7 @@ const ZH: Dict = {
 	statusThinking: '思考中...',
 	statusExecuting: '执行指令中...',
 	statusToolPrefix: '执行工具',
-	spinnerVerbs: '思考中,处理中,分析中,推理中,生成中,推演中,构建中,优化中,计算中,综合中',
+	spinnerVerbs: '酝酿,生发,铺陈,点染,贯通,渲染,独照,澄明',
 	spinnerToolAction: '正在执行',
 };
 

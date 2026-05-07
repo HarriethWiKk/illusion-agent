@@ -58,3 +58,4 @@ class AppState:
     bridge_sessions: int = 0  # 活跃的桥接会话数量
     output_style: str = "default"  # 输出样式名称
     phase: str = "idle"  # 会话阶段: idle / thinking / tool_executing
+    session_id: str = ""  # 当前会话 ID

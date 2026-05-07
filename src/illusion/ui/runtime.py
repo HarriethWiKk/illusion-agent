@@ -445,6 +445,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         bridge_sessions=len(get_bridge_manager().list_sessions()),
         output_style=settings.output_style,
         phase=bundle.app_state.get().phase,
+        session_id=bundle.session_id,
     )
 
 
