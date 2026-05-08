@@ -533,66 +533,148 @@ def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProf
     return name, profile
 
 
+class EnvConfig(BaseModel):
+    """环境/提供商组配置（对齐 cc-switch Provider Preset）"""
+    api_format: str  # "anthropic" / "openai" / "copilot"
+    base_url: str | None = None
+    api_key: str = ""
+    system_prompt: str | None = None
+
+    model_config = {"extra": "allow"}  # 允许 model_N 动态字段
+
+    def get_model(self, model_key: str) -> str | None:
+        """获取指定的模型名称，如 model_1, model_2"""
+        return getattr(self, model_key, None)
+
+    def list_models(self) -> dict[str, str]:
+        """列出所有 model_N 字段"""
+        result = {}
+        extras = self.model_extra or {}
+        for key, value in extras.items():
+            if key.startswith("model_") and isinstance(value, str):
+                result[key] = value
+        return result
+
+
 class Settings(BaseModel):
-    """IllusionCode 主设置模型
-    
-    包含所有应用配置选项，包括 API 配置、权限设置、钩子、记忆系统等。
-    
-    Attributes:
-        api_key: API 密钥
-        model: 默认模型
-        max_tokens: 最大 token 数
-        base_url: API base URL
-        api_format: API 格式（anthropic/openai/copilot）
-        provider: 提供商标识符
-        active_profile: 活跃的配置文件名
-        profiles: 所有配置文件字典
-        max_turns: 最大对话轮数
-        system_prompt: 系统提示词
-        permission: 权限设置
-        hooks: 钩子字典
-        memory: 记忆设置
-        sandbox: 沙箱设置
-        enabled_plugins: 启用的插件字典
-        mcp_servers: MCP 服务器配置字典
-        ui_language: UI 语言
-        output_style: 输出样式
-        fast_mode: 是否启用快速模式
-        effort: 工作量级别
-        passes: 运行次数
-        verbose: 是否详细输出
-    """
+    """IllusionCode 主设置模型（env_N 分组格式）"""
 
-    # API 配置
-    api_key: str = ""  # API 密钥
-    model: str = "claude-sonnet-4-6"  # 默认模型
-    max_tokens: int = 16384  # 最大 token 数
-    base_url: str | None = None  # API base URL
-    api_format: str = "anthropic"  # API 格式
-    provider: str = ""  # 提供商
-    active_profile: str = "claude-api"  # 活跃配置文件
-    profiles: dict[str, ProviderProfile] = Field(default_factory=dict)  # 用户配置的配置文件（不包含内置默认）
-    max_turns: int = 200  # 最大对话轮数
+    model_config = {"extra": "allow"}  # 允许 env_N 动态字段
 
-    # 行为配置
-    system_prompt: str | None = None  # 系统提示词
-    permission: PermissionSettings = Field(default_factory=PermissionSettings)  # 权限设置
-    hooks: dict[str, list[HookDefinition]] = Field(default_factory=dict)  # 钩子
-    memory: MemorySettings = Field(default_factory=MemorySettings)  # 记忆设置
-    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)  # 沙箱设置
-    enabled_plugins: dict[str, bool] = Field(default_factory=dict)  # 启用的插件
-    mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)  # MCP 服务器配置
+    # 活跃模型引用（格式：env_N:model_N）
+    model: str = "env_1:model_1"
 
-    # 上下文配置
-    context_window: int = 200_000  # 上下文窗口大小
+    # 全局配置
+    context_window: int = 200_000
+    system_prompt: str | None = None
 
-    # UI 配置
-    ui_language: str = "zh-CN"  # UI 语言
-    output_style: str = "default"  # 输出样式
-    fast_mode: bool = False  # 快速模式
-    effort: str = "medium"  # 工作量级别
-    passes: int = 1  # 运行次数
-    verbose: bool = False  # 详细输出
+    # 保留的非模型字段
+    max_tokens: int = 16384
+    max_turns: int = 200
+    permission: PermissionSettings = Field(default_factory=PermissionSettings)
+    hooks: dict[str, list[HookDefinition]] = Field(default_factory=dict)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    enabled_plugins: dict[str, bool] = Field(default_factory=dict)
+    mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
+    ui_language: str = "zh-CN"
+    output_style: str = "default"
+    fast_mode: bool = False
+    effort: str = "medium"
+    passes: int = 1
+    verbose: bool = False
+
+    # --- env_N 配置辅助方法 ---
+
+    def get_env(self, env_key: str) -> EnvConfig | None:
+        """获取指定的环境配置"""
+        value = getattr(self, env_key, None)
+        if isinstance(value, dict):
+            return EnvConfig.model_validate(value)
+        return value if isinstance(value, EnvConfig) else None
+
+    def list_envs(self) -> dict[str, EnvConfig]:
+        """列出所有 env_N 配置"""
+        result = {}
+        extras = self.model_extra or {}
+        for key, value in extras.items():
+            if key.startswith("env_"):
+                if isinstance(value, EnvConfig):
+                    result[key] = value
+                elif isinstance(value, dict):
+                    result[key] = EnvConfig.model_validate(value)
+        return result
+
+    @property
+    def _active_env_key(self) -> str:
+        """解析 model 字段，返回 env key"""
+        if ":" in self.model:
+            return self.model.split(":", 1)[0]
+        return "env_1"
+
+    @property
+    def _active_model_key(self) -> str:
+        """解析 model 字段，返回 model key"""
+        if ":" in self.model:
+            return self.model.split(":", 1)[1]
+        return "model_1"
+
+    @property
+    def _active_env(self) -> EnvConfig:
+        """返回当前活跃的环境配置"""
+        env = self.get_env(self._active_env_key)
+        if env is None:
+            envs = self.list_envs()
+            if envs:
+                return next(iter(envs.values()))
+            return EnvConfig(api_format="anthropic")
+        return env
+
+    @property
+    def _active_model_name(self) -> str:
+        """返回当前活跃的模型名称"""
+        env = self._active_env
+        model_name = env.get_model(self._active_model_key)
+        if model_name is None:
+            models = env.list_models()
+            if models:
+                return next(iter(models.values()))
+            return "claude-sonnet-4-6"
+        return model_name
+
+    # --- 兼容性属性 ---
+
+    @property
+    def active_model_name(self) -> str:
+        """兼容性属性：当前活跃模型名称"""
+        return self._active_model_name
+
+    @property
+    def api_key(self) -> str:
+        """兼容性属性：当前活跃环境的 API 密钥"""
+        return self._active_env.api_key
+
+    @property
+    def base_url(self) -> str | None:
+        """兼容性属性：当前活跃环境的 base URL"""
+        return self._active_env.base_url
+
+    @property
+    def provider(self) -> str:
+        """兼容性属性：根据 api_format 推断提供商"""
+        fmt = self._active_env.api_format
+        if fmt == "anthropic":
+            return "anthropic"
+        if fmt == "copilot":
+            return "copilot"
+        return "openai"
+
+    @property
+    def api_format(self) -> str:
+        """兼容性属性：当前活跃环境的 API 格式"""
+        return self._active_env.api_format
+
+    # --- 旧 profile 系统方法（保留兼容，后续任务移除） ---
 
     def merged_profiles(self) -> dict[str, ProviderProfile]:
         """返回保存的配置文件中合并了内置目录的配置文件字典
