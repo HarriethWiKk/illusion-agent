@@ -11,17 +11,28 @@ from illusion.config.settings import Settings
 
 def test_discover_claude_md_files(tmp_path: Path):
     repo = tmp_path / "repo"
-    nested = repo / "pkg" / "mod"
-    nested.mkdir(parents=True)
+    repo.mkdir()
     (repo / "CLAUDE.md").write_text("root instructions", encoding="utf-8")
     rules_dir = repo / ".claude" / "rules"
     rules_dir.mkdir(parents=True)
     (rules_dir / "python.md").write_text("rule instructions", encoding="utf-8")
 
-    files = discover_claude_md_files(nested)
+    files = discover_claude_md_files(repo)
 
     assert repo / "CLAUDE.md" in files
     assert rules_dir / "python.md" in files
+
+
+def test_discover_claude_md_files_does_not_traverse_parents(tmp_path: Path):
+    repo = tmp_path / "repo"
+    nested = repo / "pkg" / "mod"
+    nested.mkdir(parents=True)
+    (repo / "CLAUDE.md").write_text("root instructions", encoding="utf-8")
+
+    files = discover_claude_md_files(nested)
+
+    assert repo / "CLAUDE.md" not in files
+    assert files == []
 
 
 def test_load_claude_md_prompt(tmp_path: Path):
