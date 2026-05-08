@@ -3,19 +3,19 @@ Settings 模型和加载逻辑模块
 ===========================
 
 本模块提供 IllusionCode 的设置管理功能，包括：
-- Settings: 主设置模型
-- ProviderProfile: 提供商配置
+- Settings: 主设置模型（env_N 分组格式）
+- EnvConfig: 环境/提供商组配置
 - 各种设置加载和保存函数
 
 设置解析优先级（从高到低）：
     1. CLI 参数
-    2. 环境变量（ANTHROPIC_API_KEY, illusion_MODEL 等）
+    2. 环境变量（ANTHROPIC_API_KEY, ANTHROPIC_MODEL 等）
     3. 配置文件（~/.illusion/settings.json）
     4. 默认值
 
 类说明：
-    - Settings: 主设置模型，包含 API 配置、权限、钩子等
-    - ProviderProfile: 提供商工作流配置
+    - Settings: 主设置模型，使用 env_N 分组管理多个环境配置
+    - EnvConfig: 单个环境的配置（api_format, base_url, api_key, model_N 等）
     - PermissionSettings: 权限模式配置
     - MemorySettings: 记忆系统配置
     - SandboxSettings: 沙箱运行时配置
@@ -23,8 +23,7 @@ Settings 模型和加载逻辑模块
 使用示例：
     >>> from illusion.config.settings import load_settings, Settings
     >>> settings = load_settings()
-    >>> profile_name, profile = settings.resolve_profile()
-    >>> print(f"当前提供商: {profile.provider}")
+    >>> print(f"当前模型: {settings.active_model_name}")
 """
 
 from __future__ import annotations
@@ -439,100 +438,6 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
     return "anthropic_api_key"
 
 
-def _slugify_profile_name(value: str) -> str:
-    """将配置文件名转换为 URL 友好的 slug 格式
-    
-    Args:
-        value: 原始名称
-    
-    Returns:
-        str: slug 格式的名称
-    """
-    # 保留字母数字，将其他字符替换为连字符
-    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
-    # 替换连续出现的连字符
-    while "--" in cleaned:
-        cleaned = cleaned.replace("--", "-")
-    return cleaned or "custom"
-
-
-def _infer_profile_name_from_flat_settings(settings: "Settings") -> str:
-    """从扁平设置推断配置文件名称
-    
-    Args:
-        settings: 扁平设置的 Settings 实例
-    
-    Returns:
-        str: 推断的配置文件名称
-    """
-    provider = (settings.provider or "").strip()  # 获取提供商
-    if provider == "openai_codex":
-        return "codex"
-    if provider == "anthropic_claude":
-        return "claude-subscription"
-    if provider == "copilot" or settings.api_format == "copilot":
-        return "copilot"
-    if provider == "openai" and not settings.base_url:
-        return "openai-compatible"
-    if provider == "anthropic" and not settings.base_url:
-        return "claude-api"
-    if settings.base_url:
-        # 从 base URL 提取名称
-        return _slugify_profile_name(Path(settings.base_url).name or settings.base_url)
-    if provider:
-        return _slugify_profile_name(provider)
-    return "claude-api"
-
-
-def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProfile]:
-    """从扁平设置创建配置文件
-    
-    如果存在匹配的内置配置文件，则使用它；否则创建新的配置文件。
-    
-    Args:
-        settings: 扁平设置的 Settings 实例
-    
-    Returns:
-        tuple[str, ProviderProfile]: (配置文件名, 配置文件对象)
-    """
-    defaults = default_provider_profiles()  # 获取内置配置
-    name = _infer_profile_name_from_flat_settings(settings)  # 推断名称
-    existing = defaults.get(name)  # 检查是否存在
-    # 如果存在匹配的内置配置
-    if existing is not None and (
-        existing.provider == settings.provider or not settings.provider
-    ) and (
-        existing.api_format == settings.api_format
-    ) and (
-        existing.base_url == settings.base_url
-    ):
-        profile = existing.model_copy(
-            update={
-                "last_model": settings.model or existing.resolved_model,  # 更新最后使用的模型
-            }
-        )
-        return name, profile
-
-    # 创建新的配置文件
-    provider = settings.provider or ("copilot" if settings.api_format == "copilot" else ("openai" if settings.api_format == "openai" else "anthropic"))
-    profile = ProviderProfile(
-        label=f"Imported {provider}",  # 导入的提供商
-        provider=provider,
-        api_format=settings.api_format,
-        auth_source=default_auth_source_for_provider(provider, settings.api_format),  # 默认认证来源
-        default_model=settings.model or defaults.get("claude-api", ProviderProfile(
-            label="Claude API",
-            provider="anthropic",
-            api_format="anthropic",
-            auth_source="anthropic_api_key",
-            default_model="sonnet",
-        )).default_model,
-        last_model=settings.model or None,
-        base_url=settings.base_url,
-    )
-    return name, profile
-
-
 class EnvConfig(BaseModel):
     """环境/提供商组配置（对齐 cc-switch Provider Preset）"""
     api_format: str  # "anthropic" / "openai" / "copilot"
@@ -674,156 +579,26 @@ class Settings(BaseModel):
         """兼容性属性：当前活跃环境的 API 格式"""
         return self._active_env.api_format
 
-    # --- 旧 profile 系统方法（保留兼容，后续任务移除） ---
-
-    def merged_profiles(self) -> dict[str, ProviderProfile]:
-        """返回保存的配置文件中合并了内置目录的配置文件字典
-        
-        内置配置文件会被用户保存的配置覆盖。
-        
-        Returns:
-            dict[str, ProviderProfile]: 合并后的配置文件字典
-        """
-        merged = default_provider_profiles()  # 从内置配置开始
-        # 用保存的配置覆盖
-        merged.update(
-            {
-                name: (
-                    profile.model_copy(deep=True)  # 深拷贝配置文件
-                    if isinstance(profile, ProviderProfile)
-                    else ProviderProfile.model_validate(profile)  # 验证配置
-                )
-                for name, profile in self.profiles.items()
-            }
-        )
-        return merged
-
-    def resolve_profile(self, name: str | None = None) -> tuple[str, ProviderProfile]:
-        """返回活跃的提供商配置文件
-        
-        如果指定的名称不存在，会从扁平字段推断并创建配置文件。
-        
-        Args:
-            name: 可选的配置文件名称，默认使用 active_profile
-        
-        Returns:
-            tuple[str, ProviderProfile]: (配置文件名, 配置文件对象)
-        """
-        profiles = self.merged_profiles()  # 获取合并后的配置文件
-        profile_name = (name or self.active_profile or "").strip() or "claude-api"
-        if profile_name not in profiles:
-            # 从扁平设置创建配置文件
-            fallback_name, fallback = _profile_from_flat_settings(self)
-            profiles[fallback_name] = fallback
-            profile_name = fallback_name
-        return profile_name, profiles[profile_name].model_copy(deep=True)
-
-    def materialize_active_profile(self) -> Settings:
-        """将活跃配置文件投影回传统的扁平设置字段
-        
-        用于保持与仍在使用扁平字段的调用者的兼容性。
-        
-        Returns:
-            Settings: 更新后的 Settings 实例
-        """
-        profile_name, profile = self.resolve_profile()
-        configured_model = (profile.last_model or "").strip() or profile.default_model
-        return self.model_copy(
-            update={
-                "active_profile": profile_name,  # 更新活跃配置文件名
-                "profiles": self.merged_profiles(),  # 更新配置文件字典
-                "provider": profile.provider,  # 更新提供商
-                "api_format": profile.api_format,  # 更新 API 格式
-                "base_url": profile.base_url,  # 更新 base URL
-                "model": resolve_model_setting(  # 解析模型名称
-                    configured_model,
-                    profile.provider,
-                    default_model=profile.default_model,
-                    permission_mode=self.permission.mode.value,
-                ),
-            }
-        )
-
-    def sync_active_profile_from_flat_fields(self) -> Settings:
-        """将传统的扁平提供商字段同步回活跃配置文件
-        
-        这保持了与仍在直接设置顶层 provider/api_format/base_url/model
-        的调用者的兼容性。
-        
-        Returns:
-            Settings: 更新后的 Settings 实例
-        """
-        profile_name, profile = self.resolve_profile()
-        next_provider = (self.provider or "").strip() or profile.provider
-        next_api_format = (self.api_format or "").strip() or profile.api_format
-        next_base_url = self.base_url if self.base_url is not None else profile.base_url
-        flat_model = (self.model or "").strip()
-        resolved_profile_model = resolve_model_setting(
-            (profile.last_model or "").strip() or profile.default_model,
-            profile.provider,
-            default_model=profile.default_model,
-            permission_mode=self.permission.mode.value,
-        )
-        # 如果扁平模型与解析后的模型不同，使用扁平模型
-        if flat_model and flat_model != resolved_profile_model:
-            next_model = flat_model
-        else:
-            next_model = profile.last_model
-        # 确定认证来源
-        current_default_auth = default_auth_source_for_provider(profile.provider, profile.api_format)
-        next_auth_source = profile.auth_source
-        if not next_auth_source or next_auth_source == current_default_auth:
-            next_auth_source = default_auth_source_for_provider(next_provider, next_api_format)
-
-        # 创建更新后的配置文件
-        updated_profile = profile.model_copy(
-            update={
-                "provider": next_provider,
-                "api_format": next_api_format,
-                "base_url": next_base_url,
-                "auth_source": next_auth_source,
-                "last_model": next_model,
-            }
-        )
-        profiles = self.merged_profiles()
-        profiles[profile_name] = updated_profile
-        return self.model_copy(
-            update={
-                "active_profile": profile_name,
-                "profiles": profiles,
-            }
-        )
-
     def resolve_api_key(self) -> str:
-        """解析 API 密钥，优先级：实例值 > 环境变量 > 空
-        
-        对于 copilot 格式，密钥通过 oh auth copilot-login 单独管理，
-        此方法不会被调用。
-        
+        """解析 API 密钥
+
+        优先级：EnvConfig.api_key > 环境变量 > 空
+
         Returns:
             str: API 密钥字符串
-        
+
         Raises:
             ValueError: 未找到密钥时抛出
         """
-        profile_name, profile = self.resolve_profile()
-        del profile_name
-        # Codex 使用单独的认证方式
-        if profile.provider == "openai_codex":
-            return self.resolve_auth().value
-        # Claude 订阅使用 token 而非 API 密钥
-        if profile.provider == "anthropic_claude":
-            raise ValueError(
-                "Current provider uses Anthropic auth tokens instead of API keys. "
-                "Use resolve_auth() for runtime credential resolution."
-            )
+        env = self._active_env
+
         # Copilot 格式管理自己的认证
-        if profile.api_format == "copilot":
+        if env.api_format == "copilot":
             return "copilot-managed"
 
-        # 检查实例级别的 api_key
-        if self.api_key:
-            return self.api_key
+        # 检查 EnvConfig 中的 api_key
+        if env.api_key:
+            return env.api_key
 
         # 检查环境变量 ANTHROPIC_API_KEY
         env_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -842,54 +617,21 @@ class Settings(BaseModel):
         )
 
     def resolve_auth(self) -> ResolvedAuth:
-        """解析当前提供商的认证，包括订阅桥接
-        
+        """解析当前活跃环境的认证信息
+
         Returns:
             ResolvedAuth: 解析后的认证对象
-        
+
         Raises:
             ValueError: 认证配置错误时抛出
         """
-        _, profile = self.resolve_profile()
-        provider = profile.provider.strip()  # 清理提供商名称
-        auth_source = profile.auth_source.strip() or default_auth_source_for_provider(provider, profile.api_format)
-        
-        # 处理第三方订阅（codex、claude）
-        if auth_source in {"codex_subscription", "claude_subscription"}:
-            from illusion.auth.external import (
-                is_third_party_anthropic_endpoint,
-                load_external_credential,
-            )
-            from illusion.auth.storage import load_external_binding
-
-            # Claude 订阅只支持直接 Anthropic/Claude 端点
-            if auth_source == "claude_subscription" and is_third_party_anthropic_endpoint(profile.base_url):
-                raise ValueError(
-                    "Claude subscription auth only supports direct Anthropic/Claude endpoints. "
-                    "Use an API-key-backed Anthropic-compatible profile for third-party base URLs."
-                )
-            # 加载外部绑定
-            binding = load_external_binding(auth_source_provider_name(auth_source))
-            if binding is None:
-                raise ValueError(
-                    f"No external auth binding found for {auth_source}. Run 'oh auth "
-                    f"{'codex-login' if auth_source == 'codex_subscription' else 'claude-login'}' first."
-                )
-            # 加载外部凭证，必要时刷新
-            credential = load_external_credential(
-                binding,
-                refresh_if_needed=(auth_source == "claude_subscription"),
-            )
-            return ResolvedAuth(
-                provider=provider,
-                auth_kind=credential.auth_kind,
-                value=credential.value,
-                source=f"external:{credential.source_path}",
-                state="configured",
-            )
+        env = self._active_env
+        provider = self.provider  # 从 api_format 推断
+        api_format = env.api_format
+        auth_source = default_auth_source_for_provider(provider, api_format)
 
         # Copilot OAuth 认证
-        if auth_source == "copilot_oauth":
+        if api_format == "copilot":
             return ResolvedAuth(
                 provider="copilot",
                 auth_kind="oauth_device",
@@ -898,29 +640,28 @@ class Settings(BaseModel):
                 state="configured",
             )
 
-        # 从存储提供商加载
-        storage_provider = auth_source_provider_name(auth_source)
-        explicit_key = self.api_key  # 检查显式密钥
-        if explicit_key:
+        # 检查 EnvConfig 中的 api_key
+        if env.api_key:
             return ResolvedAuth(
-                provider=provider or storage_provider,
+                provider=provider,
                 auth_kind="api_key",
-                value=explicit_key,
-                source="settings_or_env",
+                value=env.api_key,
+                source="env_config",
                 state="configured",
             )
 
         # 检查环境变量
-        env_var = {
+        env_var_map = {
             "anthropic_api_key": "ANTHROPIC_API_KEY",
             "openai_api_key": "OPENAI_API_KEY",
             "dashscope_api_key": "DASHSCOPE_API_KEY",
-        }.get(auth_source)
+        }
+        env_var = env_var_map.get(auth_source)
         if env_var:
             env_value = os.environ.get(env_var, "")
             if env_value:
                 return ResolvedAuth(
-                    provider=provider or storage_provider,
+                    provider=provider,
                     auth_kind="api_key",
                     value=env_value,
                     source=f"env:{env_var}",
@@ -930,10 +671,11 @@ class Settings(BaseModel):
         # 从文件存储加载
         from illusion.auth.storage import load_credential
 
+        storage_provider = auth_source_provider_name(auth_source)
         stored = load_credential(storage_provider, "api_key")
         if stored:
             return ResolvedAuth(
-                provider=provider or storage_provider,
+                provider=provider,
                 auth_kind="api_key",
                 value=stored,
                 source=f"file:{storage_provider}",
@@ -947,71 +689,60 @@ class Settings(BaseModel):
 
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """返回应用了 CLI 覆盖的新 Settings（仅非 None 值）
-        
+
         Args:
             **overrides: 要覆盖的字段
-        
+
         Returns:
             Settings: 应用覆盖后的新实例
         """
-        updates = {k: v for k, v in overrides.items() if v is not None}  # 过滤掉 None 值
-        merged = self.model_copy(update=updates)  # 应用更新
+        updates = {k: v for k, v in overrides.items() if v is not None}
         if not updates:
-            return merged
-        # 检查是否有配置文件相关的键
-        profile_keys = {"model", "base_url", "api_format", "provider", "api_key", "active_profile", "profiles"}
-        if profile_keys.isdisjoint(updates):
-            return merged
-        return merged.sync_active_profile_from_flat_fields().materialize_active_profile()
+            return self
+        return self.model_copy(update=updates)
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    """在加载的设置上应用支持的环境变量覆盖
-    
+    """在加载的设置上应用环境变量覆盖到活跃的 EnvConfig
+
+    直接修改活跃 env 的 api_key、model、base_url 等字段，
+    而不是设置 Settings 的属性（属性会 shadow extras）。
+
     Args:
         settings: 原始设置
-    
+
     Returns:
         Settings: 应用环境变量覆盖后的设置
     """
-    updates: dict[str, Any] = {}  # 更新字典
-    
-    # 模型覆盖：ANTHROPIC_MODEL 或 illusion_MODEL
-    model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("illusion_MODEL")
+    env = settings._active_env
+    env_modified = False
+
+    model = os.environ.get("ANTHROPIC_MODEL")
     if model:
-        updates["model"] = model
+        env.model = model
+        env_modified = True
 
-    # base URL 覆盖
-    base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("illusion_BASE_URL")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        env.api_key = api_key
+        env_modified = True
+
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
     if base_url:
-        updates["base_url"] = base_url
+        env.base_url = base_url
+        env_modified = True
 
-    # max_tokens 覆盖
+    # 非模型相关的全局字段覆盖仍使用 model_copy
+    updates: dict[str, Any] = {}
+
     max_tokens = os.environ.get("illusion_MAX_TOKENS")
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
 
-    # max_turns 覆盖
     max_turns = os.environ.get("illusion_MAX_TURNS")
     if max_turns:
         updates["max_turns"] = int(max_turns)
 
-    # API 密钥覆盖
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        updates["api_key"] = api_key
-
-    # API 格式覆盖
-    api_format = os.environ.get("illusion_API_FORMAT")
-    if api_format:
-        updates["api_format"] = api_format
-
-    # 提供商覆盖
-    provider = os.environ.get("illusion_PROVIDER")
-    if provider:
-        updates["provider"] = provider
-
-    # 沙箱设置覆盖
     sandbox_enabled = os.environ.get("illusion_SANDBOX_ENABLED")
     sandbox_fail = os.environ.get("illusion_SANDBOX_FAIL_IF_UNAVAILABLE")
     sandbox_updates: dict[str, Any] = {}
@@ -1022,6 +753,11 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if sandbox_updates:
         updates["sandbox"] = settings.sandbox.model_copy(update=sandbox_updates)
 
+    # 将修改后的 env 写回 settings 的 extras
+    if env_modified:
+        env_key = settings._active_env_key
+        updates[env_key] = env
+
     if not updates:
         return settings
     return settings.model_copy(update=updates)
@@ -1029,10 +765,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
 
 def _parse_bool_env(value: str) -> bool:
     """解析布尔环境变量
-    
+
     Args:
         value: 环境变量值字符串
-    
+
     Returns:
         bool: 解析后的布尔值
     """
@@ -1040,15 +776,13 @@ def _parse_bool_env(value: str) -> bool:
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
-    """从配置文件加载设置，与默认值合并
-    
-    如果配置文件不存在或缺少必要字段，会使用默认值并创建配置文件。
-    
+    """从配置文件加载设置
+
     Args:
         config_path: settings.json 的路径。如果为 None，使用默认位置。
-    
+
     Returns:
-        Settings: 文件值与默认值合并后的 Settings 实例
+        Settings: 应用环境变量覆盖后的 Settings 实例
     """
     if config_path is None:
         from illusion.config.paths import get_config_file_path
@@ -1058,30 +792,14 @@ def load_settings(config_path: Path | None = None) -> Settings:
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         settings = Settings.model_validate(raw)
-        # 如果缺少配置文件相关字段，从扁平设置创建
-        if "profiles" not in raw or "active_profile" not in raw:
-            profile_name, profile = _profile_from_flat_settings(settings)
-            merged_profiles = settings.merged_profiles()
-            merged_profiles[profile_name] = profile
-            settings = settings.model_copy(
-                update={
-                    "active_profile": profile_name,
-                    "profiles": merged_profiles,
-                }
-            )
-        # 应用环境变量覆盖并激活配置文件
-        return _apply_env_overrides(settings.materialize_active_profile())
+        return _apply_env_overrides(settings)
 
-    # 返回默认值并应用环境变量覆盖
-    return _apply_env_overrides(Settings().materialize_active_profile())
+    return _apply_env_overrides(Settings())
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:
     """将设置持久化到配置文件
-    
-    在保存前会同步配置文件字段并激活配置文件。
-    保存时会剥离与内置默认完全相同的profiles，避免冗余配置。
-    
+
     Args:
         settings: 要保存的 Settings 实例
         config_path: 写入路径。如果为 None，使用默认位置
@@ -1091,22 +809,7 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
 
         config_path = get_config_file_path()
 
-    # 同步并激活配置文件
-    settings = settings.sync_active_profile_from_flat_fields().materialize_active_profile()
-    
-    # 剥离与内置默认完全相同的profiles，只保留用户实际配置过的
-    builtin_defaults = default_provider_profiles()
-    user_profiles: dict[str, ProviderProfile] = {}
-    for name, profile in settings.profiles.items():
-        builtin = builtin_defaults.get(name)
-        # 如果该profile不是内置默认，或者用户修改过它，则保留
-        if builtin is None or profile != builtin:
-            user_profiles[name] = profile
-    
-    settings = settings.model_copy(update={"profiles": user_profiles})
-    
-    config_path.parent.mkdir(parents=True, exist_ok=True)  # 确保目录存在
-    # 写入 JSON 格式的配置
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         settings.model_dump_json(indent=2) + "\n",
         encoding="utf-8",
