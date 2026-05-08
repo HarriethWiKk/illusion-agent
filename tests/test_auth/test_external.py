@@ -4,9 +4,6 @@ import base64
 import json
 from pathlib import Path
 
-import pytest
-from typer.testing import CliRunner
-
 from illusion.auth.external import (
     CLAUDE_PROVIDER,
     CODEX_PROVIDER,
@@ -18,7 +15,6 @@ from illusion.auth.external import (
     refresh_claude_oauth_credential,
 )
 from illusion.auth.storage import ExternalAuthBinding, load_external_binding, store_external_binding
-from illusion.cli import app
 from illusion.config.settings import Settings, load_settings, save_settings
 
 
@@ -92,83 +88,23 @@ def test_load_claude_external_credential(monkeypatch, tmp_path: Path):
     assert credential.expires_at_ms == 4_102_444_800_000
 
 
-def test_settings_resolve_auth_uses_external_binding(monkeypatch, tmp_path: Path):
+def test_settings_resolve_auth_uses_env_config(monkeypatch, tmp_path: Path):
+    """resolve_auth() should use api_key from the active env config."""
     config_dir = tmp_path / "config"
     monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
-    source = tmp_path / "claude-credentials.json"
-    source.write_text(
-        json.dumps(
-            {
-                "claudeAiOauth": {
-                    "accessToken": "bound-claude-token",
-                    "refreshToken": "bound-claude-refresh",
-                    "expiresAt": 4_102_444_800_000,
-                }
-            }
-        ),
-        encoding="utf-8",
+
+    settings = Settings(
+        model="env_1:model_1",
+        env_1={"api_format": "anthropic", "api_key": "env-config-key"},
     )
-    store_external_binding(
-        ExternalAuthBinding(
-            provider=CLAUDE_PROVIDER,
-            source_path=str(source),
-            source_kind="claude_credentials_json",
-            managed_by="claude-cli",
-            profile_label="Claude CLI",
-        )
-    )
+    resolved = settings.resolve_auth()
 
-    resolved = Settings(active_profile="claude-subscription").resolve_auth()
-
-    assert resolved.auth_kind == "auth_token"
-    assert resolved.value == "bound-claude-token"
-    assert str(source) in resolved.source
-
-
-def test_settings_resolve_auth_refreshes_expired_external_binding(monkeypatch, tmp_path: Path):
-    config_dir = tmp_path / "config"
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
-    source = tmp_path / "claude-credentials.json"
-    source.write_text(
-        json.dumps(
-            {
-                "claudeAiOauth": {
-                    "accessToken": "expired-token",
-                    "refreshToken": "refresh-token",
-                    "expiresAt": 1,
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        "illusion.auth.external.refresh_claude_oauth_credential",
-        lambda refresh_token: {
-            "access_token": "fresh-token",
-            "refresh_token": refresh_token,
-            "expires_at_ms": 4_102_444_800_000,
-        },
-    )
-    store_external_binding(
-        ExternalAuthBinding(
-            provider=CLAUDE_PROVIDER,
-            source_path=str(source),
-            source_kind="claude_credentials_json",
-            managed_by="claude-cli",
-            profile_label="Claude CLI",
-        )
-    )
-
-    resolved = Settings(active_profile="claude-subscription").resolve_auth()
-
-    assert resolved.value == "fresh-token"
-    persisted = json.loads(source.read_text(encoding="utf-8"))
-    assert persisted["claudeAiOauth"]["accessToken"] == "fresh-token"
-    assert persisted["claudeAiOauth"]["refreshToken"] == "refresh-token"
+    assert resolved.auth_kind == "api_key"
+    assert resolved.value == "env-config-key"
 
 
 def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Path):
-    """Binding a Codex external credential should not switch the active profile."""
+    """Binding a Codex external credential should not change the active model/env config."""
     config_dir = tmp_path / "config"
     codex_home = tmp_path / "codex-home"
     config_dir.mkdir()
@@ -188,15 +124,19 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
     )
     monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
     (config_dir / "settings.json").write_text(
         json.dumps(
             {
-                "api_format": "openai",
-                "provider": "openai",
-                "model": "kimi-k2.5",
-                "base_url": "https://api.moonshot.cn/anthropic",
-                "api_key": "stale-key",
+                "model": "env_1:model_1",
+                "env_1": {
+                    "api_format": "openai",
+                    "api_key": "stale-key",
+                    "base_url": "https://api.moonshot.cn/anthropic",
+                },
             }
         ),
         encoding="utf-8",
@@ -215,7 +155,7 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
     )
 
     settings = load_settings()
-    assert settings.active_profile != "codex"
+    assert settings.model == "env_1:model_1"
     assert settings.provider == "openai"
     assert settings.base_url == "https://api.moonshot.cn/anthropic"
     assert settings.api_key == "stale-key"
@@ -225,7 +165,7 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
 
 
 def test_external_binding_for_claude_without_switching(monkeypatch, tmp_path: Path):
-    """Binding a Claude external credential should not switch the active profile."""
+    """Binding a Claude external credential should not change the active model/env config."""
     config_dir = tmp_path / "config"
     claude_home = tmp_path / "claude-home"
     claude_home.mkdir()
@@ -243,6 +183,9 @@ def test_external_binding_for_claude_without_switching(monkeypatch, tmp_path: Pa
     )
     monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
     binding = default_binding_for_provider(CLAUDE_PROVIDER)
     credential = load_external_credential(binding)
@@ -259,120 +202,37 @@ def test_external_binding_for_claude_without_switching(monkeypatch, tmp_path: Pa
     settings = load_settings()
     assert settings.provider == "anthropic"
     assert settings.api_format == "anthropic"
-    assert settings.active_profile == "claude-api"
+    assert settings.model == "env_1:model_1"
     binding = load_external_binding(CLAUDE_PROVIDER)
     assert binding is not None
     assert Path(binding.source_path) == claude_home / ".credentials.json"
 
 
-def test_claude_credential_refresh_updates_file(monkeypatch, tmp_path: Path):
-    """Refreshing an expired Claude credential should update the credentials file."""
-    config_dir = tmp_path / "config"
-    claude_home = tmp_path / "claude-home"
-    claude_home.mkdir()
-    source = claude_home / ".credentials.json"
-    source.write_text(
-        json.dumps(
-            {
-                "claudeAiOauth": {
-                    "accessToken": "expired-token",
-                    "refreshToken": "claude-refresh-token",
-                    "expiresAt": 1,
-                    "scopes": ["user:inference"],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
-    monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
-    monkeypatch.setattr(
-        "illusion.auth.external.refresh_claude_oauth_credential",
-        lambda refresh_token: {
-            "access_token": "fresh-token",
-            "refresh_token": refresh_token,
-            "expires_at_ms": 4_102_444_800_000,
-        },
-    )
-
-    store_external_binding(
-        ExternalAuthBinding(
-            provider=CLAUDE_PROVIDER,
-            source_path=str(source),
-            source_kind="claude_credentials_json",
-            managed_by="claude-cli",
-            profile_label="Claude CLI",
-        )
-    )
-
-    resolved = Settings(active_profile="claude-subscription").resolve_auth()
-    assert resolved.value == "fresh-token"
-    persisted = json.loads(source.read_text(encoding="utf-8"))
-    assert persisted["claudeAiOauth"]["accessToken"] == "fresh-token"
-    assert persisted["claudeAiOauth"]["scopes"] == ["user:inference"]
-
-
-def test_codex_profile_activation_via_config(monkeypatch, tmp_path: Path):
-    """Activating the codex profile via /config should set the correct provider settings."""
+def test_codex_env_activation_via_config(monkeypatch, tmp_path: Path):
+    """Activating a Codex env via config should preserve env_N format settings."""
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
     save_settings(
-        Settings().model_copy(
-            update={
-                "active_profile": "codex",
-                "profiles": {
-                    "codex": {
-                        "label": "Codex Subscription",
-                        "provider": CODEX_PROVIDER,
-                        "api_format": "openai",
-                        "auth_source": "codex_subscription",
-                        "default_model": "gpt-5.4",
-                    }
-                },
-            }
+        Settings(
+            model="env_1:model_1",
+            env_1={
+                "api_format": "openai",
+                "api_key": "codex-key",
+                "model_1": "gpt-5.4",
+            },
         )
     )
 
     settings = load_settings()
-    assert settings.active_profile == "codex"
-
-
-def test_settings_resolve_auth_rejects_third_party_base_url_for_claude_subscription(
-    monkeypatch,
-    tmp_path: Path,
-):
-    config_dir = tmp_path / "config"
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
-    source = tmp_path / "claude-credentials.json"
-    source.write_text(
-        json.dumps(
-            {
-                "claudeAiOauth": {
-                    "accessToken": "valid-token",
-                    "refreshToken": "refresh-token",
-                    "expiresAt": 4_102_444_800_000,
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    store_external_binding(
-        ExternalAuthBinding(
-            provider=CLAUDE_PROVIDER,
-            source_path=str(source),
-            source_kind="claude_credentials_json",
-            managed_by="claude-cli",
-            profile_label="Claude CLI",
-        )
-    )
-    settings = Settings(active_profile="claude-subscription").model_copy(
-        update={"base_url": "https://api.moonshot.cn/anthropic"}
-    ).sync_active_profile_from_flat_fields()
-
-    with pytest.raises(ValueError, match="third-party"):
-        settings.resolve_auth()
+    assert settings.model == "env_1:model_1"
+    assert settings.api_format == "openai"
+    assert settings.api_key == "codex-key"
+    assert settings.active_model_name == "gpt-5.4"
 
 
 def test_describe_external_binding_reports_refreshable_claude_token(tmp_path: Path):
