@@ -285,15 +285,15 @@ class AutoCompactState:
 # ---------------------------------------------------------------------------
 
 def get_context_window(model: str) -> int:
-    """返回模型的上下文窗口大小（保守默认值）。"""
-    m = model.lower()
-    if "opus" in m:
-        return 200_000
-    if "sonnet" in m:
-        return 200_000
-    if "haiku" in m:
-        return 200_000
-    # Kimi / other providers — 保守估计
+    """返回模型的上下文窗口大小。
+
+    优先从 settings.context_window 读取；若未配置或为 0，则返回默认值。
+    """
+    from illusion.config.settings import load_settings
+
+    settings = load_settings()
+    if settings.context_window and settings.context_window > 0:
+        return settings.context_window
     return _DEFAULT_CONTEXT_WINDOW
 
 

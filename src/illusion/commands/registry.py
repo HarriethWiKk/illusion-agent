@@ -124,7 +124,7 @@ _COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
     "status": "显示会话状态",
-    "context": "显示当前运行时系统提示词",
+    "context": "显示或更新上下文窗口大小",
     "summary": "总结对话历史",
     "compact": "压缩较早对话历史",
     "cost": "显示 token 用量和预估费用",
@@ -263,6 +263,10 @@ def _translate_command_message(message: str, *, locale: str) -> str:
         "No issue context to clear.": "没有可清除的 issue 上下文。",
         "Cleared PR comments context.": "已清除 PR 评论上下文。",
         "No PR comments context to clear.": "没有可清除的 PR 评论上下文。",
+        # 上下文窗口
+        "Error: context window must be positive": "错误：上下文窗口必须为正数",
+        "Error: invalid number": "错误：无效的数字",
+        "Usage: /context [show|set N]": "用法：/context [show|set N]",
         # 用法提示
         "Usage: /summary [MAX_MESSAGES]": "用法：/summary [最大消息数]",
         "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
@@ -307,6 +311,9 @@ def _translate_command_message(message: str, *, locale: str) -> str:
     substitutions: list[tuple[re.Pattern[str], str]] = [
         # 版本
         (re.compile(r"^IllusionCode (.+)$"), r"IllusionCode 版本 \1"),
+        # 上下文窗口
+        (re.compile(r"^Context window: (\d[\d,]*) tokens$"), r"上下文窗口：\1 tokens"),
+        (re.compile(r"^Context window set to (\d[\d,]*) tokens$"), r"上下文窗口已设置为 \1 tokens"),
         # 模型
         (re.compile(r"^Model: (.+)$"), r"模型：\1"),
         (re.compile(r"^Model set to (.+)\. Restart session to use it\.$"), r"模型已设置为 \1。重启会话后生效。"),
@@ -745,10 +752,23 @@ def create_default_command_registry() -> CommandRegistry:
             version = "0.1.0"
         return CommandResult(message=f"IllusionCode {version}")
 
-    async def _context_handler(_: str, context: CommandContext) -> CommandResult:
+    async def _context_handler(args: str, context: CommandContext) -> CommandResult:
+        del context
         settings = load_settings()
-        prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
-        return CommandResult(message=prompt)
+        tokens = args.split(maxsplit=1)
+        if not tokens or tokens[0] == "show":
+            return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
+        if tokens[0] == "set" and len(tokens) == 2:
+            try:
+                value = int(tokens[1])
+                if value <= 0:
+                    return CommandResult(message="Error: context window must be positive")
+                settings.context_window = value
+                save_settings(settings)
+                return CommandResult(message=f"Context window set to {value:,} tokens")
+            except ValueError:
+                return CommandResult(message="Error: invalid number")
+        return CommandResult(message="Usage: /context [show|set N]")
 
     async def _summary_handler(args: str, context: CommandContext) -> CommandResult:
         max_messages = 8
@@ -1760,7 +1780,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("new", "Start a new conversation session", _new_handler))
     registry.register(SlashCommand("version", "Show the installed IllusionCode version", _version_handler))
     registry.register(SlashCommand("status", "Show session status", _status_handler))
-    registry.register(SlashCommand("context", "Show the active runtime system prompt", _context_handler))
+    registry.register(SlashCommand("context", "Show or update context window size", _context_handler))
     registry.register(SlashCommand("summary", "Summarize conversation history", _summary_handler))
     registry.register(SlashCommand("compact", "Compact older conversation history", _compact_handler))
     registry.register(SlashCommand("cost", "Show token usage and estimated cost", _cost_handler))

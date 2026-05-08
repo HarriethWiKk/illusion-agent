@@ -583,6 +583,9 @@ class Settings(BaseModel):
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)  # 启用的插件
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)  # MCP 服务器配置
 
+    # 上下文配置
+    context_window: int = 200_000  # 上下文窗口大小
+
     # UI 配置
     ui_language: str = "zh-CN"  # UI 语言
     output_style: str = "default"  # 输出样式
