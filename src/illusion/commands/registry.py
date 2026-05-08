@@ -124,7 +124,7 @@ _COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
     "status": "显示会话状态",
-    "context": "显示或更新上下文窗口大小",
+    "context": "显示系统提示词或管理上下文窗口",
     "summary": "总结对话历史",
     "compact": "压缩较早对话历史",
     "cost": "显示 token 用量和预估费用",
@@ -266,7 +266,7 @@ def _translate_command_message(message: str, *, locale: str) -> str:
         # 上下文窗口
         "Error: context window must be positive": "错误：上下文窗口必须为正数",
         "Error: invalid number": "错误：无效的数字",
-        "Usage: /context [show|set N]": "用法：/context [show|set N]",
+        "Usage: /context [prompt|window|set N]": "用法：/context [prompt|window|set N]",
         # 用法提示
         "Usage: /summary [MAX_MESSAGES]": "用法：/summary [最大消息数]",
         "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
@@ -753,12 +753,16 @@ def create_default_command_registry() -> CommandRegistry:
         return CommandResult(message=f"IllusionCode {version}")
 
     async def _context_handler(args: str, context: CommandContext) -> CommandResult:
-        del context
         settings = load_settings()
         tokens = args.split(maxsplit=1)
-        if not tokens or tokens[0] == "show":
+        subcommand = tokens[0] if tokens else "prompt"
+
+        if subcommand == "prompt":
+            prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
+            return CommandResult(message=prompt)
+        if subcommand == "window" or subcommand == "show":
             return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
-        if tokens[0] == "set" and len(tokens) == 2:
+        if subcommand == "set" and len(tokens) == 2:
             try:
                 value = int(tokens[1])
                 if value <= 0:
@@ -768,7 +772,7 @@ def create_default_command_registry() -> CommandRegistry:
                 return CommandResult(message=f"Context window set to {value:,} tokens")
             except ValueError:
                 return CommandResult(message="Error: invalid number")
-        return CommandResult(message="Usage: /context [show|set N]")
+        return CommandResult(message="Usage: /context [prompt|window|set N]")
 
     async def _summary_handler(args: str, context: CommandContext) -> CommandResult:
         max_messages = 8
@@ -1780,7 +1784,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("new", "Start a new conversation session", _new_handler))
     registry.register(SlashCommand("version", "Show the installed IllusionCode version", _version_handler))
     registry.register(SlashCommand("status", "Show session status", _status_handler))
-    registry.register(SlashCommand("context", "Show or update context window size", _context_handler))
+    registry.register(SlashCommand("context", "Show active system prompt or manage context window", _context_handler))
     registry.register(SlashCommand("summary", "Summarize conversation history", _summary_handler))
     registry.register(SlashCommand("compact", "Compact older conversation history", _compact_handler))
     registry.register(SlashCommand("cost", "Show token usage and estimated cost", _cost_handler))
