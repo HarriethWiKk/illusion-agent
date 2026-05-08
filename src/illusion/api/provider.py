@@ -29,8 +29,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from illusion.auth.external import describe_external_binding
-from illusion.auth.storage import load_external_binding
 from illusion.api.registry import detect_provider_from_registry
 from illusion.config.settings import Settings
 
@@ -76,29 +74,13 @@ class ProviderInfo:
 
 def detect_provider(settings: Settings) -> ProviderInfo:
     """使用注册表推断活动提供商和大致能力集
-    
+
     Args:
         settings: 应用设置对象
-    
+
     Returns:
         ProviderInfo: 提供商元数据
     """
-    # Codex 订阅
-    if settings.provider == "openai_codex":
-        return ProviderInfo(
-            name="openai-codex",
-            auth_kind="external_oauth",
-            voice_supported=False,
-            voice_reason=_VOICE_REASON["openai_codex"],
-        )
-    # Claude 订阅
-    if settings.provider == "anthropic_claude":
-        return ProviderInfo(
-            name="claude-subscription",
-            auth_kind="external_oauth",
-            voice_supported=False,
-            voice_reason=_VOICE_REASON["anthropic_claude"],
-        )
     # Copilot
     if settings.api_format == "copilot":
         return ProviderInfo(
@@ -110,7 +92,7 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
     # 从注册表检测
     spec = detect_provider_from_registry(
-        model=settings.model,
+        model=settings.active_model_name,
         api_key=settings.api_key or None,
         base_url=settings.base_url,
     )
@@ -142,10 +124,10 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
 def auth_status(settings: Settings) -> str:
     """返回简洁的认证状态字符串
-    
+
     Args:
         settings: 应用设置对象
-    
+
     Returns:
         str: 认证状态描述
     """
@@ -159,27 +141,13 @@ def auth_status(settings: Settings) -> str:
         if auth_info.enterprise_url:
             return f"configured (enterprise: {auth_info.enterprise_url})"
         return "configured"
-    
+
     # 尝试解析认证
     try:
         resolved = settings.resolve_auth()
-    except ValueError as exc:
-        # Codex 订阅
-        if settings.provider == "openai_codex":
-            return "missing (run 'oh auth codex-login')"
-        # Claude 订阅
-        if settings.provider == "anthropic_claude":
-            binding = load_external_binding("anthropic_claude")
-            if binding is not None:
-                external_state = describe_external_binding(binding)
-                if external_state.state != "missing":
-                    return external_state.state
-            message = str(exc)
-            if "third-party" in message:
-                return "invalid base_url"
-            return "missing (run 'oh auth claude-login')"
+    except ValueError:
         return "missing"
-    
+
     # 解析认证源
     if resolved.source.startswith("external:"):
         return f"configured ({resolved.source.removeprefix('external:')})"

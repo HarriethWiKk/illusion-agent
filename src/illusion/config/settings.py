@@ -143,45 +143,6 @@ class SandboxSettings(BaseModel):
     filesystem: SandboxFilesystemSettings = Field(default_factory=SandboxFilesystemSettings)  # 文件系统配置
 
 
-class ProviderProfile(BaseModel):
-    """命名提供商工作流配置
-    
-    定义一个完整的提供商配置，包括 API 格式、认证方式、默认模型等。
-    
-    Attributes:
-        label: 显示标签
-        provider: 提供商名称
-        api_format: API 格式（anthropic、openai、copilot）
-        auth_source: 认证来源
-        default_model: 默认模型
-        base_url: 可选的 base URL
-        last_model: 上次使用的模型
-    """
-
-    label: str  # 显示名称
-    provider: str  # 提供商标识符
-    api_format: str  # API 格式
-    auth_source: str  # 认证来源
-    default_model: str  # 默认模型
-    base_url: str | None = None  # 可选的 base URL
-    last_model: str | None = None  # 上次使用的模型
-
-    @property
-    def resolved_model(self) -> str:
-        """返回此配置文件的活跃模型
-        
-        根据 last_model 和 default_model 解析出实际使用的模型名称。
-        
-        Returns:
-            str: 解析后的模型名称
-        """
-        return resolve_model_setting(
-            (self.last_model or "").strip() or self.default_model,
-            self.provider,
-            default_model=self.default_model,
-        )
-
-
 @dataclass(frozen=True)
 class ResolvedAuth:
     """规范化的认证材料
@@ -202,18 +163,6 @@ class ResolvedAuth:
     source: str  # 来源描述
     state: str = "configured"  # 配置状态
 
-
-# Claude 模型别名选项元组，包含（值、显示名、描述）的三元组
-CLAUDE_MODEL_ALIAS_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("default", "Default", "Recommended model for this profile"),  # 默认选项
-    ("best", "Best", "Most capable available model"),  # 最佳模型
-    ("sonnet", "Sonnet", "Latest Sonnet for everyday coding"),  # 最新 Sonnet
-    ("opus", "Opus", "Latest Opus for complex reasoning"),  # 最新 Opus
-    ("haiku", "Haiku", "Fastest Claude model"),  # 最快的 Haiku
-    ("sonnet[1m]", "Sonnet (1M context)", "Latest Sonnet with 1M context"),  # 1M 上下文 Sonnet
-    ("opus[1m]", "Opus (1M context)", "Latest Opus with 1M context"),  # 1M 上下文 Opus
-    ("opusplan", "Opus Plan Mode", "Use Opus in plan mode and Sonnet otherwise"),  # 计划模式
-)
 
 # Claude 别名到实际模型名称的映射字典
 _CLAUDE_ALIAS_TARGETS: dict[str, str] = {
@@ -250,60 +199,6 @@ def normalize_anthropic_model_name(model: str) -> str:
     return normalized
 
 
-def default_provider_profiles() -> dict[str, ProviderProfile]:
-    """返回内置的提供商工作流目录
-    
-    Returns:
-        dict[str, ProviderProfile]: 提供商名称到配置文件的映射
-    """
-    return {
-        "claude-api": ProviderProfile(
-            label="Claude API",  # Claude API 配置
-            provider="anthropic",
-            api_format="anthropic",
-            auth_source="anthropic_api_key",
-            default_model="claude-sonnet-4-6",
-        ),
-        "claude-subscription": ProviderProfile(
-            label="Claude Subscription",  # Claude 订阅配置
-            provider="anthropic_claude",
-            api_format="anthropic",
-            auth_source="claude_subscription",
-            default_model="claude-sonnet-4-6",
-        ),
-        "openai-compatible": ProviderProfile(
-            label="OpenAI Compatible",  # OpenAI 兼容配置
-            provider="openai",
-            api_format="openai",
-            auth_source="openai_api_key",
-            default_model="gpt-5.4",
-        ),
-        "codex": ProviderProfile(
-            label="Codex Subscription",  # Codex 订阅配置
-            provider="openai_codex",
-            api_format="openai",
-            auth_source="codex_subscription",
-            default_model="gpt-5.4",
-        ),
-        "copilot": ProviderProfile(
-            label="GitHub Copilot",  # GitHub Copilot 配置
-            provider="copilot",
-            api_format="copilot",
-            auth_source="copilot_oauth",
-            default_model="gpt-5.4",
-        ),
-    }
-
-
-def builtin_provider_profile_names() -> set[str]:
-    """返回内置提供商配置文件的名称集合
-    
-    Returns:
-        set[str]: 内置配置文件名称集合
-    """
-    return set(default_provider_profiles())
-
-
 def is_claude_family_provider(provider: str) -> bool:
     """返回该提供商是否为 Claude/Anthropic 工作流
     
@@ -314,22 +209,6 @@ def is_claude_family_provider(provider: str) -> bool:
         bool: 是否为 Claude 家族提供商
     """
     return provider in {"anthropic", "anthropic_claude"}
-
-
-def display_model_setting(profile: ProviderProfile) -> str:
-    """返回配置文件的用户面向模型设置
-    
-    Args:
-        profile: 提供商配置文件
-    
-    Returns:
-        str: 显示用的模型设置字符串
-    """
-    configured = (profile.last_model or "").strip()  # 获取已配置的模型
-    # 如果未配置且是 Claude 家族，返回 "default"
-    if not configured and is_claude_family_provider(profile.provider):
-        return "default"
-    return configured or profile.default_model
 
 
 def resolve_model_setting(

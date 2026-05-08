@@ -6,7 +6,7 @@
 
 主要组件：
     - Settings: 应用设置
-    - ProviderProfile: 提供商配置
+    - EnvConfig: 环境配置
     - load_settings/save_settings: 设置加载/保存
     - get_config_dir/get_data_dir/get_logs_dir: 目录路径获取
 
@@ -23,21 +23,13 @@ from illusion.config.paths import (
     get_logs_dir,
 )
 from illusion.config.settings import (
-    ProviderProfile,
     Settings,
-    auth_source_provider_name,
-    default_auth_source_for_provider,
-    default_provider_profiles,
     load_settings,
     save_settings,
 )
 
 __all__ = [
-    "ProviderProfile",
     "Settings",
-    "auth_source_provider_name",
-    "default_auth_source_for_provider",
-    "default_provider_profiles",
     "get_config_dir",
     "get_config_file_path",
     "get_data_dir",

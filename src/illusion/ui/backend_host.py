@@ -35,7 +35,7 @@ from uuid import uuid4
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.auth.manager import AuthManager
-from illusion.config.settings import CLAUDE_MODEL_ALIAS_OPTIONS, display_model_setting
+from illusion.config.settings import resolve_model_setting
 from illusion.bridge import get_bridge_manager
 from illusion.engine.stream_events import (
     AssistantTextDelta,
@@ -582,24 +582,23 @@ class ReactBackendHost:
         state = self._bundle.app_state.get()
         locale = str(state.ui_language or settings.ui_language)
         zh = locale.lower().startswith("zh")
-        _, active_profile = settings.resolve_profile()
-        current_model = display_model_setting(active_profile)
+        current_model = settings.active_model_name
 
         if command == "provider":
-            statuses = AuthManager(settings).get_profile_statuses()
+            statuses = AuthManager(settings).get_env_statuses()
             options = [
                 {
-                    "value": name,
-                    "label": info["label"],
-                    "description": f"{info['provider']} / {info['auth_source']}" + (" [missing auth]" if not info["configured"] else ""),
+                    "value": env_key,
+                    "label": f"{env_key} ({info['api_format']})",
+                    "description": f"{info['api_format']} / {info['model']}" + (" [active]" if info["active"] else ""),
                     "active": info["active"],
                 }
-                for name, info in statuses.items()
+                for env_key, info in statuses.items()
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "提供商配置" if zh else "Provider Profile", "command": "provider"},
+                    modal={"kind": "select", "title": "环境配置" if zh else "Env Config", "command": "provider"},
                     select_options=options,
                 )
             )
@@ -749,7 +748,7 @@ class ReactBackendHost:
             return
 
         if command == "model":
-            options = self._model_select_options(current_model, active_profile.provider)
+            options = self._model_select_options(current_model, settings.provider)
             await self._emit(
                 BackendEvent(
                     type="select_request",
@@ -845,14 +844,11 @@ class ReactBackendHost:
         await self._emit(BackendEvent(type="error", message=(f"/{command} 暂无可选项" if zh else f"No selector available for /{command}")))
 
     def _model_select_options(self, current_model: str, provider: str) -> list[dict[str, object]]:
-        """从 settings.json 的 profiles 中提取所有实际可用的模型。"""
+        """从 settings.json 的 env_N 配置中提取所有实际可用的模型。"""
         assert self._bundle is not None
         settings = self._bundle.current_settings()
-        profiles = settings.merged_profiles()
-        is_claude = provider.lower() in {"anthropic", "anthropic_claude"}
+        envs = settings.list_envs()
 
-        # 1. 从所有 profile 收集已配置的模型
-        #    每个 profile 的 last_model 和 default_model 都是用户实际可用的
         seen: set[str] = set()
         options: list[dict[str, object]] = []
 
@@ -866,33 +862,20 @@ class ReactBackendHost:
                 "active": True,
             })
 
-        # 遍历所有 profile，提取 last_model 和 default_model
-        for name, profile in profiles.items():
-            label = profile.label or name
-            for model in [profile.last_model, profile.default_model]:
-                m = (model or "").strip()
-                if not m or m in seen:
+        # 遍历所有 env，提取 model_N
+        for env_key, env in envs.items():
+            for model_key, model_name in env.list_models().items():
+                ref = f"{env_key}:{model_key}"
+                if ref in seen:
                     continue
-                seen.add(m)
-                is_current = m == current_model
+                seen.add(ref)
+                is_current = ref == settings.model
                 options.append({
-                    "value": m,
-                    "label": m,
-                    "description": f"Profile: {label}",
+                    "value": ref,
+                    "label": model_name,
+                    "description": f"{env_key} ({env.api_format})",
                     "active": is_current,
                 })
-
-        # 2. 对 Claude 提供商，追加 Claude 别名选项（default/sonnet/opus 等）
-        if is_claude:
-            for value, alias_label, description in CLAUDE_MODEL_ALIAS_OPTIONS:
-                if value not in seen:
-                    seen.add(value)
-                    options.append({
-                        "value": value,
-                        "label": f"{alias_label} ({value})",
-                        "description": description,
-                        "active": value == current_model,
-                    })
 
         return options
 

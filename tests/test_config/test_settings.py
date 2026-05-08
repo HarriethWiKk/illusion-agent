@@ -8,9 +8,7 @@ from pathlib import Path
 import pytest
 
 from illusion.config.settings import (
-    ProviderProfile,
     Settings,
-    display_model_setting,
     load_settings,
     normalize_anthropic_model_name,
     save_settings,
@@ -239,16 +237,3 @@ class TestLoadSaveSettings:
 def test_normalize_anthropic_model_name_matches_hermes_behavior():
     assert normalize_anthropic_model_name("anthropic/claude-sonnet-4-20250514") == "claude-sonnet-4-20250514"
     assert normalize_anthropic_model_name("claude-opus-4.6") == "claude-opus-4-6"
-
-
-def test_display_model_setting_uses_default_alias():
-    profile = ProviderProfile(
-        label="Claude API",
-        provider="anthropic",
-        api_format="anthropic",
-        auth_source="anthropic_api_key",
-        default_model="claude-sonnet-4-6",
-        last_model=None,
-    )
-
-    assert display_model_setting(profile) == "default"

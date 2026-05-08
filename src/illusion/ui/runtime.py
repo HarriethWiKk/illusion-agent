@@ -211,7 +211,7 @@ async def build_runtime(
         resolved_api_client = api_client
     elif settings.api_format == "copilot":
         from illusion.api.copilot_client import COPILOT_DEFAULT_MODEL
-        copilot_model = settings.model if settings.model != "claude-sonnet-4-20250514" else COPILOT_DEFAULT_MODEL
+        copilot_model = settings.active_model_name if settings.active_model_name != "claude-sonnet-4-20250514" else COPILOT_DEFAULT_MODEL
         resolved_api_client = CopilotClient(model=copilot_model)
     elif settings.api_format == "openai":
         resolved_api_client = OpenAICompatibleClient(
@@ -235,7 +235,7 @@ async def build_runtime(
     # 创建应用状态存储
     app_state = AppStateStore(
         AppState(
-            model=settings.model,
+            model=settings.active_model_name,
             permission_mode=settings.permission.mode.value,
             ui_language=settings.ui_language,
             cwd=cwd,
@@ -259,7 +259,7 @@ async def build_runtime(
         HookExecutionContext(
             cwd=Path(cwd).resolve(),
             api_client=resolved_api_client,
-            default_model=settings.model,
+            default_model=settings.active_model_name,
         ),
     )
     # 创建查询引擎
@@ -268,7 +268,7 @@ async def build_runtime(
         tool_registry=tool_registry,
         permission_checker=PermissionChecker(settings.permission),
         cwd=cwd,
-        model=settings.model,
+        model=settings.active_model_name,
         system_prompt=build_runtime_system_prompt(settings, cwd=cwd, latest_user_prompt=prompt),
         max_tokens=settings.max_tokens,
         max_turns=settings.max_turns,
@@ -430,7 +430,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     bundle.engine.set_max_turns(settings.max_turns)
     provider = detect_provider(settings)
     bundle.app_state.set(
-        model=settings.model,
+        model=settings.active_model_name,
         permission_mode=settings.permission.mode.value,
         ui_language=settings.ui_language,
         cwd=bundle.cwd,
@@ -527,7 +527,7 @@ async def handle_line(
             # 保存会话快照
             save_session_snapshot(
                 cwd=bundle.cwd,
-                model=settings.model,
+                model=settings.active_model_name,
                 system_prompt=system_prompt,
                 messages=bundle.engine.messages,
                 usage=bundle.engine.total_usage,

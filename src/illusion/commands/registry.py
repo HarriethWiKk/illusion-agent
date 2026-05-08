@@ -811,7 +811,7 @@ def create_default_command_registry() -> CommandRegistry:
 
     async def _cost_handler(_: str, context: CommandContext) -> CommandResult:
         usage = context.engine.total_usage
-        model = context.app_state.get().model if context.app_state is not None else load_settings().model
+        model = context.app_state.get().model if context.app_state is not None else load_settings().active_model_name
         estimated_cost = "unavailable"
         if model.startswith("claude-3-5-sonnet"):
             estimated = (usage.input_tokens * 3.0 + usage.output_tokens * 15.0) / 1_000_000
@@ -1497,20 +1497,34 @@ def create_default_command_registry() -> CommandRegistry:
         settings = load_settings()
         tokens = args.split(maxsplit=1)
         if not tokens or tokens[0] == "show":
-            return CommandResult(message=f"Model: {settings.model}")
-        # /model set MODEL or /model MODEL (bare model name)
-        if tokens[0] == "set" and len(tokens) == 2:
-            model_name = tokens[1]
-        elif tokens[0] not in ("set", "show") and len(tokens) == 1:
-            model_name = tokens[0]
-        else:
-            return CommandResult(message="Usage: /model [show|set MODEL]")
-        settings.model = model_name
-        save_settings(settings)
-        context.engine.set_model(model_name)
-        if context.app_state is not None:
-            context.app_state.set(model=model_name)
-        return CommandResult(message=f"Model set to {model_name}.")
+            env = settings._active_env
+            return CommandResult(
+                message=f"Active model: {settings.model}\n"
+                        f"  model: {settings.active_model_name}\n"
+                        f"  api_format: {env.api_format}\n"
+                        f"  base_url: {env.base_url or '(default)'}"
+            )
+        if tokens[0] == "list":
+            lines = []
+            for env_key, env in settings.list_envs().items():
+                for model_key, model_name in env.list_models().items():
+                    ref = f"{env_key}:{model_key}"
+                    active = " (active)" if ref == settings.model else ""
+                    lines.append(f"  {ref}{active}: {model_name} ({env.api_format})")
+            return CommandResult(message="Models:\n" + "\n".join(lines))
+        # 切换模型
+        model_ref = tokens[0] if tokens[0] != "set" else (tokens[1] if len(tokens) > 1 else "")
+        if ":" in model_ref:
+            env_key, model_key = model_ref.split(":", 1)
+            env = settings.get_env(env_key)
+            if env and env.get_model(model_key):
+                settings.model = model_ref
+                save_settings(settings)
+                context.engine.set_model(env.get_model(model_key))
+                if context.app_state is not None:
+                    context.app_state.set(model=env.get_model(model_key))
+                return CommandResult(message=f"Model set to {model_ref}: {env.get_model(model_key)}")
+        return CommandResult(message=f"Unknown model: {model_ref}. Use /model list to see available models.")
 
     async def _language_handler(args: str, context: CommandContext) -> CommandResult:
         settings = load_settings()
