@@ -689,7 +689,18 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
         config_path = get_config_file_path()
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 序列化并重排字段，env_N 置顶
+    data = settings.model_dump()
+    ordered: dict[str, object] = {}
+    for key in sorted(data):
+        if key.startswith("env_"):
+            ordered[key] = data[key]
+    for key, value in data.items():
+        if not key.startswith("env_"):
+            ordered[key] = value
+
     config_path.write_text(
-        settings.model_dump_json(indent=2) + "\n",
+        json.dumps(ordered, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
