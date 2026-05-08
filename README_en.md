@@ -297,59 +297,54 @@ Global configuration file is located at `~/.illusion/settings.json` and applies 
 
 #### Configuration Methods
 
-settings.json supports two configuration methods:
-
-**Method 1: Flat Configuration (Simple Format)**
-
-Directly set API-related fields at the top level, suitable for single-provider scenarios:
+settings.json uses the `env_N` grouped format to manage multiple environment/provider configurations. Each `env_N` is an independent environment configuration (EnvConfig) containing API format, endpoint, API key, and model list. The `model` field references `env_N:model_N` to select the currently active model.
 
 ```json
 {
-  "api_key": "nvapi-xxxxx",
-  "model": "stepfun-ai/step-3.5-flash",
-  "max_tokens": 16384,
-  "base_url": "https://integrate.api.nvidia.com/v1",
-  "api_format": "openai",
-  "max_turns": 200
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "model_2": "gemini-3.1-pro",
+    "model_3": "grok-4-fast"
+  },
+  "model": "env_1:model_1",
+  "context_window": 200000,
+  "system_prompt": null
 }
 ```
 
-**Method 2: Profile Configuration (Advanced Format)**
-
-Manage multiple provider configurations through `profiles`, suitable for scenarios requiring switching between different providers:
-
-```json
-{
-  "active_profile": "nvidia-nim",
-  "profiles": {
-    "nvidia-nim": {
-      "label": "NVIDIA NIM",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "stepfun-ai/step-3.5-flash",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
-}
-```
-
-> **Tip**: Both methods can be mixed. Flat fields will be automatically converted to Profile configuration. Profile configuration is recommended for easier management of multiple providers.
+> **Tip**: The `model` field format is `env_N:model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command.
 
 #### Complete Configuration Structure
 
 ```json
 {
-  "api_key": "",
-  "model": "claude-sonnet-4-6",
-  "max_tokens": 16384,
-  "base_url": null,
-  "api_format": "anthropic",
-  "provider": "",
-  "active_profile": "claude-api",
-  "profiles": {},
-  "max_turns": 200,
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1",
+  "context_window": 200000,
   "system_prompt": null,
+  "max_tokens": 16384,
+  "max_turns": 200,
   "permission": {
     "mode": "default",
     "allowed_tools": [],
@@ -393,16 +388,12 @@ Manage multiple provider configurations through `profiles`, suitable for scenari
 
 | Field | Type | Default | Description | Example |
 |-------|------|---------|-------------|---------|
-| `api_key` | string | "" | API key (recommend using environment variables or credential storage) | `"sk-ant-xxxxx"` |
-| `model` | string | "claude-sonnet-4-6" | Default model | `"claude-opus-4-6"` |
+| `env_N` | object | - | Environment config group (EnvConfig), supports dynamic env_1, env_2... | See EnvConfig field description below |
+| `model` | string | "env_1:model_1" | Active model reference, format: `env_N:model_N` | `"env_2:model_1"` |
+| `context_window` | int | 200000 | Context window size | `128000` |
+| `system_prompt` | string\|null | null | Custom system prompt (global override) | `"You are a professional Python developer"` |
 | `max_tokens` | int | 16384 | Maximum output token count | `32768` |
-| `base_url` | string\|null | null | Custom API endpoint | `"https://api.example.com/v1"` |
-| `api_format` | string | "anthropic" | API format: anthropic/openai/copilot | `"openai"` |
-| `provider` | string | "" | Provider identifier | `"anthropic"` |
-| `active_profile` | string | "claude-api" | Currently active profile name | `"my-custom-profile"` |
-| `profiles` | object | {} | User-defined provider profiles | `{"my-profile": {...}}` |
 | `max_turns` | int | 200 | Maximum conversation turns | `500` |
-| `system_prompt` | string\|null | null | Custom system prompt | `"You are a professional Python developer"` |
 | `ui_language` | string | "en" | UI language | `"zh-CN"` |
 | `fast_mode` | bool | false | Fast mode | `true` |
 | `effort` | string | "medium" | Effort level: low/medium/high | `"high"` |
@@ -410,89 +401,49 @@ Manage multiple provider configurations through `profiles`, suitable for scenari
 
 ---
 
-### Provider Configuration (Provider Profiles)
+### Environment Configuration (EnvConfig)
 
-IllusionCode supports multiple AI providers, configured through `profiles` for different workflows.
+IllusionCode supports managing multiple environment/provider configurations through `env_N` groups. Each environment configuration (EnvConfig) corresponds to an independent API provider setup.
 
-#### Built-in Provider Profiles
-
-| Profile Name | Provider | API Format | Authentication | Default Model |
-|--------------|----------|------------|----------------|---------------|
-| `claude-api` | Anthropic | anthropic | API Key | claude-sonnet-4-6 |
-| `claude-subscription` | Anthropic Claude | anthropic | Claude Subscription | claude-sonnet-4-6 |
-| `openai-compatible` | OpenAI | openai | API Key | gpt-5.4 |
-| `codex` | OpenAI Codex | openai | Codex Subscription | gpt-5.4 |
-| `copilot` | GitHub Copilot | copilot | OAuth | gpt-5.4 |
-
-#### Provider Configuration Format
-
-```json
-{
-  "profiles": {
-    "my-custom-profile": {
-      "label": "My Custom Configuration",
-      "provider": "anthropic",
-      "api_format": "anthropic",
-      "auth_source": "anthropic_api_key",
-      "default_model": "claude-sonnet-4-6",
-      "base_url": null,
-      "last_model": null
-    }
-  }
-}
-```
-
-#### ProviderProfile Field Description
+#### EnvConfig Field Description
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `label` | string | Yes | Display name |
-| `provider` | string | Yes | Provider identifier |
-| `api_format` | string | Yes | API format: anthropic/openai/copilot |
-| `auth_source` | string | Yes | Authentication source |
-| `default_model` | string | Yes | Default model |
-| `base_url` | string\|null | No | Custom API endpoint |
-| `last_model` | string\|null | No | Last used model |
+| `api_format` | string | Yes | API format: anthropic / openai / copilot |
+| `base_url` | string\|null | No | Custom API endpoint, null uses default endpoint |
+| `api_key` | string | No | API key (recommend using environment variables or credential storage) |
+| `system_prompt` | string\|null | No | System prompt for this environment (overrides global) |
+| `model_N` | string | No | Model name, supports multiple: model_1, model_2, model_3... |
 
 #### Multi-Model Configuration Example
 
-Configure multiple models under the same provider, switch through different profiles:
+Configure multiple models under the same environment, switch via `env_N:model_N`:
 
 ```json
 {
-  "active_profile": "nvidia-step-flash",
-  "profiles": {
-    "nvidia-step-flash": {
-      "label": "NVIDIA - Step 3.5 Flash",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "stepfun-ai/step-3.5-flash",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    },
-    "nvidia-minimax": {
-      "label": "NVIDIA - MiniMax M2.7",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "minimaxai/minimax-m2.7",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "model_1": "stepfun-ai/step-3.5-flash",
+    "model_2": "minimaxai/minimax-m2.7",
+    "model_3": "meta/llama-3.1-405b-instruct",
+    "api_key": "nvapi-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
 **Ways to switch models**:
 
 ```bash
-# Method 1: Use /model command to switch
+# Method 1: Use /model command to switch interactively
 /model
 
 # Method 2: Use -m parameter to specify model
-illusion -m minimaxai/minimax-m2.7
+illusion -m env_1:model_2
 
-# Method 3: Modify active_profile field
-# Change active_profile to "nvidia-minimax" in settings.json
+# Method 3: Modify the model field in settings.json
+# Change "model" to "env_1:model_2"
 ```
 
 ---
@@ -503,16 +454,14 @@ illusion -m minimaxai/minimax-m2.7
 
 ```json
 {
-  "active_profile": "claude-api",
-  "profiles": {
-    "claude-api": {
-      "label": "Claude API",
-      "provider": "anthropic",
-      "api_format": "anthropic",
-      "auth_source": "anthropic_api_key",
-      "default_model": "claude-sonnet-4-6"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -538,16 +487,13 @@ illusion -m minimaxai/minimax-m2.7
 
 ```json
 {
-  "active_profile": "claude-subscription",
-  "profiles": {
-    "claude-subscription": {
-      "label": "Claude Subscription",
-      "provider": "anthropic_claude",
-      "api_format": "anthropic",
-      "auth_source": "claude_subscription",
-      "default_model": "claude-sonnet-4-6"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -562,16 +508,13 @@ illusion auth claude-login
 
 ```json
 {
-  "active_profile": "openai-compatible",
-  "profiles": {
-    "openai-compatible": {
-      "label": "OpenAI Compatible",
-      "provider": "openai",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "gpt-5.4"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -581,44 +524,16 @@ illusion auth claude-login
 
 ---
 
-#### 4. OpenAI Codex Subscription
+#### 4. GitHub Copilot
 
 ```json
 {
-  "active_profile": "codex",
-  "profiles": {
-    "codex": {
-      "label": "Codex Subscription",
-      "provider": "openai_codex",
-      "api_format": "openai",
-      "auth_source": "codex_subscription",
-      "default_model": "gpt-5.4"
-    }
-  }
-}
-```
-
-**Authentication**:
-```bash
-illusion auth codex-login
-```
-
----
-
-#### 5. GitHub Copilot
-
-```json
-{
-  "active_profile": "copilot",
-  "profiles": {
-    "copilot": {
-      "label": "GitHub Copilot",
-      "provider": "copilot",
-      "api_format": "copilot",
-      "auth_source": "copilot_oauth",
-      "default_model": "gpt-5.4"
-    }
-  }
+  "env_1": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -629,21 +544,17 @@ illusion auth login copilot
 
 ---
 
-#### 6. Alibaba Cloud DashScope
+#### 5. Alibaba Cloud DashScope
 
 ```json
 {
-  "active_profile": "dashscope",
-  "profiles": {
-    "dashscope": {
-      "label": "Alibaba Cloud DashScope",
-      "provider": "dashscope",
-      "api_format": "openai",
-      "auth_source": "dashscope_api_key",
-      "default_model": "qwen-max",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_1": "qwen-max",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -653,114 +564,57 @@ illusion auth login copilot
 
 ---
 
-#### 7. AWS Bedrock
+#### 6. Custom OpenAI Compatible Endpoint
 
 ```json
 {
-  "active_profile": "bedrock",
-  "profiles": {
-    "bedrock": {
-      "label": "AWS Bedrock",
-      "provider": "bedrock",
-      "api_format": "anthropic",
-      "auth_source": "bedrock_api_key",
-      "default_model": "anthropic.claude-3-sonnet"
-    }
-  }
-}
-```
-
-**Authentication**:
-- Configure AWS credentials (~/.aws/credentials)
-- Environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-
----
-
-#### 8. Google Vertex AI
-
-```json
-{
-  "active_profile": "vertex",
-  "profiles": {
-    "vertex": {
-      "label": "Google Vertex AI",
-      "provider": "vertex",
-      "api_format": "anthropic",
-      "auth_source": "vertex_api_key",
-      "default_model": "claude-3-sonnet"
-    }
-  }
-}
-```
-
-**Authentication**:
-- Configure Google Cloud credentials
-- Environment variable: `GOOGLE_APPLICATION_CREDENTIALS`
-
----
-
-#### 9. Custom OpenAI Compatible Endpoint
-
-```json
-{
-  "active_profile": "custom-llm",
-  "profiles": {
-    "custom-llm": {
-      "label": "Custom LLM",
-      "provider": "openai",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "llama-3-70b",
-      "base_url": "https://api.your-llm.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.your-llm.com/v1",
+    "model_1": "llama-3-70b",
+    "api_key": "your-api-key"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
 ---
 
-#### 10. NVIDIA NIM
+#### 7. Multi-Provider Mixed Configuration
 
-NVIDIA NIM provides API services for various open-source models:
+Configure multiple different providers simultaneously, switch via the `model` field:
 
 ```json
 {
-  "active_profile": "nvidia-nim",
-  "profiles": {
-    "nvidia-nim": {
-      "label": "NVIDIA NIM",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "meta/llama-3.1-405b-instruct",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "env_3": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
-**Authentication**:
-- Environment variable: `NVIDIA_API_KEY` or `OPENAI_API_KEY`
-- Get API Key: https://build.nvidia.com/
+**Switching methods**:
+```bash
+# Use /model command to switch interactively
+/model
 
-**Supported Model Examples**:
-| Model ID | Description |
-|----------|-------------|
-| `meta/llama-3.1-405b-instruct` | Llama 3.1 405B |
-| `meta/llama-3.1-70b-instruct` | Llama 3.1 70B |
-| `mistralai/mistral-large` | Mistral Large |
-| `stepfun-ai/step-3.5-flash` | Step 3.5 Flash |
-
-**Simple Configuration Format**:
-
-```json
-{
-  "api_key": "nvapi-xxxxx",
-  "model": "stepfun-ai/step-3.5-flash",
-  "max_tokens": 16384,
-  "base_url": "https://integrate.api.nvidia.com/v1",
-  "api_format": "openai"
-}
+# Use -m parameter to specify directly
+illusion -m env_2:model_1
 ```
 
 ---

@@ -297,59 +297,54 @@ illusion-code/
 
 #### 配置方式
 
-settings.json 支持两种配置方式：
-
-**方式一：扁平配置（简单格式）**
-
-直接在顶层设置 API 相关字段，适合单一提供商场景：
+settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。每个 `env_N` 是一个独立的环境配置（EnvConfig），包含 API 格式、端点、密钥和模型列表。通过 `model` 字段引用 `env_N:model_N` 来选择当前活跃模型。
 
 ```json
 {
-  "api_key": "nvapi-xxxxx",
-  "model": "stepfun-ai/step-3.5-flash",
-  "max_tokens": 16384,
-  "base_url": "https://integrate.api.nvidia.com/v1",
-  "api_format": "openai",
-  "max_turns": 200
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "model_2": "gemini-3.1-pro",
+    "model_3": "grok-4-fast"
+  },
+  "model": "env_1:model_1",
+  "context_window": 200000,
+  "system_prompt": null
 }
 ```
 
-**方式二：Profile 配置（高级格式）**
-
-通过 `profiles` 管理多个提供商配置，适合需要切换不同提供商的场景：
-
-```json
-{
-  "active_profile": "nvidia-nim",
-  "profiles": {
-    "nvidia-nim": {
-      "label": "NVIDIA NIM",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "stepfun-ai/step-3.5-flash",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
-}
-```
-
-> **提示**：两种方式可以混用。扁平字段会被自动转换为 Profile 配置。推荐使用 Profile 配置以便于管理多个提供商。
+> **提示**：`model` 字段格式为 `env_N:model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。
 
 #### 完整配置结构
 
 ```json
 {
-  "api_key": "",
-  "model": "claude-sonnet-4-6",
-  "max_tokens": 16384,
-  "base_url": null,
-  "api_format": "anthropic",
-  "provider": "",
-  "active_profile": "claude-api",
-  "profiles": {},
-  "max_turns": 200,
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1",
+  "context_window": 200000,
   "system_prompt": null,
+  "max_tokens": 16384,
+  "max_turns": 200,
   "permission": {
     "mode": "default",
     "allowed_tools": [],
@@ -393,16 +388,12 @@ settings.json 支持两种配置方式：
 
 | 字段 | 类型 | 默认值 | 说明 | 示例 |
 |------|------|--------|------|------|
-| `api_key` | string | "" | API 密钥（建议使用环境变量或凭据存储） | `"sk-ant-xxxxx"` |
-| `model` | string | "claude-sonnet-4-6" | 默认模型 | `"claude-opus-4-6"` |
+| `env_N` | object | - | 环境配置组（EnvConfig），支持动态添加 env_1, env_2... | 见下方 EnvConfig 字段说明 |
+| `model` | string | "env_1:model_1" | 当前活跃模型引用，格式为 `env_N:model_N` | `"env_2:model_1"` |
+| `context_window` | int | 200000 | 上下文窗口大小 | `128000` |
+| `system_prompt` | string\|null | null | 自定义系统提示词（全局覆盖） | `"你是一个专业的Python开发者"` |
 | `max_tokens` | int | 16384 | 最大输出 token 数 | `32768` |
-| `base_url` | string\|null | null | 自定义 API 端点 | `"https://api.example.com/v1"` |
-| `api_format` | string | "anthropic" | API 格式：anthropic/openai/copilot | `"openai"` |
-| `provider` | string | "" | 提供商标识符 | `"anthropic"` |
-| `active_profile` | string | "claude-api" | 当前激活的配置文件名 | `"my-custom-profile"` |
-| `profiles` | object | {} | 用户自定义的提供商配置文件 | `{"my-profile": {...}}` |
 | `max_turns` | int | 200 | 最大对话轮数 | `500` |
-| `system_prompt` | string\|null | null | 自定义系统提示词 | `"你是一个专业的Python开发者"` |
 | `ui_language` | string | "zh-CN" | 界面语言 | `"en-US"` |
 | `fast_mode` | bool | false | 快速模式 | `true` |
 | `effort` | string | "medium" | 工作量级别：low/medium/high | `"high"` |
@@ -410,89 +401,49 @@ settings.json 支持两种配置方式：
 
 ---
 
-### 提供商配置 (Provider Profiles)
+### 环境配置 (EnvConfig)
 
-IllusionCode 支持多种 AI 提供商，通过 `profiles` 配置不同的工作流。
+IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每个环境配置（EnvConfig）对应一个独立的 API 提供商设置。
 
-#### 内置提供商配置文件
-
-| 配置文件名 | 提供商 | API 格式 | 认证方式 | 默认模型 |
-|------------|--------|----------|----------|----------|
-| `claude-api` | Anthropic | anthropic | API Key | claude-sonnet-4-6 |
-| `claude-subscription` | Anthropic Claude | anthropic | Claude 订阅 | claude-sonnet-4-6 |
-| `openai-compatible` | OpenAI | openai | API Key | gpt-5.4 |
-| `codex` | OpenAI Codex | openai | Codex 订阅 | gpt-5.4 |
-| `copilot` | GitHub Copilot | copilot | OAuth | gpt-5.4 |
-
-#### 提供商配置格式
-
-```json
-{
-  "profiles": {
-    "my-custom-profile": {
-      "label": "我的自定义配置",
-      "provider": "anthropic",
-      "api_format": "anthropic",
-      "auth_source": "anthropic_api_key",
-      "default_model": "claude-sonnet-4-6",
-      "base_url": null,
-      "last_model": null
-    }
-  }
-}
-```
-
-#### ProviderProfile 字段说明
+#### EnvConfig 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `label` | string | 是 | 显示名称 |
-| `provider` | string | 是 | 提供商标识符 |
-| `api_format` | string | 是 | API 格式：anthropic/openai/copilot |
-| `auth_source` | string | 是 | 认证来源 |
-| `default_model` | string | 是 | 默认模型 |
-| `base_url` | string\|null | 否 | 自定义 API 端点 |
-| `last_model` | string\|null | 否 | 上次使用的模型 |
+| `api_format` | string | 是 | API 格式：anthropic / openai / copilot |
+| `base_url` | string\|null | 否 | 自定义 API 端点，null 表示使用默认端点 |
+| `api_key` | string | 否 | API 密钥（建议使用环境变量或凭据存储） |
+| `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
+| `model_N` | string | 否 | 模型名称，支持多个 model_1, model_2, model_3... |
 
 #### 多模型配置示例
 
-在同一个提供商下配置多个模型，通过不同的 profile 切换：
+在同一个环境下配置多个模型，通过 `env_N:model_N` 引用切换：
 
 ```json
 {
-  "active_profile": "nvidia-step-flash",
-  "profiles": {
-    "nvidia-step-flash": {
-      "label": "NVIDIA - Step 3.5 Flash",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "stepfun-ai/step-3.5-flash",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    },
-    "nvidia-minimax": {
-      "label": "NVIDIA - MiniMax M2.7",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "minimaxai/minimax-m2.7",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "model_1": "stepfun-ai/step-3.5-flash",
+    "model_2": "minimaxai/minimax-m2.7",
+    "model_3": "meta/llama-3.1-405b-instruct",
+    "api_key": "nvapi-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
 **切换模型的方式**：
 
 ```bash
-# 方式一：使用 /model 命令切换
+# 方式一：使用 /model 命令交互式切换
 /model
 
 # 方式二：使用 -m 参数指定模型
-illusion -m minimaxai/minimax-m2.7
+illusion -m env_1:model_2
 
-# 方式三：修改 active_profile 字段
-# 在 settings.json 中将 active_profile 改为 "nvidia-minimax"
+# 方式三：修改 settings.json 中的 model 字段
+# 将 "model" 改为 "env_1:model_2"
 ```
 
 ---
@@ -503,16 +454,14 @@ illusion -m minimaxai/minimax-m2.7
 
 ```json
 {
-  "active_profile": "claude-api",
-  "profiles": {
-    "claude-api": {
-      "label": "Claude API",
-      "provider": "anthropic",
-      "api_format": "anthropic",
-      "auth_source": "anthropic_api_key",
-      "default_model": "claude-sonnet-4-6"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -538,16 +487,13 @@ illusion -m minimaxai/minimax-m2.7
 
 ```json
 {
-  "active_profile": "claude-subscription",
-  "profiles": {
-    "claude-subscription": {
-      "label": "Claude Subscription",
-      "provider": "anthropic_claude",
-      "api_format": "anthropic",
-      "auth_source": "claude_subscription",
-      "default_model": "claude-sonnet-4-6"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -562,16 +508,13 @@ illusion auth claude-login
 
 ```json
 {
-  "active_profile": "openai-compatible",
-  "profiles": {
-    "openai-compatible": {
-      "label": "OpenAI Compatible",
-      "provider": "openai",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "gpt-5.4"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -581,44 +524,16 @@ illusion auth claude-login
 
 ---
 
-#### 4. OpenAI Codex 订阅
+#### 4. GitHub Copilot
 
 ```json
 {
-  "active_profile": "codex",
-  "profiles": {
-    "codex": {
-      "label": "Codex Subscription",
-      "provider": "openai_codex",
-      "api_format": "openai",
-      "auth_source": "codex_subscription",
-      "default_model": "gpt-5.4"
-    }
-  }
-}
-```
-
-**认证方式**：
-```bash
-illusion auth codex-login
-```
-
----
-
-#### 5. GitHub Copilot
-
-```json
-{
-  "active_profile": "copilot",
-  "profiles": {
-    "copilot": {
-      "label": "GitHub Copilot",
-      "provider": "copilot",
-      "api_format": "copilot",
-      "auth_source": "copilot_oauth",
-      "default_model": "gpt-5.4"
-    }
-  }
+  "env_1": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -629,21 +544,17 @@ illusion auth login copilot
 
 ---
 
-#### 6. 阿里云 DashScope
+#### 5. 阿里云 DashScope
 
 ```json
 {
-  "active_profile": "dashscope",
-  "profiles": {
-    "dashscope": {
-      "label": "阿里云 DashScope",
-      "provider": "dashscope",
-      "api_format": "openai",
-      "auth_source": "dashscope_api_key",
-      "default_model": "qwen-max",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_1": "qwen-max",
+    "api_key": "sk-xxxxx"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
@@ -653,114 +564,57 @@ illusion auth login copilot
 
 ---
 
-#### 7. AWS Bedrock
+#### 6. 自定义 OpenAI 兼容端点
 
 ```json
 {
-  "active_profile": "bedrock",
-  "profiles": {
-    "bedrock": {
-      "label": "AWS Bedrock",
-      "provider": "bedrock",
-      "api_format": "anthropic",
-      "auth_source": "bedrock_api_key",
-      "default_model": "anthropic.claude-3-sonnet"
-    }
-  }
-}
-```
-
-**认证方式**：
-- 配置 AWS 凭据（~/.aws/credentials）
-- 环境变量：`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`
-
----
-
-#### 8. Google Vertex AI
-
-```json
-{
-  "active_profile": "vertex",
-  "profiles": {
-    "vertex": {
-      "label": "Google Vertex AI",
-      "provider": "vertex",
-      "api_format": "anthropic",
-      "auth_source": "vertex_api_key",
-      "default_model": "claude-3-sonnet"
-    }
-  }
-}
-```
-
-**认证方式**：
-- 配置 Google Cloud 凭据
-- 环境变量：`GOOGLE_APPLICATION_CREDENTIALS`
-
----
-
-#### 9. 自定义 OpenAI 兼容端点
-
-```json
-{
-  "active_profile": "custom-llm",
-  "profiles": {
-    "custom-llm": {
-      "label": "自定义 LLM",
-      "provider": "openai",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "llama-3-70b",
-      "base_url": "https://api.your-llm.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.your-llm.com/v1",
+    "model_1": "llama-3-70b",
+    "api_key": "your-api-key"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
 ---
 
-#### 10. NVIDIA NIM
+#### 7. 多提供商混合配置
 
-NVIDIA NIM 提供多种开源模型的 API 服务：
+同时配置多个不同提供商，通过 `model` 字段切换：
 
 ```json
 {
-  "active_profile": "nvidia-nim",
-  "profiles": {
-    "nvidia-nim": {
-      "label": "NVIDIA NIM",
-      "provider": "nvidia",
-      "api_format": "openai",
-      "auth_source": "openai_api_key",
-      "default_model": "meta/llama-3.1-405b-instruct",
-      "base_url": "https://integrate.api.nvidia.com/v1"
-    }
-  }
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6",
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
+  },
+  "env_3": {
+    "api_format": "copilot",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5"
+  },
+  "model": "env_1:model_1"
 }
 ```
 
-**认证方式**：
-- 环境变量：`NVIDIA_API_KEY` 或 `OPENAI_API_KEY`
-- 获取 API Key：https://build.nvidia.com/
+**切换方式**：
+```bash
+# 使用 /model 命令交互式切换
+/model
 
-**支持的模型示例**：
-| 模型 ID | 说明 |
-|---------|------|
-| `meta/llama-3.1-405b-instruct` | Llama 3.1 405B |
-| `meta/llama-3.1-70b-instruct` | Llama 3.1 70B |
-| `mistralai/mistral-large` | Mistral Large |
-| `stepfun-ai/step-3.5-flash` | Step 3.5 Flash |
-
-**简单配置格式**：
-
-```json
-{
-  "api_key": "nvapi-xxxxx",
-  "model": "stepfun-ai/step-3.5-flash",
-  "max_tokens": 16384,
-  "base_url": "https://integrate.api.nvidia.com/v1",
-  "api_format": "openai"
-}
+# 使用 -m 参数直接指定
+illusion -m env_2:model_1
 ```
 
 ---
