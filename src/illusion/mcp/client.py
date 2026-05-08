@@ -24,6 +24,7 @@ MCP 客户端管理器模块
 
 from __future__ import annotations
 
+import sys
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -247,6 +248,14 @@ class McpClientManager:
         """
         stack = AsyncExitStack()
         try:
+            # 确定 stderr 输出目标：如果配置了 log_file 则重定向到文件
+            errlog = sys.stderr
+            if config.log_file:
+                from pathlib import Path
+                log_path = Path(config.log_file)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                errlog = open(log_path, "a", encoding="utf-8")
+
             # 创建 STDIO 客户端连接
             read_stream, write_stream = await stack.enter_async_context(
                 stdio_client(
@@ -255,7 +264,8 @@ class McpClientManager:
                         args=config.args,
                         env=config.env,
                         cwd=config.cwd,
-                    )
+                    ),
+                    errlog=errlog,
                 )
             )
             # 创建客户端会话

@@ -44,6 +44,7 @@ class McpStdioServerConfig(BaseModel):
         args: 命令参数列表
         env: 环境变量字典
         cwd: 工作目录
+        log_file: stderr 日志重定向文件路径，设置后 MCP 服务器的 stderr 输出将写入该文件
     """
 
     type: Literal["stdio"] = "stdio"
@@ -51,6 +52,7 @@ class McpStdioServerConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] | None = None
     cwd: str | None = None
+    log_file: str | None = None
 
 
 class McpHttpServerConfig(BaseModel):
