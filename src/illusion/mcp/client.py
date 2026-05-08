@@ -255,6 +255,7 @@ class McpClientManager:
                 log_path = Path(config.log_file)
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 errlog = open(log_path, "a", encoding="utf-8")
+                stack.callback(errlog.close)
 
             # 创建 STDIO 客户端连接
             read_stream, write_stream = await stack.enter_async_context(
