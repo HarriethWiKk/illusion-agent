@@ -257,6 +257,29 @@ illusion-code/
 | `.illusion/mcp/*.json` | 项目根目录 | 项目级 | MCP 服务器配置 |
 | `.illusion/rules/*.md` | 项目根目录 | 项目级 | 项目规则文件 |
 
+#### 凭据文件 (credentials.json)
+
+凭据文件位于 `~/.illusion/credentials.json`，用于安全存储 API 密钥。由 `illusion auth login` 命令自动管理，也可手动编辑。
+
+```json
+{
+  "anthropic": {
+    "api_key": "sk-ant-xxxxx"
+  },
+  "openai": {
+    "api_key": "sk-xxxxx"
+  },
+  "dashscope": {
+    "api_key": "sk-xxxxx"
+  }
+}
+```
+
+**字段说明：**
+- 顶级键为提供商标识符（anthropic, openai, dashscope 等）
+- 每个提供商下可存储 `api_key` 等凭据
+- 文件权限自动设置为 600（仅所有者可读写）
+
 ### 配置优先级
 
 配置解析优先级（从高到低）：

@@ -257,6 +257,29 @@ Built-in 7 specialized Agents:
 | `.illusion/mcp/*.json` | Project root | Project-level | MCP server configuration |
 | `.illusion/rules/*.md` | Project root | Project-level | Project rule files |
 
+#### Credentials File (credentials.json)
+
+The credentials file is located at `~/.illusion/credentials.json` for secure API key storage. It is automatically managed by the `illusion auth login` command, but can also be edited manually.
+
+```json
+{
+  "anthropic": {
+    "api_key": "sk-ant-xxxxx"
+  },
+  "openai": {
+    "api_key": "sk-xxxxx"
+  },
+  "dashscope": {
+    "api_key": "sk-xxxxx"
+  }
+}
+```
+
+**Field description:**
+- Top-level keys are provider identifiers (anthropic, openai, dashscope, etc.)
+- Each provider can store credentials like `api_key`
+- File permissions are automatically set to 600 (owner read/write only)
+
 ### Configuration Priority
 
 Configuration resolution priority (from high to low):
