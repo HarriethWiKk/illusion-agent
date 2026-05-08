@@ -23,7 +23,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant, mi
 - 🌍 **Full Chinese Support** - Command system, UI selectors, error messages fully localized for better Chinese user experience
 - 📝 **Markdown Terminal Rendering** - Supports tables, bold, italic, inline code, links and other rich text styles
 - 📂 **Project-Level Config Friendly** - Auto-generate skills 、 rules 、 mcp 、 plunges directories, project-level skills override global ones
-- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, Alibaba Cloud DashScope, etc.
+- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, Alibaba Cloud DashScope, etc.
 - 🛠️ **Rich Toolset** - 38+ built-in tools + MCP dynamic tool extension
 - ⌨️ **51 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
@@ -84,8 +84,8 @@ illusion --resume <session-id>
 # Set permission mode
 illusion --permission-mode full_auto
 
-# Specify API provider
-illusion --api-format copilot
+# Specify API format
+illusion --api-format openai
 ```
 
 ---
@@ -142,7 +142,7 @@ In interactive sessions, you can use the following commands:
 ```
 illusion-code/
 ├── src/illusion/           # Main source code
-│   ├── api/                # API clients (Anthropic, OpenAI, Copilot, etc.)
+│   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
 │   ├── commands/           # Slash command system (51 commands)
 │   ├── config/             # Configuration system
@@ -176,7 +176,6 @@ Supports multiple AI providers:
 |----------|------------|----------------|
 | Anthropic Claude | anthropic | API Key / OAuth |
 | OpenAI | openai | API Key |
-| GitHub Copilot | copilot | OAuth Device Flow |
 | Alibaba Cloud DashScope | openai | API Key |
 | AWS Bedrock | anthropic | API Key |
 | Google Vertex | anthropic | API Key |
@@ -309,11 +308,10 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
     "api_key": "sk-ant-xxxxx"
   },
   "env_2": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "model_2": "gemini-3.1-pro",
-    "model_3": "grok-4-fast"
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -409,7 +407,7 @@ IllusionCode supports managing multiple environment/provider configurations thro
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `api_format` | string | Yes | API format: anthropic / openai / copilot |
+| `api_format` | string | Yes | API format: anthropic / openai |
 | `base_url` | string\|null | No | Custom API endpoint, null uses default endpoint |
 | `api_key` | string | No | API key (recommend using environment variables or credential storage) |
 | `system_prompt` | string\|null | No | System prompt for this environment (overrides global) |
@@ -524,27 +522,7 @@ illusion auth claude-login
 
 ---
 
-#### 4. GitHub Copilot
-
-```json
-{
-  "env_1": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.4"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**Authentication**:
-```bash
-illusion auth login copilot
-```
-
----
-
-#### 5. Alibaba Cloud DashScope
+#### 4. Alibaba Cloud DashScope
 
 ```json
 {
@@ -600,9 +578,10 @@ Configure multiple different providers simultaneously, switch via the `model` fi
     "api_key": "sk-xxxxx"
   },
   "env_3": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5"
+    "api_format": "openai",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_1": "qwen-max",
+    "api_key": "sk-xxxxx"
   },
   "model": "env_1:model_1"
 }

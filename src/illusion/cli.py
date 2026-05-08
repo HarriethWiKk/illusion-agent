@@ -15,7 +15,7 @@ IllusionCode CLI 入口模块
 子命令说明：
     - mcp: MCP 服务器管理（list、add、remove）
     - plugin: 插件管理（list、install、uninstall）
-    - auth: 认证管理（login、status、logout、switch、copilot-login）
+    - auth: 认证管理（login、status、logout、switch）
     - cron: Cron 调度管理（start、stop、status、list、toggle、history、logs）
 
 使用示例：
@@ -390,7 +390,6 @@ def cron_logs_cmd(
 _PROVIDER_LABELS: dict[str, str] = {
     "anthropic": "Anthropic (Claude API)",
     "openai": "OpenAI / compatible",
-    "copilot": "GitHub Copilot",
     "dashscope": "Alibaba DashScope",
     "bedrock": "AWS Bedrock",
     "vertex": "Google Vertex AI",
@@ -399,12 +398,12 @@ _PROVIDER_LABELS: dict[str, str] = {
 
 @auth_app.command("login")
 def auth_login(
-    provider: Optional[str] = typer.Argument(None, help="Provider name (anthropic, openai, copilot, …)"),
+    provider: Optional[str] = typer.Argument(None, help="Provider name (anthropic, openai, dashscope, …)"),
 ) -> None:
     """交互式认证提供商
     
     无参数运行时从菜单选择提供商。
-    支持的提供商：anthropic, openai, copilot, dashscope, bedrock, vertex。
+    支持的提供商：anthropic, openai, dashscope, bedrock, vertex。
     
     Args:
         provider: 可选的提供商名称
@@ -432,11 +431,6 @@ def auth_login(
             provider = raw.strip()  # 直接使用输入作为提供商名称
 
     provider = provider.lower()  # 转换为小写
-
-    # Copilot 使用特殊登录流程
-    if provider == "copilot":
-        _run_copilot_login()  # 运行 Copilot 登录
-        return
 
     # 基于 API 密钥的提供商
     if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex"):
@@ -522,74 +516,6 @@ def auth_switch(
         raise typer.Exit(1)
     print(f"Switched active provider to: {provider}", flush=True)
 
-
-# ---------------------------------------------------------------------------
-# Copilot 登录辅助函数（保留为命名函数以便重用和向后兼容）
-# ---------------------------------------------------------------------------
-
-
-def _run_copilot_login() -> None:
-    """运行 GitHub Copilot 设备代码流并持久化结果
-    
-    通过 OAuth 设备代码流程认证 GitHub Copilot，支持 GitHub.com 和 GitHub Enterprise。
-    """
-    from illusion.api.copilot_auth import save_copilot_auth  # Copilot 认证保存
-    from illusion.auth.flows import DeviceCodeFlow  # 设备代码流程
-
-    print("Select GitHub deployment type:", flush=True)
-    print("  1. GitHub.com (public)", flush=True)
-    print("  2. GitHub Enterprise (data residency / self-hosted)", flush=True)
-    choice = typer.prompt("Enter choice", default="1")  # 提示用户选择
-
-    enterprise_url: str | None = None  # 企业版 URL
-    github_domain = "github.com"  # GitHub 域名
-
-    if choice.strip() == "2":  # 如果选择企业版
-        raw_url = typer.prompt("Enter your GitHub Enterprise URL or domain (e.g. company.ghe.com)")
-        domain = raw_url.replace("https://", "").replace("http://", "").rstrip("/")
-        if not domain:  # 验证域名不为空
-            print("Error: domain cannot be empty.", file=sys.stderr, flush=True)
-            raise typer.Exit(1)
-        enterprise_url = domain  # 设置企业版 URL
-        github_domain = domain  # 设置 GitHub 域名
-
-    print(flush=True)
-    flow = DeviceCodeFlow(github_domain=github_domain, enterprise_url=enterprise_url)  # 创建设备代码流程
-    try:
-        token = flow.run()  # 运行流程获取令牌
-    except RuntimeError as exc:  # 流程失败
-        print(f"Error: {exc}", file=sys.stderr, flush=True)
-        raise typer.Exit(1)
-
-    save_copilot_auth(token, enterprise_url=enterprise_url)  # 保存 Copilot 认证
-    print("GitHub Copilot authenticated successfully.", flush=True)
-    if enterprise_url:  # 如果是企业版
-        print(f"  Enterprise domain: {enterprise_url}", flush=True)
-    print(flush=True)
-    print("To use Copilot as the provider, run:", flush=True)
-    print("  illusion auth switch copilot", flush=True)
-    print("  # or set ILLUSION_API_FORMAT=copilot", flush=True)
-
-
-@auth_app.command("copilot-login")
-def auth_copilot_login() -> None:
-    """通过设备流认证 GitHub Copilot（'illusion auth login copilot' 的别名）
-    
-    使用 OAuth 设备代码流程进行 GitHub Copilot 认证。
-    """
-    _run_copilot_login()  # 调用辅助函数
-
-
-@auth_app.command("copilot-logout")
-def auth_copilot_logout() -> None:
-    """删除已存储的 GitHub Copilot 认证
-    
-    清除所有已存储的 GitHub Copilot 令牌和配置。
-    """
-    from illusion.api.copilot_auth import clear_github_token  # 清除 GitHub 令牌
-
-    clear_github_token()  # 清除令牌
-    print("Copilot authentication cleared.")
 
 # ---------------------------------------------------------------------------
 # 主命令
@@ -735,7 +661,7 @@ def main(
     api_format: str | None = typer.Option(
         None,
         "--api-format",
-        help="API format: 'anthropic' (default), 'openai' (DashScope, GitHub Models, etc.), or 'copilot' (GitHub Copilot)",
+        help="API format: 'anthropic' (default) or 'openai' (DashScope, GitHub Models, etc.)",
         rich_help_panel="System & Context",
     ),
     # --- Advanced ---

@@ -60,7 +60,7 @@ async def run_repl(
         base_url: API 基础 URL
         system_prompt: 系统提示词
         api_key: API 密钥
-        api_format: API 格式（copilot/openai/anthropic）
+        api_format: API 格式（openai/anthropic）
         api_client: 流式 API 客户端实例
         backend_only: 是否仅运行后端
         restore_messages: 恢复的会话消息列表

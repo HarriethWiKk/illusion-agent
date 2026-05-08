@@ -49,7 +49,6 @@ from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from illusion.api.client import AnthropicApiClient, SupportsStreamingMessages
-from illusion.api.copilot_client import CopilotClient
 from illusion.api.openai_client import OpenAICompatibleClient
 from illusion.api.provider import auth_status, detect_provider
 from illusion.bridge import get_bridge_manager
@@ -183,7 +182,7 @@ async def build_runtime(
         base_url: API 基础 URL
         system_prompt: 系统提示词
         api_key: API 密钥
-        api_format: API 格式（copilot/openai/anthropic）
+        api_format: API 格式（openai/anthropic）
         api_client: 流式 API 客户端实例
         permission_prompt: 权限确认回调函数
         ask_user_prompt: 用户问答回调函数
@@ -209,10 +208,6 @@ async def build_runtime(
     # 解析 API 客户端
     if api_client:
         resolved_api_client = api_client
-    elif settings.api_format == "copilot":
-        from illusion.api.copilot_client import COPILOT_DEFAULT_MODEL
-        copilot_model = settings.active_model_name if settings.active_model_name != "claude-sonnet-4-20250514" else COPILOT_DEFAULT_MODEL
-        resolved_api_client = CopilotClient(model=copilot_model)
     elif settings.api_format == "openai":
         resolved_api_client = OpenAICompatibleClient(
             api_key=settings.resolve_api_key(),

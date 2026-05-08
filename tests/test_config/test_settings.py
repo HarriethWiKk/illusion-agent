@@ -50,10 +50,6 @@ class TestSettings:
         with pytest.raises(ValueError, match="No API key found"):
             s.resolve_api_key()
 
-    def test_resolve_api_key_copilot(self):
-        s = Settings(env_1={"api_format": "copilot"})
-        assert s.resolve_api_key() == "copilot-managed"
-
     def test_merge_cli_overrides(self):
         s = Settings()
         updated = s.merge_cli_overrides(model="env_2:model_1", verbose=True, api_key=None)

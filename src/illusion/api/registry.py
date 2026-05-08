@@ -38,7 +38,7 @@ class ProviderSpec:
         keywords: 模型名称关键字元组，用于检测（小写）
         env_key: 主要 API 密钥环境变量
         display_name: 状态/诊断中显示的名称
-        backend_type: 后端类型（"anthropic"、"openai_compat"、"copilot"）
+        backend_type: 后端类型（"anthropic"、"openai_compat"）
         default_base_url: 该提供商的备用基础 URL
         detect_by_key_prefix: 匹配 api_key 前缀，如 "sk-or-"
         detect_by_base_keyword: 匹配 base_url 中的子字符串
@@ -69,20 +69,6 @@ class ProviderSpec:
 # ---------------------------------------------------------------------------
 
 PROVIDERS: tuple[ProviderSpec, ...] = (
-    # === GitHub Copilot (OAuth，通过 api_format="copilot" 检测) ============
-    ProviderSpec(
-        name="github_copilot",
-        keywords=("copilot",),
-        env_key="",
-        display_name="GitHub Copilot",
-        backend_type="copilot",
-        default_base_url="",
-        detect_by_key_prefix="",
-        detect_by_base_keyword="",
-        is_gateway=False,
-        is_local=False,
-        is_oauth=True,
-    ),
     # === 网关（通过 api_key 前缀 / base_url 关键字检测） ============
     # OpenRouter：全局网关，密钥以 "sk-or-" 开头
     ProviderSpec(

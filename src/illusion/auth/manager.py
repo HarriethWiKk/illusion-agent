@@ -38,7 +38,6 @@ log = logging.getLogger(__name__)
 _KNOWN_PROVIDERS = [
     "anthropic",
     "openai",
-    "copilot",
 ]
 
 
@@ -158,13 +157,6 @@ class AuthManager:
                 elif self.settings.api_key and self.settings.provider == "openai":
                     configured = True
                     source = "config"
-
-            elif provider == "copilot":
-                from illusion.api.copilot_auth import load_copilot_auth
-
-                if load_copilot_auth():
-                    configured = True
-                    source = "file"
 
             result[provider] = {
                 "configured": configured,

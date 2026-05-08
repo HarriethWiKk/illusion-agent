@@ -7,7 +7,6 @@ API 模块
 主要组件：
     - AnthropicApiClient: Anthropic API 客户端
     - OpenAICompatibleClient: OpenAI 兼容 API 客户端
-    - CopilotClient: GitHub Copilot 客户端
     - CodexApiClient: OpenAI Codex 客户端
     - IllusionCodeApiError: API 异常基类
     - ProviderInfo: 提供商元数据
@@ -20,7 +19,6 @@ API 模块
 
 from illusion.api.client import AnthropicApiClient
 from illusion.api.codex_client import CodexApiClient
-from illusion.api.copilot_client import CopilotClient
 from illusion.api.errors import IllusionCodeApiError
 from illusion.api.openai_client import OpenAICompatibleClient
 from illusion.api.provider import ProviderInfo, auth_status, detect_provider
@@ -29,7 +27,6 @@ from illusion.api.usage import UsageSnapshot
 __all__ = [
     "AnthropicApiClient",
     "CodexApiClient",
-    "CopilotClient",
     "OpenAICompatibleClient",
     "IllusionCodeApiError",
     "ProviderInfo",

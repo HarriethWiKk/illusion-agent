@@ -262,7 +262,7 @@ def resolve_model_setting(
         return normalize_anthropic_model_name(configured)  # 标准化模型名
 
     # 处理 OpenAI 系列提供商的 default/best
-    if provider in {"openai", "openai_codex", "copilot"} and normalized in {"default", "best"}:
+    if provider in {"openai", "openai_codex"} and normalized in {"default", "best"}:
         return "gpt-5.4"
 
     return configured  # 直接返回原始配置
@@ -282,7 +282,6 @@ def auth_source_provider_name(auth_source: str) -> str:
         "openai_api_key": "openai",  # OpenAI API 密钥
         "codex_subscription": "openai_codex",  # Codex 订阅
         "claude_subscription": "anthropic_claude",  # Claude 订阅
-        "copilot_oauth": "copilot",  # Copilot OAuth
         "dashscope_api_key": "dashscope",  # 阿里 DashScope
         "bedrock_api_key": "bedrock",  # AWS Bedrock
         "vertex_api_key": "vertex",  # Google Vertex
@@ -304,8 +303,6 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "claude_subscription"
     if provider == "openai_codex":
         return "codex_subscription"
-    if provider == "copilot":
-        return "copilot_oauth"
     if provider == "dashscope":
         return "dashscope_api_key"
     if provider == "bedrock":
@@ -318,8 +315,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
 
 
 class EnvConfig(BaseModel):
-    """环境/提供商组配置（对齐 cc-switch Provider Preset）"""
-    api_format: str  # "anthropic" / "openai" / "copilot"
+    """环境/提供商组配置"""
+    api_format: str  # "anthropic" / "openai"
     base_url: str | None = None
     api_key: str = ""
     system_prompt: str | None = None
@@ -449,8 +446,6 @@ class Settings(BaseModel):
         fmt = self._active_env.api_format
         if fmt == "anthropic":
             return "anthropic"
-        if fmt == "copilot":
-            return "copilot"
         return "openai"
 
     @property
@@ -470,10 +465,6 @@ class Settings(BaseModel):
             ValueError: 未找到密钥时抛出
         """
         env = self._active_env
-
-        # Copilot 格式管理自己的认证
-        if env.api_format == "copilot":
-            return "copilot-managed"
 
         # 检查 EnvConfig 中的 api_key
         if env.api_key:
@@ -508,16 +499,6 @@ class Settings(BaseModel):
         provider = self.provider  # 从 api_format 推断
         api_format = env.api_format
         auth_source = default_auth_source_for_provider(provider, api_format)
-
-        # Copilot OAuth 认证
-        if api_format == "copilot":
-            return ResolvedAuth(
-                provider="copilot",
-                auth_kind="oauth_device",
-                value="copilot-managed",
-                source="copilot",
-                state="configured",
-            )
 
         # 检查 EnvConfig 中的 api_key
         if env.api_key:

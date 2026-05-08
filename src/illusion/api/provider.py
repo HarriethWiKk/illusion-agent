@@ -36,7 +36,6 @@ from illusion.config.settings import Settings
 _AUTH_KIND: dict[str, str] = {
     "anthropic": "api_key",
     "openai_compat": "api_key",
-    "copilot": "oauth_device",
     "openai_codex": "external_oauth",
     "anthropic_claude": "external_oauth",
 }
@@ -47,7 +46,6 @@ _VOICE_REASON: dict[str, str] = {
         "voice mode shell exists, but live voice auth/streaming is not configured in this build"
     ),
     "openai_compat": "voice mode is not wired for OpenAI-compatible providers in this build",
-    "copilot": "voice mode is not supported for GitHub Copilot",
     "openai_codex": "voice mode is not supported for Codex subscription auth",
     "anthropic_claude": "voice mode is not supported for Claude subscription auth",
 }
@@ -81,15 +79,6 @@ def detect_provider(settings: Settings) -> ProviderInfo:
     Returns:
         ProviderInfo: 提供商元数据
     """
-    # Copilot
-    if settings.api_format == "copilot":
-        return ProviderInfo(
-            name="github_copilot",
-            auth_kind="oauth_device",
-            voice_supported=False,
-            voice_reason=_VOICE_REASON["copilot"],
-        )
-
     # 从注册表检测
     spec = detect_provider_from_registry(
         model=settings.active_model_name,
@@ -131,17 +120,6 @@ def auth_status(settings: Settings) -> str:
     Returns:
         str: 认证状态描述
     """
-    # Copilot 特殊处理
-    if settings.api_format == "copilot":
-        from illusion.api.copilot_auth import load_copilot_auth
-
-        auth_info = load_copilot_auth()
-        if not auth_info:
-            return "missing (run 'oh auth copilot-login')"
-        if auth_info.enterprise_url:
-            return f"configured (enterprise: {auth_info.enterprise_url})"
-        return "configured"
-
     # 尝试解析认证
     try:
         resolved = settings.resolve_auth()

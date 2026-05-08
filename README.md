@@ -23,7 +23,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，由 OpenHarness
 - 🌍 **完整中文支持** - 命令系统、UI 选择器、错误提示全面中文化，国人体验更佳
 - 📝 **Markdown 终端渲染** - 支持表格、加粗、斜体、行内代码、链接等富文本样式
 - 📂 **项目级配置友好** - 自动生成 skills 、 rules 、 mcp 、 plunges 目录，项目同名 skill 优先覆盖全局
-- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、阿里云 DashScope 等
+- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、阿里云 DashScope 等
 - 🛠️ **丰富的工具集** - 38+ 内置工具 + MCP 动态工具扩展
 - ⌨️ **51 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
@@ -84,8 +84,8 @@ illusion --resume <session-id>
 # 设置权限模式
 illusion --permission-mode full_auto
 
-# 指定 API 提供商
-illusion --api-format copilot
+# 指定 API 格式
+illusion --api-format openai
 ```
 
 ---
@@ -142,7 +142,7 @@ illusion cron logs               # 查看调度器日志
 ```
 illusion-code/
 ├── src/illusion/           # 主要源代码
-│   ├── api/                # API 客户端 (Anthropic, OpenAI, Copilot 等)
+│   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
 │   ├── auth/               # 认证管理
 │   ├── commands/           # 斜杠命令系统 (51 个命令)
 │   ├── config/             # 配置系统
@@ -176,7 +176,6 @@ illusion-code/
 |--------|----------|----------|
 | Anthropic Claude | anthropic | API Key / OAuth |
 | OpenAI | openai | API Key |
-| GitHub Copilot | copilot | OAuth Device Flow |
 | 阿里云 DashScope | openai | API Key |
 | AWS Bedrock | anthropic | API Key |
 | Google Vertex | anthropic | API Key |
@@ -309,11 +308,10 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
     "api_key": "sk-ant-xxxxx"
   },
   "env_2": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "model_2": "gemini-3.1-pro",
-    "model_3": "grok-4-fast"
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4",
+    "api_key": "sk-xxxxx"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -409,7 +407,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `api_format` | string | 是 | API 格式：anthropic / openai / copilot |
+| `api_format` | string | 是 | API 格式：anthropic / openai |
 | `base_url` | string\|null | 否 | 自定义 API 端点，null 表示使用默认端点 |
 | `api_key` | string | 否 | API 密钥（建议使用环境变量或凭据存储） |
 | `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
@@ -524,27 +522,7 @@ illusion auth claude-login
 
 ---
 
-#### 4. GitHub Copilot
-
-```json
-{
-  "env_1": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.4"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**认证方式**：
-```bash
-illusion auth login copilot
-```
-
----
-
-#### 5. 阿里云 DashScope
+#### 4. 阿里云 DashScope
 
 ```json
 {
@@ -600,9 +578,10 @@ illusion auth login copilot
     "api_key": "sk-xxxxx"
   },
   "env_3": {
-    "api_format": "copilot",
-    "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5"
+    "api_format": "openai",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model_1": "qwen-max",
+    "api_key": "sk-xxxxx"
   },
   "model": "env_1:model_1"
 }
