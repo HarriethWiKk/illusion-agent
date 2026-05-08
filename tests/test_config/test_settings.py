@@ -47,7 +47,7 @@ class TestSettings:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         s = Settings()
-        with pytest.raises(ValueError, match="No API key found"):
+        with pytest.raises(ValueError, match="未找到 API 密钥"):
             s.resolve_api_key()
 
     def test_merge_cli_overrides(self):

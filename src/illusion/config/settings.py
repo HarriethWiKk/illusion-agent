@@ -268,50 +268,6 @@ def resolve_model_setting(
     return configured  # 直接返回原始配置
 
 
-def auth_source_provider_name(auth_source: str) -> str:
-    """将认证来源映射到存储/运行时提供商名称
-    
-    Args:
-        auth_source: 认证来源标识符
-    
-    Returns:
-        str: 映射后的提供商名称
-    """
-    mapping = {
-        "anthropic_api_key": "anthropic",  # Anthropic API 密钥
-        "openai_api_key": "openai",  # OpenAI API 密钥
-        "codex_subscription": "openai_codex",  # Codex 订阅
-        "claude_subscription": "anthropic_claude",  # Claude 订阅
-        "dashscope_api_key": "dashscope",  # 阿里 DashScope
-        "bedrock_api_key": "bedrock",  # AWS Bedrock
-        "vertex_api_key": "vertex",  # Google Vertex
-    }
-    return mapping.get(auth_source, auth_source)
-
-
-def default_auth_source_for_provider(provider: str, api_format: str | None = None) -> str:
-    """推断提供商的默认认证来源
-    
-    Args:
-        provider: 提供商标识符
-        api_format: 可选的 API 格式
-    
-    Returns:
-        str: 默认认证来源
-    """
-    if provider == "anthropic_claude":
-        return "claude_subscription"
-    if provider == "openai_codex":
-        return "codex_subscription"
-    if provider == "dashscope":
-        return "dashscope_api_key"
-    if provider == "bedrock":
-        return "bedrock_api_key"
-    if provider == "vertex":
-        return "vertex_api_key"
-    if provider == "openai" or api_format == "openai":
-        return "openai_api_key"
-    return "anthropic_api_key"
 
 
 class EnvConfig(BaseModel):
@@ -456,7 +412,7 @@ class Settings(BaseModel):
     def resolve_api_key(self) -> str:
         """解析 API 密钥
 
-        优先级：EnvConfig.api_key > 环境变量 > 空
+        优先级：EnvConfig.api_key > 环境变量 > credentials.json(env_N) > 旧格式 credentials.json(provider) > 空
 
         Returns:
             str: API 密钥字符串
@@ -470,21 +426,30 @@ class Settings(BaseModel):
         if env.api_key:
             return env.api_key
 
-        # 检查环境变量 ANTHROPIC_API_KEY
-        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if env_key:
-            return env_key
+        # 检查环境变量
+        if env.api_format == "openai":
+            env_var_key = os.environ.get("OPENAI_API_KEY", "")
+            if env_var_key:
+                return env_var_key
+        env_var_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if env_var_key:
+            return env_var_key
 
-        # 对于 openai 格式的提供商，也检查 OPENAI_API_KEY
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
-        if openai_key:
-            return openai_key
+        # 从 credentials.json 的 env_N 读取
+        from illusion.auth.storage import load_env_credential
+        env_cred = load_env_credential(self._active_env_key, "api_key")
+        if env_cred:
+            return env_cred
 
-        raise ValueError(
-            "No API key found. Set ANTHROPIC_API_KEY (or OPENAI_API_KEY for openai-format "
-            "providers) environment variable, or configure api_key in "
-            "~/.illusion/settings.json"
-        )
+        # 兼容旧格式：按 provider 名读取
+        from illusion.auth.storage import load_credential
+        provider = self.provider
+        old_cred = load_credential(provider, "api_key")
+        if old_cred:
+            return old_cred
+
+        from illusion.config.i18n import t as _t
+        raise ValueError(_t("no_api_key"))
 
     def resolve_auth(self) -> ResolvedAuth:
         """解析当前活跃环境的认证信息
@@ -496,9 +461,8 @@ class Settings(BaseModel):
             ValueError: 认证配置错误时抛出
         """
         env = self._active_env
-        provider = self.provider  # 从 api_format 推断
+        provider = self.provider
         api_format = env.api_format
-        auth_source = default_auth_source_for_provider(provider, api_format)
 
         # 检查 EnvConfig 中的 api_key
         if env.api_key:
@@ -511,41 +475,52 @@ class Settings(BaseModel):
             )
 
         # 检查环境变量
-        env_var_map = {
-            "anthropic_api_key": "ANTHROPIC_API_KEY",
-            "openai_api_key": "OPENAI_API_KEY",
-            "dashscope_api_key": "DASHSCOPE_API_KEY",
-        }
-        env_var = env_var_map.get(auth_source)
-        if env_var:
-            env_value = os.environ.get(env_var, "")
-            if env_value:
+        if api_format == "openai":
+            openai_val = os.environ.get("OPENAI_API_KEY", "")
+            if openai_val:
                 return ResolvedAuth(
                     provider=provider,
                     auth_kind="api_key",
-                    value=env_value,
-                    source=f"env:{env_var}",
+                    value=openai_val,
+                    source="env:OPENAI_API_KEY",
                     state="configured",
                 )
-
-        # 从文件存储加载
-        from illusion.auth.storage import load_credential
-
-        storage_provider = auth_source_provider_name(auth_source)
-        stored = load_credential(storage_provider, "api_key")
-        if stored:
+        anthropic_val = os.environ.get("ANTHROPIC_API_KEY", "")
+        if anthropic_val:
             return ResolvedAuth(
                 provider=provider,
                 auth_kind="api_key",
-                value=stored,
-                source=f"file:{storage_provider}",
+                value=anthropic_val,
+                source="env:ANTHROPIC_API_KEY",
                 state="configured",
             )
 
-        raise ValueError(
-            f"No credentials found for auth source '{auth_source}'. "
-            "Configure the matching provider or environment variable first."
-        )
+        # 从 credentials.json 的 env_N 读取
+        from illusion.auth.storage import load_env_credential
+        env_cred = load_env_credential(self._active_env_key, "api_key")
+        if env_cred:
+            return ResolvedAuth(
+                provider=provider,
+                auth_kind="api_key",
+                value=env_cred,
+                source=f"file:{self._active_env_key}",
+                state="configured",
+            )
+
+        # 兼容旧格式：按 provider 名读取
+        from illusion.auth.storage import load_credential
+        old_cred = load_credential(provider, "api_key")
+        if old_cred:
+            return ResolvedAuth(
+                provider=provider,
+                auth_kind="api_key",
+                value=old_cred,
+                source=f"file:{provider}",
+                state="configured",
+            )
+
+        from illusion.config.i18n import t as _t
+        raise ValueError(_t("no_auth"))
 
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """返回应用了 CLI 覆盖的新 Settings（仅非 None 值）

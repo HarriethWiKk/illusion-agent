@@ -4,7 +4,7 @@
 
 **AI 驱动的命令行编程助手**
 
-*Claude Code 的 Python 移植版本 | OpenHarness（0.1.0）的改编版本*
+*集百家之所长，融会贯通的智能编程工具*
 
 中文 | [English](README_en.md)
 
@@ -14,16 +14,16 @@
 
 ## 📖 项目简介
 
-IllusionCode 是一个开源的 AI 驱动命令行编程助手，由 OpenHarness（0.1.0）迁移改编而来，全量注入claude code提示词，并优化了一些细节和配置，帮助开发者高效完成软件工程任务。它支持多种 AI 提供商，提供丰富的工具集和命令系统，并具备多智能体协作能力。
+IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，并实现了比同类项目更全面的 Markdown 终端渲染能力。
 
 ### 核心特性
 
 - 🪟 **Windows 系统深度优化** - 自动查找 Git、PowerShell 支持、路径兼容性优化
 - 🖥️ **终端渲染零闪烁** - 基于 Ink Static 组件的稳定渲染，抑制 resize 事件干扰
-- 🌍 **完整中文支持** - 命令系统、UI 选择器、错误提示全面中文化，国人体验更佳
-- 📝 **Markdown 终端渲染** - 支持表格、加粗、斜体、行内代码、链接等富文本样式
-- 📂 **项目级配置友好** - 自动生成 skills 、 rules 、 mcp 、 plunges 目录，项目同名 skill 优先覆盖全局
-- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、阿里云 DashScope 等
+- 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
+- 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
+- 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
+- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI 及任意 OpenAI 兼容端点
 - 🛠️ **丰富的工具集** - 38+ 内置工具 + MCP 动态工具扩展
 - ⌨️ **51 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
@@ -32,17 +32,25 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，由 OpenHarness
 - 💾 **记忆与上下文** - 项目知识持久化与动态检索
 - 🎨 **现代终端界面** - React + Ink 组件化 TUI
 
-### 项目亮点
+### 设计来源与创新
 
-**Windows 用户友好**：自动查找 Git 安装路径，PowerShell 与 Bash 工具统一处理，路径分隔符自动兼容，Windows 用户开箱即用。
+**继承自 Claude Code**：完整注入 Claude Code 的系统提示词、工具定义、权限模型和多智能体协调架构，确保行为一致性。
+
+**灵感源自 OpenHarness**：Python 架构层面的设计参考了 OpenHarness 的理念。
+
+**Cron 架构对齐 OpenClaw**：定时任务系统采用与 OpenClaw 相同的调度器架构，支持独立会话执行、执行历史记录和连续错误追踪。
+
+**cc-switch 代理路由**：通过 cc-switch 反代工具实现本地代理路由，支持将请求转发到不同的 AI 提供商。
+
+**Windows 深度优化**：自动查找 Git 安装路径，PowerShell 与 Bash 工具统一处理，路径分隔符自动兼容，Windows 用户开箱即用。
 
 **终端零闪烁**：采用 Ink `<Static>` 组件架构，已完成消息静态渲染，流式消息动态渲染，彻底解决终端闪烁问题。
 
-**中文体验优先**：51 个斜杠命令全部支持中文返回，UI 选择器完整中文化，多行消息逐行翻译，错误提示中英双语。
+**中英双语界面**：所有 CLI 输出（auth、mcp、plugin、cron、session 等）均通过 i18n 系统根据 `ui_language` 字段自动切换语言，首次运行时可选择语言偏好。
 
-**Markdown 富文本渲染**：终端内完整渲染表格、加粗、斜体、行内代码、链接等格式，AI 回复可读性大幅提升。
+**全面 Markdown 渲染**：终端内完整渲染直角边框表格、圆角卡片式代码块、多色富文本（加粗、斜体、行内代码、链接等），AI 回复可读性大幅提升。
 
-**项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<projiect>/.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
+**项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<project>/.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
 
 ---
 
@@ -73,7 +81,7 @@ illusion
 illusion -p "帮我分析这个项目的结构"
 
 # 指定模型
-illusion -m sonnet
+illusion -m env_1:model_2
 
 # 继续最近会话
 illusion --continue
@@ -96,10 +104,10 @@ illusion --api-format openai
 
 ```bash
 # 认证管理
-illusion auth login              # 登录
-illusion auth status             # 查看认证状态
-illusion auth logout             # 登出
-illusion auth switch <provider>  # 切换提供商
+illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI）
+illusion auth status             # 查看所有环境的认证状态
+illusion auth logout [env_N]     # 清除环境凭据
+illusion auth switch [env_N]     # 切换活动环境
 
 # MCP 管理
 illusion mcp list                # 列出 MCP 服务器
@@ -174,11 +182,9 @@ illusion-code/
 
 | 提供商 | API 格式 | 认证方式 |
 |--------|----------|----------|
-| Anthropic Claude | anthropic | API Key / OAuth |
-| OpenAI | openai | API Key |
-| 阿里云 DashScope | openai | API Key |
-| AWS Bedrock | anthropic | API Key |
-| Google Vertex | anthropic | API Key |
+| Anthropic Claude | anthropic | API Key |
+| OpenAI / 兼容接口 | openai | API Key |
+| 自定义提供商 | anthropic / openai | API Key |
 
 ### 工具系统
 
@@ -258,26 +264,34 @@ illusion-code/
 
 #### 凭据文件 (credentials.json)
 
-凭据文件位于 `~/.illusion/credentials.json`，用于安全存储 API 密钥。由 `illusion auth login` 命令自动管理，也可手动编辑。
+凭据文件位于 `~/.illusion/credentials.json`，用于安全存储 API 密钥。由 `illusion auth login` 命令自动管理，也可手动编辑。凭据按 `env_N` 分组存储，与 `settings.json` 中的环境配置对应。
 
 ```json
 {
-  "anthropic": {
+  "env_1": {
     "api_key": "sk-ant-xxxxx"
   },
-  "openai": {
-    "api_key": "sk-xxxxx"
-  },
-  "dashscope": {
+  "env_2": {
     "api_key": "sk-xxxxx"
   }
 }
 ```
 
 **字段说明：**
-- 顶级键为提供商标识符（anthropic, openai, dashscope 等）
-- 每个提供商下可存储 `api_key` 等凭据
-- 文件权限自动设置为 600（仅所有者可读写）
+- 顶级键为环境标识符（env_1, env_2 等），与 settings.json 中的 env_N 对应
+- 每个环境下存储 `api_key` 等凭据
+- 文件权限自动设置为 600（见下方说明）
+
+**API 密钥存储方式**：API 密钥有两种存储方式，可根据需求选择：
+
+| 方式 | 配置位置 | 优势 | 劣势 |
+|------|----------|------|------|
+| **安全模式** | `credentials.json`（由 `illusion auth login` 自动管理） | 密钥与配置分离，便于管理，文件权限受保护 | 需要额外文件 |
+| **便捷模式** | `settings.json` 的 `env_N.api_key` 字段 | 配置集中在一个文件，简单直观 | 密钥明文存储，共享配置时需注意脱敏 |
+
+两种方式可混用，运行时读取优先级：`env_N.api_key` > 环境变量 > `credentials.json`。
+
+> **文件权限 600 说明**：`600` 是 Unix/Linux 文件权限码，表示「仅文件所有者可读写，其他用户无任何访问权限」。用数字表示为 `rw-------`，其中 `6`（读+写）对应所有者，`0` 对应同组用户，`0` 对应其他用户。在 Windows 系统上，此设置会被静默跳过（Windows 使用 ACL 权限模型，行为不同）。此限制保护 API 密钥不被同一系统上的其他用户读取。
 
 ### 配置优先级
 
@@ -304,14 +318,12 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -319,7 +331,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 }
 ```
 
-> **提示**：`model` 字段格式为 `env_N:model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。
+> **提示**：`model` 字段格式为 `env_N:model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
 
 #### 完整配置结构
 
@@ -329,14 +341,12 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -394,7 +404,8 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 | `max_turns` | int | 200 | 最大对话轮数 | `500` |
 | `ui_language` | string | "zh-CN" | 界面语言 | `"en-US"` |
 | `fast_mode` | bool | false | 快速模式 | `true` |
-| `effort` | string | "medium" | 工作量级别：low/medium/high | `"high"` |
+| `effort` | string | "medium" | 推理强度级别：low/medium/high | `"high"` |
+| `passes` | int | 1 | 推理轮数（1-8），控制 AI 对同一问题的迭代推理次数，值越大推理越深入但耗时越长 | `2` |
 | `verbose` | bool | false | 详细输出模式 | `true` |
 
 ---
@@ -409,7 +420,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 |------|------|------|------|
 | `api_format` | string | 是 | API 格式：anthropic / openai |
 | `base_url` | string\|null | 否 | 自定义 API 端点，null 表示使用默认端点 |
-| `api_key` | string | 否 | API 密钥（建议使用环境变量或凭据存储） |
+| `api_key` | string | 否 | API 密钥（可直接填写，也可留空由 `illusion auth login` 存储到 credentials.json） |
 | `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
 | `model_N` | string | 否 | 模型名称，支持多个 model_1, model_2, model_3... |
 
@@ -424,8 +435,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
     "base_url": "https://integrate.api.nvidia.com/v1",
     "model_1": "stepfun-ai/step-3.5-flash",
     "model_2": "minimaxai/minimax-m2.7",
-    "model_3": "meta/llama-3.1-405b-instruct",
-    "api_key": "nvapi-xxxxx"
+    "model_3": "meta/llama-3.1-405b-instruct"
   },
   "model": "env_1:model_1"
 }
@@ -456,16 +466,17 @@ illusion -m env_1:model_2
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "model": "env_1:model_1"
 }
 ```
 
+> API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+
 **认证方式**：
+- 交互式配置：`illusion auth login` → 选择 Anthropic
 - 环境变量：`ANTHROPIC_API_KEY`
-- 凭据存储：`illusion auth login anthropic`
 
 **支持的模型别名**：
 | 别名 | 实际模型 | 说明 |
@@ -481,7 +492,52 @@ illusion -m env_1:model_2
 
 ---
 
-#### 2. Claude 订阅 (Claude Subscription)
+#### 2. OpenAI API
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+> API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+
+**认证方式**：
+- 交互式配置：`illusion auth login` → 选择 OpenAI
+- 环境变量：`OPENAI_API_KEY`
+
+---
+
+#### 3. 自定义提供商
+
+`illusion auth login` 选择"自定义提供商"后，依次输入：
+
+1. API 格式（openai / anthropic）
+2. API 端点
+3. API 密钥
+4. 模型名称
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.your-llm.com/v1",
+    "model_1": "your-model-name"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+---
+
+#### 4. 多提供商混合配置
+
+通过 `illusion auth login` 配置多个环境，使用 `illusion auth switch` 或 `/model` 命令切换：
 
 ```json
 {
@@ -491,105 +547,26 @@ illusion -m env_1:model_2
     "model_1": "claude-sonnet-4-6",
     "model_2": "claude-opus-4-6"
   },
-  "model": "env_1:model_1"
-}
-```
-
-**认证方式**：
-```bash
-illusion auth claude-login
-```
-
----
-
-#### 3. OpenAI API
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**认证方式**：
-- 环境变量：`OPENAI_API_KEY`
-- 凭据存储：`illusion auth login openai`
-
----
-
-#### 4. 阿里云 DashScope
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model_1": "qwen-max",
-    "api_key": "sk-xxxxx"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**认证方式**：
-- 环境变量：`DASHSCOPE_API_KEY`
-- 凭据存储：`illusion auth login dashscope`
-
----
-
-#### 6. 自定义 OpenAI 兼容端点
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://api.your-llm.com/v1",
-    "model_1": "llama-3-70b",
-    "api_key": "your-api-key"
-  },
-  "model": "env_1:model_1"
-}
-```
-
----
-
-#### 7. 多提供商混合配置
-
-同时配置多个不同提供商，通过 `model` 字段切换：
-
-```json
-{
-  "env_1": {
-    "api_format": "anthropic",
-    "base_url": null,
-    "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
-  },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
-  },
-  "env_3": {
-    "api_format": "openai",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model_1": "qwen-max",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1"
 }
 ```
 
+> API 密钥可直接填在 `env_N.api_key` 中，也可存储到 credentials.json（更安全，由 `illusion auth login` 管理）。
+
 **切换方式**：
 ```bash
-# 使用 /model 命令交互式切换
+# 交互式切换环境
+illusion auth switch
+
+# 直接指定环境
+illusion auth switch env_2
+
+# 使用 /model 命令交互式切换模型
 /model
 
 # 使用 -m 参数直接指定
@@ -837,7 +814,6 @@ illusion mcp remove <name>       # 移除服务器
 |--------|------|
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
 | `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `DASHSCOPE_API_KEY` | 阿里云 DashScope API 密钥 |
 | `ANTHROPIC_MODEL` / `illusion_MODEL` | 默认模型 |
 | `ANTHROPIC_BASE_URL` / `illusion_BASE_URL` | API 端点 |
 | `illusion_MAX_TOKENS` | 最大 token 数 |

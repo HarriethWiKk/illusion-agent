@@ -4,7 +4,7 @@
 
 **AI-Powered Command-Line Programming Assistant**
 
-*Python port of Claude Code | Adapted from OpenHarness (0.1.0)*
+*The best of many worlds, unified into one intelligent coding tool*
 
 [中文版](README.md) | English
 
@@ -14,16 +14,16 @@
 
 ## 📖 Introduction
 
-IllusionCode is an open-source AI-powered command-line programming assistant, migrated and adapted from OpenHarness (0.1.0) with full Claude Code prompt injection and optimized details and configurations. It helps developers efficiently complete software engineering tasks. It supports multiple AI providers, offers a rich set of tools and command systems, and features multi-agent collaboration capabilities.
+IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, and more comprehensive Markdown terminal rendering than comparable projects.
 
 ### Core Features
 
 - 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support, path compatibility optimization
 - 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component, suppressing resize event interference
-- 🌍 **Full Chinese Support** - Command system, UI selectors, error messages fully localized for better Chinese user experience
-- 📝 **Markdown Terminal Rendering** - Supports tables, bold, italic, inline code, links and other rich text styles
-- 📂 **Project-Level Config Friendly** - Auto-generate skills 、 rules 、 mcp 、 plunges directories, project-level skills override global ones
-- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, Alibaba Cloud DashScope, etc.
+- 🌍 **Bilingual Interface** - All CLI output automatically switches between Chinese and English based on `ui_language` setting
+- 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
+- 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
+- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, and any OpenAI-compatible endpoint
 - 🛠️ **Rich Toolset** - 38+ built-in tools + MCP dynamic tool extension
 - ⌨️ **51 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
@@ -32,17 +32,25 @@ IllusionCode is an open-source AI-powered command-line programming assistant, mi
 - 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
 - 🎨 **Modern Terminal Interface** - React + Ink component-based TUI
 
-### Project Highlights
+### Design Origins & Innovations
 
-**Windows User Friendly**: Auto-detect Git installation path, unified PowerShell and Bash tool processing, automatic path separator compatibility, out-of-the-box experience for Windows users.
+**Inherited from Claude Code**: Complete injection of Claude Code's system prompts, tool definitions, permission model, and multi-agent coordination architecture, ensuring behavioral consistency.
+
+**Inspired by OpenHarness**: Python architecture design references OpenHarness's ideas.
+
+**Cron Architecture Aligned with OpenClaw**: The scheduled task system uses the same scheduler architecture as OpenClaw, supporting independent session execution, execution history tracking, and consecutive error monitoring.
+
+**cc-switch Proxy Routing**: Local proxy routing through the cc-switch reverse proxy tool, supporting request forwarding to different AI providers.
+
+**Deep Windows Optimization**: Auto-detect Git installation path, unified PowerShell and Bash tool processing, automatic path separator compatibility, out-of-the-box experience for Windows users.
 
 **Zero Terminal Flicker**: Uses Ink `<Static>` component architecture, static rendering for completed messages, dynamic rendering for streaming messages, completely solving terminal flicker issues.
 
-**Chinese Experience First**: All 51 slash commands support Chinese responses, UI selectors fully localized, multi-line messages translated line by line, error messages bilingual.
+**Bilingual Interface**: All CLI output (auth, mcp, plugin, cron, session, etc.) automatically switches language via the i18n system based on the `ui_language` field. Language preference can be selected on first run.
 
-**Markdown Rich Text Rendering**: Full rendering of tables, bold, italic, inline code, links and other formats in terminal, significantly improving AI response readability.
+**Comprehensive Markdown Rendering**: Full rendering of box-drawing tables, rounded card-style code blocks, multi-color rich text (bold, italic, inline code, links), significantly improving AI response readability.
 
-**Project-Level Config Automation**: Auto-detect `<project>/.claude/rules/` and `<project>/.claude/skills/` directories, project-level configuration takes precedence over global configuration, facilitating team collaboration.
+**Project-Level Config Automation**: Auto-generate `<project>/.illusion/rules/` and `<project>/.illusion/skills/` directories, project-level configuration takes precedence over global configuration, facilitating team collaboration.
 
 ---
 
@@ -73,7 +81,7 @@ illusion
 illusion -p "Analyze the structure of this project"
 
 # Specify model
-illusion -m sonnet
+illusion -m env_1:model_2
 
 # Continue most recent session
 illusion --continue
@@ -96,10 +104,10 @@ illusion --api-format openai
 
 ```bash
 # Authentication management
-illusion auth login              # Login
-illusion auth status             # View authentication status
-illusion auth logout             # Logout
-illusion auth switch <provider>  # Switch provider
+illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI)
+illusion auth status             # View credential status for all environments
+illusion auth logout [env_N]     # Clear environment credentials
+illusion auth switch [env_N]     # Switch active environment
 
 # MCP management
 illusion mcp list                # List MCP servers
@@ -174,11 +182,9 @@ Supports multiple AI providers:
 
 | Provider | API Format | Authentication |
 |----------|------------|----------------|
-| Anthropic Claude | anthropic | API Key / OAuth |
-| OpenAI | openai | API Key |
-| Alibaba Cloud DashScope | openai | API Key |
-| AWS Bedrock | anthropic | API Key |
-| Google Vertex | anthropic | API Key |
+| Anthropic Claude | anthropic | API Key |
+| OpenAI / Compatible | openai | API Key |
+| Custom Provider | anthropic / openai | API Key |
 
 ### Tool System
 
@@ -258,26 +264,34 @@ Built-in 7 specialized Agents:
 
 #### Credentials File (credentials.json)
 
-The credentials file is located at `~/.illusion/credentials.json` for secure API key storage. It is automatically managed by the `illusion auth login` command, but can also be edited manually.
+The credentials file is located at `~/.illusion/credentials.json` for secure API key storage. It is automatically managed by the `illusion auth login` command, but can also be edited manually. Credentials are stored by `env_N` groups, corresponding to the environment configurations in `settings.json`.
 
 ```json
 {
-  "anthropic": {
+  "env_1": {
     "api_key": "sk-ant-xxxxx"
   },
-  "openai": {
-    "api_key": "sk-xxxxx"
-  },
-  "dashscope": {
+  "env_2": {
     "api_key": "sk-xxxxx"
   }
 }
 ```
 
 **Field description:**
-- Top-level keys are provider identifiers (anthropic, openai, dashscope, etc.)
-- Each provider can store credentials like `api_key`
-- File permissions are automatically set to 600 (owner read/write only)
+- Top-level keys are environment identifiers (env_1, env_2, etc.), matching env_N in settings.json
+- Each environment stores credentials like `api_key`
+- File permissions are automatically set to 600 (see explanation below)
+
+**API Key Storage Options**: API keys can be stored in two ways, choose based on your needs:
+
+| Method | Location | Advantage | Disadvantage |
+|--------|----------|-----------|--------------|
+| **Secure mode** | `credentials.json` (managed by `illusion auth login`) | Keys separated from config, easier management, file permissions protected | Requires extra file |
+| **Convenient mode** | `env_N.api_key` field in `settings.json` | All config in one file, simple and direct | Keys in plaintext, be careful when sharing config |
+
+Both methods can be mixed. Runtime read priority: `env_N.api_key` > environment variables > `credentials.json`.
+
+> **File Permission 600 Explained**: `600` is a Unix/Linux file permission code meaning "only the file owner can read and write, all other users have no access." In numeric notation: `rw-------`, where `6` (read+write) applies to the owner, `0` to the group, and `0` to others. On Windows systems, this setting is silently skipped (Windows uses a different ACL permission model). This restriction protects API keys from being read by other users on the same system.
 
 ### Configuration Priority
 
@@ -304,14 +318,12 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -319,7 +331,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
 }
 ```
 
-> **Tip**: The `model` field format is `env_N:model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command.
+> **Tip**: The `model` field format is `env_N:model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command. API keys can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
 
 #### Complete Configuration Structure
 
@@ -329,14 +341,12 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1",
   "context_window": 200000,
@@ -373,7 +383,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
   },
   "enabled_plugins": {},
   "mcp_servers": {},
-  "ui_language": "en",
+  "ui_language": "en-US",
   "output_style": "default",
   "fast_mode": false,
   "effort": "medium",
@@ -392,9 +402,10 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
 | `system_prompt` | string\|null | null | Custom system prompt (global override) | `"You are a professional Python developer"` |
 | `max_tokens` | int | 16384 | Maximum output token count | `32768` |
 | `max_turns` | int | 200 | Maximum conversation turns | `500` |
-| `ui_language` | string | "en" | UI language | `"zh-CN"` |
+| `ui_language` | string | "en-US" | UI language | `"zh-CN"` |
 | `fast_mode` | bool | false | Fast mode | `true` |
-| `effort` | string | "medium" | Effort level: low/medium/high | `"high"` |
+| `effort` | string | "medium" | Reasoning effort level: low/medium/high | `"high"` |
+| `passes` | int | 1 | Reasoning pass count (1-8), controls how many times the AI iterates on the same problem; higher values = deeper reasoning but longer time | `2` |
 | `verbose` | bool | false | Verbose output mode | `true` |
 
 ---
@@ -409,7 +420,7 @@ IllusionCode supports managing multiple environment/provider configurations thro
 |-------|------|----------|-------------|
 | `api_format` | string | Yes | API format: anthropic / openai |
 | `base_url` | string\|null | No | Custom API endpoint, null uses default endpoint |
-| `api_key` | string | No | API key (recommend using environment variables or credential storage) |
+| `api_key` | string | No | API key (can be filled directly, or left empty for `illusion auth login` to store in credentials.json) |
 | `system_prompt` | string\|null | No | System prompt for this environment (overrides global) |
 | `model_N` | string | No | Model name, supports multiple: model_1, model_2, model_3... |
 
@@ -424,8 +435,7 @@ Configure multiple models under the same environment, switch via `env_N:model_N`
     "base_url": "https://integrate.api.nvidia.com/v1",
     "model_1": "stepfun-ai/step-3.5-flash",
     "model_2": "minimaxai/minimax-m2.7",
-    "model_3": "meta/llama-3.1-405b-instruct",
-    "api_key": "nvapi-xxxxx"
+    "model_3": "meta/llama-3.1-405b-instruct"
   },
   "model": "env_1:model_1"
 }
@@ -456,16 +466,17 @@ illusion -m env_1:model_2
     "api_format": "anthropic",
     "base_url": null,
     "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
+    "model_2": "claude-opus-4-6"
   },
   "model": "env_1:model_1"
 }
 ```
 
+> API key can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
+
 **Authentication**:
+- Interactive setup: `illusion auth login` → select Anthropic
 - Environment variable: `ANTHROPIC_API_KEY`
-- Credential storage: `illusion auth login anthropic`
 
 **Supported Model Aliases**:
 | Alias | Actual Model | Description |
@@ -481,7 +492,52 @@ illusion -m env_1:model_2
 
 ---
 
-#### 2. Claude Subscription
+#### 2. OpenAI API
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+> API key can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
+
+**Authentication**:
+- Interactive setup: `illusion auth login` → select OpenAI
+- Environment variable: `OPENAI_API_KEY`
+
+---
+
+#### 3. Custom Provider
+
+After selecting "Custom provider" in `illusion auth login`, enter:
+
+1. API format (openai / anthropic)
+2. API endpoint
+3. API key
+4. Model name
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.your-llm.com/v1",
+    "model_1": "your-model-name"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+---
+
+#### 4. Multi-Provider Mixed Configuration
+
+Configure multiple environments via `illusion auth login`, switch using `illusion auth switch` or `/model`:
 
 ```json
 {
@@ -491,104 +547,25 @@ illusion -m env_1:model_2
     "model_1": "claude-sonnet-4-6",
     "model_2": "claude-opus-4-6"
   },
-  "model": "env_1:model_1"
-}
-```
-
-**Authentication**:
-```bash
-illusion auth claude-login
-```
-
----
-
-#### 3. OpenAI API
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**Authentication**:
-- Environment variable: `OPENAI_API_KEY`
-- Credential storage: `illusion auth login openai`
-
----
-
-#### 4. Alibaba Cloud DashScope
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model_1": "qwen-max",
-    "api_key": "sk-xxxxx"
-  },
-  "model": "env_1:model_1"
-}
-```
-
-**Authentication**:
-- Environment variable: `DASHSCOPE_API_KEY`
-- Credential storage: `illusion auth login dashscope`
-
----
-
-#### 6. Custom OpenAI Compatible Endpoint
-
-```json
-{
-  "env_1": {
-    "api_format": "openai",
-    "base_url": "https://api.your-llm.com/v1",
-    "model_1": "llama-3-70b",
-    "api_key": "your-api-key"
-  },
-  "model": "env_1:model_1"
-}
-```
-
----
-
-#### 7. Multi-Provider Mixed Configuration
-
-Configure multiple different providers simultaneously, switch via the `model` field:
-
-```json
-{
-  "env_1": {
-    "api_format": "anthropic",
-    "base_url": null,
-    "model_1": "claude-sonnet-4-6",
-    "model_2": "claude-opus-4-6",
-    "api_key": "sk-ant-xxxxx"
-  },
   "env_2": {
     "api_format": "openai",
     "base_url": "https://api.openai.com/v1",
-    "model_1": "gpt-5.4",
-    "api_key": "sk-xxxxx"
-  },
-  "env_3": {
-    "api_format": "openai",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model_1": "qwen-max",
-    "api_key": "sk-xxxxx"
+    "model_1": "gpt-5.4"
   },
   "model": "env_1:model_1"
 }
 ```
 
+> API keys can be placed directly in `env_N.api_key`, or stored in credentials.json (more secure, managed by `illusion auth login`).
+
 **Switching methods**:
 ```bash
+# Interactive environment switch
+illusion auth switch
+
+# Directly specify environment
+illusion auth switch env_2
+
 # Use /model command to switch interactively
 /model
 
@@ -837,7 +814,6 @@ Supported environment variables:
 |---------------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `OPENAI_API_KEY` | OpenAI API key |
-| `DASHSCOPE_API_KEY` | Alibaba Cloud DashScope API key |
 | `ANTHROPIC_MODEL` / `illusion_MODEL` | Default model |
 | `ANTHROPIC_BASE_URL` / `illusion_BASE_URL` | API endpoint |
 | `illusion_MAX_TOKENS` | Maximum token count |

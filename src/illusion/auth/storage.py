@@ -226,11 +226,57 @@ def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None
 
 def list_stored_providers() -> list[str]:
     """返回文件中存储了凭据的提供商列表
-    
+
     Returns:
         list[str]: 提供商名称列表
     """
     return list(_load_creds_file().keys())
+
+
+# ---------------------------------------------------------------------------
+# env_N 凭据存储（按环境分组）
+# ---------------------------------------------------------------------------
+
+
+def store_env_credential(env_key: str, key: str, value: str) -> None:
+    """按 env_N 分组存储凭据
+
+    Args:
+        env_key: 环境键名（如 "env_1"）
+        key: 键名（如 "api_key"）
+        value: 凭据值
+    """
+    data = _load_creds_file()
+    data.setdefault(env_key, {})[key] = value
+    _save_creds_file(data)
+    log.debug("Stored %s/%s in credentials file (env)", env_key, key)
+
+
+def load_env_credential(env_key: str, key: str) -> str | None:
+    """按 env_N 读取凭据，未找到返回 None
+
+    Args:
+        env_key: 环境键名（如 "env_1"）
+        key: 键名（如 "api_key"）
+
+    Returns:
+        str | None: 凭据值或 None
+    """
+    data = _load_creds_file()
+    return data.get(env_key, {}).get(key)
+
+
+def clear_env_credentials(env_key: str) -> None:
+    """删除 env_N 的所有存储凭据
+
+    Args:
+        env_key: 环境键名（如 "env_1"）
+    """
+    data = _load_creds_file()
+    if env_key in data:
+        del data[env_key]
+        _save_creds_file(data)
+    log.debug("Cleared credentials for env: %s", env_key)
 
 
 def store_external_binding(binding: ExternalAuthBinding) -> None:

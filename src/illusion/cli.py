@@ -30,7 +30,7 @@ from __future__ import annotations
 import json  # JSON 解析和序列化
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
-from typing import Optional  # 可选类型注解
+from typing import Any, Optional  # 类型注解
 
 import typer  # CLI 框架
 
@@ -61,8 +61,8 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="illusion",
     help=(
-        "Illusion Code - An AI-powered coding assistant.\n\n"
-        "Starts an interactive session by default, use -p/--print for non-interactive output."
+        "Illusion Code - AI 驱动的编程助手\n"
+        "默认启动交互式会话，使用 -p/--print 进入非交互模式"
     ),
     add_completion=False,
     rich_markup_mode="rich",
@@ -75,10 +75,10 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 
 # 创建子命令应用（mcp、plugin、auth、cron）
-mcp_app = typer.Typer(name="mcp", help="Manage MCP servers")
-plugin_app = typer.Typer(name="plugin", help="Manage plugins")
-auth_app = typer.Typer(name="auth", help="Manage authentication")
-cron_app = typer.Typer(name="cron", help="Manage cron scheduler and jobs")
+mcp_app = typer.Typer(name="mcp", help="MCP 服务器管理 / Manage MCP servers")
+plugin_app = typer.Typer(name="plugin", help="插件管理 / Manage plugins")
+auth_app = typer.Typer(name="auth", help="认证管理 / Manage authentication")
+cron_app = typer.Typer(name="cron", help="定时任务管理 / Manage cron scheduler and jobs")
 
 # 注册子命令到主应用
 app.add_typer(mcp_app)
@@ -92,23 +92,35 @@ app.add_typer(cron_app)
 @mcp_app.command("list")
 def mcp_list() -> None:
     """列出已配置的 MCP 服务器
-    
+
     加载当前设置和插件，列出所有已配置的 MCP 服务器及其传输类型。
     """
-    from illusion.config import load_settings  # 加载设置
-    from illusion.mcp.config import load_mcp_server_configs  # 加载 MCP 配置
-    from illusion.plugins import load_plugins  # 加载插件
+    from illusion.config import load_settings
+    from illusion.mcp.config import load_mcp_server_configs
+    from illusion.plugins import load_plugins
 
-    settings = load_settings()  # 加载应用设置
+    settings = load_settings()
     cwd = str(Path.cwd())
-    plugins = load_plugins(settings, cwd)  # 加载插件
-    configs = load_mcp_server_configs(settings, plugins, cwd)  # 加载 MCP 服务器配置
-    if not configs:  # 如果没有配置
-        print("No MCP servers configured.")
+    plugins = load_plugins(settings, cwd)
+    configs = load_mcp_server_configs(settings, plugins, cwd)
+    if not configs:
+        print(_t("mcp_none"))
         return
-    for name, cfg in configs.items():  # 遍历所有配置
-        transport = cfg.get("transport", cfg.get("command", "unknown"))  # 获取传输类型
-        print(f"  {name}: {transport}")  # 打印服务器名称和传输类型
+    for name, cfg in configs.items():
+        if hasattr(cfg, "type"):
+            transport = cfg.type
+            if transport == "stdio":
+                cmd = getattr(cfg, "command", "")
+                detail = f" ({cmd})" if cmd else ""
+            elif transport in ("http", "ws"):
+                url = getattr(cfg, "url", "")
+                detail = f" ({url})" if url else ""
+            else:
+                detail = ""
+        else:
+            transport = "unknown"
+            detail = ""
+        print(f"  {name}: {transport}{detail}")
 
 
 @mcp_app.command("add")
@@ -117,24 +129,30 @@ def mcp_add(
     config_json: str = typer.Argument(..., help="Server config as JSON string"),
 ) -> None:
     """添加 MCP 服务器配置
-    
+
     Args:
         name: 服务器名称
         config_json: 服务器配置的 JSON 字符串
     """
-    from illusion.config import load_settings, save_settings  # 加载和保存设置
+    from illusion.config import load_settings, save_settings
+    from illusion.mcp.types import McpServerConfig
 
-    settings = load_settings()  # 加载当前设置
+    settings = load_settings()
     try:
-        cfg = json.loads(config_json)  # 解析 JSON 配置
-    except json.JSONDecodeError as exc:  # JSON 解析错误
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        raw = json.loads(config_json)
+    except json.JSONDecodeError as exc:
+        print(_t("mcp_invalid_json", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
-    if not isinstance(settings.mcp_servers, dict):  # 确保 mcp_servers 是字典
+    try:
+        cfg = McpServerConfig.model_validate(raw)
+    except Exception as exc:
+        print(_t("mcp_invalid_config", exc=exc), file=sys.stderr)
+        raise typer.Exit(1)
+    if not isinstance(settings.mcp_servers, dict):
         settings.mcp_servers = {}
-    settings.mcp_servers[name] = cfg  # 添加或更新服务器配置
-    save_settings(settings)  # 保存设置
-    print(f"Added MCP server: {name}")
+    settings.mcp_servers[name] = cfg
+    save_settings(settings)
+    print(_t("mcp_added", name=name))
 
 
 @mcp_app.command("remove")
@@ -142,39 +160,36 @@ def mcp_remove(
     name: str = typer.Argument(..., help="Server name to remove"),
 ) -> None:
     """移除 MCP 服务器配置
-    
+
     Args:
         name: 要移除的服务器名称
     """
-    from illusion.config import load_settings, save_settings  # 加载和保存设置
+    from illusion.config import load_settings, save_settings
 
-    settings = load_settings()  # 加载当前设置
-    if not isinstance(settings.mcp_servers, dict) or name not in settings.mcp_servers:  # 检查服务器是否存在
-        print(f"MCP server not found: {name}", file=sys.stderr)
+    settings = load_settings()
+    if not isinstance(settings.mcp_servers, dict) or name not in settings.mcp_servers:
+        print(_t("mcp_not_found", name=name), file=sys.stderr)
         raise typer.Exit(1)
-    del settings.mcp_servers[name]  # 删除服务器配置
-    save_settings(settings)  # 保存设置
-    print(f"Removed MCP server: {name}")
+    del settings.mcp_servers[name]
+    save_settings(settings)
+    print(_t("mcp_removed", name=name))
 
 
 # ---- plugin 子命令 ----
 
 @plugin_app.command("list")
 def plugin_list() -> None:
-    """列出已安装的插件
-    
-    显示所有已安装插件的名称、状态和描述。
-    """
-    from illusion.config import load_settings  # 加载设置
-    from illusion.plugins import load_plugins  # 加载插件
+    """列出已安装的插件"""
+    from illusion.config import load_settings
+    from illusion.plugins import load_plugins
 
-    settings = load_settings()  # 加载应用设置
-    plugins = load_plugins(settings, str(Path.cwd()))  # 加载已安装的插件
-    if not plugins:  # 如果没有插件
-        print("No plugins installed.")
+    settings = load_settings()
+    plugins = load_plugins(settings, str(Path.cwd()))
+    if not plugins:
+        print(_t("plugin_none"))
         return
-    for plugin in plugins:  # 遍历所有插件
-        status = "enabled" if plugin.enabled else "disabled"  # 获取插件状态
+    for plugin in plugins:
+        status = _t("plugin_enabled") if plugin.enabled else _t("plugin_disabled")
         print(f"  {plugin.name} [{status}] - {plugin.description or ''}")
 
 
@@ -182,48 +197,36 @@ def plugin_list() -> None:
 def plugin_install(
     source: str = typer.Argument(..., help="Plugin source (path or URL)"),
 ) -> None:
-    """从源路径安装插件
-    
-    Args:
-        source: 插件源路径（本地路径或 URL）
-    """
-    from illusion.plugins.installer import install_plugin_from_path  # 插件安装器
+    """从源路径安装插件"""
+    from illusion.plugins.installer import install_plugin_from_path
 
-    result = install_plugin_from_path(source)  # 从路径安装插件
-    print(f"Installed plugin: {result}")
+    result = install_plugin_from_path(source)
+    print(_t("plugin_installed", name=result))
 
 
 @plugin_app.command("uninstall")
 def plugin_uninstall(
     name: str = typer.Argument(..., help="Plugin name to uninstall"),
 ) -> None:
-    """卸载插件
-    
-    Args:
-        name: 要卸载的插件名称
-    """
-    from illusion.plugins.installer import uninstall_plugin  # 插件卸载器
+    """卸载插件"""
+    from illusion.plugins.installer import uninstall_plugin
 
-    uninstall_plugin(name)  # 卸载指定插件
-    print(f"Uninstalled plugin: {name}")
+    uninstall_plugin(name)
+    print(_t("plugin_uninstalled", name=name))
 
 
 # ---- cron 子命令（对齐 openclaw cron CLI） ----
 
 @cron_app.command("start")
 def cron_start() -> None:
-    """启动 cron 调度器
-
-    在后台启动 cron 调度器，用于定时执行已配置的任务。
-    任务通过独立会话执行，不阻塞当前终端。
-    """
+    """启动 cron 调度器"""
     from illusion.services.cron_scheduler import is_scheduler_running, start_daemon
 
     if is_scheduler_running():
-        print("Cron scheduler is already running.")
+        print(_t("cron_already_running"))
         return
     pid = start_daemon()
-    print(f"Cron scheduler started (pid={pid})")
+    print(_t("cron_started", pid=pid))
 
 
 @cron_app.command("stop")
@@ -232,9 +235,9 @@ def cron_stop() -> None:
     from illusion.services.cron_scheduler import stop_scheduler
 
     if stop_scheduler():
-        print("Cron scheduler stopped.")
+        print(_t("cron_stopped"))
     else:
-        print("Cron scheduler is not running.")
+        print(_t("cron_not_running"))
 
 
 @cron_app.command("status")
@@ -243,49 +246,45 @@ def cron_status_cmd() -> None:
     from illusion.services.cron_scheduler import scheduler_status
 
     status = scheduler_status()
-    state = "running" if status["running"] else "stopped"
+    state = _t("cron_state_running") if status["running"] else _t("cron_state_stopped")
     print(f"Scheduler: {state}" + (f" (pid={status['pid']})" if status["pid"] else ""))
-    print(f"Jobs:      {status['enabled_jobs']} enabled / {status['total_jobs']} total")
-    print(f"Log:       {status['log_file']}")
+    print(f"Jobs: {status['enabled_jobs']} {_t('cron_enabled')} / {status['total_jobs']} total")
+    print(f"Log: {status['log_file']}")
 
 
 @cron_app.command("list")
 def cron_list_cmd() -> None:
-    """列出所有 cron 任务
-
-    显示任务名称、启用状态、计划、提示词、上次/下次运行时间。
-    """
+    """列出所有 cron 任务"""
     from illusion.services.cron import load_cron_jobs
 
     jobs = load_cron_jobs()
     if not jobs:
-        print("No cron jobs configured.")
+        print(_t("cron_jobs_none"))
         return
+    never = _t("cron_never")
+    na = _t("cron_na")
     for job in jobs:
-        # 启用状态
         enabled = "+" if job.get("enabled", True) else "-"
         name = job.get("name", job.get("id", "?"))
         schedule = job.get("schedule", "?")
-        recurring = "recurring" if job.get("recurring", True) else "one-shot"
+        recurring = _t("cron_recurring") if job.get("recurring", True) else _t("cron_oneshot")
 
-        # 时间格式化
-        last = job.get("last_run", "never")
-        if last != "never":
+        last = job.get("last_run", never)
+        if last != never:
             last = last[:19]
         last_status = job.get("last_status", "")
         status_indicator = f" [{last_status}]" if last_status else ""
 
-        next_run = job.get("next_run", "n/a")
-        if next_run != "n/a":
+        next_run = job.get("next_run", na)
+        if next_run != na:
             next_run = next_run[:19]
 
-        # 连续错误
         errors = job.get("consecutive_errors", 0)
-        error_str = f" [errors: {errors}]" if errors > 0 else ""
+        error_str = f" [{_t('cron_errors', n=errors)}]" if errors > 0 else ""
 
         print(f"  [{enabled}] {name}  {schedule} ({recurring})")
-        print(f"        prompt: {job.get('prompt', '?')[:60]}")
-        print(f"        last: {last}{status_indicator}  next: {next_run}{error_str}")
+        print(f"        {_t('cron_prompt_label')}: {job.get('prompt', '?')[:60]}")
+        print(f"        {_t('cron_last_label')}: {last}{status_indicator}  {_t('cron_next_label')}: {next_run}{error_str}")
 
 
 @cron_app.command("toggle")
@@ -297,20 +296,17 @@ def cron_toggle_cmd(
     from illusion.services.cron import set_job_enabled
 
     if not set_job_enabled(name, enabled):
-        print(f"Cron job not found: {name}")
+        print(_t("cron_job_not_found", name=name))
         raise typer.Exit(1)
-    state = "enabled" if enabled else "disabled"
-    print(f"Cron job '{name}' is now {state}")
+    state = _t("cron_enabled") if enabled else _t("cron_disabled")
+    print(_t("cron_job_state", name=name, state=state))
 
 
 @cron_app.command("run")
 def cron_run_cmd(
     name: str = typer.Argument(..., help="Job name or ID"),
 ) -> None:
-    """手动触发执行 cron 任务
-
-    在独立会话中执行任务的 prompt，不阻塞当前终端。
-    """
+    """手动触发执行 cron 任务"""
     import asyncio
 
     from illusion.services.cron import get_cron_job
@@ -318,26 +314,26 @@ def cron_run_cmd(
 
     job = get_cron_job(name)
     if job is None:
-        print(f"Cron job not found: {name}")
+        print(_t("cron_job_not_found", name=name))
         raise typer.Exit(1)
 
     prompt = job.get("prompt", "")
     if not prompt:
-        print(f"Job has no prompt: {name}")
+        print(_t("cron_no_prompt", name=name))
         raise typer.Exit(1)
 
-    print(f"Running job '{name}'...")
+    print(_t("cron_running_job", name=name))
     entry = asyncio.run(execute_job(job))
     status = entry.get("status", "unknown")
     rc = entry.get("returncode", "?")
-    print(f"Finished: {status} (rc={rc})")
+    print(_t("cron_finished", status=status, rc=rc))
 
     stdout = entry.get("stdout", "").strip()
     stderr = entry.get("stderr", "").strip()
     if stdout:
-        print(f"Output:\n{stdout}")
+        print(f"{_t('cron_output')}\n{stdout}")
     if stderr and status != "success":
-        print(f"Error:\n{stderr}")
+        print(f"{_t('cron_error')}\n{stderr}")
 
 
 @cron_app.command("history")
@@ -350,7 +346,7 @@ def cron_history_cmd(
 
     entries = load_history(limit=limit, job_name=name)
     if not entries:
-        print("No execution history.")
+        print(_t("cron_no_history"))
         return
     for entry in entries:
         ts = entry.get("started_at", "?")[:19]
@@ -360,11 +356,11 @@ def cron_history_cmd(
         prompt_preview = entry.get("prompt", "")[:40]
         print(f"  {ts}  {job_name}  {status} (rc={rc})")
         if prompt_preview:
-            print(f"    prompt: {prompt_preview}")
+            print(f"    {_t('cron_prompt_label')}: {prompt_preview}")
         stderr = entry.get("stderr", "").strip()
         if stderr and status != "success":
             for line in stderr.splitlines()[:3]:
-                print(f"    stderr: {line}")
+                print(f"    {_t('cron_error')} {line}")
 
 
 @cron_app.command("logs")
@@ -376,7 +372,7 @@ def cron_logs_cmd(
 
     log_path = get_logs_dir() / "cron_scheduler.log"
     if not log_path.exists():
-        print("No scheduler log found. Start the scheduler with: illusion cron start")
+        print(_t("cron_no_log"))
         return
     content = log_path.read_text(encoding="utf-8", errors="replace")
     tail = content.splitlines()[-lines:]
@@ -386,135 +382,298 @@ def cron_logs_cmd(
 
 # ---- auth 子命令 ----
 
-# 提供商名称到人类可读标签的映射，用于交互式提示
-_PROVIDER_LABELS: dict[str, str] = {
-    "anthropic": "Anthropic (Claude API)",
-    "openai": "OpenAI / compatible",
-    "dashscope": "Alibaba DashScope",
-    "bedrock": "AWS Bedrock",
-    "vertex": "Google Vertex AI",
+# i18n 从共享模块导入
+from illusion.config.i18n import MESSAGES as _I18N, t as _t
+
+
+def _ensure_language() -> str:
+    """确保 ui_language 已设置，未设置时让用户选择
+
+    Returns:
+        str: 当前 ui_language 值
+    """
+    from illusion.config import load_settings, save_settings
+    settings = load_settings()
+    if settings.ui_language:
+        return settings.ui_language
+
+    print(_t("select_language"))
+    print("  1. 中文 (zh-CN)")
+    print("  2. English (en-US)")
+    raw = typer.prompt("1/2", default="1")
+    lang = "zh-CN" if raw.strip() == "1" else "en-US"
+    settings.ui_language = lang
+    save_settings(settings)
+    return lang
+
+
+_PROVIDER_OPTIONS: list[tuple[str, dict[str, str]]] = [
+    ("custom", _I18N["custom_provider"]),
+    ("anthropic", _I18N["anthropic_label"]),
+    ("openai", _I18N["openai_label"]),
+]
+
+_API_FORMAT_OPTIONS: list[tuple[str, str]] = [
+    ("openai", "OpenAI"),
+    ("anthropic", "Anthropic"),
+]
+
+_DEFAULT_ENDPOINTS: dict[str, str] = {
+    "anthropic": "https://api.anthropic.com",
+    "openai": "https://api.openai.com/v1",
+}
+
+_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-5.4",
 }
 
 
 @auth_app.command("login")
-def auth_login(
-    provider: Optional[str] = typer.Argument(None, help="Provider name (anthropic, openai, dashscope, …)"),
-) -> None:
-    """交互式认证提供商
-    
-    无参数运行时从菜单选择提供商。
-    支持的提供商：anthropic, openai, dashscope, bedrock, vertex。
-    
-    Args:
-        provider: 可选的提供商名称
+def auth_login() -> None:
+    """交互式配置提供商认证
+
+    流程：选择提供商 → API 格式 → 端点 → 密钥 → 模型 → 保存
     """
-    from illusion.auth.flows import ApiKeyFlow  # API 密钥流程
-    from illusion.auth.manager import AuthManager  # 认证管理器
-    from illusion.auth.storage import store_credential  # 凭证存储
+    from illusion.auth.flows import ApiKeyFlow
+    from illusion.auth.manager import AuthManager
+    from illusion.auth.storage import store_env_credential
 
-    manager = AuthManager()  # 创建认证管理器实例
+    _ensure_language()
+    manager = AuthManager()
 
-    if provider is None:  # 如果没有指定提供商
-        print("Select a provider to authenticate:", flush=True)
-        labels = list(_PROVIDER_LABELS.items())  # 获取提供商标签列表
-        for i, (name, label) in enumerate(labels, 1):  # 遍历并显示选项
-            print(f"  {i}. {label} [{name}]", flush=True)
-        raw = typer.prompt("Enter number or provider name", default="1")  # 提示用户选择
-        try:
-            idx = int(raw.strip()) - 1  # 转换为索引
-            if 0 <= idx < len(labels):  # 有效索引范围
-                provider = labels[idx][0]  # 获取提供商名称
-            else:
-                print("Invalid selection.", file=sys.stderr)
-                raise typer.Exit(1)
-        except ValueError:  # 输入不是数字
-            provider = raw.strip()  # 直接使用输入作为提供商名称
-
-    provider = provider.lower()  # 转换为小写
-
-    # 基于 API 密钥的提供商
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex"):
-        label = _PROVIDER_LABELS.get(provider, provider)  # 获取标签
-        flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")  # 创建 API 密钥流程
-        try:
-            key = flow.run()  # 运行流程获取 API 密钥
-        except ValueError as exc:  # 获取失败
-            print(f"Error: {exc}", file=sys.stderr)
+    # 1. 选择提供商
+    print(_t("select_provider"))
+    for i, (key, labels) in enumerate(_PROVIDER_OPTIONS, 1):
+        lang = manager.settings.ui_language or "en-US"
+        label = labels.get(lang, labels.get("en-US", key))
+        print(f"  {i}. {label}")
+    raw = typer.prompt(_t("enter_number"), default="1")
+    try:
+        idx = int(raw.strip()) - 1
+        if 0 <= idx < len(_PROVIDER_OPTIONS):
+            provider_choice = _PROVIDER_OPTIONS[idx][0]
+        else:
+            print(_t("invalid_selection"), file=sys.stderr)
             raise typer.Exit(1)
-        store_credential(provider, "api_key", key)  # 存储凭证
-        # 保持 settings.api_key 与活动提供商同步
-        try:
-            manager.store_credential(provider, "api_key", key)  # 存储到管理器
-        except Exception:
-            pass
-        print(f"{label} API key saved.", flush=True)
-        return
+    except ValueError:
+        print(_t("invalid_selection"), file=sys.stderr)
+        raise typer.Exit(1)
 
-    print(f"Unknown provider: {provider!r}. Known: {', '.join(_PROVIDER_LABELS)}", file=sys.stderr)
-    raise typer.Exit(1)
+    # 2. 确定 API 格式
+    if provider_choice == "anthropic":
+        api_format = "anthropic"
+    elif provider_choice == "openai":
+        api_format = "openai"
+    else:
+        # 自定义提供商：让用户选择 API 格式
+        print(_t("select_api_format"))
+        for i, (fmt, label) in enumerate(_API_FORMAT_OPTIONS, 1):
+            print(f"  {i}. {label}")
+        raw = typer.prompt(_t("enter_number"), default="1")
+        try:
+            idx = int(raw.strip()) - 1
+            if 0 <= idx < len(_API_FORMAT_OPTIONS):
+                api_format = _API_FORMAT_OPTIONS[idx][0]
+            else:
+                print(_t("invalid_selection"), file=sys.stderr)
+                raise typer.Exit(1)
+        except ValueError:
+            print(_t("invalid_selection"), file=sys.stderr)
+            raise typer.Exit(1)
+
+    # 3. 输入端点
+    default_ep = _DEFAULT_ENDPOINTS.get(provider_choice, "")
+    if default_ep:
+        prompt_text = f"{_t('enter_endpoint')} ({_t('default_endpoint')}: {default_ep}): "
+        endpoint = input(prompt_text).strip()
+        if not endpoint:
+            endpoint = default_ep
+    else:
+        endpoint = input(f"{_t('enter_endpoint')}: ").strip()
+        if not endpoint:
+            print(_t("endpoint_required"), file=sys.stderr)
+            raise typer.Exit(1)
+
+    # 4. 输入 API 密钥
+    flow = ApiKeyFlow(prompt_text=_t("enter_api_key"))
+    try:
+        api_key = flow.run()
+    except ValueError:
+        print(_t("api_key_required"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 5. 输入模型名称
+    default_model = _DEFAULT_MODELS.get(provider_choice, "")
+    if default_model:
+        prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
+        model_name = input(prompt_text).strip()
+        if not model_name:
+            model_name = default_model
+    else:
+        model_name = input(f"{_t('enter_model')}: ").strip()
+        if not model_name:
+            print(_t("model_required"), file=sys.stderr)
+            raise typer.Exit(1)
+
+    # 6. 分配 env_N 并保存
+    envs = manager.list_envs()
+    if envs:
+        # 找到下一个可用的 env_N
+        existing_nums = []
+        for k in envs:
+            try:
+                existing_nums.append(int(k.split("_")[1]))
+            except (ValueError, IndexError):
+                pass
+        next_num = max(existing_nums, default=0) + 1
+    else:
+        next_num = 1
+    env_key = f"env_{next_num}"
+
+    # 保存到 settings.json
+    env_config = {
+        "api_format": api_format,
+        "base_url": endpoint,
+        "api_key": "",  # 不在 settings.json 中存储实际密钥
+        "model_1": model_name,
+    }
+    setattr(manager.settings, env_key, env_config)
+    manager.settings.model = f"{env_key}:model_1"
+    manager.save_settings()
+
+    # 保存密钥到 credentials.json
+    store_env_credential(env_key, "api_key", api_key)
+
+    print(_t("env_saved", env_key=env_key))
 
 
 @auth_app.command("status")
 def auth_status_cmd() -> None:
-    """以表格形式显示所有提供商的认证状态
-    
-    显示每个配置提供商的认证状态、来源和是否活动提供商。
-    """
-    from illusion.auth.manager import AuthManager  # 认证管理器
+    """显示所有环境的认证状态"""
+    from illusion.auth.manager import AuthManager
 
-    manager = AuthManager()  # 创建认证管理器实例
-    statuses = manager.get_auth_status()  # 获取所有提供商状态
+    _ensure_language()
+    manager = AuthManager()
+    statuses = manager.get_env_credential_statuses()
 
-    col_provider = 22  # 提供商列宽度
-    col_status = 12  # 状态列宽度
-    col_source = 10  # 来源列宽度
-    header = f"{'Provider':<{col_provider}} {'Status':<{col_status}} {'Source':<{col_source}} Active"
-    print(header)  # 打印表头
-    print("-" * len(header))  # 打印分隔线
+    if not statuses:
+        print(_t("no_envs"))
+        return
 
-    for name, info in statuses.items():  # 遍历所有提供商
-        label = _PROVIDER_LABELS.get(name, name)  # 获取标签
-        status_str = "configured" if info["configured"] else "missing"  # 状态字符串
-        source_str = info["source"]  # 来源字符串
-        active_str = "<-- active" if info["active"] else ""  # 活动提供商指示
-        print(f"{label:<{col_provider}} {status_str:<{col_status}} {source_str:<{col_source}} {active_str}")
+    print(_t("env_status_title"))
+
+    # 列宽
+    col_env = 10
+    col_format = 12
+    col_model = 28
+    col_endpoint = 36
+    col_cred = 10
+
+    header = (
+        f"{_t('col_env'):<{col_env}} "
+        f"{_t('col_format'):<{col_format}} "
+        f"{_t('col_model'):<{col_model}} "
+        f"{_t('col_endpoint'):<{col_endpoint}} "
+        f"{_t('col_credential'):<{col_cred}} "
+    )
+    print(header)
+    print("-" * len(header))
+
+    for name, info in statuses.items():
+        cred_str = _t("configured") if info["has_credential"] else _t("missing")
+        active_str = f" {_t('active_mark')}" if info["active"] else ""
+        ep = info["base_url"] or "-"
+        print(
+            f"{name:<{col_env}} "
+            f"{info['api_format']:<{col_format}} "
+            f"{info['model']:<{col_model}} "
+            f"{ep:<{col_endpoint}} "
+            f"{cred_str:<{col_cred}} "
+            f"{active_str}"
+        )
 
 
 @auth_app.command("logout")
 def auth_logout(
-    provider: Optional[str] = typer.Argument(None, help="Provider to log out (default: active provider)"),
+    env_key: Optional[str] = typer.Argument(None, help="Environment to clear (e.g. env_1)"),
 ) -> None:
-    """清除提供商的已存储认证
-    
-    Args:
-        provider: 要登出的提供商，默认登出活动提供商
-    """
-    from illusion.auth.manager import AuthManager  # 认证管理器
+    """清除环境的已存储凭据
 
-    manager = AuthManager()  # 创建认证管理器实例
-    target = provider or manager.get_active_provider()  # 获取目标提供商
-    manager.clear_credential(target)  # 清除凭证
-    print(f"Authentication cleared for provider: {target}", flush=True)
+    Args:
+        env_key: 要清除的环境，默认交互式选择
+    """
+    from illusion.auth.manager import AuthManager
+
+    _ensure_language()
+    manager = AuthManager()
+
+    if env_key is None:
+        envs = manager.list_envs()
+        if not envs:
+            print(_t("no_envs"))
+            raise typer.Exit(1)
+        print(_t("select_env_to_logout"))
+        env_keys = list(envs.keys())
+        for i, k in enumerate(env_keys, 1):
+            print(f"  {i}. {k}")
+        raw = typer.prompt(_t("enter_number"), default="1")
+        try:
+            idx = int(raw.strip()) - 1
+            if 0 <= idx < len(env_keys):
+                env_key = env_keys[idx]
+            else:
+                print(_t("invalid_selection"), file=sys.stderr)
+                raise typer.Exit(1)
+        except ValueError:
+            print(_t("invalid_selection"), file=sys.stderr)
+            raise typer.Exit(1)
+
+    manager.clear_env_api_key(env_key)
+    print(_t("credential_cleared", env_key=env_key))
 
 
 @auth_app.command("switch")
 def auth_switch(
-    provider: str = typer.Argument(..., help="Provider to activate"),
+    env_key: Optional[str] = typer.Argument(None, help="Environment to switch to (e.g. env_1)"),
 ) -> None:
-    """切换活动提供商
-    
-    Args:
-        provider: 要激活的提供商名称
-    """
-    from illusion.auth.manager import AuthManager  # 认证管理器
+    """切换活动环境
 
-    manager = AuthManager()  # 创建认证管理器实例
+    Args:
+        env_key: 要切换的环境，无参数时交互式选择
+    """
+    from illusion.auth.manager import AuthManager
+
+    _ensure_language()
+    manager = AuthManager()
+
+    if env_key is None:
+        envs = manager.list_envs()
+        if not envs:
+            print(_t("no_envs"))
+            raise typer.Exit(1)
+        print(_t("select_env_to_switch"))
+        env_keys = list(envs.keys())
+        for i, k in enumerate(env_keys, 1):
+            print(f"  {i}. {k}")
+        raw = typer.prompt(_t("enter_number"), default="1")
+        try:
+            idx = int(raw.strip()) - 1
+            if 0 <= idx < len(env_keys):
+                env_key = env_keys[idx]
+            else:
+                print(_t("invalid_selection"), file=sys.stderr)
+                raise typer.Exit(1)
+        except ValueError:
+            print(_t("invalid_selection"), file=sys.stderr)
+            raise typer.Exit(1)
+
     try:
-        manager.switch_provider(provider)  # 切换提供商
-    except ValueError as exc:  # 切换失败
-        print(f"Error: {exc}", file=sys.stderr)
+        manager.use_env(env_key)
+    except ValueError:
+        print(_t("env_not_found", env_key=env_key), file=sys.stderr)
         raise typer.Exit(1)
-    print(f"Switched active provider to: {provider}", flush=True)
+    print(_t("switched_to", env_key=env_key))
 
 
 # ---------------------------------------------------------------------------
@@ -745,38 +904,37 @@ def main(
         )
 
         session_data = None  # 会话数据
-        if continue_session:  # 继续最近会话
-            session_data = load_session_snapshot(cwd)  # 加载会话快照
-            if session_data is None:  # 如果没有找到会话
-                print("No previous session found in this directory.", file=sys.stderr)
+        if continue_session:
+            session_data = load_session_snapshot(cwd)
+            if session_data is None:
+                print(_t("session_not_found_prev"), file=sys.stderr)
                 raise typer.Exit(1)
-            print(f"Continuing session: {session_data.get('summary', '(untitled)')[:60]}")
-        elif resume == "" or resume is None:  # 显示会话选择器
-            # --resume 无值：显示会话选择器
-            sessions = list_session_snapshots(cwd, limit=10)  # 列出最近 10 个会话
-            if not sessions:  # 如果没有保存的会话
-                print("No saved sessions found.", file=sys.stderr)
+            print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+        elif resume == "" or resume is None:
+            sessions = list_session_snapshots(cwd, limit=10)
+            if not sessions:
+                print(_t("session_no_saved"), file=sys.stderr)
                 raise typer.Exit(1)
-            print("Saved sessions:")
-            for i, s in enumerate(sessions, 1):  # 遍历所有会话
-                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({s['message_count']} msgs)")
-            choice = typer.prompt("Enter session number or ID")  # 提示用户选择
+            print(_t("session_saved_list"))
+            for i, s in enumerate(sessions, 1):
+                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
+            choice = typer.prompt(_t("session_enter_id"))
             try:
-                idx = int(choice) - 1  # 转换为索引
-                if 0 <= idx < len(sessions):  # 有效索引范围
-                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])  # 加载会话
+                idx = int(choice) - 1
+                if 0 <= idx < len(sessions):
+                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
                 else:
-                    print("Invalid selection.", file=sys.stderr)
+                    print(_t("invalid_selection"), file=sys.stderr)
                     raise typer.Exit(1)
-            except ValueError:  # 输入不是数字
-                session_data = load_session_by_id(cwd, choice)  # 直接使用输入作为会话 ID
-            if session_data is None:  # 如果会话不存在
-                print(f"Session not found: {choice}", file=sys.stderr)
+            except ValueError:
+                session_data = load_session_by_id(cwd, choice)
+            if session_data is None:
+                print(_t("session_not_found", id=choice), file=sys.stderr)
                 raise typer.Exit(1)
-        else:  # 按会话 ID 恢复
-            session_data = load_session_by_id(cwd, resume)  # 加载指定会话
-            if session_data is None:  # 如果会话不存在
-                print(f"Session not found: {resume}", file=sys.stderr)
+        else:
+            session_data = load_session_by_id(cwd, resume)
+            if session_data is None:
+                print(_t("session_not_found", id=resume), file=sys.stderr)
                 raise typer.Exit(1)
 
         # 将会话传递给 REPL
@@ -798,8 +956,8 @@ def main(
     # 打印模式处理
     if print_mode is not None:
         prompt = print_mode.strip()
-        if not prompt:  # 验证提示词不为空
-            print("Error: -p/--print requires a prompt value, e.g. -p 'your prompt'", file=sys.stderr)
+        if not prompt:
+            print(_t("print_requires_prompt"), file=sys.stderr)
             raise typer.Exit(1)
         # 运行打印模式
         asyncio.run(
