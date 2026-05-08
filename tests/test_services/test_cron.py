@@ -31,10 +31,12 @@ from illusion.services.cron import (
 def _tmp_cron_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """将 cron 注册表重定向到临时目录。"""
     data_dir = tmp_path / "data"
+    cron_dir = data_dir / "cron"
     data_dir.mkdir()
+    cron_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(
         "illusion.services.cron.get_cron_registry_path",
-        lambda: data_dir / "cron_jobs.json",
+        lambda: cron_dir / "jobs.json",
     )
 
 
