@@ -38,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from illusion.config.paths import get_data_dir, get_logs_dir
+from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron import (
     load_cron_jobs,
     mark_job_run,
@@ -73,7 +73,7 @@ _MAX_CONCURRENT_JOBS = 1
 
 def get_history_path() -> Path:
     """返回 Cron 执行历史记录文件路径。"""
-    return get_data_dir() / "cron_history.jsonl"
+    return get_cron_dir() / "history.jsonl"
 
 
 def append_history(entry: dict[str, Any]) -> None:
@@ -129,7 +129,7 @@ def load_history(
 
 def get_pid_path() -> Path:
     """返回调度器 PID 文件路径。"""
-    return get_data_dir() / "cron_scheduler.pid"
+    return get_cron_dir() / "scheduler.pid"
 
 
 def read_pid() -> int | None:

@@ -18,6 +18,7 @@ IllusionCode 配置和数据目录路径解析模块
     - get_project_config_dir: 获取项目级配置目录
     - get_project_issue_file: 获取项目级问题上下文文件
     - get_project_pr_comments_file: 获取项目级 PR 评论上下文文件
+    - get_cron_dir: 获取 cron 数据目录
     - get_cron_registry_path: 获取 cron 注册表文件路径
     - get_feedback_log_path: 获取反馈日志文件路径
 
@@ -162,15 +163,28 @@ def get_feedback_log_path() -> Path:
     return get_feedback_dir() / "feedback.log"
 
 
+def get_cron_dir() -> Path:
+    """返回 cron 数据目录
+
+    用于存储定时任务相关的所有文件（注册表、历史、PID 等）。
+
+    Returns:
+        Path: cron 数据目录路径
+    """
+    cron_dir = get_data_dir() / "cron"
+    cron_dir.mkdir(parents=True, exist_ok=True)
+    return cron_dir
+
+
 def get_cron_registry_path() -> Path:
     """返回 cron 注册表文件路径
-    
+
     用于存储定时任务配置信息。
-    
+
     Returns:
         Path: cron 注册表文件路径
     """
-    return get_data_dir() / "cron_jobs.json"
+    return get_cron_dir() / "jobs.json"
 
 
 def get_project_config_dir(cwd: str | Path) -> Path:

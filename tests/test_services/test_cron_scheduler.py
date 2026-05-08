@@ -29,14 +29,16 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """将数据和日志目录重定向到临时目录。"""
     data_dir = tmp_path / "data"
     logs_dir = tmp_path / "logs"
+    cron_dir = tmp_path / "data" / "cron"
     data_dir.mkdir()
     logs_dir.mkdir()
-    monkeypatch.setattr("illusion.services.cron_scheduler.get_data_dir", lambda: data_dir)
+    cron_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("illusion.services.cron_scheduler.get_cron_dir", lambda: cron_dir)
     monkeypatch.setattr("illusion.services.cron_scheduler.get_logs_dir", lambda: logs_dir)
     # 同时重定向 cron 注册表
     monkeypatch.setattr(
         "illusion.services.cron.get_cron_registry_path",
-        lambda: data_dir / "cron_jobs.json",
+        lambda: cron_dir / "jobs.json",
     )
 
 
