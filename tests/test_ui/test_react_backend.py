@@ -111,7 +111,7 @@ async def test_backend_host_processes_model_turn(tmp_path, monkeypatch):
 async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monkeypatch):
     """Regression: slash commands should not snap model/provider back to persisted defaults.
 
-    When the session is launched with CLI overrides (e.g. --provider openai -m 5.4),
+    When the session is launched with CLI overrides (e.g. --api-format openai --model env_1:model_1),
     issuing a command like /fast triggers a UI state refresh. That refresh must
     preserve the effective session settings, not reload ~/.illusion/settings.json
     verbatim.
@@ -123,10 +123,21 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
+    # 预设环境配置以匹配 env:model 格式
+    from illusion.config.settings import load_settings, save_settings, Settings
+    save_settings(
+        Settings().model_copy(
+            update={
+                "model": "env_1:model_1",
+                "env_1": {"api_format": "openai", "model_1": "gpt-5.4"},
+            }
+        )
+    )
+
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
     host._bundle = await build_runtime(
         api_client=StaticApiClient("unused"),
-        model="5.4",
+        model="env_1:model_1",
         api_format="openai",
     )
     events = []
@@ -138,7 +149,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     await start_runtime(host._bundle)
     try:
         # Sanity: the initial session state reflects CLI overrides.
-        assert host._bundle.app_state.get().model == "5.4"
+        assert host._bundle.app_state.get().model == "gpt-5.4"
         provider = host._bundle.app_state.get().provider
         assert provider in ("openai-compatible", "openai", "zhipu")
 
@@ -146,7 +157,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
         await host._process_line("/fast show")
 
         # CLI overrides should remain in effect.
-        assert host._bundle.app_state.get().model == "5.4"
+        assert host._bundle.app_state.get().model == "gpt-5.4"
         assert host._bundle.app_state.get().provider == provider
     finally:
         await close_runtime(host._bundle)

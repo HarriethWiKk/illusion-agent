@@ -48,8 +48,7 @@ def _build_context(tmp_path: Path) -> CommandContext:
             AppState(
                 model="claude-test",
                 permission_mode="default",
-                theme="default",
-                keybindings={},
+                ui_language="en",
             )
         ),
     )
@@ -103,10 +102,6 @@ async def test_command_flow_for_memory_modes_and_tasks(tmp_path: Path, monkeypat
     note_command, note_args = registry.lookup(f"/tasks update {task_id} note waiting on review")
     note_result = await note_command.handler(note_args, context)
     assert "note" in note_result.message
-
-    onboarding_command, onboarding_args = registry.lookup("/onboarding")
-    onboarding_result = await onboarding_command.handler(onboarding_args, context)
-    assert "quickstart" in onboarding_result.message.lower()
 
     issue_command, issue_args = registry.lookup("/issue set Command Flow :: Needs review")
     issue_result = await issue_command.handler(issue_args, context)

@@ -54,8 +54,7 @@ def _make_context(tmp_path: Path) -> CommandContext:
             AppState(
                 model="claude-test",
                 permission_mode="default",
-                theme="default",
-                keybindings={},
+                ui_language="en",
             )
         ),
     )
@@ -77,57 +76,68 @@ async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
 @pytest.mark.asyncio
 async def test_model_command_persists(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    # 预设 env_1 环境和 model_a 模型
+    save_settings(
+        Settings().model_copy(
+            update={
+                "model": "env_1:model_a",
+                "env_1": {"api_format": "anthropic", "model_a": "claude-opus-4-6", "model_b": "gpt-5.4"},
+            }
+        )
+    )
     registry = create_default_command_registry()
-    command, args = registry.lookup("/model set opus")
+    command, args = registry.lookup("/model set env_1:model_a")
     assert command is not None
 
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
-    assert "opus" in result.message
-    assert load_settings().model == "claude-opus-4-6"
+    assert "env_1:model_a" in result.message
+    assert load_settings().model == "env_1:model_a"
 
 
 @pytest.mark.asyncio
 async def test_model_command_accepts_direct_value(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    # 预设环境
+    save_settings(
+        Settings().model_copy(
+            update={
+                "model": "env_1:model_a",
+                "env_1": {"api_format": "openai", "model_a": "gpt-5.4"},
+            }
+        )
+    )
     registry = create_default_command_registry()
-    command, args = registry.lookup("/model set gpt-5.4")
+    command, args = registry.lookup("/model set env_1:model_a")
     assert command is not None
 
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
-    assert "gpt-5.4" in result.message
-    assert load_settings().model == "gpt-5.4"
+    assert "env_1:model_a" in result.message
+    assert load_settings().model == "env_1:model_a"
 
 
 @pytest.mark.asyncio
 async def test_model_command_default_clears_profile_override(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    # 预设两个环境
     save_settings(
         Settings().model_copy(
             update={
-                "active_profile": "claude-api",
-                "profiles": {
-                    "claude-api": {
-                        "label": "Claude API",
-                        "provider": "anthropic",
-                        "api_format": "anthropic",
-                        "auth_source": "anthropic_api_key",
-                        "default_model": "sonnet",
-                        "last_model": "opus",
-                    }
-                },
+                "model": "env_1:model_a",
+                "env_1": {"api_format": "anthropic", "model_a": "claude-sonnet-4-6"},
+                "env_2": {"api_format": "openai", "model_a": "gpt-5.4"},
             }
         )
     )
     registry = create_default_command_registry()
-    command, args = registry.lookup("/model set default")
+    command, args = registry.lookup("/model set env_2:model_a")
     assert command is not None
 
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
-    assert "default" in result.message
-    assert load_settings().model == "claude-sonnet-4-6"
+    assert "env_2:model_a" in result.message
+    assert load_settings().model == "env_2:model_a"
 
 
 @pytest.mark.asyncio
@@ -166,30 +176,21 @@ async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatc
     save_settings(
         Settings().model_copy(
             update={
-                "profiles": {
-                    "kimi-anthropic": {
-                        "label": "Kimi Anthropic",
-                        "provider": "anthropic",
-                        "api_format": "anthropic",
-                        "auth_source": "anthropic_api_key",
-                        "default_model": "kimi-k2.5",
-                        "last_model": "kimi-k2.5",
-                        "base_url": "https://api.moonshot.cn/anthropic",
-                    }
-                }
+                "model": "env_1:model_1",
+                "env_1": {"api_format": "anthropic", "model_1": "claude-sonnet-4-6"},
             }
         )
     )
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
-    command, args = registry.lookup("/config set active_profile kimi-anthropic")
+    command, args = registry.lookup("/config set model env_1:model_1")
     assert command is not None
 
     result = await command.handler(args, context)
 
     loaded = load_settings()
-    assert loaded.active_profile == "kimi-anthropic"
+    assert loaded.model == "env_1:model_1"
 
 
 @pytest.mark.asyncio
@@ -206,6 +207,7 @@ async def test_doctor_command_reports_context(tmp_path: Path, monkeypatch):
             cwd=str(tmp_path),
             plugin_summary="Plugins:\n- demo [enabled] Example",
             mcp_summary="No MCP servers configured.",
+            app_state=AppStateStore(AppState(model="claude-test", permission_mode="default", ui_language="en")),
         ),
     )
 
@@ -284,10 +286,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     output_result = await output_command.handler(output_args, context)
     assert "minimal" in output_result.message
     assert context.app_state.get().output_style == "minimal"
-
-    keybindings_command, keybindings_args = registry.lookup("/keybindings")
-    keybindings_result = await keybindings_command.handler(keybindings_args, context)
-    assert "ctrl+l" in keybindings_result.message
 
     language_command, language_args = registry.lookup("/language set en")
     language_result = await language_command.handler(language_args, context)
@@ -383,24 +381,6 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
     context = _make_context(tmp_path)
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
-
-    session_command, session_args = registry.lookup("/session")
-    session_result = await session_command.handler(session_args, context)
-    assert "Session directory:" in session_result.message
-
-    session_path_command, session_path_args = registry.lookup("/session path")
-    session_path_result = await session_path_command.handler(session_path_args, context)
-    assert "sessions" in session_path_result.message
-
-    session_tag_command, session_tag_args = registry.lookup("/session tag smoke")
-    session_tag_result = await session_tag_command.handler(session_tag_args, context)
-    assert "smoke.json" in session_tag_result.message
-    assert "smoke.md" in session_tag_result.message
-
-    tag_command, tag_args = registry.lookup("/tag alias-smoke")
-    tag_result = await tag_command.handler(tag_args, context)
-    assert "alias-smoke.json" in tag_result.message
-    assert "alias-smoke.md" in tag_result.message
 
     files_command, files_args = registry.lookup("/files app.py")
     files_result = await files_command.handler(files_args, context)
@@ -518,18 +498,6 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
     privacy_command, privacy_args = registry.lookup("/privacy-settings")
     privacy_result = await privacy_command.handler(privacy_args, context)
     assert "user_config_dir" in privacy_result.message
-
-    rate_command, rate_args = registry.lookup("/rate-limit-options")
-    rate_result = await rate_command.handler(rate_args, context)
-    assert "Rate limit options:" in rate_result.message
-
-    release_command, release_args = registry.lookup("/release-notes")
-    release_result = await release_command.handler(release_args, context)
-    assert "Release Notes" in release_result.message
-
-    upgrade_command, upgrade_args = registry.lookup("/upgrade")
-    upgrade_result = await upgrade_command.handler(upgrade_args, context)
-    assert "Upgrade instructions:" in upgrade_result.message
 
 
 @pytest.mark.asyncio

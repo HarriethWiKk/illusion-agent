@@ -97,7 +97,7 @@ def build_backend_command(
     if cwd:
         command.extend(["--cwd", cwd])
     if model:
-        command.extend(["--mode", model])
+        command.extend(["--model", model])
     if max_turns is not None:
         command.extend(["--max-turns", str(max_turns)])
     if base_url:
