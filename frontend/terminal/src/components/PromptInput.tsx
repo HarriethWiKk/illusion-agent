@@ -1,8 +1,9 @@
-import React from 'react';
-import {Box} from 'ink';
+import React, {useRef, useCallback} from 'react';
+import {Box, useInput} from 'ink';
 import TextInput from 'ink-text-input';
 
 import type {UiLanguage} from '../i18n.js';
+import {t} from '../i18n.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import {Spinner} from './Spinner.js';
 import type {TodoItemSnapshot} from '../types.js';
@@ -37,6 +38,25 @@ export function PromptInput({
 	todoItems?: TodoItemSnapshot[];
 }): React.JSX.Element {
 	const theme = useTheme();
+	const shouldClearRef = useRef(false);
+
+	// Ctrl+U 清空输入框
+	useInput((chunk, key) => {
+		if (key.ctrl && chunk.toLowerCase() === 'u') {
+			// 标记需要清空，onChange 会检测到并清空
+			shouldClearRef.current = true;
+		}
+	}, {isActive: !busy});
+
+	// 处理 onChange，拦截 Ctrl+U 导致的 'u' 输入
+	const handleChange = useCallback((value: string) => {
+		if (shouldClearRef.current) {
+			shouldClearRef.current = false;
+			setInput('');
+			return;
+		}
+		setInput(sanitizeInput(value));
+	}, [setInput]);
 
 	return (
 		<Box flexDirection="column" marginTop={1}>
@@ -48,8 +68,9 @@ export function PromptInput({
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>
 				<TextInput
 					value={input}
-					onChange={(value) => setInput(sanitizeInput(value))}
+					onChange={handleChange}
 					onSubmit={suppressSubmit ? noop : onSubmit}
+					placeholder={t(language, 'longTextHint')}
 					focus={!busy}
 				/>
 			</Box>
