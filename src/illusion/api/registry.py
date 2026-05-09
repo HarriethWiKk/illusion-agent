@@ -126,6 +126,35 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         is_oauth=False,
     ),
+    # === 订阅提供商（OAuth 认证） ============
+    # GitHub Copilot：GitHub OAuth 设备码认证 + Copilot token
+    ProviderSpec(
+        name="copilot",
+        keywords=("copilot",),
+        env_key="COPILOT_TOKEN",
+        display_name="GitHub Copilot",
+        backend_type="openai_compat",
+        default_base_url="https://api.githubcopilot.com",
+        detect_by_key_prefix="tid=",
+        detect_by_base_keyword="githubcopilot",
+        is_gateway=False,
+        is_local=False,
+        is_oauth=True,
+    ),
+    # OpenAI Codex：ChatGPT 订阅认证，使用 Codex Responses API
+    ProviderSpec(
+        name="codex",
+        keywords=("codex",),
+        env_key="CODEX_TOKEN",
+        display_name="OpenAI Codex",
+        backend_type="openai_codex",
+        default_base_url="https://chatgpt.com/backend-api",
+        detect_by_key_prefix="",
+        detect_by_base_keyword="chatgpt.com/backend-api",
+        is_gateway=False,
+        is_local=False,
+        is_oauth=True,
+    ),
     # === 标准云提供商（按模型名称关键字匹配） ============
     # Anthropic：claude-* 模型的原生 SDK
     ProviderSpec(

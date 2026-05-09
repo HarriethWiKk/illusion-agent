@@ -411,6 +411,8 @@ _PROVIDER_OPTIONS: list[tuple[str, dict[str, str]]] = [
     ("custom", _I18N["custom_provider"]),
     ("anthropic", _I18N["anthropic_label"]),
     ("openai", _I18N["openai_label"]),
+    ("copilot", _I18N["copilot_label"]),
+    ("codex", _I18N["codex_label"]),
 ]
 
 _API_FORMAT_OPTIONS: list[tuple[str, str]] = [
@@ -421,11 +423,15 @@ _API_FORMAT_OPTIONS: list[tuple[str, str]] = [
 _DEFAULT_ENDPOINTS: dict[str, str] = {
     "anthropic": "https://api.anthropic.com",
     "openai": "https://api.openai.com/v1",
+    "copilot": "https://api.githubcopilot.com",
+    "codex": "https://chatgpt.com/backend-api",
 }
 
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-5.4",
+    "copilot": "gpt-4.1",
+    "codex": "codex-mini",
 }
 
 
@@ -433,7 +439,8 @@ _DEFAULT_MODELS: dict[str, str] = {
 def auth_login() -> None:
     """交互式配置提供商认证
 
-    流程：选择提供商 → API 格式 → 端点 → 密钥 → 模型 → 保存
+    流程：选择提供商 → 认证 → 保存
+    Copilot 使用 GitHub OAuth 设备码流程，其他提供商使用 API 密钥。
     """
     from illusion.auth.flows import ApiKeyFlow
     from illusion.auth.manager import AuthManager
@@ -459,6 +466,18 @@ def auth_login() -> None:
     except ValueError:
         print(_t("invalid_selection"), file=sys.stderr)
         raise typer.Exit(1)
+
+    # --- Copilot 走设备码 OAuth 流程 ---
+    if provider_choice == "copilot":
+        _copilot_login(manager)
+        return
+
+    # --- Codex 走外部 CLI 凭据读取流程 ---
+    if provider_choice == "codex":
+        _codex_login(manager)
+        return
+
+    # --- 其他提供商走 API 密钥流程 ---
 
     # 2. 确定 API 格式
     if provider_choice == "anthropic":
@@ -544,6 +563,148 @@ def auth_login() -> None:
 
     # 保存密钥到 credentials.json
     store_env_credential(env_key, "api_key", api_key)
+
+    print(_t("env_saved", env_key=env_key))
+
+
+def _copilot_login(manager: Any) -> None:
+    """Copilot 设备码 OAuth 认证流程
+
+    Args:
+        manager: AuthManager 实例
+    """
+    import time
+
+    from illusion.auth.copilot import CopilotAuth
+    from illusion.auth.storage import store_env_credential
+
+    copilot = CopilotAuth()
+
+    # 1. 启动设备码流程
+    try:
+        flow = copilot.start_device_flow()
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 2. 显示用户码和验证 URL
+    print(_t("copilot_open_url"))
+    print(f"  {flow['verification_uri']}")
+    print(_t("copilot_enter_code", code=flow["user_code"]))
+    print()
+    print(_t("copilot_waiting"))
+
+    # 3. 轮询等待授权
+    try:
+        success = copilot.poll_for_token(flow["device_code"])
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "过期" in msg or "expired" in msg.lower():
+            print(_t("copilot_device_expired"), file=sys.stderr)
+        elif "拒绝" in msg or "denied" in msg.lower():
+            print(_t("copilot_auth_denied"), file=sys.stderr)
+        elif "订阅" in msg or "subscription" in msg.lower():
+            print(_t("copilot_no_subscription"), file=sys.stderr)
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        raise typer.Exit(1)
+
+    if not success:
+        print(_t("copilot_device_expired"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    status = copilot.get_status()
+    username = status.get("username") or ""
+    print(_t("copilot_auth_success", user=username))
+
+    # 4. 输入模型名称
+    default_model = _DEFAULT_MODELS.get("copilot", "gpt-4.1")
+    prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
+    model_name = input(prompt_text).strip()
+    if not model_name:
+        model_name = default_model
+
+    # 5. 分配 env_N 并保存
+    envs = manager.list_envs()
+    if envs:
+        existing_nums = []
+        for k in envs:
+            try:
+                existing_nums.append(int(k.split("_")[1]))
+            except (ValueError, IndexError):
+                pass
+        next_num = max(existing_nums, default=0) + 1
+    else:
+        next_num = 1
+    env_key = f"env_{next_num}"
+
+    env_config = {
+        "api_format": "openai",
+        "base_url": _DEFAULT_ENDPOINTS["copilot"],
+        "api_key": "",
+        "model_1": model_name,
+        "provider": "copilot",
+    }
+    setattr(manager.settings, env_key, env_config)
+    manager.settings.model = f"{env_key}:model_1"
+    manager.save_settings()
+
+    print(_t("env_saved", env_key=env_key))
+
+
+def _codex_login(manager: Any) -> None:
+    """Codex 外部 CLI 凭据读取流程
+
+    从 ~/.codex/auth.json 读取已由 Codex CLI 管理的认证信息。
+
+    Args:
+        manager: AuthManager 实例
+    """
+    from illusion.auth.external import default_binding_for_provider, load_external_credential
+    from illusion.auth.storage import store_env_credential
+
+    # 1. 检查 Codex CLI 认证是否存在
+    binding = default_binding_for_provider("openai_codex")
+    try:
+        cred = load_external_credential(binding)
+    except (ValueError, FileNotFoundError):
+        print(_t("codex_not_found"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    username = cred.profile_label or cred.value[:8] + "..."
+    print(_t("codex_auth_success", user=username))
+
+    # 2. 输入模型名称
+    default_model = _DEFAULT_MODELS.get("codex", "codex-mini")
+    prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
+    model_name = input(prompt_text).strip()
+    if not model_name:
+        model_name = default_model
+
+    # 3. 分配 env_N 并保存
+    envs = manager.list_envs()
+    if envs:
+        existing_nums = []
+        for k in envs:
+            try:
+                existing_nums.append(int(k.split("_")[1]))
+            except (ValueError, IndexError):
+                pass
+        next_num = max(existing_nums, default=0) + 1
+    else:
+        next_num = 1
+    env_key = f"env_{next_num}"
+
+    env_config = {
+        "api_format": "openai",
+        "base_url": _DEFAULT_ENDPOINTS["codex"],
+        "api_key": "",
+        "model_1": model_name,
+        "provider": "codex",
+    }
+    setattr(manager.settings, env_key, env_config)
+    manager.settings.model = f"{env_key}:model_1"
+    manager.save_settings()
 
     print(_t("env_saved", env_key=env_key))
 

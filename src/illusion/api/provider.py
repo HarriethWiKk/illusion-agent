@@ -38,6 +38,7 @@ _AUTH_KIND: dict[str, str] = {
     "openai_compat": "api_key",
     "openai_codex": "external_oauth",
     "anthropic_claude": "external_oauth",
+    "copilot": "copilot_oauth",
 }
 
 # 语音模式支持原因映射
@@ -48,6 +49,7 @@ _VOICE_REASON: dict[str, str] = {
     "openai_compat": "voice mode is not wired for OpenAI-compatible providers in this build",
     "openai_codex": "voice mode is not supported for Codex subscription auth",
     "anthropic_claude": "voice mode is not supported for Claude subscription auth",
+    "copilot": "voice mode is not supported for Copilot subscription auth",
 }
 
 
@@ -120,6 +122,20 @@ def auth_status(settings: Settings) -> str:
     Returns:
         str: 认证状态描述
     """
+    # 检测是否为 Copilot 提供商（认证存储在独立文件中）
+    provider_info = detect_provider(settings)
+    if provider_info.name == "copilot":
+        from illusion.auth.copilot import CopilotAuth
+        copilot = CopilotAuth()
+        if copilot.is_authenticated():
+            return "configured (copilot)"
+        return "missing"
+    if provider_info.name == "codex":
+        from illusion.auth.external import default_binding_for_provider, describe_external_binding
+        binding = default_binding_for_provider("openai_codex")
+        state = describe_external_binding(binding)
+        return "configured (codex)" if state.configured else "missing"
+
     # 尝试解析认证
     try:
         resolved = settings.resolve_auth()

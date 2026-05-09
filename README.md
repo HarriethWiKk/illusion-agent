@@ -23,7 +23,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
 - 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
 - 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
-- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI 及任意 OpenAI 兼容端点
+- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
 - 🛠️ **丰富的工具集** - 38+ 内置工具 + MCP 动态工具扩展
 - ⌨️ **51 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
@@ -104,7 +104,7 @@ illusion --api-format openai
 
 ```bash
 # 认证管理
-illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI）
+illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI/Copilot/Codex）
 illusion auth status             # 查看所有环境的认证状态
 illusion auth logout [env_N]     # 清除环境凭据
 illusion auth switch [env_N]     # 切换活动环境
@@ -184,6 +184,8 @@ illusion-code/
 |--------|----------|----------|
 | Anthropic Claude | anthropic | API Key |
 | OpenAI / 兼容接口 | openai | API Key |
+| GitHub Copilot | openai | OAuth 设备码 |
+| OpenAI Codex | openai | 外部 CLI (Codex CLI) |
 | 自定义提供商 | anthropic / openai | API Key |
 
 ### 工具系统
@@ -535,7 +537,66 @@ illusion -m env_1:model_2
 
 ---
 
-#### 4. 多提供商混合配置
+#### 4. GitHub Copilot
+
+```bash
+# 交互式配置
+illusion auth login  # 选择 GitHub Copilot
+```
+
+在浏览器中完成 GitHub 授权后自动配置。认证数据存储在 `~/.illusion/copilot_auth.json`。
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-4.1",
+    "provider": "copilot"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+**认证方式**：GitHub OAuth 设备码流程（由 `illusion auth login` 自动完成）
+
+**要求**：需要有效的 GitHub Copilot 订阅。
+
+**支持的模型**：gpt-4.1、claude-sonnet-4、o3、o4-mini 等（取决于订阅计划）
+
+---
+
+#### 5. OpenAI Codex (ChatGPT 订阅)
+
+```bash
+# 先安装并认证 Codex CLI
+codex auth login
+
+# 然后在 IllusionCode 中配置
+illusion auth login  # 选择 OpenAI Codex
+```
+
+Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文件 (`~/.codex/auth.json`) 实现。
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://chatgpt.com/backend-api",
+    "model_1": "codex-mini",
+    "provider": "codex"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+**认证方式**：外部 CLI 凭据绑定（需要先通过 Codex CLI 完成认证）
+
+**要求**：需要安装 [Codex CLI](https://github.com/openai/codex) 并拥有 ChatGPT Plus/Pro/Team 订阅。
+
+---
+
+#### 6. 多提供商混合配置
 
 通过 `illusion auth login` 配置多个环境，使用 `illusion auth switch` 或 `/model` 命令切换：
 
@@ -552,11 +613,17 @@ illusion -m env_1:model_2
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
+  "env_3": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-4.1",
+    "provider": "copilot"
+  },
   "model": "env_1:model_1"
 }
 ```
 
-> API 密钥可直接填在 `env_N.api_key` 中，也可存储到 credentials.json（更安全，由 `illusion auth login` 管理）。
+> API 密钥可直接填在 `env_N.api_key` 中，也可存储到 credentials.json（更安全，由 `illusion auth login` 管理）。Copilot/Codex 的认证由各自的 OAuth 流程管理，不需要手动填写 API 密钥。
 
 **切换方式**：
 ```bash

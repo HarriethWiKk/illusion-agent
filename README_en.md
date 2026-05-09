@@ -23,7 +23,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 🌍 **Bilingual Interface** - All CLI output automatically switches between Chinese and English based on `ui_language` setting
 - 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
 - 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
-- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, and any OpenAI-compatible endpoint
+- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
 - 🛠️ **Rich Toolset** - 38+ built-in tools + MCP dynamic tool extension
 - ⌨️ **51 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
@@ -104,7 +104,7 @@ illusion --api-format openai
 
 ```bash
 # Authentication management
-illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI)
+illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI/Copilot/Codex)
 illusion auth status             # View credential status for all environments
 illusion auth logout [env_N]     # Clear environment credentials
 illusion auth switch [env_N]     # Switch active environment
@@ -184,6 +184,8 @@ Supports multiple AI providers:
 |----------|------------|----------------|
 | Anthropic Claude | anthropic | API Key |
 | OpenAI / Compatible | openai | API Key |
+| GitHub Copilot | openai | OAuth Device Flow |
+| OpenAI Codex | openai | External CLI (Codex CLI) |
 | Custom Provider | anthropic / openai | API Key |
 
 ### Tool System
@@ -535,7 +537,66 @@ After selecting "Custom provider" in `illusion auth login`, enter:
 
 ---
 
-#### 4. Multi-Provider Mixed Configuration
+#### 4. GitHub Copilot
+
+```bash
+# Interactive setup
+illusion auth login  # Select GitHub Copilot
+```
+
+After completing GitHub authorization in the browser, it configures automatically. Auth data is stored in `~/.illusion/copilot_auth.json`.
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-4.1",
+    "provider": "copilot"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+**Authentication**: GitHub OAuth device code flow (handled automatically by `illusion auth login`)
+
+**Requirement**: An active GitHub Copilot subscription.
+
+**Supported models**: gpt-4.1, claude-sonnet-4, o3, o4-mini, etc. (depends on subscription plan)
+
+---
+
+#### 5. OpenAI Codex (ChatGPT Subscription)
+
+```bash
+# First install and authenticate Codex CLI
+codex auth login
+
+# Then configure in IllusionCode
+illusion auth login  # Select OpenAI Codex
+```
+
+Codex mode uses ChatGPT subscription authentication, reading credentials from the Codex CLI's auth file (`~/.codex/auth.json`).
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://chatgpt.com/backend-api",
+    "model_1": "codex-mini",
+    "provider": "codex"
+  },
+  "model": "env_1:model_1"
+}
+```
+
+**Authentication**: External CLI credential binding (requires Codex CLI authentication first)
+
+**Requirement**: [Codex CLI](https://github.com/openai/codex) installed with a ChatGPT Plus/Pro/Team subscription.
+
+---
+
+#### 6. Multi-Provider Mixed Configuration
 
 Configure multiple environments via `illusion auth login`, switch using `illusion auth switch` or `/model`:
 
@@ -552,11 +613,17 @@ Configure multiple environments via `illusion auth login`, switch using `illusio
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
+  "env_3": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-4.1",
+    "provider": "copilot"
+  },
   "model": "env_1:model_1"
 }
 ```
 
-> API keys can be placed directly in `env_N.api_key`, or stored in credentials.json (more secure, managed by `illusion auth login`).
+> API keys can be placed directly in `env_N.api_key`, or stored in credentials.json (more secure, managed by `illusion auth login`). Copilot/Codex authentication is managed by their respective OAuth flows and does not require manual API key entry.
 
 **Switching methods**:
 ```bash

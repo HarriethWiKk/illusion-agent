@@ -49,6 +49,30 @@ BASE_DELAY_SECONDS = 1.0  # 基础延迟（秒）
 MAX_DELAY_SECONDS = 30.0  # 最大延迟（秒）
 
 
+def _extract_account_id(token: str) -> str:
+    """从 JWT token 中提取 chatgpt_account_id
+
+    Args:
+        token: JWT 访问令牌
+
+    Returns:
+        str: 账户 ID，提取失败时返回空字符串
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return ""
+    try:
+        encoded = parts[1]
+        padded = encoded + "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception:
+        return ""
+    auth = payload.get(JWT_CLAIM_PATH)
+    if isinstance(auth, dict):
+        return str(auth.get("chatgpt_account_id", "") or "")
+    return ""
+
+
 def _resolve_codex_url(base_url: str | None) -> str:
     """解析并返回 Codex API URL
     

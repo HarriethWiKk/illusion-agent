@@ -227,10 +227,12 @@ class OpenAICompatibleClient:
         _client: AsyncOpenAI 客户端实例
     """
 
-    def __init__(self, api_key: str, *, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str, *, base_url: str | None = None, extra_headers: dict[str, str] | None = None) -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
+        if extra_headers:
+            kwargs["default_headers"] = extra_headers
         self._client = AsyncOpenAI(**kwargs)
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:

@@ -209,10 +209,31 @@ async def build_runtime(
     if api_client:
         resolved_api_client = api_client
     elif settings.api_format == "openai":
-        resolved_api_client = OpenAICompatibleClient(
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
+        # 检测是否为 Copilot 或 Codex 提供商
+        _provider_info = detect_provider(settings)
+        if _provider_info.name == "copilot":
+            from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
+            _copilot = CopilotAuth()
+            _copilot_token = _copilot.get_valid_token()
+            resolved_api_client = OpenAICompatibleClient(
+                api_key=_copilot_token,
+                base_url=settings.base_url or "https://api.githubcopilot.com",
+                extra_headers=copilot_extra_headers(),
+            )
+        elif _provider_info.name == "codex":
+            from illusion.auth.external import default_binding_for_provider, load_external_credential
+            from illusion.api.codex_client import CodexApiClient
+            _binding = default_binding_for_provider("openai_codex")
+            _cred = load_external_credential(_binding)
+            resolved_api_client = CodexApiClient(
+                auth_token=_cred.value,
+                base_url=settings.base_url,
+            )
+        else:
+            resolved_api_client = OpenAICompatibleClient(
+                api_key=settings.resolve_api_key(),
+                base_url=settings.base_url,
+            )
     else:
         resolved_api_client = AnthropicApiClient(
             api_key=settings.resolve_api_key(),
