@@ -9,6 +9,14 @@ import type {TodoItemSnapshot} from '../types.js';
 
 function noop(): void {}
 
+function sanitizeInput(value: string): string {
+	// 将多行文本转为单行：换行符替换为空格，并清理多余空格
+	return value
+		.replace(/[\r\n]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
 export function PromptInput({
 	busy,
 	input,
@@ -38,7 +46,12 @@ export function PromptInput({
 				</Box>
 			) : null}
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>
-				<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit ? noop : onSubmit} focus={!busy} />
+				<TextInput
+					value={input}
+					onChange={(value) => setInput(sanitizeInput(value))}
+					onSubmit={suppressSubmit ? noop : onSubmit}
+					focus={!busy}
+				/>
 			</Box>
 		</Box>
 	);

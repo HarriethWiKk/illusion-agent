@@ -4,6 +4,13 @@ import TextInput from 'ink-text-input';
 
 import {useTheme} from '../theme/ThemeContext.js';
 
+function sanitizeInput(value: string): string {
+	return value
+		.replace(/[\r\n]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
 export function Composer({
 	busy,
 	input,
@@ -29,7 +36,11 @@ export function Composer({
 					{busy ? 'busy' : 'ready'}
 				</Text>
 				<Text> </Text>
-				<TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
+				<TextInput
+					value={input}
+					onChange={(value) => setInput(sanitizeInput(value))}
+					onSubmit={onSubmit}
+				/>
 			</Box>
 			<Box marginTop={1}>
 				<Text dimColor>
