@@ -539,7 +539,7 @@ illusion auth login  # 选择 GitHub Copilot
   "env_1": {
     "api_format": "openai",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-4.1",
+    "model_1": "gpt-5.5",
     "provider": "copilot"
   },
   "model": "env_1:model_1"
@@ -550,7 +550,7 @@ illusion auth login  # 选择 GitHub Copilot
 
 **要求**：需要有效的 GitHub Copilot 订阅。
 
-**支持的模型**：gpt-4.1、claude-sonnet-4、o3、o4-mini 等（取决于订阅计划）
+**支持的模型**：gpt-5.5、gpt-5.3-codex、claude-opus-4.6、gemini-3.1-pro-preview 等（取决于订阅计划）
 
 ---
 
@@ -604,7 +604,7 @@ Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文
   "env_3": {
     "api_format": "openai",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-4.1",
+    "model_1": "gpt-5.5",
     "provider": "copilot"
   },
   "model": "env_1:model_1"

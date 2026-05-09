@@ -430,7 +430,7 @@ _DEFAULT_ENDPOINTS: dict[str, str] = {
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-5.4",
-    "copilot": "gpt-4.1",
+    "copilot": "gpt-5.5",
     "codex": "codex-mini",
 }
 
@@ -618,7 +618,7 @@ def _copilot_login(manager: Any) -> None:
     print(_t("copilot_auth_success", user=username))
 
     # 4. 输入模型名称
-    default_model = _DEFAULT_MODELS.get("copilot", "gpt-4.1")
+    default_model = _DEFAULT_MODELS.get("copilot", "gpt-5.5")
     prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
     model_name = input(prompt_text).strip()
     if not model_name:

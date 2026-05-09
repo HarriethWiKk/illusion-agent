@@ -38,7 +38,7 @@ export function PromptInput({
 				</Box>
 			) : null}
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>
-				<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit ? noop : onSubmit} />
+				<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit ? noop : onSubmit} focus={!busy} />
 			</Box>
 		</Box>
 	);

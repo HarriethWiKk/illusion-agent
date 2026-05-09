@@ -539,7 +539,7 @@ After completing GitHub authorization in the browser, it configures automaticall
   "env_1": {
     "api_format": "openai",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-4.1",
+    "model_1": "gpt-5.5",
     "provider": "copilot"
   },
   "model": "env_1:model_1"
@@ -550,7 +550,7 @@ After completing GitHub authorization in the browser, it configures automaticall
 
 **Requirement**: An active GitHub Copilot subscription.
 
-**Supported models**: gpt-4.1, claude-sonnet-4, o3, o4-mini, etc. (depends on subscription plan)
+**Supported models**: gpt-5.5, gpt-5.3-codex, claude-opus-4.6, gemini-3.1-pro-preview, etc. (depends on subscription plan)
 
 ---
 
@@ -604,7 +604,7 @@ Configure multiple environments via `illusion auth login`, switch using `illusio
   "env_3": {
     "api_format": "openai",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-4.1",
+    "model_1": "gpt-5.5",
     "provider": "copilot"
   },
   "model": "env_1:model_1"
