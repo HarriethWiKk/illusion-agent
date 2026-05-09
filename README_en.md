@@ -300,7 +300,7 @@ Both methods can be mixed. Runtime read priority: `env_N.api_key` > environment 
 Configuration resolution priority (from high to low):
 
 1. **CLI Arguments** - Command-line arguments have the highest priority
-2. **Environment Variables** - Such as `ANTHROPIC_API_KEY`, `illusion_MODEL`, etc.
+2. **Environment Variables** - Such as `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, etc.
 3. **Configuration Files** - `~/.illusion/settings.json`
 4. **Default Values** - Built-in default configurations
 
@@ -479,18 +479,6 @@ illusion -m env_1:model_2
 **Authentication**:
 - Interactive setup: `illusion auth login` → select Anthropic
 - Environment variable: `ANTHROPIC_API_KEY`
-
-**Supported Model Aliases**:
-| Alias | Actual Model | Description |
-|-------|--------------|-------------|
-| `default` | claude-sonnet-4-6 | Recommended model |
-| `best` | claude-opus-4-6 | Most powerful model |
-| `sonnet` | claude-sonnet-4-6 | Daily coding |
-| `opus` | claude-opus-4-6 | Complex reasoning |
-| `haiku` | claude-haiku-4-5 | Fastest model |
-| `sonnet[1m]` | claude-sonnet-4-6[1m] | 1M context |
-| `opus[1m]` | claude-opus-4-6[1m] | 1M context |
-| `opusplan` | Dynamic selection | Plan mode uses Opus |
 
 ---
 
@@ -881,13 +869,11 @@ Supported environment variables:
 |---------------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_MODEL` / `illusion_MODEL` | Default model |
-| `ANTHROPIC_BASE_URL` / `illusion_BASE_URL` | API endpoint |
-| `illusion_MAX_TOKENS` | Maximum token count |
-| `illusion_MAX_TURNS` | Maximum conversation turns |
-| `illusion_API_FORMAT` | API format |
-| `illusion_PROVIDER` | Provider |
-| `illusion_SANDBOX_ENABLED` | Whether to enable sandbox |
+| `ANTHROPIC_MODEL` | Default model |
+| `ANTHROPIC_BASE_URL` | API endpoint |
+| `ILLUSION_MAX_TOKENS` | Maximum token count |
+| `ILLUSION_MAX_TURNS` | Maximum conversation turns |
+| `ILLUSION_SANDBOX_ENABLED` | Whether to enable sandbox |
 | `ILLUSION_CONFIG_DIR` | Configuration directory path |
 | `ILLUSION_DATA_DIR` | Data directory path |
 | `ILLUSION_LOGS_DIR` | Logs directory path |

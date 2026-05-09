@@ -35,7 +35,6 @@ from uuid import uuid4
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.auth.manager import AuthManager
-from illusion.config.settings import resolve_model_setting
 from illusion.bridge import get_bridge_manager
 from illusion.engine.stream_events import (
     AssistantTextDelta,

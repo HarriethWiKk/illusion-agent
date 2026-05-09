@@ -10,7 +10,6 @@ import pytest
 from illusion.config.settings import (
     Settings,
     load_settings,
-    normalize_anthropic_model_name,
     save_settings,
 )
 
@@ -230,6 +229,3 @@ class TestLoadSaveSettings:
         assert loaded.api_key == "sk-test"
 
 
-def test_normalize_anthropic_model_name_matches_hermes_behavior():
-    assert normalize_anthropic_model_name("anthropic/claude-sonnet-4-20250514") == "claude-sonnet-4-20250514"
-    assert normalize_anthropic_model_name("claude-opus-4.6") == "claude-opus-4-6"

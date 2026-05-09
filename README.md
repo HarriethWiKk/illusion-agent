@@ -300,7 +300,7 @@ illusion-code/
 配置解析优先级（从高到低）：
 
 1. **CLI 参数** - 命令行传入的参数优先级最高
-2. **环境变量** - 如 `ANTHROPIC_API_KEY`、`illusion_MODEL` 等
+2. **环境变量** - 如 `ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL` 等
 3. **配置文件** - `~/.illusion/settings.json`
 4. **默认值** - 代码内置的默认配置
 
@@ -479,18 +479,6 @@ illusion -m env_1:model_2
 **认证方式**：
 - 交互式配置：`illusion auth login` → 选择 Anthropic
 - 环境变量：`ANTHROPIC_API_KEY`
-
-**支持的模型别名**：
-| 别名 | 实际模型 | 说明 |
-|------|----------|------|
-| `default` | claude-sonnet-4-6 | 推荐模型 |
-| `best` | claude-opus-4-6 | 最强模型 |
-| `sonnet` | claude-sonnet-4-6 | 日常编码 |
-| `opus` | claude-opus-4-6 | 复杂推理 |
-| `haiku` | claude-haiku-4-5 | 最快模型 |
-| `sonnet[1m]` | claude-sonnet-4-6[1m] | 1M 上下文 |
-| `opus[1m]` | claude-opus-4-6[1m] | 1M 上下文 |
-| `opusplan` | 动态选择 | 计划模式使用 Opus |
 
 ---
 
@@ -881,13 +869,11 @@ illusion mcp remove <name>       # 移除服务器
 |--------|------|
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
 | `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `ANTHROPIC_MODEL` / `illusion_MODEL` | 默认模型 |
-| `ANTHROPIC_BASE_URL` / `illusion_BASE_URL` | API 端点 |
-| `illusion_MAX_TOKENS` | 最大 token 数 |
-| `illusion_MAX_TURNS` | 最大对话轮数 |
-| `illusion_API_FORMAT` | API 格式 |
-| `illusion_PROVIDER` | 提供商 |
-| `illusion_SANDBOX_ENABLED` | 是否启用沙箱 |
+| `ANTHROPIC_MODEL` | 默认模型 |
+| `ANTHROPIC_BASE_URL` | API 端点 |
+| `ILLUSION_MAX_TOKENS` | 最大 token 数 |
+| `ILLUSION_MAX_TURNS` | 最大对话轮数 |
+| `ILLUSION_SANDBOX_ENABLED` | 是否启用沙箱 |
 | `ILLUSION_CONFIG_DIR` | 配置目录路径 |
 | `ILLUSION_DATA_DIR` | 数据目录路径 |
 | `ILLUSION_LOGS_DIR` | 日志目录路径 |

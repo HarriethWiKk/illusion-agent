@@ -164,112 +164,6 @@ class ResolvedAuth:
     state: str = "configured"  # 配置状态
 
 
-# Claude 别名到实际模型名称的映射字典
-_CLAUDE_ALIAS_TARGETS: dict[str, str] = {
-    "sonnet": "claude-sonnet-4-6",  # Sonnet 别名
-    "opus": "claude-opus-4-6",  # Opus 别名
-    "haiku": "claude-haiku-4-5",  # Haiku 别名
-    "sonnet[1m]": "claude-sonnet-4-6[1m]",  # 1M 上下文 Sonnet
-    "opus[1m]": "claude-opus-4-6[1m]",  # 1M 上下文 Opus
-}
-
-
-def normalize_anthropic_model_name(model: str) -> str:
-    """标准化 Anthropic 模型名称
-    
-    与 Hermes 一样标准化模型名称：
-    - 去除 "anthropic/" 前缀（如果存在）
-    - 将点分隔的 Claude 版本号转换为 Anthropic 的连字符形式
-    
-    Args:
-        model: 原始模型名称
-    
-    Returns:
-        str: 标准化后的模型名称
-    """
-    normalized = model.strip()  # 去除首尾空白
-    lower = normalized.lower()  # 转换为小写用于比较
-    # 去除 anthropic/ 前缀
-    if lower.startswith("anthropic/"):
-        normalized = normalized[len("anthropic/"):]
-        lower = normalized.lower()
-    # 如果以 claude- 开头，将点转换为连字符
-    if lower.startswith("claude-"):
-        return normalized.replace(".", "-")
-    return normalized
-
-
-def is_claude_family_provider(provider: str) -> bool:
-    """返回该提供商是否为 Claude/Anthropic 工作流
-    
-    Args:
-        provider: 提供商标识符
-    
-    Returns:
-        bool: 是否为 Claude 家族提供商
-    """
-    return provider in {"anthropic", "anthropic_claude"}
-
-
-def resolve_model_setting(
-    model_setting: str,
-    provider: str,
-    *,
-    default_model: str | None = None,
-    permission_mode: str | None = None,
-) -> str:
-    """将用户面向的模型设置解析为具体的运行时模型 ID
-    
-    Args:
-        model_setting: 用户配置的模型名称或别名
-        provider: 提供商标识符
-        default_model: 可选的默认模型
-        permission_mode: 可选的权限模式
-    
-    Returns:
-        str: 解析后的具体模型 ID
-    """
-    configured = model_setting.strip()  # 去除空白
-    normalized = configured.lower()  # 转换为小写
-
-    # 处理 "default" 或空值
-    if not configured or normalized == "default":
-        fallback = (default_model or "").strip()  # 获取备用模型
-        if fallback and fallback.lower() != "default":
-            # 递归解析备用模型
-            return resolve_model_setting(
-                fallback,
-                provider,
-                default_model=None,
-                permission_mode=permission_mode,
-            )
-        # Claude 家族默认使用 sonnet
-        if is_claude_family_provider(provider):
-            return _CLAUDE_ALIAS_TARGETS["sonnet"]
-        return "gpt-5.4"
-
-    # 处理 Claude 家族提供商的别名
-    if is_claude_family_provider(provider):
-        if normalized == "best":
-            return _CLAUDE_ALIAS_TARGETS["opus"]  # best 返回 opus
-        if normalized == "opusplan":
-            # 根据权限模式决定使用 opus 还是 sonnet
-            if permission_mode == PermissionMode.PLAN.value:
-                return _CLAUDE_ALIAS_TARGETS["opus"]
-            return _CLAUDE_ALIAS_TARGETS["sonnet"]
-        if normalized in _CLAUDE_ALIAS_TARGETS:
-            return _CLAUDE_ALIAS_TARGETS[normalized]  # 直接映射别名
-        return normalize_anthropic_model_name(configured)  # 标准化模型名
-
-    # 处理 OpenAI 系列提供商的 default/best
-    if provider in {"openai", "openai_codex"} and normalized in {"default", "best"}:
-        return "gpt-5.4"
-
-    return configured  # 直接返回原始配置
-
-
-
-
 class EnvConfig(BaseModel):
     """环境/提供商组配置"""
     api_format: str  # "anthropic" / "openai"
@@ -570,16 +464,16 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     # 非模型相关的全局字段覆盖仍使用 model_copy
     updates: dict[str, Any] = {}
 
-    max_tokens = os.environ.get("illusion_MAX_TOKENS")
+    max_tokens = os.environ.get("ILLUSION_MAX_TOKENS") or os.environ.get("illusion_MAX_TOKENS")
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
 
-    max_turns = os.environ.get("illusion_MAX_TURNS")
+    max_turns = os.environ.get("ILLUSION_MAX_TURNS") or os.environ.get("illusion_MAX_TURNS")
     if max_turns:
         updates["max_turns"] = int(max_turns)
 
-    sandbox_enabled = os.environ.get("illusion_SANDBOX_ENABLED")
-    sandbox_fail = os.environ.get("illusion_SANDBOX_FAIL_IF_UNAVAILABLE")
+    sandbox_enabled = os.environ.get("ILLUSION_SANDBOX_ENABLED") or os.environ.get("illusion_SANDBOX_ENABLED")
+    sandbox_fail = os.environ.get("ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE") or os.environ.get("illusion_SANDBOX_FAIL_IF_UNAVAILABLE")
     sandbox_updates: dict[str, Any] = {}
     if sandbox_enabled is not None:
         sandbox_updates["enabled"] = _parse_bool_env(sandbox_enabled)
