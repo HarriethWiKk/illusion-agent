@@ -275,7 +275,6 @@ function tokensToElements(
 						const content = renderInline(pt.tokens, theme, `bq-${ki}`);
 						elements.push(
 							<Text key={`t-${ki++}`} italic color={theme.colors.muted}>
-								<Text>{'  │ '}</Text>
 								{content}
 							</Text>,
 						);
@@ -284,7 +283,6 @@ function tokensToElements(
 						const content = renderInline(tt.tokens, theme, `bq-${ki}`);
 						elements.push(
 							<Text key={`t-${ki++}`} italic color={theme.colors.muted}>
-								<Text>{'  │ '}</Text>
 								{content}
 							</Text>,
 						);
@@ -349,6 +347,27 @@ export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix
 				if (tt.tokens && tt.tokens.length > 0) {
 					const rendered = renderInline(tt.tokens, theme, keyPrefix);
 					if (rendered.length > 0) return rendered;
+				}
+			} else if (token.type === 'list') {
+				// 处理列表项：提取第一个列表项的内容
+				const lt = token as Tokens.List;
+				if (lt.items.length > 0) {
+					const item = lt.items[0];
+					if (item.tokens && item.tokens.length > 0) {
+						for (const itemToken of item.tokens) {
+							if (itemToken.type === 'text') {
+								const tt = itemToken as Tokens.Text;
+								if (tt.tokens && tt.tokens.length > 0) {
+									return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} </Text>, ...renderInline(tt.tokens, theme, `${keyPrefix}-list`)];
+								}
+							} else if (itemToken.type === 'paragraph') {
+								const pt = itemToken as Tokens.Paragraph;
+								return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} </Text>, ...renderInline(pt.tokens, theme, `${keyPrefix}-list`)];
+							}
+						}
+					}
+					// fallback: 用 raw 文本
+					return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} {item.text}</Text>];
 				}
 			}
 		}
