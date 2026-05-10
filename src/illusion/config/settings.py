@@ -192,8 +192,8 @@ class Settings(BaseModel):
 
     model_config = {"extra": "allow"}  # 允许 env_N 动态字段
 
-    # 活跃模型引用（格式：env_N:model_N）
-    model: str = "env_1:model_1"
+    # 活跃模型引用（格式：env_N.model_N）
+    model: str = "env_1.model_1"
 
     # 全局配置
     context_window: int = 200_000
@@ -239,15 +239,15 @@ class Settings(BaseModel):
     @property
     def _active_env_key(self) -> str:
         """解析 model 字段，返回 env key"""
-        if ":" in self.model:
-            return self.model.split(":", 1)[0]
+        if "." in self.model:
+            return self.model.split(".", 1)[0]
         return "env_1"
 
     @property
     def _active_model_key(self) -> str:
         """解析 model 字段，返回 model key"""
-        if ":" in self.model:
-            return self.model.split(":", 1)[1]
+        if "." in self.model:
+            return self.model.split(".", 1)[1]
         return "model_1"
 
     @property

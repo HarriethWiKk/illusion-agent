@@ -94,7 +94,7 @@ def test_settings_resolve_auth_uses_env_config(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("illusion_CONFIG_DIR", str(config_dir))
 
     settings = Settings(
-        model="env_1:model_1",
+        model="env_1.model_1",
         env_1={"api_format": "anthropic", "api_key": "env-config-key"},
     )
     resolved = settings.resolve_auth()
@@ -131,7 +131,7 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
     (config_dir / "settings.json").write_text(
         json.dumps(
             {
-                "model": "env_1:model_1",
+                "model": "env_1.model_1",
                 "env_1": {
                     "api_format": "openai",
                     "api_key": "stale-key",
@@ -155,7 +155,7 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
     )
 
     settings = load_settings()
-    assert settings.model == "env_1:model_1"
+    assert settings.model == "env_1.model_1"
     assert settings.provider == "openai"
     assert settings.base_url == "https://api.moonshot.cn/anthropic"
     assert settings.api_key == "stale-key"
@@ -202,7 +202,7 @@ def test_external_binding_for_claude_without_switching(monkeypatch, tmp_path: Pa
     settings = load_settings()
     assert settings.provider == "anthropic"
     assert settings.api_format == "anthropic"
-    assert settings.model == "env_1:model_1"
+    assert settings.model == "env_1.model_1"
     binding = load_external_binding(CLAUDE_PROVIDER)
     assert binding is not None
     assert Path(binding.source_path) == claude_home / ".credentials.json"
@@ -219,7 +219,7 @@ def test_codex_env_activation_via_config(monkeypatch, tmp_path: Path):
 
     save_settings(
         Settings(
-            model="env_1:model_1",
+            model="env_1.model_1",
             env_1={
                 "api_format": "openai",
                 "api_key": "codex-key",
@@ -229,7 +229,7 @@ def test_codex_env_activation_via_config(monkeypatch, tmp_path: Path):
     )
 
     settings = load_settings()
-    assert settings.model == "env_1:model_1"
+    assert settings.model == "env_1.model_1"
     assert settings.api_format == "openai"
     assert settings.api_key == "codex-key"
     assert settings.active_model_name == "gpt-5.4"

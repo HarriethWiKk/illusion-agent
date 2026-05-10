@@ -1198,14 +1198,14 @@ def create_default_command_registry() -> CommandRegistry:
             lines = []
             for env_key, env in settings.list_envs().items():
                 for model_key, model_name in env.list_models().items():
-                    ref = f"{env_key}:{model_key}"
+                    ref = f"{env_key}.{model_key}"
                     active = " (active)" if ref == settings.model else ""
                     lines.append(f"  {ref}{active}: {model_name} ({env.api_format})")
             return CommandResult(message=i18n_t("model_list_title") + "\n" + "\n".join(lines))
         # 切换模型
         model_ref = tokens[0] if tokens[0] != "set" else (tokens[1] if len(tokens) > 1 else "")
-        if ":" in model_ref:
-            env_key, model_key = model_ref.split(":", 1)
+        if "." in model_ref:
+            env_key, model_key = model_ref.split(".", 1)
             env = settings.get_env(env_key)
             if env and env.get_model(model_key):
                 settings.model = model_ref

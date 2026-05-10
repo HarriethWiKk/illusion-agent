@@ -111,7 +111,7 @@ async def test_backend_host_processes_model_turn(tmp_path, monkeypatch):
 async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monkeypatch):
     """Regression: slash commands should not snap model/provider back to persisted defaults.
 
-    When the session is launched with CLI overrides (e.g. --api-format openai --model env_1:model_1),
+    When the session is launched with CLI overrides (e.g. --api-format openai --model env_1.model_1),
     issuing a command like /fast triggers a UI state refresh. That refresh must
     preserve the effective session settings, not reload ~/.illusion/settings.json
     verbatim.
@@ -128,7 +128,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     save_settings(
         Settings().model_copy(
             update={
-                "model": "env_1:model_1",
+                "model": "env_1.model_1",
                 "env_1": {"api_format": "openai", "model_1": "gpt-5.4"},
             }
         )
@@ -137,7 +137,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
     host._bundle = await build_runtime(
         api_client=StaticApiClient("unused"),
-        model="env_1:model_1",
+        model="env_1.model_1",
         api_format="openai",
     )
     events = []

@@ -864,7 +864,7 @@ class ReactBackendHost:
         # 遍历所有 env，提取 model_N
         for env_key, env in envs.items():
             for model_key, model_name in env.list_models().items():
-                ref = f"{env_key}:{model_key}"
+                ref = f"{env_key}.{model_key}"
                 if ref in seen:
                     continue
                 seen.add(ref)

@@ -81,7 +81,7 @@ illusion
 illusion -p "帮我分析这个项目的结构"
 
 # 指定模型
-illusion -m env_1:model_2
+illusion -m env_1.model_2
 
 # 继续最近会话
 illusion --continue
@@ -312,7 +312,7 @@ illusion-code/
 
 #### 配置方式
 
-settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。每个 `env_N` 是一个独立的环境配置（EnvConfig），包含 API 格式、端点、密钥和模型列表。通过 `model` 字段引用 `env_N:model_N` 来选择当前活跃模型。
+settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。每个 `env_N` 是一个独立的环境配置（EnvConfig），包含 API 格式、端点、密钥和模型列表。通过 `model` 字段引用 `env_N.model_N` 来选择当前活跃模型。
 
 ```json
 {
@@ -327,13 +327,13 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1",
+  "model": "env_1.model_1",
   "context_window": 200000,
   "system_prompt": null
 }
 ```
 
-> **提示**：`model` 字段格式为 `env_N:model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+> **提示**：`model` 字段格式为 `env_N.model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
 
 #### 完整配置结构
 
@@ -350,7 +350,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1",
+  "model": "env_1.model_1",
   "context_window": 200000,
   "system_prompt": null,
   "max_tokens": 16384,
@@ -399,7 +399,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 | 字段 | 类型 | 默认值 | 说明 | 示例 |
 |------|------|--------|------|------|
 | `env_N` | object | - | 环境配置组（EnvConfig），支持动态添加 env_1, env_2... | 见下方 EnvConfig 字段说明 |
-| `model` | string | "env_1:model_1" | 当前活跃模型引用，格式为 `env_N:model_N` | `"env_2:model_1"` |
+| `model` | string | "env_1.model_1" | 当前活跃模型引用，格式为 `env_N.model_N` | `"env_2.model_1"` |
 | `context_window` | int | 200000 | 上下文窗口大小 | `128000` |
 | `system_prompt` | string\|null | null | 自定义系统提示词（全局覆盖） | `"你是一个专业的Python开发者"` |
 | `max_tokens` | int | 16384 | 最大输出 token 数 | `32768` |
@@ -428,7 +428,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 
 #### 多模型配置示例
 
-在同一个环境下配置多个模型，通过 `env_N:model_N` 引用切换：
+在同一个环境下配置多个模型，通过 `env_N.model_N` 引用切换：
 
 ```json
 {
@@ -439,7 +439,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
     "model_2": "minimaxai/minimax-m2.7",
     "model_3": "meta/llama-3.1-405b-instruct"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -450,10 +450,10 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 /model
 
 # 方式二：使用 -m 参数指定模型
-illusion -m env_1:model_2
+illusion -m env_1.model_2
 
 # 方式三：修改 settings.json 中的 model 字段
-# 将 "model" 改为 "env_1:model_2"
+# 将 "model" 改为 "env_1.model_2"
 ```
 
 ---
@@ -470,7 +470,7 @@ illusion -m env_1:model_2
     "model_1": "claude-sonnet-4-6",
     "model_2": "claude-opus-4-6"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -491,7 +491,7 @@ illusion -m env_1:model_2
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -519,7 +519,7 @@ illusion -m env_1:model_2
     "base_url": "https://api.your-llm.com/v1",
     "model_1": "your-model-name"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -542,7 +542,7 @@ illusion auth login  # 选择 GitHub Copilot
     "model_1": "gpt-5.5",
     "provider": "copilot"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -574,7 +574,7 @@ Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文
     "model_1": "codex-mini",
     "provider": "codex"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -607,7 +607,7 @@ Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文
     "model_1": "gpt-5.5",
     "provider": "copilot"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -625,7 +625,7 @@ illusion auth switch env_2
 /model
 
 # 使用 -m 参数直接指定
-illusion -m env_2:model_1
+illusion -m env_2.model_1
 ```
 
 ---

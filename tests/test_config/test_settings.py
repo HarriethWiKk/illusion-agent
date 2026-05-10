@@ -18,7 +18,7 @@ class TestSettings:
     def test_defaults(self):
         s = Settings()
         assert s.api_key == ""
-        assert s.model == "env_1:model_1"
+        assert s.model == "env_1.model_1"
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
         assert s.max_turns == 200
@@ -51,13 +51,13 @@ class TestSettings:
 
     def test_merge_cli_overrides(self):
         s = Settings()
-        updated = s.merge_cli_overrides(model="env_2:model_1", verbose=True, api_key=None)
-        assert updated.model == "env_2:model_1"
+        updated = s.merge_cli_overrides(model="env_2.model_1", verbose=True, api_key=None)
+        assert updated.model == "env_2.model_1"
         assert updated.verbose is True
 
     def test_merge_cli_overrides_returns_new_instance(self):
         s = Settings()
-        updated = s.merge_cli_overrides(model="env_2:model_1")
+        updated = s.merge_cli_overrides(model="env_2.model_1")
         assert s.model != updated.model
         assert s is not updated
 
@@ -72,7 +72,7 @@ class TestSettings:
 
     def test_active_model_name_from_env(self):
         s = Settings(
-            model="env_1:model_1",
+            model="env_1.model_1",
             env_1={"api_format": "anthropic", "model_1": "claude-opus-4-20250514"},
         )
         assert s.active_model_name == "claude-opus-4-20250514"
@@ -91,14 +91,14 @@ class TestLoadSaveSettings:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         path = tmp_path / "nonexistent.json"
         s = load_settings(path)
-        assert s.model == "env_1:model_1"
+        assert s.model == "env_1.model_1"
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
 
     def test_load_existing_file(self, tmp_path: Path):
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({
-            "model": "env_1:model_1",
+            "model": "env_1.model_1",
             "env_1": {"api_format": "anthropic", "model_1": "claude-opus-4-20250514"},
             "verbose": True,
             "fast_mode": True,
@@ -145,7 +145,7 @@ class TestLoadSaveSettings:
     def test_load_applies_env_overrides(self, tmp_path: Path, monkeypatch):
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({
-            "model": "env_1:model_1",
+            "model": "env_1.model_1",
             "env_1": {"api_format": "anthropic", "model_1": "from-file"},
         }))
         monkeypatch.setenv("ANTHROPIC_MODEL", "from-env-model")
@@ -195,7 +195,7 @@ class TestLoadSaveSettings:
         path.write_text(
             json.dumps(
                 {
-                    "model": "env_1:model_1",
+                    "model": "env_1.model_1",
                     "env_1": {
                         "api_format": "anthropic",
                         "api_key": "sk-test",
@@ -215,7 +215,7 @@ class TestLoadSaveSettings:
         """Test that save/load roundtrip preserves env_N config."""
         path = tmp_path / "settings.json"
         original = Settings(
-            model="env_1:model_2",
+            model="env_1.model_2",
             env_1={
                 "api_format": "openai",
                 "api_key": "sk-test",

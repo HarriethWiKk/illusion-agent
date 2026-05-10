@@ -176,7 +176,7 @@ async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatc
     save_settings(
         Settings().model_copy(
             update={
-                "model": "env_1:model_1",
+                "model": "env_1.model_1",
                 "env_1": {"api_format": "anthropic", "model_1": "claude-sonnet-4-6"},
             }
         )
@@ -184,13 +184,13 @@ async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatc
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
-    command, args = registry.lookup("/config set model env_1:model_1")
+    command, args = registry.lookup("/config set model env_1.model_1")
     assert command is not None
 
     result = await command.handler(args, context)
 
     loaded = load_settings()
-    assert loaded.model == "env_1:model_1"
+    assert loaded.model == "env_1.model_1"
 
 
 @pytest.mark.asyncio

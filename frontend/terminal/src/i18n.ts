@@ -24,7 +24,7 @@ const ZH: Dict = {
 	statusToolPrefix: '执行工具',
 	spinnerVerbs: '酝酿,生发,铺陈,点染,贯通,渲染,独照,澄明',
 	spinnerToolAction: '正在执行',
-	longTextHint: '长文本建议写入文件后通过 @文件路径 引用',
+	longTextHint: '多段需求或长文本建议写入文档后命 illusion code 读取',
 	clearInput: '清空输入',
 };
 
@@ -50,7 +50,7 @@ const EN: Dict = {
 	statusToolPrefix: 'Running tool',
 	spinnerVerbs: 'Thinking,Processing,Analyzing,Reasoning,Generating,Deliberating,Crafting,Refining,Computing,Synthesizing',
 	spinnerToolAction: 'Running',
-	longTextHint: 'For long text, write to file and reference with @filepath',
+	longTextHint: 'For complex or long text, write to doc and let illusion code read it',
 	clearInput: 'clear input',
 };
 

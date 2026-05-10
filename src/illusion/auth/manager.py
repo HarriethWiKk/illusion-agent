@@ -114,9 +114,9 @@ class AuthManager:
         models = env.list_models()
         if models:
             model_key = next(iter(models.keys()))
-            self.settings.model = f"{env_key}:{model_key}"
+            self.settings.model = f"{env_key}.{model_key}"
         else:
-            self.settings.model = f"{env_key}:model_1"
+            self.settings.model = f"{env_key}.model_1"
         self._settings = self.settings
         self.save_settings()
         log.info("已切换到环境 %s", env_key)

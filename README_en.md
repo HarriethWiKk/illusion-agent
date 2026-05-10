@@ -81,7 +81,7 @@ illusion
 illusion -p "Analyze the structure of this project"
 
 # Specify model
-illusion -m env_1:model_2
+illusion -m env_1.model_2
 
 # Continue most recent session
 illusion --continue
@@ -312,7 +312,7 @@ Global configuration file is located at `~/.illusion/settings.json` and applies 
 
 #### Configuration Methods
 
-settings.json uses the `env_N` grouped format to manage multiple environment/provider configurations. Each `env_N` is an independent environment configuration (EnvConfig) containing API format, endpoint, API key, and model list. The `model` field references `env_N:model_N` to select the currently active model.
+settings.json uses the `env_N` grouped format to manage multiple environment/provider configurations. Each `env_N` is an independent environment configuration (EnvConfig) containing API format, endpoint, API key, and model list. The `model` field references `env_N.model_N` to select the currently active model.
 
 ```json
 {
@@ -327,13 +327,13 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1",
+  "model": "env_1.model_1",
   "context_window": 200000,
   "system_prompt": null
 }
 ```
 
-> **Tip**: The `model` field format is `env_N:model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command. API keys can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
+> **Tip**: The `model` field format is `env_N.model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command. API keys can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
 
 #### Complete Configuration Structure
 
@@ -350,7 +350,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1",
+  "model": "env_1.model_1",
   "context_window": 200000,
   "system_prompt": null,
   "max_tokens": 16384,
@@ -399,7 +399,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
 | Field | Type | Default | Description | Example |
 |-------|------|---------|-------------|---------|
 | `env_N` | object | - | Environment config group (EnvConfig), supports dynamic env_1, env_2... | See EnvConfig field description below |
-| `model` | string | "env_1:model_1" | Active model reference, format: `env_N:model_N` | `"env_2:model_1"` |
+| `model` | string | "env_1.model_1" | Active model reference, format: `env_N.model_N` | `"env_2.model_1"` |
 | `context_window` | int | 200000 | Context window size | `128000` |
 | `system_prompt` | string\|null | null | Custom system prompt (global override) | `"You are a professional Python developer"` |
 | `max_tokens` | int | 16384 | Maximum output token count | `32768` |
@@ -428,7 +428,7 @@ IllusionCode supports managing multiple environment/provider configurations thro
 
 #### Multi-Model Configuration Example
 
-Configure multiple models under the same environment, switch via `env_N:model_N`:
+Configure multiple models under the same environment, switch via `env_N.model_N`:
 
 ```json
 {
@@ -439,7 +439,7 @@ Configure multiple models under the same environment, switch via `env_N:model_N`
     "model_2": "minimaxai/minimax-m2.7",
     "model_3": "meta/llama-3.1-405b-instruct"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -450,10 +450,10 @@ Configure multiple models under the same environment, switch via `env_N:model_N`
 /model
 
 # Method 2: Use -m parameter to specify model
-illusion -m env_1:model_2
+illusion -m env_1.model_2
 
 # Method 3: Modify the model field in settings.json
-# Change "model" to "env_1:model_2"
+# Change "model" to "env_1.model_2"
 ```
 
 ---
@@ -470,7 +470,7 @@ illusion -m env_1:model_2
     "model_1": "claude-sonnet-4-6",
     "model_2": "claude-opus-4-6"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -491,7 +491,7 @@ illusion -m env_1:model_2
     "base_url": "https://api.openai.com/v1",
     "model_1": "gpt-5.4"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -519,7 +519,7 @@ After selecting "Custom provider" in `illusion auth login`, enter:
     "base_url": "https://api.your-llm.com/v1",
     "model_1": "your-model-name"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -542,7 +542,7 @@ After completing GitHub authorization in the browser, it configures automaticall
     "model_1": "gpt-5.5",
     "provider": "copilot"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -574,7 +574,7 @@ Codex mode uses ChatGPT subscription authentication, reading credentials from th
     "model_1": "codex-mini",
     "provider": "codex"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -607,7 +607,7 @@ Configure multiple environments via `illusion auth login`, switch using `illusio
     "model_1": "gpt-5.5",
     "provider": "copilot"
   },
-  "model": "env_1:model_1"
+  "model": "env_1.model_1"
 }
 ```
 
@@ -625,7 +625,7 @@ illusion auth switch env_2
 /model
 
 # Use -m parameter to specify directly
-illusion -m env_2:model_1
+illusion -m env_2.model_1
 ```
 
 ---
