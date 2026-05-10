@@ -119,6 +119,17 @@ function renderItemContent(item: Tokens.ListItem, theme: ThemeConfig, prefix: st
 		} else if (t.type === 'paragraph') {
 			const pt = t as Tokens.Paragraph;
 			parts.push(...renderInline(pt.tokens, theme, k));
+		} else if (t.type === 'list') {
+			// 嵌套列表：递归渲染，使用不同符号和缩进
+			const nestedList = t as Tokens.List;
+			const bullet = nestedList.ordered ? '' : `${theme.icons.bullet} `;
+			for (let ni = 0; ni < nestedList.items.length; ni++) {
+				const nestedItem = nestedList.items[ni];
+				const nestedContent = renderItemContent(nestedItem, theme, `${k}-${ni}`);
+				parts.push(
+					<Text key={`${k}-${ni}`}>{'\n'}{'  '}<Text color={theme.colors.muted}>{bullet}</Text>{nestedContent}</Text>,
+				);
+			}
 		} else {
 			const raw = (t as {raw?: string}).raw ?? (t as {text?: string}).text ?? '';
 			parts.push(<Text key={k}>{raw}</Text>);
