@@ -52,7 +52,14 @@ function QuestionModal({
 	const allOptions = useMemo(() => {
 		if (!hasOptions) return [] as OptionEntry[];
 		const result: OptionEntry[] = options.map((opt) => ({type: 'option' as const, label: opt.label, description: opt.description}));
-		result.push({type: 'other' as const, label: language === 'zh-CN' ? '其他（手动输入）' : 'Other (type your answer)', description: undefined});
+		// 仅当 LLM 未提供"其他"类选项时，才追加硬编码的"其他"选项，避免重复
+		const hasOtherAlready = options.some((opt) => {
+			const lbl = opt.label.toLowerCase();
+			return lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他');
+		});
+		if (!hasOtherAlready) {
+			result.push({type: 'other' as const, label: language === 'zh-CN' ? '其他（手动输入）' : 'Other (type your answer)', description: undefined});
+		}
 		return result;
 	}, [options, hasOptions, language]);
 
@@ -94,8 +101,13 @@ function QuestionModal({
 				return;
 			}
 			const num = parseInt(_chunk, 10);
-			if (num >= 1 && num <= options.length) {
-				onSubmit(`${num}. ${options[num - 1].label}`);
+			if (num >= 1 && num <= allOptions.length) {
+				const target = allOptions[num - 1];
+				if (target?.type === 'other') {
+					setIsCustomInput(true);
+				} else if (target) {
+					onSubmit(`${num}. ${target.label}`);
+				}
 				return;
 			}
 		} else {
@@ -164,7 +176,7 @@ function QuestionModal({
 									{isSelected ? `${theme.icons.pointer} ` : '  '}
 								</Text>
 								<Text color={isSelected ? theme.colors.suggestion : undefined} bold={isSelected} dimColor={!isSelected}>
-									{opt.type === 'option' ? `${i + 1}. ` : '  '}
+									{`${i + 1}. `}
 									{opt.label}
 								</Text>
 								{opt.description ? (
@@ -182,7 +194,7 @@ function QuestionModal({
 							<Text> {theme.icons.middleDot} </Text>
 							<Text color={theme.colors.muted}>↵</Text> select
 							<Text> {theme.icons.middleDot} </Text>
-							<Text color={theme.colors.muted}>1-{options.length}</Text> quick
+							<Text color={theme.colors.muted}>1-{allOptions.length}</Text> quick
 						</Text>
 					</Box>
 				</Box>
