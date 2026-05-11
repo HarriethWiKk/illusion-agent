@@ -50,9 +50,12 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
     Returns:
         dict[str, object]: 服务器名称到配置的映射字典
     """
+    from pydantic import TypeAdapter
+
     from illusion.config.paths import get_project_mcp_dir
     from illusion.mcp.types import McpJsonConfig, McpServerConfig
 
+    _server_adapter = TypeAdapter(McpServerConfig)
     servers: dict[str, object] = {}
     mcp_dir = get_project_mcp_dir(cwd)
 
@@ -66,21 +69,27 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
             logger.warning("Failed to read MCP config %s: %s", json_file, exc)
             continue
 
+        # 兼容 mcp_servers（snake_case）键
+        if "mcp_servers" in raw and "mcpServers" not in raw:
+            raw["mcpServers"] = raw.pop("mcp_servers")
+
         # 尝试解析为多服务器格式（mcpServers 键）
         if "mcpServers" in raw:
             try:
                 parsed = McpJsonConfig.model_validate(raw)
                 for name, config in parsed.mcpServers.items():
-                    servers[name] = config
+                    if getattr(config, "enabled", True):
+                        servers[name] = config
             except Exception as exc:
                 logger.warning("Failed to parse MCP config %s: %s", json_file, exc)
             continue
 
         # 尝试解析为单服务器格式（文件名作为服务器名）
         try:
-            config = McpServerConfig.model_validate(raw)
-            server_name = json_file.stem
-            servers[server_name] = config
+            config = _server_adapter.validate_python(raw)
+            if getattr(config, "enabled", True):
+                server_name = json_file.stem
+                servers[server_name] = config
         except Exception as exc:
             logger.warning("Failed to parse MCP config %s: %s", json_file, exc)
 
@@ -108,8 +117,9 @@ def load_mcp_server_configs(settings, plugins: list[LoadedPlugin], cwd: str | Pa
         >>> for name, config in configs.items():
         ...     print(f"{name}: {config}")
     """
-    # 从全局设置中获取 MCP 服务器配置
-    servers = dict(settings.mcp_servers)
+    # 从全局设置中获取 MCP 服务器配置（跳过已禁用的服务器）
+    servers = {name: cfg for name, cfg in settings.mcp_servers.items()
+               if getattr(cfg, "enabled", True)}
 
     # 从项目目录加载 MCP 配置（覆盖全局设置）
     if cwd is not None:
@@ -121,8 +131,10 @@ def load_mcp_server_configs(settings, plugins: list[LoadedPlugin], cwd: str | Pa
         # 跳过未启用的插件
         if not plugin.enabled:
             continue
-        # 将插件的 MCP 服务器配置合并到结果中
+        # 将插件的 MCP 服务器配置合并到结果中（跳过已禁用的服务器）
         for name, config in plugin.mcp_servers.items():
+            if not getattr(config, "enabled", True):
+                continue
             # 使用 "插件名:服务器名" 格式作为键，避免与全局设置冲突
             servers.setdefault(f"{plugin.manifest.name}:{name}", config)
     return servers

@@ -53,6 +53,7 @@ class McpStdioServerConfig(BaseModel):
     env: dict[str, str] | None = None
     cwd: str | None = None
     log_file: str | None = None
+    enabled: bool = True
 
 
 class McpHttpServerConfig(BaseModel):
@@ -70,6 +71,7 @@ class McpHttpServerConfig(BaseModel):
     type: Literal["http"] = "http"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class McpWebSocketServerConfig(BaseModel):
@@ -87,6 +89,7 @@ class McpWebSocketServerConfig(BaseModel):
     type: Literal["ws"] = "ws"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 # MCP 服务器配置联合类型，支持 STDIO、HTTP、WebSocket 三种传输方式
