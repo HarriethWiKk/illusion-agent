@@ -837,6 +837,46 @@ def auth_switch(
     print(_t("switched_to", env_key=env_key))
 
 
+@auth_app.command("add-model")
+def auth_add_model(
+    env_key: str = typer.Argument(..., help="Environment key (e.g. env_1)"),
+    model_name: str = typer.Argument(..., help="Model name to add"),
+) -> None:
+    """在已有的 env_N 中增加模型（model_N）
+
+    Args:
+        env_key: 环境键名，如 env_1
+        model_name: 要添加的模型名称
+    """
+    from illusion.auth.manager import AuthManager
+
+    _ensure_language()
+    manager = AuthManager()
+
+    env = manager.settings.get_env(env_key)
+    if env is None:
+        print(_t("env_not_found", env_key=env_key), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 找到下一个可用的 model_N 编号
+    existing = []
+    for k in env.list_models():
+        try:
+            existing.append(int(k.split("_")[1]))
+        except (ValueError, IndexError):
+            pass
+    next_num = max(existing, default=0) + 1
+    model_key = f"model_{next_num}"
+
+    # 写入配置
+    env_config = env.model_dump()
+    env_config[model_key] = model_name
+    setattr(manager.settings, env_key, env_config)
+    manager.save_settings()
+
+    print(_t("model_added", env_key=env_key, model_key=model_key, model_name=model_name))
+
+
 # ---------------------------------------------------------------------------
 # 主命令
 # ---------------------------------------------------------------------------

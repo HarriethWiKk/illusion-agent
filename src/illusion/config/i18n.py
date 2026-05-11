@@ -62,6 +62,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "select_language": {"zh-CN": "选择界面语言:", "en-US": "Select interface language:"},
     "language_set": {"zh-CN": "界面语言已设置为: {lang}", "en-US": "Interface language set to: {lang}"},
     "skip_default": {"zh-CN": "回车跳过，使用默认值", "en-US": "Press Enter to skip, use default"},
+    "model_added": {"zh-CN": "已向 {env_key} 添加模型 {model_key}: {model_name}", "en-US": "Added {model_key} to {env_key}: {model_name}"},
+    # --- 后端事件 ---
+    "task_stopped": {"zh-CN": "当前任务已停止。", "en-US": "Current task stopped."},
+    "no_active_task": {"zh-CN": "没有正在执行的任务", "en-US": "No active task to stop"},
     "default_endpoint": {"zh-CN": "默认", "en-US": "default"},
     # --- mcp ---
     "mcp_none": {"zh-CN": "未配置 MCP 服务器", "en-US": "No MCP servers configured"},

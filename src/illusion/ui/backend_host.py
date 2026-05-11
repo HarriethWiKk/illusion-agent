@@ -931,7 +931,8 @@ class ReactBackendHost:
     async def _stop_active_line(self) -> None:
         task = self._active_line_task
         if task is None or task.done():
-            await self._emit(BackendEvent(type="error", message="No active task to stop"))
+            from illusion.config.i18n import t as _t
+            await self._emit(BackendEvent(type="error", message=_t("no_active_task")))
             return
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -939,7 +940,8 @@ class ReactBackendHost:
         self._busy = False
         await self._update_phase("idle")
         await self._emit(BackendEvent(type="modal_request", modal=None))
-        await self._emit(BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text="Current task stopped.")))
+        from illusion.config.i18n import t as _t
+        await self._emit(BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=_t("task_stopped"))))
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))

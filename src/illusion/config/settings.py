@@ -520,6 +520,9 @@ def load_settings(config_path: Path | None = None) -> Settings:
 
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
+        # 兼容 mcpServers（camelCase）键，映射到 mcp_servers（snake_case）
+        if "mcpServers" in raw and "mcp_servers" not in raw:
+            raw["mcp_servers"] = raw.pop("mcpServers")
         settings = Settings.model_validate(raw)
         return _apply_env_overrides(settings)
 

@@ -207,6 +207,29 @@ def _find_illusion_command() -> list[str]:
 # 任务执行
 # ---------------------------------------------------------------------------
 
+
+def _filter_mcp_log_noise(stderr_text: str) -> str:
+    """过滤 stderr 中 MCP 日志文件相关的噪声行。
+
+    MCP 服务器的 stderr 输出（如 log_file 路径引用）不应出现在 cron 历史中。
+
+    Args:
+        stderr_text: 原始 stderr 文本
+
+    Returns:
+        过滤后的 stderr 文本
+    """
+    import re
+    lines = stderr_text.splitlines(keepends=True)
+    filtered = []
+    for line in lines:
+        # 跳过包含 mcp.log 或 .mcp. 日志文件路径的行
+        if re.search(r'[\w/\\.-]*mcp[\w/\\-]*\.log', line, re.IGNORECASE):
+            continue
+        filtered.append(line)
+    return "".join(filtered)
+
+
 async def _execute_prompt_in_subprocess(
     prompt: str,
     cwd: Path,
@@ -283,6 +306,10 @@ async def _execute_prompt_in_subprocess(
 
     success = process.returncode == 0
     stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+    # 过滤 MCP 日志文件相关的输出（如 mcp.log 文件路径引用）
+    if stderr_text:
+        stderr_text = _filter_mcp_log_noise(stderr_text)
 
     # 记录子进程 stderr 到日志（便于调试）
     if stderr_text.strip():
