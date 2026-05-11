@@ -301,7 +301,16 @@ class OpenAICompatibleClient:
         finish_reason: str | None = None
         usage_data: dict[str, int] = {}
 
-        stream = await self._client.chat.completions.create(**params)
+        try:
+            stream = await self._client.chat.completions.create(**params)
+        except Exception as exc:
+            # 某些模型（如 gpt-5.2-codex）不支持 /chat/completions，自动回退到 /responses
+            if self._is_chat_endpoint_error(exc):
+                log.info("Model %s does not support chat/completions, falling back to responses API", request.model)
+                async for event in self._stream_via_responses_api(request, openai_messages, openai_tools):
+                    yield event
+                return
+            raise
         async for chunk in stream:
             if not chunk.choices:
                 # 仅使用量块（某些 providers 在最后发送）
@@ -388,6 +397,176 @@ class OpenAICompatibleClient:
                 output_tokens=usage_data.get("output_tokens", 0),
             ),
             stop_reason=finish_reason,
+        )
+
+    @staticmethod
+    def _is_chat_endpoint_error(exc: Exception) -> bool:
+        """检查是否为 chat/completions 端点不支持的错误（需回退到 responses API）"""
+        error_msg = str(getattr(exc, "message", "")) or str(exc)
+        return (
+            getattr(exc, "status_code", None) == 400
+            and "chat/completions" in error_msg
+            and "not accessible" in error_msg.lower()
+        )
+
+    def _convert_messages_to_responses(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None,
+    ) -> list[dict[str, Any]]:
+        """将 OpenAI 聊天格式消息转换为 Responses API 输入格式"""
+        items: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                items.append({"role": "system", "content": content})
+            elif role == "assistant" and msg.get("tool_calls"):
+                # assistant 消息带 tool_calls：拆分为 message + function_call items
+                text_parts = []
+                if isinstance(content, str) and content:
+                    text_parts.append({"type": "output_text", "text": content})
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append({"type": "output_text", "text": part.get("text", "")})
+                if text_parts:
+                    items.append({"type": "message", "role": "assistant", "content": text_parts})
+                for tc in msg["tool_calls"]:
+                    func = tc.get("function", {})
+                    items.append({
+                        "type": "function_call",
+                        "call_id": tc.get("id", ""),
+                        "name": func.get("name", ""),
+                        "arguments": func.get("arguments", "{}"),
+                    })
+            elif role == "tool":
+                # tool 结果消息 → function_call_output item
+                items.append({
+                    "type": "function_call_output",
+                    "call_id": msg.get("tool_call_id", ""),
+                    "output": content if isinstance(content, str) else json.dumps(content, ensure_ascii=False),
+                })
+            else:
+                # user / assistant 纯文本消息
+                text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+                items.append({
+                    "type": "message",
+                    "role": role,
+                    "content": [{"type": "input_text" if role == "user" else "output_text", "text": text}],
+                })
+        return items
+
+    @staticmethod
+    def _convert_tools_to_responses(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        """将 OpenAI function-calling 工具格式转换为 Responses API 格式"""
+        if not tools:
+            return None
+        result = []
+        for tool in tools:
+            func = tool.get("function", {})
+            result.append({
+                "type": "function",
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "parameters": func.get("parameters", {}),
+            })
+        return result
+
+    async def _stream_via_responses_api(
+        self,
+        request: ApiMessageRequest,
+        openai_messages: list[dict[str, Any]],
+        openai_tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[ApiStreamEvent]:
+        """通过 OpenAI Responses API 流式生成（chat/completions 不可用时的回退方案）"""
+        from openai.types.responses import (
+            ResponseCompletedEvent,
+            ResponseFunctionCallArgumentsDeltaEvent,
+            ResponseFunctionCallArgumentsDoneEvent,
+            ResponseOutputItemAddedEvent,
+            ResponseTextDeltaEvent,
+        )
+
+        input_items = self._convert_messages_to_responses(openai_messages, request.system_prompt)
+        resp_tools = self._convert_tools_to_responses(openai_tools)
+
+        params: dict[str, Any] = {
+            "model": request.model,
+            "input": input_items,
+        }
+        if request.system_prompt:
+            params["instructions"] = request.system_prompt
+        if request.max_tokens:
+            params["max_output_tokens"] = request.max_tokens
+        if resp_tools:
+            params["tools"] = resp_tools
+
+        collected_content = ""
+        collected_tool_calls: dict[int, dict[str, Any]] = {}
+        usage_data: dict[str, int] = {}
+
+        async with self._client.responses.stream(**params) as stream:
+            async for event in stream:
+                if isinstance(event, ResponseTextDeltaEvent):
+                    collected_content += event.delta
+                    yield ApiTextDeltaEvent(text=event.delta)
+
+                elif isinstance(event, ResponseOutputItemAddedEvent):
+                    item = event.item
+                    if getattr(item, "type", None) == "function_call":
+                        idx = event.output_index
+                        collected_tool_calls[idx] = {
+                            "id": getattr(item, "call_id", "") or getattr(item, "id", ""),
+                            "name": getattr(item, "name", ""),
+                            "arguments": "",
+                        }
+
+                elif isinstance(event, ResponseFunctionCallArgumentsDeltaEvent):
+                    idx = event.output_index
+                    if idx in collected_tool_calls:
+                        collected_tool_calls[idx]["arguments"] += event.delta
+
+                elif isinstance(event, ResponseFunctionCallArgumentsDoneEvent):
+                    idx = event.output_index
+                    if idx in collected_tool_calls:
+                        collected_tool_calls[idx]["arguments"] = event.arguments
+
+                elif isinstance(event, ResponseCompletedEvent):
+                    resp = event.response
+                    if hasattr(resp, "usage") and resp.usage:
+                        usage_data = {
+                            "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
+                            "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
+                        }
+
+        # 构建最终消息
+        content: list[ContentBlock] = []
+        if collected_content:
+            content.append(TextBlock(text=collected_content))
+
+        for _idx in sorted(collected_tool_calls.keys()):
+            tc = collected_tool_calls[_idx]
+            if not tc["name"]:
+                continue
+            try:
+                args = json.loads(tc["arguments"])
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            content.append(ToolUseBlock(
+                id=tc["id"],
+                name=tc["name"],
+                input=args,
+            ))
+
+        final_message = ConversationMessage(role="assistant", content=content)
+        yield ApiMessageCompleteEvent(
+            message=final_message,
+            usage=UsageSnapshot(
+                input_tokens=usage_data.get("input_tokens", 0),
+                output_tokens=usage_data.get("output_tokens", 0),
+            ),
+            stop_reason="stop",
         )
 
     @staticmethod
