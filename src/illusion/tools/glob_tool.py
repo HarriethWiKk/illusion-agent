@@ -184,24 +184,29 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
             assert process.stdout is not None
             # 读取输出直到达到限制
             while len(lines) < limit:
-                raw = await process.stdout.readline()
+                try:
+                    raw = await process.stdout.readline()
+                except asyncio.CancelledError:
+                    process.kill()
+                    raise
                 if not raw:
                     break
                 line = raw.decode("utf-8", errors="replace").strip()
                 if line:
                     lines.append(line)
         finally:
-            # 如果达到限制且进程仍在运行，终止进程
-            if len(lines) >= limit and process.returncode is None:
-                process.terminate()
-            await process.wait()
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
 
         # 排序保持单元测试和用户输出的确定性
         lines.sort()
         return lines
 
-    # 后备：非递归模式通常很便宜；保持Python语义
-    return sorted(
-        str(path.relative_to(root))
-        for path in root.glob(pattern)
-    )[:limit]
+    # 后备：非递归模式通常很便宜；在线程中运行以避免阻塞事件循环
+    def _fallback() -> list[str]:
+        return sorted(
+            str(p.relative_to(root))
+            for p in root.glob(pattern)
+        )[:limit]
+    return await asyncio.to_thread(_fallback)

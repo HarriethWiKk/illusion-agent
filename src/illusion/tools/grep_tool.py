@@ -156,9 +156,10 @@ Usage:
             if result is not None:
                 return ToolResult(output=result)
 
-            # 单文件的Python后备
+            # 单文件的Python后备（在线程中运行以避免阻塞事件循环）
             return ToolResult(
-                output=_python_grep_file(
+                output=await asyncio.to_thread(
+                    _python_grep_file,
                     path=root,
                     pattern=arguments.pattern,
                     output_mode=arguments.output_mode,
@@ -187,9 +188,10 @@ Usage:
         if result is not None:
             return ToolResult(output=result)
 
-        # 目录的Python后备
+        # 目录的Python后备（在线程中运行以避免阻塞事件循环）
         return ToolResult(
-            output=_python_grep_dir(
+            output=await asyncio.to_thread(
+                _python_grep_dir,
                 root=root,
                 pattern=arguments.pattern,
                 glob=arguments.glob or "**/*",
@@ -388,16 +390,20 @@ async def _rg_search(
     try:
         assert process.stdout is not None
         while len(raw_lines) < limit + offset:
-            raw = await process.stdout.readline()
+            try:
+                raw = await process.stdout.readline()
+            except asyncio.CancelledError:
+                process.kill()
+                raise
             if not raw:
                 break
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
             if line:
                 raw_lines.append(line)
     finally:
-        if len(raw_lines) >= limit + offset and process.returncode is None:
-            process.terminate()
-        await process.wait()
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
 
     # rg 在找到匹配时退出0，未找到时退出1
     if process.returncode not in {0, 1}:
