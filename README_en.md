@@ -108,6 +108,7 @@ illusion auth login              # Interactive provider setup (Custom/Anthropic/
 illusion auth status             # View credential status for all environments
 illusion auth logout [env_N]     # Clear environment credentials
 illusion auth switch [env_N]     # Switch active environment
+illusion auth add-model <env_N> <model_name>  # Add a model to an existing environment
 
 # MCP management
 illusion mcp list                # List MCP servers
@@ -680,7 +681,7 @@ MCP servers support three configuration methods, with priority from high to low:
 
 ##### 1. Global Configuration (settings.json)
 
-Configure in the `mcp_servers` field of `~/.illusion/settings.json`, applies to all projects:
+Configure in the `mcp_servers` field of `~/.illusion/settings.json`, applies to all projects. Both `mcp_servers` (snake_case) and `mcpServers` (camelCase) key names are supported:
 
 ```json
 {
@@ -688,7 +689,8 @@ Configure in the `mcp_servers` field of `~/.illusion/settings.json`, applies to 
     "solidworks": {
       "type": "stdio",
       "command": "python",
-      "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"]
+      "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"],
+      "enabled": true
     }
   }
 }
@@ -712,7 +714,8 @@ Create `.json` files in the `.illusion/mcp/` directory under the project root, o
 {
   "type": "stdio",
   "command": "python",
-  "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"]
+  "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"],
+  "enabled": true
 }
 ```
 
@@ -771,9 +774,11 @@ MCP servers from plugins are registered with the format `plugin_name:server_name
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `stdio` | command, args, env, cwd | Communication via standard input/output |
-| `http` | url, headers | Communication via HTTP protocol |
-| `ws` | url, headers | Communication via WebSocket protocol |
+| `stdio` | command, args, env, cwd, log_file, enabled | Communication via standard input/output |
+| `http` | url, headers, enabled | Communication via HTTP protocol |
+| `ws` | url, headers, enabled | Communication via WebSocket protocol |
+
+> **`enabled` field**: All MCP server types support the `enabled` field (defaults to `true`). Set to `false` to disable a single server without removing its configuration. Both `mcpServers` and `mcp_servers` key names are supported in project-level config files.
 
 ---
 

@@ -108,6 +108,7 @@ illusion auth login              # 交互式配置提供商（自定义/Anthropi
 illusion auth status             # 查看所有环境的认证状态
 illusion auth logout [env_N]     # 清除环境凭据
 illusion auth switch [env_N]     # 切换活动环境
+illusion auth add-model <env_N> <model_name>  # 向已有环境添加模型
 
 # MCP 管理
 illusion mcp list                # 列出 MCP 服务器
@@ -680,7 +681,7 @@ MCP 服务器支持三种配置方式，优先级从高到低：**插件 > 项�
 
 ##### 1. 全局配置（settings.json）
 
-在 `~/.illusion/settings.json` 的 `mcp_servers` 字段中配置，对所有项目生效：
+在 `~/.illusion/settings.json` 的 `mcp_servers` 字段中配置，对所有项目生效。支持 `mcp_servers`（snake_case）和 `mcpServers`（camelCase）两种键名：
 
 ```json
 {
@@ -688,7 +689,8 @@ MCP 服务器支持三种配置方式，优先级从高到低：**插件 > 项�
     "solidworks": {
       "type": "stdio",
       "command": "python",
-      "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"]
+      "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"],
+      "enabled": true
     }
   }
 }
@@ -712,7 +714,8 @@ illusion mcp remove <name>       # 移除服务器
 {
   "type": "stdio",
   "command": "python",
-  "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"]
+  "args": ["E:\\claudecode\\SolidWorks-MCP\\server.py"],
+  "enabled": true
 }
 ```
 
@@ -771,9 +774,11 @@ illusion mcp remove <name>       # 移除服务器
 
 | 类型 | 字段 | 说明 |
 |------|------|------|
-| `stdio` | command, args, env, cwd | 通过标准输入输出通信 |
-| `http` | url, headers | 通过 HTTP 协议通信 |
-| `ws` | url, headers | 通过 WebSocket 协议通信 |
+| `stdio` | command, args, env, cwd, log_file, enabled | 通过标准输入输出通信 |
+| `http` | url, headers, enabled | 通过 HTTP 协议通信 |
+| `ws` | url, headers, enabled | 通过 WebSocket 协议通信 |
+
+> **`enabled` 字段**：所有类型的 MCP 服务器均支持 `enabled` 字段（默认 `true`）。设置为 `false` 可禁用单个服务器而不删除其配置。项目级配置文件中的 `mcpServers` 和 `mcp_servers` 两种键名均可使用。
 
 ---
 
