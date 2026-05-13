@@ -53,7 +53,7 @@ class ToolUseBlock(BaseModel):
 
 class ToolResultBlock(BaseModel):
     """发送回模型的工具结果内容
-    
+
     Attributes:
         type: 块类型（固定为 "tool_result"）
         tool_use_id: 对应的工具调用 ID
@@ -67,8 +67,25 @@ class ToolResultBlock(BaseModel):
     is_error: bool = False
 
 
+class ThinkingBlock(BaseModel):
+    """思考内容块（Anthropic extended thinking / DeepSeek thinking mode）
+
+    Attributes:
+        type: 块类型（固定为 "thinking"）
+        thinking: 思考文本
+        signature: 加密签名（Anthropic API 需要回传以验证思考内容未被篡改）
+    """
+
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+    signature: str = ""
+
+
 # 内容块联合类型
-ContentBlock = Annotated[TextBlock | ToolUseBlock | ToolResultBlock, Field(discriminator="type")]
+ContentBlock = Annotated[
+    TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock,
+    Field(discriminator="type"),
+]
 
 
 class ConversationMessage(BaseModel):
@@ -146,6 +163,12 @@ def serialize_content_block(block: ContentBlock) -> dict[str, Any]:
             "input": block.input,
         }
 
+    if isinstance(block, ThinkingBlock):
+        result: dict[str, Any] = {"type": "thinking", "thinking": block.thinking}
+        if block.signature:
+            result["signature"] = block.signature
+        return result
+
     return {
         "type": "tool_result",
         "tool_use_id": block.tool_use_id,
@@ -175,6 +198,13 @@ def assistant_message_from_api(raw_message: Any) -> ConversationMessage:
                     id=getattr(raw_block, "id", f"toolu_{uuid4().hex}"),
                     name=getattr(raw_block, "name", ""),
                     input=dict(getattr(raw_block, "input", {}) or {}),
+                )
+            )
+        elif block_type == "thinking":
+            content.append(
+                ThinkingBlock(
+                    thinking=getattr(raw_block, "thinking", ""),
+                    signature=getattr(raw_block, "signature", ""),
                 )
             )
 

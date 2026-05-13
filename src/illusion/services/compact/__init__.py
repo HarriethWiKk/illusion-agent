@@ -39,6 +39,7 @@ from illusion.engine.messages import (
     ConversationMessage,
     ContentBlock,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -98,6 +99,10 @@ def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
             elif isinstance(block, ToolUseBlock):
                 total += estimate_tokens(block.name)
                 total += estimate_tokens(str(block.input))
+            elif isinstance(block, ThinkingBlock):
+                total += estimate_tokens(block.thinking)
+                if block.signature:
+                    total += estimate_tokens(block.signature)
     return int(total * TOKEN_ESTIMATION_PADDING)
 
 

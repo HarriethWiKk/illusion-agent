@@ -54,6 +54,7 @@ from illusion.api.provider import auth_status, detect_provider
 from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
 from illusion.config import get_config_file_path, load_settings
+from illusion.config.settings import Settings
 from illusion.engine import QueryEngine
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
 from illusion.engine.query import MaxTurnsExceeded
@@ -465,6 +466,50 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     )
 
 
+def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
+    """根据当前设置重建 API 客户端（跨 env 切换模型时调用）
+
+    Args:
+        bundle: 运行时数据 bundle
+        settings: 当前设置
+    """
+    from illusion.api.provider import detect_provider as _detect
+
+    _provider_info = _detect(settings)
+    if _provider_info.name == "copilot":
+        from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
+        _copilot = CopilotAuth()
+        _copilot_token = _copilot.get_valid_token()
+        new_client = OpenAICompatibleClient(
+            api_key=_copilot_token,
+            base_url=settings.base_url or "https://api.githubcopilot.com",
+            extra_headers=copilot_extra_headers(),
+        )
+    elif _provider_info.name == "codex":
+        from illusion.auth.external import default_binding_for_provider, load_external_credential
+        from illusion.api.codex_client import CodexApiClient
+        _binding = default_binding_for_provider("openai_codex")
+        _cred = load_external_credential(_binding)
+        new_client = CodexApiClient(
+            auth_token=_cred.value,
+            base_url=settings.base_url,
+        )
+    elif settings.api_format == "openai":
+        new_client = OpenAICompatibleClient(
+            api_key=settings.resolve_api_key(),
+            base_url=settings.base_url,
+        )
+    else:
+        new_client = AnthropicApiClient(
+            api_key=settings.resolve_api_key(),
+            base_url=settings.base_url,
+        )
+
+    bundle.api_client = new_client
+    bundle.engine.set_api_client(new_client)
+    bundle.hook_executor._context.api_client = new_client  # type: ignore[attr-defined]
+
+
 async def handle_line(
     bundle: RuntimeBundle,
     line: str,
@@ -521,6 +566,9 @@ async def handle_line(
         await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item)
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
+        # 跨 env 切换模型时重建 API 客户端
+        if result.needs_api_rebuild:
+            _rebuild_api_client(bundle, bundle.current_settings())
         # 处理待继续标志
         if result.continue_pending:
             settings = bundle.current_settings()

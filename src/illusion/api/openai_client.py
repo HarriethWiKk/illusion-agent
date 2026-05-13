@@ -47,6 +47,7 @@ from illusion.engine.messages import (
     ConversationMessage,
     ContentBlock,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -142,29 +143,39 @@ def _convert_messages_to_openai(
 
 def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     """将 assistant ConversationMessage 转换为 OpenAI 格式
-    
-    支持思维模型（如 Kimi k2.5）的 providers 要求每个包含 tool calls 的 assistant 
-    消息都有 ``reasoning_content`` 字段。在解析和回放期间，我们将原始推理文本存储在 
+
+    支持思维模型（如 Kimi k2.5）的 providers 要求每个包含 tool calls 的 assistant
+    消息都有 ``reasoning_content`` 字段。在解析和回放期间，我们将原始推理文本存储在
     ``msg._reasoning`` 中。
-    
+
+    Anthropic extended thinking 的 ``thinking`` 内容块也会被提取并转换为
+    ``reasoning_content``，确保 DeepSeek 等 provider 的 thinking mode 下
+    thinking 内容能正确回传。
+
     Args:
         msg: ConversationMessage 对象
-    
+
     Returns:
         dict[str, Any]: OpenAI 格式的消息
     """
     text_parts = [b.text for b in msg.content if isinstance(b, TextBlock)]
     tool_uses = [b for b in msg.content if isinstance(b, ToolUseBlock)]
+    thinking_blocks = [b for b in msg.content if isinstance(b, ThinkingBlock)]
 
     openai_msg: dict[str, Any] = {"role": "assistant"}
 
     content = "".join(text_parts)
     openai_msg["content"] = content if content else None
 
-    # 为思维模型回放 reasoning_content（由流式解析器存储）
+    # 为思维模型回放 reasoning_content
+    # 优先级：流式收集的 _reasoning > ThinkingBlock 内容
     reasoning = getattr(msg, "_reasoning", None)
     if reasoning:
         openai_msg["reasoning_content"] = reasoning
+    elif thinking_blocks:
+        openai_msg["reasoning_content"] = "\n".join(
+            b.thinking for b in thinking_blocks
+        )
     elif tool_uses:
         # 思维模型即使为空也需要此字段
         openai_msg["reasoning_content"] = ""

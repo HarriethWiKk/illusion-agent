@@ -116,6 +116,7 @@ class CommandResult:
     should_exit: bool = False  # 退出标志
     clear_screen: bool = False  # 清屏标志
     replay_messages: list | None = None  # ConversationMessage列表用于TUI重放
+    needs_api_rebuild: bool = False  # 需要重建 API 客户端（跨 env 切换模型时）
     continue_pending: bool = False  # 继续待处理标志
     continue_turns: int | None = None  # 继续回合数
     reset_session: bool = False  # 是否重置会话ID
@@ -1208,12 +1209,18 @@ def create_default_command_registry() -> CommandRegistry:
             env_key, model_key = model_ref.split(".", 1)
             env = settings.get_env(env_key)
             if env and env.get_model(model_key):
+                old_env_key = settings._active_env_key
                 settings.model = model_ref
                 save_settings(settings)
                 context.engine.set_model(env.get_model(model_key))
                 if context.app_state is not None:
                     context.app_state.set(model=env.get_model(model_key))
-                return CommandResult(message=i18n_t("model_set_to", ref=model_ref, name=env.get_model(model_key)))
+                # 跨 env 切换时告知调用方需要重建 API 客户端
+                needs_rebuild = env_key != old_env_key
+                return CommandResult(
+                    message=i18n_t("model_set_to", ref=model_ref, name=env.get_model(model_key)),
+                    needs_api_rebuild=needs_rebuild,
+                )
         return CommandResult(message=i18n_t("model_unknown", ref=model_ref))
 
     async def _language_handler(args: str, context: CommandContext) -> CommandResult:
