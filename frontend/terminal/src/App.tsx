@@ -176,6 +176,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [selectIndex, setSelectIndex] = useState(0);
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
+	const [commandResult, setCommandResult] = useState<{
+		text: string;
+		type: 'success' | 'error' | 'info';
+	} | null>(null);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
@@ -262,6 +266,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPermissionIndex(1);
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
+
+	// 指令结果 3 秒后自动清除
+	useEffect(() => {
+		if (!commandResult) {
+			return;
+		}
+		const timer = setTimeout(() => {
+			setCommandResult(null);
+		}, 3000);
+		return () => clearTimeout(timer);
+	}, [commandResult]);
 
 	// Intercept special commands that need interactive UI
 	const handleCommand = (cmd: string): boolean => {
@@ -378,6 +393,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /version → 显示版本信息（前端处理，不发送到后端）
+		if (trimmed === '/version') {
+			setCommandResult({
+				text: 'IllusionCode 0.1.0',
+				type: 'info',
+			});
+			return true;
+		}
+
 		return false;
 	};
 
@@ -398,6 +422,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// Ctrl+T → 切换思考过程显示
 		if (key.ctrl && chunk.toLowerCase() === 't') {
 			session.setShowThinking((prev: boolean) => !prev);
+			return;
+		}
+
+		// ESC → 清除指令结果
+		if (key.escape && commandResult) {
+			setCommandResult(null);
 			return;
 		}
 
@@ -619,6 +649,11 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			{/* Command picker */}
 			{showPicker ? (
 				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} totalCommands={session.commands.length} />
+			) : null}
+
+			{/* Command result display */}
+			{commandResult ? (
+				<CommandPicker mode="result" result={commandResult.text} resultType={commandResult.type} />
 			) : null}
 
 			{/* Todo panel */}

@@ -5,24 +5,63 @@ import {useTheme} from '../theme/ThemeContext.js';
 
 const MAX_VISIBLE = 6;
 
+type CommandPickerMode = 'hints' | 'result';
+
+type CommandPickerProps = {
+	hints?: string[];
+	selectedIndex?: number;
+	totalCommands?: number;
+	/** 结果模式：显示指令执行结果 */
+	mode?: CommandPickerMode;
+	result?: string;
+	resultType?: 'success' | 'error' | 'info';
+};
+
 export function CommandPicker({
 	hints,
 	selectedIndex,
-}: {
-	hints: string[];
-	selectedIndex: number;
-	totalCommands?: number;
-}): React.JSX.Element | null {
+	mode = 'hints',
+	result,
+	resultType = 'info',
+}: CommandPickerProps): React.JSX.Element | null {
 	const theme = useTheme();
 
-	if (hints.length === 0) {
+	// 结果模式：显示指令执行结果
+	if (mode === 'result' && result) {
+		const colorMap = {
+			success: theme.colors.success,
+			error: theme.colors.error,
+			info: theme.colors.info,
+		};
+		const iconMap = {
+			success: theme.icons.success,
+			error: theme.icons.error,
+			info: theme.icons.system,
+		};
+		return (
+			<Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={colorMap[resultType]} paddingX={1}>
+				<Text color={colorMap[resultType]}>
+					{iconMap[resultType]} {result}
+				</Text>
+				<Box marginTop={0}>
+					<Text dimColor>
+						<Text color={theme.colors.muted}>esc</Text> dismiss
+					</Text>
+				</Box>
+			</Box>
+		);
+	}
+
+	// 提示模式：显示命令提示列表
+	if (!hints || hints.length === 0) {
 		return null;
 	}
 
+	const safeSelectedIndex = selectedIndex ?? 0;
 	const startIndex = Math.max(
 		0,
 		Math.min(
-			selectedIndex - Math.floor(MAX_VISIBLE / 2),
+			safeSelectedIndex - Math.floor(MAX_VISIBLE / 2),
 			hints.length - MAX_VISIBLE,
 		),
 	);
@@ -33,7 +72,7 @@ export function CommandPicker({
 		<Box flexDirection="column" marginTop={1}>
 			{visible.map((hint, vi) => {
 				const actualIndex = startIndex + vi;
-				const isSelected = actualIndex === selectedIndex;
+				const isSelected = actualIndex === safeSelectedIndex;
 				return (
 					<Box key={hint}>
 						<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
