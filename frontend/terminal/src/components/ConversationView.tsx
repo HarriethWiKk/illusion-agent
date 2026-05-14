@@ -223,7 +223,8 @@ function MessageRow({
 }): React.JSX.Element {
 	switch (item.role) {
 		case 'user': {
-			const needsDivider = prevRole !== undefined && prevRole !== 'user';
+			const isCommand = item.text.startsWith('/');
+			const needsDivider = !isCommand && prevRole !== undefined && prevRole !== 'user';
 			return (
 				<Box flexDirection="column" marginTop={needsDivider ? 1 : 0}>
 					{needsDivider ? (

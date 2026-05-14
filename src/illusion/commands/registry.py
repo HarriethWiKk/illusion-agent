@@ -19,7 +19,7 @@
     - create_default_command_registry: 创建默认命令注册表
 
 内置命令列表：
-    - /help, /exit, /clear, /version, /status, /context, /summary
+    - /exit, /clear, /version, /status, /context, /summary
     - /compact, /cost, /usage, /stats, /memory, /hooks, /resume
     - /export, /share, /copy, /rewind, /files
     - /init, /bridge, /login, /logout, /feedback
@@ -395,10 +395,6 @@ def _coerce_setting_value(settings: Settings, key: str, raw: str):
 def create_default_command_registry() -> CommandRegistry:
     """Create the built-in command registry."""
     registry = CommandRegistry()
-
-    async def _help_handler(_: str, context: CommandContext) -> CommandResult:
-        del context
-        return CommandResult(message=registry.help_text())
 
     async def _exit_handler(_: str, context: CommandContext) -> CommandResult:
         del context
@@ -1489,7 +1485,6 @@ def create_default_command_registry() -> CommandRegistry:
         content = selected.read_text(encoding="utf-8", errors="replace").strip()
         return CommandResult(message=f"# {selected.stem}\n\n{content}")
 
-    registry.register(SlashCommand("help", "Show available commands", _help_handler))
     registry.register(SlashCommand("exit", "Exit IllusionCode", _exit_handler))
     registry.register(SlashCommand("clear", "Clear conversation history", _clear_handler))
     registry.register(SlashCommand("new", "Start a new conversation session", _new_handler))

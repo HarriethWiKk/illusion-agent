@@ -47,115 +47,6 @@ const PERMISSION_PROMPT_OPTIONS: SelectOption[] = [
 	{value: 'deny', label: 'Deny', description: 'Reject this tool execution'},
 ];
 
-/** 命令描述映射表（中文） */
-const COMMAND_DESC_ZH: Record<string, string> = {
-	help: '显示可用命令',
-	exit: '退出 IllusionCode',
-	clear: '清空当前对话历史',
-	new: '开启新对话并重置任务 ID',
-	version: '显示已安装版本',
-	status: '显示会话状态',
-	context: '显示系统提示词或管理上下文窗口',
-	summary: '总结对话历史',
-	compact: '压缩较早对话历史',
-	cost: '显示 token 用量和预估费用',
-	usage: '显示用量与 token 估算',
-	stats: '显示会话统计',
-	memory: '查看和管理项目记忆',
-	hooks: '显示已配置 hooks',
-	resume: '恢复最近保存的会话',
-	export: '导出当前转录',
-	share: '创建可分享的转录快照',
-	copy: '复制最新回复或指定文本',
-	rewind: '移除最新对话轮次',
-	files: '列出当前工作区文件',
-	init: '初始化项目 IllusionCode 文件',
-	bridge: '查看 bridge 辅助信息并创建 bridge 会话',
-	login: '查看认证状态或保存 API Key',
-	logout: '清除已保存 API Key',
-	feedback: '保存 CLI 反馈到本地日志',
-	skills: '列出或显示可用技能',
-	config: '显示或更新配置',
-	mcp: '显示 MCP 状态',
-	plugin: '管理插件',
-	'reload-plugins': '重新加载当前工作区插件发现结果',
-	permissions: '显示或更新权限模式',
-	plan: '切换计划权限模式',
-	fast: '显示或更新快速模式',
-	effort: '显示或更新推理强度',
-	passes: '显示或更新推理轮数',
-	turns: '显示或更新最大 agent 轮数',
-	continue: '在中断后继续上一轮工具循环',
-	model: '显示或更新默认模型',
-	language: '显示或更新界面语言',
-	'output-style': '显示或更新输出风格',
-	doctor: '显示环境诊断信息',
-	diff: '显示 git diff 输出',
-	branch: '显示 git 分支信息',
-	commit: '显示状态或创建 git 提交',
-	issue: '显示或更新项目 issue 上下文',
-	pr_comments: '显示或更新项目 PR 评论上下文',
-	'privacy-settings': '显示本地隐私与存储设置',
-	agents: '列出或查看 agent 与 teammate 任务',
-	tasks: '管理后台任务',
-	delete: '清理选定的会话',
-	rules: '查看选定的规则',
-};
-
-/** Command descriptions mapping (English) */
-const COMMAND_DESC_EN: Record<string, string> = {
-	help: 'Show available commands',
-	exit: 'Exit IllusionCode',
-	clear: 'Clear current conversation history',
-	new: 'Start new conversation and reset task ID',
-	version: 'Show installed version',
-	status: 'Show session status',
-	context: 'Show system prompt or manage context window',
-	summary: 'Summarize conversation history',
-	compact: 'Compact earlier conversation history',
-	cost: 'Show token usage and estimated cost',
-	usage: 'Show usage and token estimates',
-	stats: 'Show session statistics',
-	memory: 'View and manage project memory',
-	hooks: 'Show configured hooks',
-	resume: 'Resume a recent saved session',
-	export: 'Export current transcript',
-	share: 'Create a shareable transcript snapshot',
-	copy: 'Copy latest reply or specified text',
-	rewind: 'Remove latest conversation turn',
-	files: 'List current workspace files',
-	init: 'Initialize project IllusionCode file',
-	bridge: 'View bridge info and create bridge session',
-	login: 'View auth status or save API Key',
-	logout: 'Clear saved API Key',
-	feedback: 'Save CLI feedback to local log',
-	skills: 'List or show available skills',
-	config: 'Show or update configuration',
-	mcp: 'Show MCP status',
-	plugin: 'Manage plugins',
-	'reload-plugins': 'Reload current workspace plugin discovery',
-	permissions: 'Show or update permission mode',
-	plan: 'Toggle plan permission mode',
-	fast: 'Show or update fast mode',
-	effort: 'Show or update reasoning effort',
-	passes: 'Show or update reasoning passes',
-	turns: 'Show or update max agent turns',
-	continue: 'Continue last tool loop after interruption',
-	model: 'Show or update default model',
-	language: 'Show or update UI language',
-	'output-style': 'Show or update output style',
-	doctor: 'Show environment diagnostics',
-	diff: 'Show git diff output',
-	branch: 'Show git branch info',
-	commit: 'Show status or create git commit',
-	issue: 'Show or update project issue context',
-	pr_comments: 'Show or update project PR comments context',
-	'privacy-settings': 'Show local privacy and storage settings',
-	agents: 'List or view agent and teammate tasks',
-	tasks: 'Manage background tasks',
-	delete: 'Clean up selected sessions',
-	rules: 'View selected rules',
-};
 
 export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	return (
@@ -176,10 +67,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [selectIndex, setSelectIndex] = useState(0);
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
-	const [commandResult, setCommandResult] = useState<{
-		text: string;
-		type: 'success' | 'error' | 'info';
-	} | null>(null);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
@@ -267,17 +154,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
 
-	// 指令结果 3 秒后自动清除
-	useEffect(() => {
-		if (!commandResult) {
-			return;
-		}
-		const timer = setTimeout(() => {
-			setCommandResult(null);
-		}, 3000);
-		return () => clearTimeout(timer);
-	}, [commandResult]);
-
 	// Intercept special commands that need interactive UI
 	const handleCommand = (cmd: string): boolean => {
 		const trimmed = cmd.trim();
@@ -317,26 +193,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				onSelect: (value) => {
 					session.sendRequest({type: 'submit_line', line: `/language ${value}`});
 					session.setBusy(true);
-					setSelectModal(null);
-				},
-			});
-			return true;
-		}
-
-		// /help → show command list picker
-		if (trimmed === '/help') {
-			const descMap = language === 'en' ? COMMAND_DESC_EN : COMMAND_DESC_ZH;
-			const options: SelectOption[] = session.commands.map((cmd) => ({
-				value: cmd,
-				label: cmd,
-				description: descMap[cmd] ?? '',
-			}));
-			setSelectIndex(0);
-			setSelectModal({
-				title: t(language, 'helpTitle'),
-				options,
-				onSelect: (value) => {
-					setInput(`${value} `);
 					setSelectModal(null);
 				},
 			});
@@ -395,7 +251,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 		// /version → 显示版本信息（前端处理，不发送到后端）
 		if (trimmed === '/version') {
-			setCommandResult({
+			session.setCommandResult({
 				text: 'IllusionCode 0.1.0',
 				type: 'info',
 			});
@@ -426,8 +282,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		}
 
 		// ESC → 清除指令结果
-		if (key.escape && commandResult) {
-			setCommandResult(null);
+		if (key.escape && session.commandResult) {
+			session.setCommandResult(null);
 			return;
 		}
 
@@ -450,7 +306,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 			if (key.escape) {
 				setSelectModal(null);
-				setInput('');
 				return;
 			}
 			// Number keys for quick selection
@@ -652,8 +507,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : null}
 
 			{/* Command result display */}
-			{commandResult ? (
-				<CommandPicker mode="result" result={commandResult.text} resultType={commandResult.type} />
+			{session.commandResult ? (
+				<CommandPicker mode="result" result={session.commandResult.text} resultType={session.commandResult.type} />
 			) : null}
 
 			{/* Todo panel */}

@@ -38,11 +38,19 @@ export function CommandPicker({
 			error: theme.icons.error,
 			info: theme.icons.system,
 		};
+		const lines = result.split('\n');
+		const truncated = lines.length > MAX_VISIBLE;
+		const displayLines = truncated ? lines.slice(0, MAX_VISIBLE) : lines;
 		return (
 			<Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={colorMap[resultType]} paddingX={1}>
-				<Text color={colorMap[resultType]}>
-					{iconMap[resultType]} {result}
-				</Text>
+				{displayLines.map((line, i) => (
+					<Text key={i} color={colorMap[resultType]}>
+						{i === 0 ? `${iconMap[resultType]} ` : '  '}{line}
+					</Text>
+				))}
+				{truncated ? (
+					<Text color={colorMap[resultType]} dimColor>{'  '}&hellip; +{lines.length - MAX_VISIBLE} lines</Text>
+				) : null}
 				<Box marginTop={0}>
 					<Text dimColor>
 						<Text color={theme.colors.muted}>esc</Text> dismiss

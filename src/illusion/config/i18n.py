@@ -135,9 +135,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "model_default_url": {"zh-CN": "（默认）", "en-US": "(default)"},
 }
 
-# --- 命令描述翻译（/help 输出） ---
+# --- 命令描述翻译 ---
 COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
-    "help": "显示可用命令",
     "exit": "退出 IllusionCode",
     "clear": "清空当前对话历史",
     "new": "开启新对话并重置任务 ID",
