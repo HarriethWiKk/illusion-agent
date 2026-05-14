@@ -10,6 +10,8 @@ export type SelectOption = {
 	active?: boolean;
 };
 
+const MAX_VISIBLE = 6;
+
 export function SelectModal({
 	title,
 	options,
@@ -21,13 +23,24 @@ export function SelectModal({
 }): React.JSX.Element {
 	const theme = useTheme();
 
+	const startIndex = Math.max(
+		0,
+		Math.min(
+			selectedIndex - Math.floor(MAX_VISIBLE / 2),
+			options.length - MAX_VISIBLE,
+		),
+	);
+	const endIndex = Math.min(startIndex + MAX_VISIBLE, options.length);
+	const visible = options.slice(startIndex, endIndex);
+
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
 				<Text color={theme.colors.permission}>{theme.icons.pointer} </Text>
 				<Text bold>{title}</Text>
 			</Box>
-			{options.map((opt, i) => {
+			{visible.map((opt, vi) => {
+				const i = startIndex + vi;
 				const isSelected = i === selectedIndex;
 				const isCurrent = opt.active;
 				return (
