@@ -26,6 +26,8 @@ const ZH: Dict = {
 	spinnerToolAction: '正在执行',
 	longTextHint: '多段需求或长文本建议写入文档后命 illusion code 读取',
 	clearInput: '清空输入',
+	helpTitle: '帮助',
+	helpDescription: '可用命令',
 };
 
 const EN: Dict = {
@@ -52,6 +54,8 @@ const EN: Dict = {
 	spinnerToolAction: 'Running',
 	longTextHint: 'For complex or long text, write to doc and let illusion code read it',
 	clearInput: 'clear input',
+	helpTitle: 'Help',
+	helpDescription: 'Available Commands',
 };
 
 const ALL: Record<UiLanguage, Dict> = {
