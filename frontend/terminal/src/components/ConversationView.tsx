@@ -223,8 +223,11 @@ function MessageRow({
 }): React.JSX.Element {
 	switch (item.role) {
 		case 'user': {
-			const isCommand = item.text.startsWith('/');
-			const needsDivider = !isCommand && prevRole !== undefined && prevRole !== 'user';
+			// 指令不显示（由 CommandPicker 单独展示结果）
+			if (item.text.startsWith('/')) {
+				return null;
+			}
+			const needsDivider = prevRole !== undefined && prevRole !== 'user';
 			return (
 				<Box flexDirection="column" marginTop={needsDivider ? 1 : 0}>
 					{needsDivider ? (

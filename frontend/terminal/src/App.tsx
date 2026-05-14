@@ -15,6 +15,8 @@ import {normalizeLanguage, t} from './i18n.js';
 import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
 
+const MAX_VISIBLE = 6;
+
 const rawReturnSubmit = process.env.ILLUSION_FRONTEND_RAW_RETURN === '1';
 const scriptedSteps = (() => {
 	const raw = process.env.ILLUSION_FRONTEND_SCRIPT;
@@ -440,6 +442,22 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		session.setBusy(true);
 	};
 
+	// 指令结果自动消失：短内容 3 秒后清除，长内容由 CommandPicker 自动放映后清除
+	useEffect(() => {
+		if (!session.commandResult) {
+			return;
+		}
+		const lines = session.commandResult.text.split('\n');
+		if (lines.length > MAX_VISIBLE) {
+			// 超过 6 行的内容由 CommandPicker 自动放映，完成后通过 onPlaybackComplete 清除
+			return;
+		}
+		const timer = setTimeout(() => {
+			session.setCommandResult(null);
+		}, 3000);
+		return () => clearTimeout(timer);
+	}, [session.commandResult]);
+
 	// Scripted automation
 	useEffect(() => {
 		if (scriptIndex >= scriptedSteps.length) {
@@ -508,7 +526,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* Command result display */}
 			{session.commandResult ? (
-				<CommandPicker mode="result" result={session.commandResult.text} resultType={session.commandResult.type} />
+				<CommandPicker
+					mode="result"
+					result={session.commandResult.text}
+					resultType={session.commandResult.type}
+					onPlaybackComplete={() => session.setCommandResult(null)}
+				/>
 			) : null}
 
 			{/* Todo panel */}
