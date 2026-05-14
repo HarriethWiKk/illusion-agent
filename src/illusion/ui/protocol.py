@@ -160,6 +160,7 @@ class BackendEvent(BaseModel):
         plan_mode: 计划模式
         swarm_teammates: Swarm 队友列表
         swarm_notifications: Swarm 通知列表
+        command_result_data: 指令结果数据
     """
 
     type: Literal[
@@ -180,6 +181,7 @@ class BackendEvent(BaseModel):
         "todo_update",
         "plan_mode_change",
         "swarm_status",
+        "command_result",
         "error",
         "shutdown",
     ]
@@ -204,6 +206,7 @@ class BackendEvent(BaseModel):
     plan_mode: str | None = None
     swarm_teammates: list[dict[str, Any]] | None = None
     swarm_notifications: list[dict[str, Any]] | None = None
+    command_result_data: dict[str, Any] | None = None
 
     @classmethod
     def ready(

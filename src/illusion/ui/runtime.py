@@ -77,6 +77,7 @@ SystemPrinter = Callable[[str], Awaitable[None]]  # 系统消息打印回调
 StreamRenderer = Callable[[StreamEvent], Awaitable[None]]  # 流式事件渲染回调
 ClearHandler = Callable[[], Awaitable[None]]  # 清空输出回调
 TranscriptItemSender = Callable[[dict], Awaitable[None]]  # 发送 transcript_item 的回调
+CommandResultEmitter = Callable[[str, str], Awaitable[None]]  # 指令结果发射回调（message, type）
 
 
 @dataclass
@@ -518,6 +519,7 @@ async def handle_line(
     render_event: StreamRenderer,
     clear_output: ClearHandler,
     replay_transcript_item: TranscriptItemSender | None = None,
+    command_result_emitter: CommandResultEmitter | None = None,
 ) -> bool:
     """处理提交的一行输入（用于无头或 TUI 渲染）。
 
@@ -530,6 +532,7 @@ async def handle_line(
         render_event: 流式事件渲染回调
         clear_output: 清空输出回调
         replay_transcript_item: 重播 transcript_item 的回调（用于 /resume）
+        command_result_emitter: 指令结果发射回调
 
     Returns:
         bool: 是否继续会话
@@ -563,7 +566,7 @@ async def handle_line(
             suffix = result.message or ""
             detail = f"\n{suffix}" if suffix else ""
             result.message = f"{prefix}{bundle.session_id}{detail}"
-        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item)
+        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter)
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
         # 跨 env 切换模型时重建 API 客户端
@@ -642,6 +645,7 @@ async def _render_command_result(
 	clear_output: ClearHandler,
 	render_event: StreamRenderer | None = None,
 	replay_transcript_item: TranscriptItemSender | None = None,
+	command_result_emitter: CommandResultEmitter | None = None,
 ) -> None:
 	"""渲染命令执行结果。
 
@@ -651,6 +655,7 @@ async def _render_command_result(
 		clear_output: 清空输出回调
 		render_event: 流式事件渲染回调
 		replay_transcript_item: 重播 transcript_item 的回调
+		command_result_emitter: 指令结果发射回调
 	"""
 	if result.clear_screen:
 		await clear_output()
@@ -693,4 +698,7 @@ async def _render_command_result(
 								"tool_input": block.input,
 							})
 	if result.message and not result.replay_messages:
-		await print_system(result.message)
+		if command_result_emitter is not None:
+			await command_result_emitter(result.message, "info")
+		else:
+			await print_system(result.message)

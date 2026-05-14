@@ -444,6 +444,16 @@ class ReactBackendHost:
             """清空输出。"""
             await self._emit(BackendEvent(type="clear_transcript"))
 
+        async def _command_result_emitter(message: str, result_type: str) -> None:
+            """发射指令结果事件。"""
+            await self._emit(BackendEvent(
+                type="command_result",
+                command_result_data={
+                    "message": message,
+                    "type": result_type,
+                },
+            ))
+
         should_continue = await handle_line(
             self._bundle,
             line,
@@ -451,6 +461,7 @@ class ReactBackendHost:
             render_event=_render_event,
             clear_output=_clear_output,
             replay_transcript_item=_replay_transcript_item,
+            command_result_emitter=_command_result_emitter,
         )
 
         # 更新会话阶段为空闲
