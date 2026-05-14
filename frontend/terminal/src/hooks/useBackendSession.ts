@@ -51,6 +51,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [todoItems, setTodoItems] = useState<TodoItemSnapshot[]>([]);
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
+	const [commandResult, setCommandResult] = useState<{
+		text: string;
+		type: 'success' | 'error' | 'info';
+	} | null>(null);
 	const childRef = useRef<ChildProcess | null>(null);
 	const sentInitialPrompt = useRef(false);
 
@@ -331,6 +335,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			}
 			return;
 		}
+		if (event.type === 'command_result' && event.command_result_data) {
+			setCommandResult({
+				text: event.command_result_data.message,
+				type: event.command_result_data.type || 'info',
+			});
+			return;
+		}
 		if (event.type === 'shutdown') {
 			onExit(0);
 		}
@@ -354,13 +365,16 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			todoItems,
 			swarmTeammates,
 			swarmNotifications,
+			commandResult,
+			setCommandResult,
 			setModal,
 			setSelectRequest,
 			setBusy,
 			setShowThinking,
 			sendRequest,
 			clearStaticItems,
+			pushStatic,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commands, mcpServers, modal, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
+		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
 	);
 }

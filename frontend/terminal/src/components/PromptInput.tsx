@@ -39,20 +39,32 @@ export function PromptInput({
 }): React.JSX.Element {
 	const theme = useTheme();
 	const shouldClearRef = useRef(false);
+	const suppressNextChangeRef = useRef(false);
+	const inputRef = useRef(input);
+	inputRef.current = input;
 
-	// Ctrl+U 清空输入框
+	// Ctrl+U 清空输入框，Ctrl+O 阻止输入框捕获
 	useInput((chunk, key) => {
 		if (key.ctrl && chunk.toLowerCase() === 'u') {
 			// 标记需要清空，onChange 会检测到并清空
 			shouldClearRef.current = true;
 		}
+		if (key.ctrl && chunk.toLowerCase() === 'o') {
+			// 标记需要抑制下一次 onChange，防止 'o' 出现在输入框
+			suppressNextChangeRef.current = true;
+		}
 	}, {isActive: !busy});
 
-	// 处理 onChange，拦截 Ctrl+U 导致的 'u' 输入
+	// 处理 onChange，拦截 Ctrl+U 导致的 'u' 输入和 Ctrl+O 导致的 'o' 输入
 	const handleChange = useCallback((value: string) => {
 		if (shouldClearRef.current) {
 			shouldClearRef.current = false;
 			setInput('');
+			return;
+		}
+		if (suppressNextChangeRef.current) {
+			suppressNextChangeRef.current = false;
+			setInput(inputRef.current);
 			return;
 		}
 		setInput(sanitizeInput(value));

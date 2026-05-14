@@ -93,4 +93,8 @@ export type BackendEvent = {
 	swarm_teammates?: SwarmTeammateSnapshot[] | null;
 	swarm_notifications?: SwarmNotificationSnapshot[] | null;
 	reasoning?: string | null;
+	command_result_data?: {
+		message: string;
+		type: 'success' | 'error' | 'info';
+	} | null;
 };

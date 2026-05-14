@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
@@ -15,8 +15,6 @@ type CommandPickerProps = {
 	mode?: CommandPickerMode;
 	result?: string;
 	resultType?: 'success' | 'error' | 'info';
-	/** 自动放映完成后的回调 */
-	onPlaybackComplete?: () => void;
 };
 
 export function CommandPicker({
@@ -24,60 +22,28 @@ export function CommandPicker({
 	selectedIndex,
 	mode = 'hints',
 	result,
-	resultType = 'info',
-	onPlaybackComplete,
 }: CommandPickerProps): React.JSX.Element | null {
 	const theme = useTheme();
 
-	// Hooks 必须在顶层调用（不能放在条件分支内）
-	const lines = mode === 'result' && result ? result.split('\n') : [];
-	const needsPlayback = lines.length > MAX_VISIBLE;
-	const [playbackIndex, setPlaybackIndex] = useState(0);
-
-	// 自动放映：每 500ms 滚动一行，放映完成后通知父组件清除
-	useEffect(() => {
-		if (!needsPlayback) return;
-		const timer = setInterval(() => {
-			setPlaybackIndex((prev) => {
-				if (prev >= lines.length - MAX_VISIBLE) {
-					clearInterval(timer);
-					onPlaybackComplete?.();
-					return prev;
-				}
-				return prev + 1;
-			});
-		}, 500);
-		return () => clearInterval(timer);
-	}, [needsPlayback, lines.length]);
-
 	// 结果模式：显示指令执行结果
 	if (mode === 'result' && result) {
-		const colorMap = {
-			success: theme.colors.success,
-			error: theme.colors.error,
-			info: theme.colors.info,
-		};
-		const iconMap = {
-			success: theme.icons.success,
-			error: theme.icons.error,
-			info: theme.icons.system,
-		};
-		const visibleLines = needsPlayback
-			? lines.slice(playbackIndex, playbackIndex + MAX_VISIBLE)
-			: lines;
+		const lines = result.split('\n');
+		const displayLines = lines.slice(0, MAX_VISIBLE);
 
 		return (
-			<Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={colorMap[resultType]} paddingX={1}>
-				{visibleLines.map((line, i) => (
-					<Text key={needsPlayback ? playbackIndex + i : i} color={colorMap[resultType]}>
-						{i === 0 ? <Text color={theme.colors.illusion}>{iconMap[resultType]}{' '}</Text> : '  '}{line}
-					</Text>
+			<Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={theme.colors.illusion} paddingX={1}>
+				{displayLines.map((line, i) => (
+					<Text key={i} color={theme.colors.illusion}>{line}</Text>
 				))}
-				{needsPlayback ? (
-					<Text color={colorMap[resultType]} dimColor>{'  '}{'…'} {playbackIndex + MAX_VISIBLE}/{lines.length}</Text>
+				{lines.length > MAX_VISIBLE ? (
+					<Text color={theme.colors.illusion} dimColor>
+						{'  '}... +{lines.length - MAX_VISIBLE} more lines
+					</Text>
 				) : null}
 				<Text dimColor>
 					<Text color={theme.colors.muted}>esc</Text> dismiss
+					<Text> {theme.icons.middleDot} </Text>
+					<Text color={theme.colors.muted}>ctrl+o</Text> show full
 				</Text>
 			</Box>
 		);
