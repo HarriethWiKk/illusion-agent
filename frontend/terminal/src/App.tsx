@@ -243,7 +243,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 		// /new → clear conversation window and start fresh session
 		if (trimmed === '/new') {
-			session.clearStaticItems();
 			session.sendRequest({type: 'submit_line', line: '/new'});
 			session.setBusy(true);
 			return true;
@@ -272,6 +271,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (key.ctrl && chunk.toLowerCase() === 'x') {
 			if (session.busy) {
 				session.sendRequest({type: 'stop'});
+				session.setCommandResult({
+					text: t(language, 'taskStopped'),
+					type: 'info',
+				});
 			}
 			return;
 		}

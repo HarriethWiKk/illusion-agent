@@ -305,10 +305,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'error') {
-			if ((event.message ?? '').includes('No active task to stop')) {
-				pushStatic({role: 'system', text: event.message ?? ''});
-				return;
-			}
 			pushStatic({role: 'system', text: `error: ${event.message ?? 'unknown error'}`});
 			clearAssistantDelta();
 			setBusy(false);
