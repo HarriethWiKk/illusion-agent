@@ -24,7 +24,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
 - 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
-- 🛠️ **丰富的工具集** - 38+ 内置工具 + MCP 动态工具扩展
+- 🛠️ **丰富的工具集** - 34 内置工具 + MCP 动态工具扩展
 - ⌨️ **51 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
@@ -71,9 +71,32 @@ cd illusion-code
 uv sync
 ```
 
+> **注意**：`uv sync` 仅在项目目录下创建虚拟环境，不会将 `illusion` 命令注册到系统 PATH。若需在任意目录使用 `illusion` 命令，有以下方式：
+>
+> ```bash
+> # 方式一：在项目目录下使用 uv run
+> cd illusion-code
+> uv run illusion
+>
+> # 方式二：激活虚拟环境后使用
+> # Windows
+> .venv\Scripts\activate
+> # macOS / Linux
+> source .venv/bin/activate
+> illusion
+>
+> # 方式三：使用 pip 全局安装
+> pip install -e .
+> ```
+
 ### 基本使用
 
+> **首次使用建议**：先执行 `uv run illusion auth login` 配置 API 认证，否则可能因未登录或模型不可用而报错退出。
+
 ```bash
+# 首次使用：配置认证
+uv run illusion auth login
+
 # 启动交互式会话（推荐）
 illusion
 
@@ -165,7 +188,7 @@ illusion-code/
 │   ├── prompts/            # 提示词系统
 │   ├── skills/             # 技能系统
 │   ├── tasks/              # 任务管理
-│   ├── tools/              # 工具集 (38+ 个工具)
+│   ├── tools/              # 工具集 (34 个工具)
 │   ├── ui/                 # 用户界面
 │   └── cli.py              # CLI 入口
 ├── frontend/terminal/      # React TUI 前端
@@ -191,14 +214,18 @@ illusion-code/
 
 ### 工具系统
 
-提供 38+ 个核心工具，涵盖：
+提供 34 个核心工具，涵盖：
 
-- **文件 I/O**: `bash`, `read_file`, `write_file`, `edit_file`
-- **搜索**: `glob`, `grep`, `web_fetch`, `web_search`
-- **任务管理**: `task_create`, `task_list`, `task_stop`
-- **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
-- **多智能体**: `agent`, `send_message`, `team_create`
+- **文件操作**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
+- **命令执行**: `bash`, `powershell`, `repl`
+- **搜索**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
+- **任务管理**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
+- **Agent 协作**: `agent`, `send_message`
 - **模式切换**: `enter_plan_mode`, `exit_plan_mode`
+- **会话控制**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
+- **配置与调试**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
+- **交互**: `ask_user_question`
+- **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
 
 ### 权限系统
 
@@ -217,12 +244,12 @@ illusion-code/
 | Agent | 用途 |
 |-------|------|
 | `general-purpose` | 通用研究和多步任务 |
-| `Explore` | 只读文件搜索专家 |
-| `Plan` | 只读架构/规划专家 |
+| `Explore` | 文件搜索和代码探索专家 |
+| `Plan` | 架构设计和实施规划专家 |
 | `verification` | 对抗性验证专家 |
 | `worker` | 实现导向的 Worker |
 | `statusline-setup` | Shell PS1 转换器 |
-| `claude-code-guide` | 文档专家 |
+| `illusion-guide` | Illusion Code / SDK / API 文档专家 |
 
 ---
 
