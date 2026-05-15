@@ -2,7 +2,7 @@
 代理执行器模块
 ==============
 
-本模块提供子代理派发和执行的核心功能，完全对齐 claude-code 的 AgentTool 架构。
+本模块提供子代理派发和执行的核心功能，对齐标准 AgentTool 架构。
 
 主要组件：
     - AgentExecutionContext: 代理运行时上下文
@@ -514,6 +514,7 @@ async def run_agent_in_process(
     parent_registry: ToolRegistry,
     *,
     is_async: bool = False,
+    existing_context: AgentExecutionContext | None = None,
 ) -> AgentResult:
     """在当前进程中运行代理。
 
@@ -532,23 +533,27 @@ async def run_agent_in_process(
     from illusion.engine.query import QueryContext
     from illusion.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent
 
-    agent_id = f"agent_{uuid.uuid4().hex[:12]}"
-
     # 解析代理定义
     agent_def = config.agent_definition
 
-    # 创建执行上下文
-    ctx = AgentExecutionContext(
-        agent_id=agent_id,
-        agent_name=config.name,
-        agent_definition=agent_def,
-        prompt=config.prompt,
-        model=config.model,
-        cwd=Path(config.cwd),
-        permission_mode=config.permission_mode or (agent_def.permission_mode if agent_def else None),
-    )
+    # 使用已有的上下文或创建新的
+    if existing_context is not None:
+        ctx = existing_context
+        agent_id = ctx.agent_id
+    else:
+        agent_id = f"agent_{uuid.uuid4().hex[:12]}"
+        ctx = AgentExecutionContext(
+            agent_id=agent_id,
+            agent_name=config.name,
+            agent_definition=agent_def,
+            prompt=config.prompt,
+            model=config.model,
+            cwd=Path(config.cwd),
+            permission_mode=config.permission_mode or (agent_def.permission_mode if agent_def else None),
+        )
+        _register_agent(ctx)
+
     set_agent_context(ctx)
-    _register_agent(ctx)
 
     # 解析工具池
     agent_tools = resolve_agent_tools(agent_def, parent_registry)
@@ -720,7 +725,9 @@ async def run_agent_in_process(
             duration_ms=int((time.time() - start_time) * 1000),
         )
     finally:
-        _unregister_agent(agent_id)
+        # 只有自己创建的 context 才注销，外部传入的由调用方负责注销
+        if existing_context is None:
+            _unregister_agent(agent_id)
         ctx.status = "stopped"
 
     duration_ms = int((time.time() - start_time) * 1000)

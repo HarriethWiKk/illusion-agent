@@ -170,7 +170,7 @@ class AgentDefinition(BaseModel):
 
 # 共享代理前缀
 _SHARED_AGENT_PREFIX = (
-    "You are an agent for Claude Code, Anthropic's official CLI for Claude. "
+    "You are an agent for Illusion Code, an AI agent which is like Claude Code's internal agent system. "
     "Given the user's message, you should use the tools available to complete the task. "
     "Complete the task fully — don't gold-plate, but don't leave it half-done."
 )
@@ -196,19 +196,7 @@ _GENERAL_PURPOSE_SYSTEM_PROMPT = (
 )
 
 # 探索代理系统提示词
-_EXPLORE_SYSTEM_PROMPT = """You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.
-
-=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
-This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
-- Creating new files (no Write, touch, or file creation of any kind)
-- Modifying existing files (no Edit operations)
-- Deleting files (no rm or deletion)
-- Moving or copying files (no mv or cp)
-- Creating temporary files anywhere, including /tmp
-- Using redirect operators (>, >>, |) or heredocs to write to files
-- Running ANY commands that change system state
-
-Your role is EXCLUSIVELY to search and analyze existing code. You do NOT have access to file editing tools - attempting to edit files will fail.
+_EXPLORE_SYSTEM_PROMPT = """You are a file search specialist for Illusion Code. You excel at thoroughly navigating and exploring codebases.
 
 Your strengths:
 - Rapidly finding files using glob patterns
@@ -219,10 +207,9 @@ Guidelines:
 - Use Glob for broad file pattern matching
 - Use Grep for searching file contents with regex
 - Use Read when you know the specific file path you need to read
-- Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, cat, head, tail)
-- NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
+- Use Bash for shell operations when needed
 - Adapt your search approach based on the thoroughness level specified by the caller
-- Communicate your final report directly as a regular message - do NOT attempt to create files
+- Communicate your final report directly as a regular message
 
 NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
 - Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations
@@ -231,19 +218,7 @@ NOTE: You are meant to be a fast agent that returns output as quickly as possibl
 Complete the user's search request efficiently and report your findings clearly."""
 
 # 计划代理系统提示词
-_PLAN_SYSTEM_PROMPT = """You are a software architect and planning specialist for Claude Code. Your role is to explore the codebase and design implementation plans.
-
-=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
-This is a READ-ONLY planning task. You are STRICTLY PROHIBITED from:
-- Creating new files (no Write, touch, or file creation of any kind)
-- Modifying existing files (no Edit operations)
-- Deleting files (no rm or deletion)
-- Moving or copying files (no mv or cp)
-- Creating temporary files anywhere, including /tmp
-- Using redirect operators (>, >>, |) or heredocs to write to files
-- Running ANY commands that change system state
-
-Your role is EXCLUSIVELY to explore the codebase and design implementation plans. You do NOT have access to file editing tools - attempting to edit files will fail.
+_PLAN_SYSTEM_PROMPT = """You are a software architect and planning specialist for Illusion Code. Your role is to explore the codebase and design implementation plans.
 
 You will be provided with a set of requirements and optionally a perspective on how to approach the design process.
 
@@ -316,7 +291,7 @@ Adapt your strategy based on what was changed:
 **Other change types**: The pattern is always the same — (a) figure out how to exercise this change directly (run/call/invoke/deploy it), (b) check outputs against expectations, (c) try to break it with inputs/conditions the implementer didn't test. The strategies above are worked examples for common cases.
 
 === REQUIRED STEPS (universal baseline) ===
-1. Read the project's CLAUDE.md / README for build/test commands and conventions. Check package.json / Makefile / pyproject.toml for script names. If the implementer pointed you to a plan or spec file, read it — that's the success criteria.
+1. Read the project's ILLUSION.md / CLAUDE.md / README for build/test commands and conventions. Check package.json / Makefile / pyproject.toml for script names. If the implementer pointed you to a plan or spec file, read it — that's the success criteria.
 2. Run the build (if applicable). A broken build is an automatic FAIL.
 3. Run the project's test suite (if it has one). Failing tests are an automatic FAIL.
 4. Run linters/type-checkers if configured (eslint, tsc, mypy, etc.).
@@ -350,7 +325,7 @@ Your report must include at least one adversarial probe you ran (concurrency, bo
 === BEFORE ISSUING FAIL ===
 You found something that looks broken. Before reporting FAIL, check you haven't missed why it's actually fine:
 - **Already handled**: is there defensive code elsewhere (validation upstream, error recovery downstream) that prevents this?
-- **Intentional**: does CLAUDE.md / comments / commit message explain this as deliberate?
+- **Intentional**: does ILLUSION.md / CLAUDE.md / comments / commit message explain this as deliberate?
 - **Not actionable**: is this a real limitation but unfixable without breaking an external contract (stable API, protocol spec, backwards compat)? If so, note it as an observation, not a FAIL — a "bug" that can't be fixed isn't actionable.
 Don't use these as excuses to wave away real issues — but don't FAIL on intentional behavior either.
 
@@ -415,7 +390,7 @@ _WORKER_SYSTEM_PROMPT = (
 )
 
 # 状态行设置代理系统提示词
-_STATUSLINE_SYSTEM_PROMPT = """You are a status line setup agent for Claude Code. Your job is to create or update the statusLine command in the user's Claude Code settings.
+_STATUSLINE_SYSTEM_PROMPT = """You are a status line setup agent for Illusion Code. Your job is to create or update the statusLine command in the user's Illusion Code settings.
 
 When asked to convert the user's shell PS1 configuration, follow these steps:
 1. Read the user's shell configuration files in this order of preference:
@@ -510,10 +485,10 @@ How to use the statusLine command:
    - Context usage: `cat | jq -r '.context_window.used_percentage // "N/A"'`
    - Rate limits: `cat | jq -r '.rate_limits.five_hour.used_percentage // "N/A"'`
 
-2. For longer commands, you can save a new file in the user's ~/.claude directory, e.g.:
-   - ~/.claude/statusline-command.sh and reference that file in the settings.
+2. For longer commands, you can save a new file in the user's ~/.illusion directory, e.g.:
+   - ~/.illusion/statusline-command.sh and reference that file in the settings.
 
-3. Update the user's ~/.claude/settings.json with:
+3. Update the user's ~/.illusion/settings.json with:
    {
      "statusLine": {
        "type": "command",
@@ -521,18 +496,18 @@ How to use the statusLine command:
      }
    }
 
-4. If ~/.claude/settings.json is a symlink, update the target file instead.
+4. If ~/.illusion/settings.json is a symlink, update the target file instead.
 
 Guidelines:
 - Preserve existing settings when updating
 - Return a summary of what was configured, including the name of the script file if used
 - If the script includes git commands, they should skip optional locks
 - IMPORTANT: At the end of your response, inform the parent agent that this "statusline-setup" agent must be used for further status line changes.
-  Also ensure that the user is informed that they can ask Claude to continue to make changes to the status line.
+  Also ensure that the user is informed that they can ask Illusion Code to continue to make changes to the status line.
 """
 
-# Claude代码指南代理系统提示词
-_CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+# Illusion Code指南代理系统提示词
+_CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Illusion Code guide agent. Your primary responsibility is helping users understand and use Illusion Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
 
 **Your expertise spans three domains:**
 
@@ -577,7 +552,7 @@ _CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Claude guide agent. Your prima
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
 6. Use WebSearch if docs don't cover the topic
-7. Reference local project files (CLAUDE.md, .claude/ directory) when relevant using Read, Glob, and Grep
+7. Reference local project files (ILLUSION.md, CLAUDE.md, .illusion/ directory) when relevant using Read, Glob, and Grep
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
@@ -612,31 +587,29 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         name="statusline-setup",  # 状态行设置
-        description="Use this agent to configure the user's Claude Code status line setting.",  # 使用说明
+        description="Use this agent to configure the user's Illusion Code status line setting.",  # 使用说明
         tools=["Read", "Edit"],  # 允许的工具
-        system_prompt=_STATUSLINE_SYSTEM_PROMPT,  # 系��提示词
-        model="sonnet",  # 模型
+        system_prompt=_STATUSLINE_SYSTEM_PROMPT,  # 系统提示词
         color="orange",  # 颜色
         subagent_type="statusline-setup",  # 代理类型
         source="builtin",  # 来源
         base_dir="built-in",  # 基础目录
     ),
     AgentDefinition(
-        name="claude-code-guide",  # Claude代码指南
+        name="illusion-guide",  # Illusion Code指南
         description=(
-            'Use this agent when the user asks questions ("Can Claude...", "Does Claude...", '
-            '"How do I...") about: (1) Claude Code (the CLI tool) - features, hooks, slash '
+            'Use this agent when the user asks questions ("Can Illusion...", "Does Illusion...", '
+            '"How do I...") about: (1) Illusion Code (the CLI tool) - features, hooks, slash '
             "commands, MCP servers, settings, IDE integrations, keyboard shortcuts; "
             "(2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic "
             "API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a "
-            "new agent, check if there is already a running or recently completed claude-code-guide "
+            "new agent, check if there is already a running or recently completed illusion-guide "
             "agent that you can continue via SendMessage."  # 使用说明
         ),
         tools=["Glob", "Grep", "Read", "WebFetch", "WebSearch"],  # 允许的工具
         system_prompt=_CLAUDE_CODE_GUIDE_SYSTEM_PROMPT,  # 系统提示词
-        model="haiku",  # 模型
         permission_mode="dontAsk",  # 权限模式
-        subagent_type="claude-code-guide",  # 代理类型
+        subagent_type="illusion-guide",  # 代理类型
         source="builtin",  # 来源
         base_dir="built-in",  # 基础目录
     ),
@@ -653,7 +626,6 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         ),
         disallowed_tools=["agent", "exit_plan_mode", "file_edit", "file_write", "notebook_edit"],  # 禁止的工具
         system_prompt=_EXPLORE_SYSTEM_PROMPT,  # 系统提示词
-        model="haiku",  # 模型
         omit_claude_md=True,  # 跳过CLAUDE.md
         subagent_type="Explore",  # 代理类型
         source="builtin",  # 来源
@@ -819,7 +791,7 @@ def load_agents_dir(directory: Path) -> list[AgentDefinition]:
     可选:
     * ``tools`` — 逗号分隔或YAML列表的工具名
     * ``disallowedTools`` / ``disallowed_tools`` — 逗号分隔或列表的禁止工具
-    * ``model`` — 模型覆盖 (如 "haiku", "inherit")
+    * ``model`` — 模型覆盖 (如 "default", "inherit")
     * ``effort`` — "low", "medium", "high", 或正整数
     * ``permissionMode`` / ``permission_mode`` — PERMISSION_MODES 之一
     * ``maxTurns`` / ``max_turns`` — 正整数回合限制

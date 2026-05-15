@@ -34,6 +34,7 @@ export function SidePanel({
 }
 
 function StatusPanel({status, theme}: {status: Record<string, unknown>; theme: ThemeConfig}): React.JSX.Element {
+	const agentCount = Number(status.agent_count ?? 0);
 	return (
 		<>
 			<Box marginBottom={1}>
@@ -41,6 +42,9 @@ function StatusPanel({status, theme}: {status: Record<string, unknown>; theme: T
 			</Box>
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.colors.muted} paddingX={1} marginBottom={1}>
 				<Text><Text dimColor>model:</Text> <Text color={theme.colors.accent}>{String(status.model ?? 'unknown')}</Text></Text>
+				{agentCount > 0 ? (
+					<Text><Text dimColor>agents:</Text> <Text color={theme.colors.illusion}>{agentCount} running</Text></Text>
+				) : null}
 				<Text><Text dimColor>provider:</Text> <Text color={theme.colors.accent}>{String(status.provider ?? 'unknown')}</Text></Text>
 				<Text><Text dimColor>auth:</Text> <Text color={theme.colors.accent}>{String(status.auth_status ?? 'unknown')}</Text></Text>
 				<Text><Text dimColor>permission:</Text> <Text color={theme.colors.accent}>{String(status.permission_mode ?? 'unknown')}</Text></Text>

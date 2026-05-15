@@ -2,7 +2,7 @@
 代理工具模块
 ============
 
-本模块提供子代理派发工具，完全对齐 claude-code 的 AgentTool 实现。
+本模块提供子代理派发工具，对齐标准 AgentTool 架构。
 
 主要组件：
     - AgentTool: 启动子代理的工具
@@ -95,7 +95,7 @@ Available agent types and the tools they have access to:
 - Explore: Fast read-only codebase exploration (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
 - Plan: Software architect for designing implementation plans (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
 - verification: Verification specialist for checking implementation correctness (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
-- claude-code-guide: Documentation lookup for Claude Code/SDK/API (Tools: Glob, Grep, Read, WebFetch, WebSearch).
+- illusion-guide: Documentation lookup for Illusion Code/SDK/API (Tools: Glob, Grep, Read, WebFetch, WebSearch).
 - worker: Implementation-focused worker agent. All tools available.
 - statusline-setup: Status line configuration agent (Tools: Read, Edit).
 
@@ -230,11 +230,10 @@ Terse command-style prompts produce shallow, generic work.
                         cwd=Path(cwd),
                         permission_mode=config.permission_mode,
                     )
-                    set_agent_context(bg_ctx)
                     _register_agent(bg_ctx)
 
                     try:
-                        result = await run_agent_in_process(config, query_context, parent_registry, is_async=True)
+                        result = await run_agent_in_process(config, query_context, parent_registry, is_async=True, existing_context=bg_ctx)
                         # 通知父代理
                         if result.notification:
                             notification_xml = format_task_notification(result.notification)

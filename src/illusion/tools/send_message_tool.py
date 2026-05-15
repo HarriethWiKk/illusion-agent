@@ -2,7 +2,7 @@
 发送消息工具
 ============
 
-本模块提供向运行中的代理发送消息的功能，对齐 claude-code 的 SendMessageTool。
+本模块提供向运行中的代理发送消息的功能，对齐标准 SendMessageTool 架构。
 
 主要组件：
     - SendMessageTool: 向代理发送消息的工具

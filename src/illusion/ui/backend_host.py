@@ -168,6 +168,16 @@ class ReactBackendHost:
 
         # 创建请求读取任务
         reader = asyncio.create_task(self._read_requests())
+
+        # 创建定期状态更新任务（每秒刷新一次，用于 agent 计数等实时状态）
+        async def _periodic_status_update():
+            while self._running:
+                await asyncio.sleep(1.0)
+                if self._running and self._bundle is not None:
+                    await self._emit(self._status_snapshot())
+
+        status_updater = asyncio.create_task(_periodic_status_update())
+
         try:
             # 主循环：处理请求
             while self._running:
@@ -258,8 +268,10 @@ class ReactBackendHost:
         finally:
             # 清理资源
             reader.cancel()
+            status_updater.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await reader
+                await status_updater
             if self._bundle is not None:
                 await close_runtime(self._bundle)
         return 0

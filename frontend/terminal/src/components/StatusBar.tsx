@@ -108,7 +108,27 @@ function McpIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	return (
 		<Box>
-			<Text color={theme.colors.permission}> ● {count} MCP</Text>
+			<Text color={theme.colors.permission}> · {count} MCP</Text>
+		</Box>
+	);
+}
+
+function AgentIndicator({count}: {count: number}): React.JSX.Element {
+	const theme = useTheme();
+	const [visible, setVisible] = useState(true);
+
+	useEffect(() => {
+		const interval = setInterval(() => setVisible(v => !v), 500);
+		return () => clearInterval(interval);
+	}, []);
+
+	if (!visible) {
+		return <Box><Text> </Text></Box>;
+	}
+
+	return (
+		<Box>
+			<Text color={theme.colors.permission}> · {count} agent{count !== 1 ? 's' : ''}</Text>
 		</Box>
 	);
 }
@@ -129,6 +149,7 @@ export function StatusBar({
 	const mode = String(status.permission_mode ?? 'default');
 	const taskCount = tasks.length;
 	const mcpCount = Number(status.mcp_connected ?? 0);
+	const agentCount = Number(status.agent_count ?? 0);
 	const inputTokens = Number(status.input_tokens ?? 0);
 	const outputTokens = Number(status.output_tokens ?? 0);
 	const isPlanMode = mode === 'plan' || mode === 'Plan Mode';
@@ -162,6 +183,7 @@ export function StatusBar({
 				{mcpCount > 0 ? (
 					<McpIndicator count={mcpCount} />
 				) : null}
+				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
 				<Box flexGrow={1} />
 				{isAutoMode ? <AutoModeIndicator /> : null}
 				{isPlanMode ? <PlanModeIndicator mode={mode} activeToolName={activeToolName} /> : null}

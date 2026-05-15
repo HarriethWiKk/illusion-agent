@@ -48,8 +48,12 @@ from illusion.engine.stream_events import (
     ToolExecutionCompleted,
     ToolExecutionStarted,
 )
+from illusion.swarm.agent_executor import list_active_agents
 from illusion.tasks import get_task_manager
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+
+# Agent 状态指示器颜色（与 agent_definitions.py 中的 AGENT_COLORS 一致）
+_AGENT_INDICATOR_COLOR = "purple"
 
 
 @dataclass(frozen=True)
@@ -477,9 +481,18 @@ class illusionTerminalApp(App[None]):
         state = self._bundle.app_state.get()
         usage = self._bundle.engine.total_usage
         # 状态栏信息
+        agent_count = len(list_active_agents())
+        # Agent 状态指示器：使用主题色闪烁
+        agent_indicator = ""
+        if agent_count > 0:
+            import time
+            blink = int(time.time() * 2) % 2
+            style = f"bold {_AGENT_INDICATOR_COLOR}" if blink else _AGENT_INDICATOR_COLOR
+            agent_indicator = f" [{style}]· {agent_count} agent{'s' if agent_count > 1 else ''}[/{style}]"
+
         status_lines = [
             "[b]Status[/b]",
-            f"model: {state.model}",
+            f"model: {state.model}{agent_indicator}",
             f"permissions: {state.permission_mode}",
             f"fast: {'on' if state.fast_mode else 'off'}",
             f"language: {state.ui_language}",

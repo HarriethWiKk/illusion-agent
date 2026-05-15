@@ -318,6 +318,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
     Returns:
         dict[str, Any]: 状态载荷
     """
+    from illusion.swarm.agent_executor import list_active_agents
     return {
         "model": state.model,
         "cwd": state.cwd,
@@ -335,6 +336,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "output_style": state.output_style,
         "phase": state.phase,
         "session_id": state.session_id,
+        "agent_count": len(list_active_agents()),
     }
 
 
