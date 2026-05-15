@@ -1,19 +1,16 @@
-"""Tests for task and team tools."""
+"""Tests for task tools."""
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
 
 from illusion.tasks import get_task_manager
-from illusion.tools.agent_tool import AgentTool, AgentToolInput
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.task_create_tool import TaskCreateTool, TaskCreateToolInput
 from illusion.tools.task_output_tool import TaskOutputTool, TaskOutputToolInput
 from illusion.tools.task_update_tool import TaskUpdateTool, TaskUpdateToolInput
-from illusion.tools.team_create_tool import TeamCreateTool, TeamCreateToolInput
 
 
 @pytest.mark.asyncio
@@ -36,16 +33,6 @@ async def test_task_create_and_output_tool(tmp_path: Path, monkeypatch):
         context,
     )
     assert output_result.output == "(no output)"
-
-
-@pytest.mark.asyncio
-async def test_team_create_tool(tmp_path: Path):
-    result = await TeamCreateTool().execute(
-        TeamCreateToolInput(name="demo", description="test"),
-        ToolExecutionContext(cwd=tmp_path),
-    )
-    assert result.is_error is False
-    assert "Created team demo" == result.output
 
 
 @pytest.mark.asyncio
@@ -94,24 +81,3 @@ async def test_task_update_tool_missing_id_is_soft_ignored(tmp_path: Path, monke
     )
     assert result.is_error is False
     assert "Ignored stale task_update" in result.output
-
-
-@pytest.mark.asyncio
-async def test_agent_tool_supports_remote_and_teammate_modes(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
-    context = ToolExecutionContext(cwd=tmp_path)
-
-    for i, mode in enumerate(("remote_agent", "in_process_teammate")):
-        result = await AgentTool().execute(
-            AgentToolInput(
-                description=f"{mode} smoke",
-                prompt="ready",
-                mode=mode,
-                subagent_type=f"test-worker-{i}",
-                command="python -u -c \"import sys; print(sys.stdin.readline().strip())\"",
-            ),
-            context,
-        )
-        assert result.is_error is False
-        # Output format: "Spawned agent X (task_id=Y, backend=Z)"
-        assert "agent" in result.output.lower() or "task_id" in result.output.lower()

@@ -1,41 +1,13 @@
-"""Tests for swarm type definitions: TeammateIdentity, SpawnResult, TeammateExecutor."""
+"""Tests for swarm type definitions: SpawnResult, TeammateExecutor, TeammateMessage."""
 
 from __future__ import annotations
-
 
 from illusion.swarm.types import (
     SpawnResult,
     TeammateExecutor,
-    TeammateIdentity,
     TeammateMessage,
     TeammateSpawnConfig,
 )
-
-
-# ---------------------------------------------------------------------------
-# TeammateIdentity
-# ---------------------------------------------------------------------------
-
-
-def test_teammate_identity_required_fields():
-    identity = TeammateIdentity(agent_id="coder@alpha", name="coder", team="alpha")
-    assert identity.agent_id == "coder@alpha"
-    assert identity.name == "coder"
-    assert identity.team == "alpha"
-    assert identity.color is None
-    assert identity.parent_session_id is None
-
-
-def test_teammate_identity_with_optional_fields():
-    identity = TeammateIdentity(
-        agent_id="r@t",
-        name="r",
-        team="t",
-        color="blue",
-        parent_session_id="sess-123",
-    )
-    assert identity.color == "blue"
-    assert identity.parent_session_id == "sess-123"
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +34,7 @@ def test_spawn_result_failure():
 
 
 def test_spawn_result_backend_types():
-    for bt in ("subprocess", "in_process", "tmux"):
+    for bt in ("subprocess", "in_process"):
         r = SpawnResult(task_id="x", agent_id="a@b", backend_type=bt)
         assert r.backend_type == bt
 

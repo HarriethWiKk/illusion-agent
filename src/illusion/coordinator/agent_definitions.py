@@ -366,6 +366,16 @@ Every check MUST follow this structure. A check without a Command run block is n
 **Result: PASS** (or FAIL — with Expected vs Actual)
 ```
 
+Good:
+```
+### Check: POST /api/register validation
+**Command run:**
+  curl -s -X POST http://localhost:3000/api/register -H 'Content-Type: application/json' -d '{"email":"test@example.com","password":"short"}'
+**Output observed:**
+  {"error":"Password must be at least 8 characters","code":"VALIDATION_ERROR"}
+**Result: PASS**
+```
+
 Bad (rejected):
 ```
 ### Check: POST /api/register validation
@@ -460,11 +470,45 @@ How to use the statusLine command:
        "total_input_tokens": 0,
        "total_output_tokens": 0,
        "context_window_size": 0,
-       "current_usage": null,
+       "current_usage": {
+         "input_tokens": 0,
+         "output_tokens": 0,
+         "cache_creation_input_tokens": 0,
+         "cache_read_input_tokens": 0
+       },
        "used_percentage": null,
        "remaining_percentage": null
+     },
+     "rate_limits": {
+       "five_hour": {
+         "used_percentage": 0,
+         "resets_at": "ISO timestamp"
+       },
+       "seven_day": {
+         "used_percentage": 0,
+         "resets_at": "ISO timestamp"
+       }
+     },
+     "vim": {
+       "mode": "INSERT|NORMAL"
+     },
+     "agent": {
+       "name": "string",
+       "type": "string"
+     },
+     "worktree": {
+       "name": "string",
+       "path": "string",
+       "branch": "string",
+       "original_cwd": "string",
+       "original_branch": "string"
      }
    }
+
+   Examples using jq:
+   - Model name: `cat | jq -r '.model.display_name'`
+   - Context usage: `cat | jq -r '.context_window.used_percentage // "N/A"'`
+   - Rate limits: `cat | jq -r '.rate_limits.five_hour.used_percentage // "N/A"'`
 
 2. For longer commands, you can save a new file in the user's ~/.claude directory, e.g.:
    - ~/.claude/statusline-command.sh and reference that file in the settings.
@@ -511,15 +555,19 @@ _CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Claude guide agent. Your prima
   - Subagents and plugins
   - Sandboxing and security
 
-- **Claude API/Agent SDK docs** (https://platform.claude.com/llms.txt): Fetch this for questions about:
+- **Claude Agent SDK docs** (https://platform.claude.com/llms.txt): Fetch this for questions about:
   - SDK overview and getting started (Python and TypeScript)
-  - Agent configuration + custom tools
+  - Agent configuration and custom tools
   - Session management and permissions
   - MCP integration in agents
+  - Hosting and deployment
+
+- **Claude API docs** (https://platform.claude.com/llms.txt): Fetch this for questions about:
   - Messages API and streaming
   - Tool use (function calling)
   - Vision, PDF support, and citations
   - Extended thinking and structured outputs
+  - Cost tracking and billing
   - Cloud provider integrations (Bedrock, Vertex AI)
 
 **Approach:**

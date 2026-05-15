@@ -50,8 +50,6 @@ from illusion.tools.task_list_tool import TaskListTool
 from illusion.tools.task_output_tool import TaskOutputTool
 from illusion.tools.task_stop_tool import TaskStopTool
 from illusion.tools.task_update_tool import TaskUpdateTool
-from illusion.tools.team_create_tool import TeamCreateTool
-from illusion.tools.team_delete_tool import TeamDeleteTool
 from illusion.tools.todo_write_tool import TodoWriteTool
 from illusion.tools.tool_search_tool import ToolSearchTool
 from illusion.tools.web_fetch_tool import WebFetchTool
@@ -103,8 +101,6 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         TaskUpdateTool(),
         AgentTool(),
         SendMessageTool(),
-        TeamCreateTool(),
-        TeamDeleteTool(),
     ):
         registry.register(tool)
     if mcp_manager is not None:
