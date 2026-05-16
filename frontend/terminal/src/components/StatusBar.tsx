@@ -6,63 +6,6 @@ import type {TaskSnapshot} from '../types.js';
 
 const SEP = ' · ';
 
-const WRITE_TOOLS = new Set([
-	'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
-	'Bash', 'computer', 'str_replace_editor',
-]);
-
-function PlanModeIndicator({
-	mode,
-	activeToolName,
-}: {
-	mode: string;
-	activeToolName?: string;
-}): React.JSX.Element | null {
-	const theme = useTheme();
-	const [flash, setFlash] = useState(false);
-	const [prevMode, setPrevMode] = useState(mode);
-
-	useEffect(() => {
-		if (prevMode === 'plan' && mode !== 'plan' && prevMode !== mode) {
-			setFlash(true);
-			const timer = setTimeout(() => setFlash(false), 800);
-			setPrevMode(mode);
-			return () => clearTimeout(timer);
-		}
-		setPrevMode(mode);
-	}, [mode]);
-
-	if (mode !== 'plan' && mode !== 'Plan Mode') {
-		if (flash) {
-			return (
-				<Box marginLeft={1}>
-					<Text color={theme.colors.success} bold>
-						{' PLAN OFF '}
-					</Text>
-				</Box>
-			);
-		}
-		return null;
-	}
-
-	const isBlockedTool = activeToolName != null && WRITE_TOOLS.has(activeToolName);
-
-	return (
-		<Box marginLeft={1}>
-			<Text backgroundColor={theme.colors.warning} color={theme.colors.background} bold>
-				{' PLAN '}
-			</Text>
-			{isBlockedTool ? (
-				<Box marginLeft={1}>
-					<Text color={theme.colors.error}>{theme.icons.cross} </Text>
-					<Text color={theme.colors.error} bold>{activeToolName}</Text>
-					<Text color={theme.colors.error}> blocked</Text>
-				</Box>
-			) : null}
-		</Box>
-	);
-}
-
 function AutoModeIndicator(): React.JSX.Element {
 	const theme = useTheme();
 	return (
@@ -99,7 +42,7 @@ function TaskIndicator({count}: {count: number}): React.JSX.Element {
 	return (
 		<Box>
 			<Text color={theme.colors.info}>{theme.icons.inProgress}</Text>
-			<Text dimColor> {count} task{count !== 1 ? 's' : ''}</Text>
+			<Text color={theme.colors.info}> {count} task{count !== 1 ? 's' : ''}</Text>
 		</Box>
 	);
 }
@@ -136,12 +79,10 @@ function AgentIndicator({count}: {count: number}): React.JSX.Element {
 export function StatusBar({
 	status,
 	tasks,
-	activeToolName,
 	showThinking = true,
 }: {
 	status: Record<string, unknown>;
 	tasks: TaskSnapshot[];
-	activeToolName?: string;
 	showThinking?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
@@ -152,7 +93,6 @@ export function StatusBar({
 	const agentCount = Number(status.agent_count ?? 0);
 	const inputTokens = Number(status.input_tokens ?? 0);
 	const outputTokens = Number(status.output_tokens ?? 0);
-	const isPlanMode = mode === 'plan' || mode === 'Plan Mode';
 	const isAutoMode = mode === 'full_auto' || mode === 'auto';
 
 	return (
@@ -168,7 +108,7 @@ export function StatusBar({
 						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.muted} />
 					</>
 				) : null}
-				{!isPlanMode && mode !== 'default' ? (
+				{mode !== 'default' ? (
 					<>
 						<Text dimColor>{SEP}</Text>
 						<Text dimColor>{mode}</Text>
@@ -186,7 +126,6 @@ export function StatusBar({
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
 				<Box flexGrow={1} />
 				{isAutoMode ? <AutoModeIndicator /> : null}
-				{isPlanMode ? <PlanModeIndicator mode={mode} activeToolName={activeToolName} /> : null}
 			</Box>
 		</Box>
 	);

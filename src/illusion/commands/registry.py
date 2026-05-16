@@ -916,7 +916,7 @@ def create_default_command_registry() -> CommandRegistry:
             if context.app_state is not None
             else settings.fast_mode
         )
-        action = args.strip() or "show"
+        action = args.strip() or "toggle"
         if action == "show":
             return CommandResult(message=f"Fast mode: {'on' if current else 'off'}")
         enabled = {"on": True, "off": False, "toggle": not current}.get(action)

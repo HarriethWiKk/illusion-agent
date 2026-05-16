@@ -239,7 +239,7 @@ function MessageRow({
 			if (item.text.startsWith('/')) {
 				return null;
 			}
-			const needsDivider = prevRole !== undefined && prevRole !== 'user';
+			const needsDivider = prevRole !== 'user';
 			return (
 				<Box flexDirection="column" marginTop={needsDivider ? 1 : 0}>
 					{needsDivider ? (
@@ -284,6 +284,9 @@ function MessageRow({
 		}
 
 		case 'system': {
+			if (!item.text.trim()) {
+				return null;
+			}
 			const sysLines = item.text.split('\n');
 			const firstLine = sysLines[0];
 			const restLines = sysLines.slice(1);

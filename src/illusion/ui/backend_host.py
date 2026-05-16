@@ -967,9 +967,16 @@ class ReactBackendHost:
         await self._update_phase("idle")
         await self._emit(BackendEvent(type="modal_request", modal=None))
         from illusion.config.i18n import t as _t
+        stopped_message = _t("task_stopped")
+        await self._emit(
+            BackendEvent(
+                type="transcript_item",
+                item=TranscriptItem(role="system", text=stopped_message),
+            )
+        )
         await self._emit(BackendEvent(
             type="command_result",
-            command_result_data={"message": _t("task_stopped"), "type": "info"},
+            command_result_data={"message": stopped_message, "type": "info"},
         ))
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))

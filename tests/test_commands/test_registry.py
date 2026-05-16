@@ -317,6 +317,25 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_fast_command_without_args_toggles_state(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    fast_command, fast_args = registry.lookup("/fast")
+    first = await fast_command.handler(fast_args, context)
+    assert "enabled" in first.message
+    assert load_settings().fast_mode is True
+    assert context.app_state.get().fast_mode is True
+
+    fast_command, fast_args = registry.lookup("/fast")
+    second = await fast_command.handler(fast_args, context)
+    assert "disabled" in second.message
+    assert load_settings().fast_mode is False
+    assert context.app_state.get().fast_mode is False
+
+
+@pytest.mark.asyncio
 async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))

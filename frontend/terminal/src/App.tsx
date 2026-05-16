@@ -271,6 +271,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (key.ctrl && chunk.toLowerCase() === 'x') {
 			if (session.busy) {
 				session.sendRequest({type: 'stop'});
+				session.pushStatic({role: 'system', text: ' '});
 				session.setCommandResult({
 					text: t(language, 'taskStopped'),
 					type: 'info',
@@ -547,7 +548,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* Status bar (only after backend is ready) */}
 			{session.ready ? (
-				<StatusBar status={session.status} tasks={session.tasks} activeToolName={session.busy ? currentToolName : undefined} showThinking={session.showThinking} />
+				<StatusBar status={session.status} tasks={session.tasks} showThinking={session.showThinking} />
 			) : null}
 
 			{/* Input — show loading indicator until backend is ready */}
