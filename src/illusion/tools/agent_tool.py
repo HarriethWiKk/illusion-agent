@@ -22,6 +22,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from illusion.state import AppStateStore
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,6 @@ Terse command-style prompts produce shallow, generic work.
         """
         # 延迟导入以避免循环依赖
         from illusion.coordinator.agent_definitions import get_agent_definition, get_all_agent_definitions
-        from illusion.engine.query import QueryContext
         from illusion.swarm.agent_executor import (
             AgentSpawnConfig,
             format_task_notification,
@@ -206,7 +206,22 @@ Terse command-style prompts produce shallow, generic work.
         else:
             query_context = None
 
-        if arguments.run_in_background:
+        app_state_store = context.metadata.get("app_state_store")
+        in_team_context = False
+        if isinstance(app_state_store, AppStateStore):
+            team_context = app_state_store.get().team_context
+            if isinstance(team_context, dict) and team_context.get("teamName"):
+                in_team_context = True
+
+        has_parent_queue = context.metadata.get("parent_message_queue") is not None
+        effective_run_in_background = arguments.run_in_background
+        if effective_run_in_background and in_team_context and not has_parent_queue:
+            logger.info(
+                "[AgentTool] Team lead call forces foreground mode to keep task chain continuous"
+            )
+            effective_run_in_background = False
+
+        if effective_run_in_background:
             # 异步模式：后台执行
             if query_context is not None:
                 # 进程内后台执行
@@ -243,7 +258,7 @@ Terse command-style prompts produce shallow, generic work.
                                     text=notification_xml,
                                     from_agent="system",
                                 ))
-                    except Exception as exc:
+                    except Exception:
                         logger.exception("[AgentTool] Background agent %s failed", agent_id)
                     finally:
                         _unregister_agent(agent_id)

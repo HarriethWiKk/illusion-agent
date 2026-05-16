@@ -38,6 +38,13 @@ _DEFAULT_BASE_DIR = ".illusion"  # 默认基础目录名称
 _CONFIG_FILE_NAME = "settings.json"  # 配置文件名称
 
 
+def _sanitize_path_component(value: str) -> str:
+    """将路径组件规范化为安全形式。"""
+    sanitized = "".join(ch if (ch.isalnum() or ch in {"-", "_"}) else "-" for ch in value)
+    sanitized = sanitized.strip("-_")
+    return sanitized or "default"
+
+
 def get_config_dir() -> Path:
     """返回配置目录，必要时创建
     
@@ -132,11 +139,17 @@ def get_tasks_dir() -> Path:
     """返回后台任务输出目录
     
     用于存储后台任务执行结果和输出文件。
+    当设置 ``ILLUSION_TASK_LIST_ID`` 环境变量时，任务会隔离到对应子目录。
     
     Returns:
         Path: 任务目录路径
     """
-    tasks_dir = get_data_dir() / "tasks"
+    tasks_root = get_data_dir() / "tasks"
+    task_list_id = os.environ.get("ILLUSION_TASK_LIST_ID", "").strip()
+    if task_list_id:
+        tasks_dir = tasks_root / _sanitize_path_component(task_list_id)
+    else:
+        tasks_dir = tasks_root
     tasks_dir.mkdir(parents=True, exist_ok=True)
     return tasks_dir
 

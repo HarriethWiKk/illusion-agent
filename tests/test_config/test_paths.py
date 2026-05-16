@@ -9,6 +9,7 @@ from illusion.config.paths import (
     get_config_file_path,
     get_data_dir,
     get_logs_dir,
+    get_tasks_dir,
 )
 
 
@@ -67,3 +68,23 @@ def test_get_logs_dir_env_override(tmp_path: Path, monkeypatch):
     logs_dir = get_logs_dir()
     assert logs_dir == custom
     assert logs_dir.is_dir()
+
+
+def test_get_tasks_dir_default(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("ILLUSION_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("ILLUSION_DATA_DIR", raising=False)
+    monkeypatch.delenv("ILLUSION_TASK_LIST_ID", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    tasks_dir = get_tasks_dir()
+    assert tasks_dir == tmp_path / ".illusion" / "data" / "tasks"
+    assert tasks_dir.is_dir()
+
+
+def test_get_tasks_dir_with_task_list_id(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("ILLUSION_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("ILLUSION_DATA_DIR", raising=False)
+    monkeypatch.setenv("ILLUSION_TASK_LIST_ID", "Team Alpha/01")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    tasks_dir = get_tasks_dir()
+    assert tasks_dir == tmp_path / ".illusion" / "data" / "tasks" / "Team-Alpha-01"
+    assert tasks_dir.is_dir()

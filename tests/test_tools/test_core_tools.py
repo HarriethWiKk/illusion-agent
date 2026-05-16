@@ -365,6 +365,8 @@ def test_default_registry_matches_claude_tool_shape():
     assert "powershell" in names
     assert "repl" in names
     assert "structured_output" in names
+    assert "team_create" in names
+    assert "team_delete" in names
 
     # 新的统一 cron 工具
     assert "cron" in names

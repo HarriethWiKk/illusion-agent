@@ -24,7 +24,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
 - 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
-- 🛠️ **丰富的工具集** - 34 内置工具 + MCP 动态工具扩展
+- 🛠️ **丰富的工具集** - 36 内置工具 + MCP 动态工具扩展
 - ⌨️ **51 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
@@ -188,7 +188,7 @@ illusion-code/
 │   ├── prompts/            # 提示词系统
 │   ├── skills/             # 技能系统
 │   ├── tasks/              # 任务管理
-│   ├── tools/              # 工具集 (34 个工具)
+│   ├── tools/              # 工具集 (36 个工具)
 │   ├── ui/                 # 用户界面
 │   └── cli.py              # CLI 入口
 ├── frontend/terminal/      # React TUI 前端
@@ -214,13 +214,13 @@ illusion-code/
 
 ### 工具系统
 
-提供 34 个核心工具，涵盖：
+提供 36 个核心工具，涵盖：
 
 - **文件操作**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **命令执行**: `bash`, `powershell`, `repl`
 - **搜索**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
 - **任务管理**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
-- **Agent 协作**: `agent`, `send_message`
+- **Agent 协作**: `agent`, `send_message`, `team_create`, `team_delete`
 - **模式切换**: `enter_plan_mode`, `exit_plan_mode`
 - **会话控制**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
 - **配置与调试**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`

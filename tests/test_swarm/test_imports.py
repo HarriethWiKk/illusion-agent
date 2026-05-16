@@ -20,9 +20,9 @@ def test_create_default_tool_registry_imports_cleanly():
     assert registry.get("bash") is not None
     assert registry.get("agent") is not None
     assert registry.get("send_message") is not None
-    # Team tools should no longer be registered
-    assert registry.get("team_create") is None
-    assert registry.get("team_delete") is None
+    # Team tools are now registered by default
+    assert registry.get("team_create") is not None
+    assert registry.get("team_delete") is not None
 
 
 def test_swarm_module_exports():

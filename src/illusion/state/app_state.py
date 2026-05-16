@@ -41,6 +41,7 @@ class AppState:
         bridge_sessions: 活跃的桥接会话数量
         output_style: 输出样式名称
         phase: 会话阶段 (idle/thinking/tool_executing)
+        team_context: 当前会话的团队上下文（若已创建团队）
     """
 
     model: str  # 模型名称
@@ -59,3 +60,4 @@ class AppState:
     output_style: str = "default"  # 输出样式名称
     phase: str = "idle"  # 会话阶段: idle / thinking / tool_executing
     session_id: str = ""  # 当前会话 ID
+    team_context: dict[str, object] | None = None  # 团队上下文

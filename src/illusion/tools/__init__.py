@@ -44,6 +44,8 @@ from illusion.tools.send_message_tool import SendMessageTool
 from illusion.tools.skill_tool import SkillTool
 from illusion.tools.sleep_tool import SleepTool
 from illusion.tools.structured_output_tool import StructuredOutputTool
+from illusion.tools.team_create_tool import TeamCreateTool
+from illusion.tools.team_delete_tool import TeamDeleteTool
 from illusion.tools.task_create_tool import TaskCreateTool
 from illusion.tools.task_get_tool import TaskGetTool
 from illusion.tools.task_list_tool import TaskListTool
@@ -101,6 +103,8 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         TaskUpdateTool(),
         AgentTool(),
         SendMessageTool(),
+        TeamCreateTool(),
+        TeamDeleteTool(),
     ):
         registry.register(tool)
     if mcp_manager is not None:

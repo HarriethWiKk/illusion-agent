@@ -203,6 +203,7 @@ async def build_runtime(
         "api_format": api_format,
     }
     settings = load_settings().merge_cli_overrides(**settings_overrides)
+    session_id = restore_session_id or uuid4().hex[:12]
     # 获取当前工作目录
     cwd = str(Path.cwd())
     # 加载插件
@@ -268,6 +269,7 @@ async def build_runtime(
             bridge_sessions=len(bridge_manager.list_sessions()),
             output_style=settings.output_style,
             phase="idle",
+            session_id=session_id,
         )
     )
     # 创建钩子重载器和执行器
@@ -293,7 +295,12 @@ async def build_runtime(
         permission_prompt=permission_prompt,
         ask_user_prompt=ask_user_prompt,
         hook_executor=hook_executor,
-        tool_metadata={"mcp_manager": mcp_manager, "bridge_manager": bridge_manager},
+        tool_metadata={
+            "mcp_manager": mcp_manager,
+            "bridge_manager": bridge_manager,
+            "app_state_store": app_state,
+            "session_id": session_id,
+        },
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine
@@ -314,7 +321,7 @@ async def build_runtime(
         engine=engine,
         commands=create_default_command_registry(),
         external_api_client=api_client is not None,
-        session_id=restore_session_id or uuid4().hex[:12],
+        session_id=session_id,
         settings_overrides=settings_overrides,
     )
 
@@ -341,6 +348,9 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     Args:
         bundle: 运行时数据 bundle
     """
+    from illusion.swarm.team_helpers import cleanup_session_teams
+
+    await cleanup_session_teams()
     # 关闭 MCP 管理器
     await bundle.mcp_manager.close()
     # 执行会话结束钩子

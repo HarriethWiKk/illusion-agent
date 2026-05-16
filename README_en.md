@@ -188,7 +188,7 @@ illusion-code/
 │   ├── prompts/            # Prompt system
 │   ├── skills/             # Skill system
 │   ├── tasks/              # Task management
-│   ├── tools/              # Toolset (34 base tools)
+│   ├── tools/              # Toolset (36 base tools)
 │   ├── ui/                 # User interface
 │   └── cli.py              # CLI entry point
 ├── frontend/terminal/      # React TUI frontend
@@ -214,13 +214,13 @@ Supports multiple AI providers:
 
 ### Tool System
 
-Provides 34 core tools, covering:
+Provides 36 core tools, covering:
 
 - **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **Command Execution**: `bash`, `powershell`, `repl`
 - **Search**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
 - **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
-- **Agent Collaboration**: `agent`, `send_message`
+- **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
 - **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
 - **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`

@@ -33,9 +33,15 @@ export function ConversationView({
 	const theme = useTheme();
 	const filtered = useMemo(() => staticItems.filter((item) => !isEmptyItem(item)), [staticItems]);
 	const grouped = useMemo(() => groupToolItems(filtered), [filtered]);
-	const displayItems = useMemo<GroupEntry[]>(() => {
-		if (!showWelcome) return grouped;
-		return [{type: 'welcome', role: 'welcome'}, ...grouped];
+	const displayItems = useMemo<DisplayEntry[]>(() => {
+		const entries: GroupEntry[] = showWelcome
+			? [{type: 'welcome', role: 'welcome'}, ...grouped]
+			: grouped;
+		return entries.map((entry, index) => ({
+			key: `s-${index}`,
+			entry,
+			prevRole: index > 0 ? entries[index - 1]?.role : undefined,
+		}));
 	}, [grouped, showWelcome]);
 	const displayedBuffer = assistantBuffer; // Already processed in useBackendSession
 	const isSuppressedByStatic = useMemo(() => {
@@ -51,15 +57,15 @@ export function ConversationView({
 	return (
 		<>
 			<Static key={clearCount} items={displayItems}>
-				{(entry, index) => {
-					const prevRole = index > 0 ? displayItems[index - 1]?.role : undefined;
+				{(display) => {
+					const {entry, prevRole, key} = display;
 					if (entry.type === 'welcome') {
-						return <WelcomeBanner key="welcome" language={language} />;
+						return <WelcomeBanner key={key} language={language} />;
 					}
 					if (entry.type === 'tool_group') {
-						return <ToolGroupRow key={`s-${index}`} toolItem={entry.toolItem} resultItem={entry.resultItem} theme={theme} prevRole={prevRole} />;
+						return <ToolGroupRow key={key} toolItem={entry.toolItem} resultItem={entry.resultItem} theme={theme} prevRole={prevRole} />;
 					}
-					return <MessageRow key={`s-${index}`} item={entry.item} theme={theme} language={language} prevRole={prevRole} showThinking={showThinking} />;
+					return <MessageRow key={key} item={entry.item} theme={theme} language={language} prevRole={prevRole} showThinking={showThinking} />;
 				}}
 			</Static>
 
@@ -85,6 +91,12 @@ type GroupEntry =
 	| {type: 'single'; item: TranscriptItem; role: string}
 	| {type: 'tool_group'; toolItem: TranscriptItem; resultItem: TranscriptItem | null; role: string}
 	| {type: 'welcome'; role: string};
+
+type DisplayEntry = {
+	key: string;
+	entry: GroupEntry;
+	prevRole?: string;
+};
 
 function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 	const result: GroupEntry[] = [];
