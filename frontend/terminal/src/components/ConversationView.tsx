@@ -9,7 +9,7 @@ import {renderAssistantText} from '../utils/thinking.js';
 import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
-const MAX_RESULT_LINES = 8;
+const MAX_RESULT_LINES = 3;
 const MAX_COMMAND_LINES = 2;
 const MAX_COMMAND_CHARS = 160;
 const STREAMING_TAIL_LINES = 15;
@@ -222,11 +222,10 @@ function ToolResultBlock({
 
 				return (
 					<Box key={i}>
-						<Text dimColor>{i === 0 ? `  ${theme.icons.resultPrefix} ` : '    '}</Text>
+						<Text dimColor>{i === 0 ? `  ${theme.icons.resultPrefix} ` : '      '}</Text>
 						{i === 0 ? (
 							<Text color={iconColor}>{icon} </Text>
 						) : null}
-						{i !== 0 ? <Text>{' '}</Text> : null}
 						<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
 							{line}
 						</Text>
