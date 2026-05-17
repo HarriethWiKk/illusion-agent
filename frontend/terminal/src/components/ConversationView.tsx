@@ -9,7 +9,7 @@ import {renderAssistantText} from '../utils/thinking.js';
 import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
-const MAX_RESULT_LINES = 3;
+const MAX_RESULT_LINES = 2;
 const MAX_COMMAND_LINES = 2;
 const MAX_COMMAND_CHARS = 160;
 const STREAMING_TAIL_LINES = 15;
@@ -262,8 +262,10 @@ function MessageRow({
 						</Box>
 					) : null}
 					<Box>
-						<Text color={theme.colors.illusion}>{theme.icons.pointer}</Text>
-						<Text bold>{' '}{item.text}</Text>
+						<Text>
+							<Text color={theme.colors.illusion}>{theme.icons.pointer}</Text>
+							<Text bold>{' '}{item.text}</Text>
+						</Text>
 					</Box>
 				</Box>
 			);
