@@ -10,6 +10,7 @@ from illusion.api.openai_client import (
 )
 from illusion.engine.messages import (
     ConversationMessage,
+    ThinkingBlock,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -102,6 +103,33 @@ class TestConvertMessagesToOpenai:
         assert tc["type"] == "function"
         assert tc["function"]["name"] == "read_file"
         assert json.loads(tc["function"]["arguments"]) == {"path": "/tmp/x"}
+        assert result[0]["reasoning_content"] == ""
+
+    def test_assistant_with_thinking_and_tool_calls(self):
+        msg = ConversationMessage(
+            role="assistant",
+            content=[
+                ThinkingBlock(thinking="先确认路径"),
+                TextBlock(text="Let me read that file."),
+                ToolUseBlock(id="call_1", name="read_file", input={"path": "/tmp/x"}),
+            ],
+        )
+        result = _convert_messages_to_openai([msg], None)
+        assert result[0]["role"] == "assistant"
+        assert result[0]["reasoning_content"] == "先确认路径"
+        assert len(result[0]["tool_calls"]) == 1
+
+    def test_assistant_with_inline_think_tags(self):
+        msg = ConversationMessage(
+            role="assistant",
+            content=[
+                TextBlock(text="<think>先确认路径</think>Answer"),
+                ToolUseBlock(id="call_1", name="read_file", input={"path": "/tmp/x"}),
+            ],
+        )
+        result = _convert_messages_to_openai([msg], None)
+        assert result[0]["content"] == "Answer"
+        assert result[0]["reasoning_content"] == "先确认路径"
 
     def test_tool_result_messages(self):
         # User message containing tool results

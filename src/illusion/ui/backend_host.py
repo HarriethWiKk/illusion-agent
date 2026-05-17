@@ -345,14 +345,18 @@ class ReactBackendHost:
                 return
             # 助手回合完成
             if isinstance(event, AssistantTurnComplete):
-                reasoning = getattr(event.message, "_reasoning", None)
+                reasoning = event.message.thinking_text
                 cleaned = _strip_tool_previews(event.message.text.strip(), event.message.tool_uses)
                 await self._emit(
                     BackendEvent(
                         type="assistant_complete",
                         message=cleaned,
                         reasoning=reasoning if reasoning else None,
-                        item=TranscriptItem(role="assistant", text=cleaned),
+                        item=TranscriptItem(
+                            role="assistant",
+                            text=cleaned,
+                            reasoning=reasoning if reasoning else None,
+                        ),
                     )
                 )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))

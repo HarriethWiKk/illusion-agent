@@ -79,11 +79,9 @@ function AgentIndicator({count}: {count: number}): React.JSX.Element {
 export function StatusBar({
 	status,
 	tasks,
-	showThinking = true,
 }: {
 	status: Record<string, unknown>;
 	tasks: TaskSnapshot[];
-	showThinking?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
 	const model = String(status.model ?? 'unknown');

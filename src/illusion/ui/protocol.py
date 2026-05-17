@@ -86,6 +86,7 @@ class TranscriptItem(BaseModel):
         tool_name: 工具名称
         tool_input: 工具输入参数
         is_error: 是否为错误
+        reasoning: 思考文本（可选）
     """
 
     role: Literal["system", "user", "assistant", "tool", "tool_result", "log"]
@@ -93,6 +94,7 @@ class TranscriptItem(BaseModel):
     tool_name: str | None = None
     tool_input: dict[str, Any] | None = None
     is_error: bool | None = None
+    reasoning: str | None = None
 
 
 class TaskSnapshot(BaseModel):
@@ -160,6 +162,7 @@ class BackendEvent(BaseModel):
         plan_mode: 计划模式
         swarm_teammates: Swarm 队友列表
         swarm_notifications: Swarm 通知列表
+        reasoning: 思考增量或最终思考文本
         command_result_data: 指令结果数据
     """
 
@@ -207,6 +210,7 @@ class BackendEvent(BaseModel):
     plan_mode: str | None = None
     swarm_teammates: list[dict[str, Any]] | None = None
     swarm_notifications: list[dict[str, Any]] | None = None
+    reasoning: str | None = None
     command_result_data: dict[str, Any] | None = None
     items: list[TranscriptItem] | None = None
 
@@ -336,6 +340,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "mcp_failed": state.mcp_failed,
         "bridge_sessions": state.bridge_sessions,
         "output_style": state.output_style,
+        "show_thinking": state.show_thinking,
         "phase": state.phase,
         "session_id": state.session_id,
         "agent_count": len(list_active_agents()),

@@ -79,6 +79,18 @@ class RetryThenSuccessApiClient:
         )
 
 
+class ReasoningDeltaApiClient:
+    async def stream_message(self, request):
+        del request
+        yield ApiTextDeltaEvent(text="", reasoning="先分析问题。")
+        yield ApiTextDeltaEvent(text="最终答案")
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(role="assistant", content=[TextBlock(text="最终答案")]),
+            usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+            stop_reason=None,
+        )
+
+
 @pytest.mark.asyncio
 async def test_query_engine_plain_text_reply(tmp_path: Path):
     engine = QueryEngine(
@@ -108,6 +120,22 @@ async def test_query_engine_plain_text_reply(tmp_path: Path):
     assert engine.total_usage.input_tokens == 10
     assert engine.total_usage.output_tokens == 5
     assert len(engine.messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_query_engine_emits_reasoning_delta(tmp_path: Path):
+    engine = QueryEngine(
+        api_client=ReasoningDeltaApiClient(),
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+    events = [event async for event in engine.submit_message("hello")]
+    reasoning_deltas = [event for event in events if isinstance(event, AssistantTextDelta) and event.reasoning]
+    assert reasoning_deltas
+    assert reasoning_deltas[0].reasoning == "先分析问题。"
 
 
 @pytest.mark.asyncio

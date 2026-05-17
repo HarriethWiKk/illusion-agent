@@ -40,6 +40,7 @@ class AppState:
         mcp_failed: 失败的MCP服务器数量
         bridge_sessions: 活跃的桥接会话数量
         output_style: 输出样式名称
+        show_thinking: 是否显示思考过程
         phase: 会话阶段 (idle/thinking/tool_executing)
         team_context: 当前会话的团队上下文（若已创建团队）
     """
@@ -58,6 +59,7 @@ class AppState:
     mcp_failed: int = 0  # 失败的MCP服务器数量
     bridge_sessions: int = 0  # 活跃的桥接会话数量
     output_style: str = "default"  # 输出样式名称
+    show_thinking: bool = True  # 是否显示思考过程
     phase: str = "idle"  # 会话阶段: idle / thinking / tool_executing
     session_id: str = ""  # 当前会话 ID
     team_context: dict[str, object] | None = None  # 团队上下文

@@ -37,9 +37,17 @@ from illusion.api.client import (
     ApiStreamEvent,
     ApiTextDeltaEvent,
 )
+from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
 from illusion.api.errors import AuthenticationFailure, IllusionCodeApiError, RateLimitFailure, RequestFailure
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, TextBlock, ToolResultBlock, ToolUseBlock
+from illusion.engine.messages import (
+    ContentBlock,
+    ConversationMessage,
+    ThinkingBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
 # 常量定义
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api"  # 默认 Codex 基础 URL
@@ -146,6 +154,7 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
             continue
 
         assistant_text = "".join(block.text for block in msg.content if isinstance(block, TextBlock))
+        assistant_text, _ = split_thinking_from_text(assistant_text)
         if assistant_text:
             result.append({
                 "type": "message",
@@ -331,8 +340,9 @@ class CodexApiClient:
         if request.tools:
             body["tools"] = _convert_tools_to_codex(request.tools)
 
-        content: list[TextBlock | ToolUseBlock] = []
+        content: list[ContentBlock] = []
         current_text_parts: list[str] = []
+        collected_reasoning = ""
         completed_response: dict[str, Any] | None = None
 
         headers = _build_codex_headers(self._auth_token)
@@ -350,6 +360,15 @@ class CodexApiClient:
                         if isinstance(delta, str) and delta:
                             current_text_parts.append(delta)
                             yield ApiTextDeltaEvent(text=delta)
+                    elif event_type in {
+                        "response.reasoning_summary_text.delta",
+                        "response.reasoning_text.delta",
+                        "response.output_text.reasoning.delta",
+                    }:
+                        delta = event.get("delta")
+                        if isinstance(delta, str) and delta:
+                            collected_reasoning = merge_reasoning_text(collected_reasoning, delta)
+                            yield ApiTextDeltaEvent(text="", reasoning=delta)
                     elif event_type == "response.output_item.done":
                         item = event.get("item")
                         if not isinstance(item, dict):
@@ -368,18 +387,17 @@ class CodexApiClient:
                                             parts.append(str(block.get("refusal", "")))
                                 text = "".join(parts)
                             if text:
-                                content.append(TextBlock(text=text))
+                                plain_text, tagged_reasoning = split_thinking_from_text(text)
+                                if plain_text:
+                                    content.append(TextBlock(text=plain_text))
+                                if tagged_reasoning:
+                                    collected_reasoning = merge_reasoning_text(
+                                        collected_reasoning,
+                                        tagged_reasoning,
+                                    )
                         elif item_type == "function_call":
                             arguments = item.get("arguments")
-                            parsed_arguments: dict[str, Any]
-                            if isinstance(arguments, str) and arguments:
-                                try:
-                                    loaded = json.loads(arguments)
-                                except json.JSONDecodeError:
-                                    loaded = {}
-                            else:
-                                loaded = {}
-                            parsed_arguments = loaded if isinstance(loaded, dict) else {}
+                            parsed_arguments = parse_tool_arguments(arguments)
                             call_id = item.get("call_id")
                             name = item.get("name")
                             if isinstance(call_id, str) and call_id and isinstance(name, str) and name:
@@ -401,7 +419,14 @@ class CodexApiClient:
                         raise RequestFailure(message)
 
         if current_text_parts and not any(isinstance(block, TextBlock) for block in content):
-            content.insert(0, TextBlock(text="".join(current_text_parts)))
+            plain_text, tagged_reasoning = split_thinking_from_text("".join(current_text_parts))
+            if plain_text:
+                content.insert(0, TextBlock(text=plain_text))
+            if tagged_reasoning:
+                collected_reasoning = merge_reasoning_text(collected_reasoning, tagged_reasoning)
+
+        if collected_reasoning:
+            content.insert(0, ThinkingBlock(thinking=collected_reasoning))
 
         final_message = ConversationMessage(role="assistant", content=content)
         usage = _usage_from_response(completed_response or {})

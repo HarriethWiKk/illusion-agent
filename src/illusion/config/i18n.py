@@ -168,6 +168,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "reload-plugins": "重新加载当前工作区插件发现结果",
     "permissions": "显示或更新权限模式",
     "plan": "切换计划权限模式",
+    "thinking": "显示或更新思考模式",
     "fast": "显示或更新快速模式",
     "effort": "显示或更新推理强度",
     "passes": "显示或更新推理轮数",
@@ -266,6 +267,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /rewind [TURNS]": "用法：/rewind [轮数]",
     "Usage: /config [show|set KEY VALUE]": "用法：/config [show|set 键 值]",
     "Usage: /fast [show|on|off|toggle]": "用法：/fast [show|on|off|toggle]",
+    "Usage: /thinking [show|on|off|toggle]": "用法：/thinking [show|on|off|toggle]",
     "Usage: /effort [show|low|medium|high]": "用法：/effort [show|low|medium|high]",
     "Usage: /passes [show|COUNT]": "用法：/passes [数量]",
     "Usage: /turns [show|COUNT]": "用法：/turns [数量]",
@@ -321,6 +323,10 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Fast mode: (on|off)$", r"快速模式：\1"),
     (r"^Fast mode (enabled|disabled)\.$",
      lambda m: f"快速模式{'已开启' if m.group(1) == 'enabled' else '已关闭'}。"),
+    # 思考模式
+    (r"^Thinking mode: (on|off)$", r"思考模式：\1"),
+    (r"^Thinking mode (enabled|disabled)\.$",
+     lambda m: f"思考模式{'已开启' if m.group(1) == 'enabled' else '已关闭'}。"),
     # 推理强度
     (r"^Reasoning effort: (.+)$", r"推理强度：\1"),
     (r"^Reasoning effort set to (.+)\.$", r"推理强度已设置为 \1。"),

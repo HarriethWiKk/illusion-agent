@@ -303,6 +303,12 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     assert load_settings().fast_mode is True
     assert context.app_state.get().fast_mode is True
 
+    thinking_command, thinking_args = registry.lookup("/thinking off")
+    thinking_result = await thinking_command.handler(thinking_args, context)
+    assert "disabled" in thinking_result.message
+    assert load_settings().show_thinking is False
+    assert context.app_state.get().show_thinking is False
+
     effort_command, effort_args = registry.lookup("/effort high")
     effort_result = await effort_command.handler(effort_args, context)
     assert "high" in effort_result.message
@@ -333,6 +339,25 @@ async def test_fast_command_without_args_toggles_state(tmp_path: Path, monkeypat
     assert "disabled" in second.message
     assert load_settings().fast_mode is False
     assert context.app_state.get().fast_mode is False
+
+
+@pytest.mark.asyncio
+async def test_thinking_command_without_args_toggles_state(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    thinking_command, thinking_args = registry.lookup("/thinking")
+    first = await thinking_command.handler(thinking_args, context)
+    assert "disabled" in first.message
+    assert load_settings().show_thinking is False
+    assert context.app_state.get().show_thinking is False
+
+    thinking_command, thinking_args = registry.lookup("/thinking")
+    second = await thinking_command.handler(thinking_args, context)
+    assert "enabled" in second.message
+    assert load_settings().show_thinking is True
+    assert context.app_state.get().show_thinking is True
 
 
 @pytest.mark.asyncio

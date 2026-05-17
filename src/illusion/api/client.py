@@ -91,9 +91,11 @@ class ApiTextDeltaEvent:
     
     Attributes:
         text: 增量文本内容
+        reasoning: 增量思考内容（可选）
     """
 
     text: str
+    reasoning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -358,15 +360,20 @@ class AnthropicApiClient:
             stream_api = self._client.beta.messages if self._claude_oauth else self._client.messages
             async with stream_api.stream(**params) as stream:
                 async for event in stream:
-                    # 只处理文本增量事件
+                    # 处理文本/思考增量事件
                     if getattr(event, "type", None) != "content_block_delta":
                         continue
                     delta = getattr(event, "delta", None)
-                    if getattr(delta, "type", None) != "text_delta":
+                    delta_type = getattr(delta, "type", None)
+                    if delta_type == "text_delta":
+                        text = getattr(delta, "text", "")
+                        if text:
+                            yield ApiTextDeltaEvent(text=text)
                         continue
-                    text = getattr(delta, "text", "")
-                    if text:
-                        yield ApiTextDeltaEvent(text=text)
+                    if delta_type == "thinking_delta":
+                        thinking = getattr(delta, "thinking", "") or getattr(delta, "text", "")
+                        if thinking:
+                            yield ApiTextDeltaEvent(text="", reasoning=thinking)
 
                 # 获取最终消息
                 final_message = await stream.get_final_message()

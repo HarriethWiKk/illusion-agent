@@ -167,7 +167,10 @@ async def run_query(
             ):
                 if isinstance(event, ApiTextDeltaEvent):
                     # 输出助手文本增量事件
-                    yield AssistantTextDelta(text=event.text), None
+                    yield AssistantTextDelta(
+                        text=event.text,
+                        reasoning=event.reasoning,
+                    ), None
                     continue
                 if isinstance(event, ApiRetryEvent):
                     # 输出状态事件：重试信息

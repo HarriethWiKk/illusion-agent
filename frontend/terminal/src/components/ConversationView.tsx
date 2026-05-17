@@ -281,10 +281,10 @@ function MessageRow({
 				if (isFirst) {
 					return (
 						<Box marginTop={1}>
-							<Text>
-								<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
-								<Text>{' '}{item.text}</Text>
-							</Text>
+							<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
+							<Box marginLeft={1} flexGrow={1}>
+								<Text>{item.text}</Text>
+							</Box>
 						</Box>
 					);
 				}
@@ -349,14 +349,16 @@ function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Eleme
 
 	return (
 		<Box marginTop={1} flexDirection="column">
-			<Text>
+			<Box>
 				<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
-				{headingMatch ? (
-					<Text bold color={theme.colors.highlight}>{' '}{headingMatch[1]}</Text>
-				) : (
-					<Text>{' '}{renderInlineMarkdown(firstLine, theme, 'fl')}</Text>
-				)}
-			</Text>
+				<Box marginLeft={1} flexGrow={1}>
+					{headingMatch ? (
+						<Text bold color={theme.colors.highlight}>{headingMatch[1]}</Text>
+					) : (
+						<Text>{renderInlineMarkdown(firstLine, theme, 'fl')}</Text>
+					)}
+				</Box>
+			</Box>
 			{restText ? (
 				<Box marginLeft={2} flexDirection="column">
 					<MarkdownContent text={restText} />
@@ -395,10 +397,12 @@ function renderStreamingTail(
 				return (
 					<Box key={i} marginLeft={isFirst ? 0 : 2}>
 						{isFirst ? (
-							<Text>
+							<>
 								<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
-								<Text>{' '}{line}</Text>
-							</Text>
+								<Box marginLeft={1} flexGrow={1}>
+									<Text>{line}</Text>
+								</Box>
+							</>
 						) : (
 							<Text>{line}</Text>
 						)}

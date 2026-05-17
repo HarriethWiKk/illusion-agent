@@ -131,6 +131,15 @@ class ConversationMessage(BaseModel):
         """
         return [block for block in self.content if isinstance(block, ToolUseBlock)]
 
+    @property
+    def thinking_text(self) -> str:
+        """返回连接后的思考文本块。"""
+        return "\n\n".join(
+            block.thinking.strip()
+            for block in self.content
+            if isinstance(block, ThinkingBlock) and block.thinking.strip()
+        )
+
     def to_api_param(self) -> dict[str, Any]:
         """将消息转换为 Anthropic SDK 消息参数
         

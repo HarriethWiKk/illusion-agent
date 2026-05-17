@@ -92,6 +92,11 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				.replace(/<\/think\b[^>]*>/gi, '')
 				.replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
 		}
+		if (showThinking && reasoningBufferRef.current.trim()) {
+			const reasoning = reasoningBufferRef.current.trim();
+			const text = displayText.trim();
+			displayText = text ? `${reasoning}\n\n${text}` : reasoning;
+		}
 		assistantBufferRef.current = displayText;
 		setAssistantBuffer(displayText);
 	};
@@ -182,6 +187,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if (event.type === 'ready') {
 			setReady(true);
 			setStatus(event.state ?? {});
+			const showThinkingFromState = event.state?.show_thinking;
+			if (typeof showThinkingFromState === 'boolean') {
+				setShowThinking(showThinkingFromState);
+			}
 			setTasks(event.tasks ?? []);
 			setCommands(event.commands ?? []);
 			setMcpServers(event.mcp_servers ?? []);
@@ -195,6 +204,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'state_snapshot') {
 			setStatus(event.state ?? {});
+			const showThinkingFromState = event.state?.show_thinking;
+			if (typeof showThinkingFromState === 'boolean') {
+				setShowThinking(showThinkingFromState);
+			}
 			setMcpServers(event.mcp_servers ?? []);
 			setBridgeSessions(event.bridge_sessions ?? []);
 			return;
@@ -209,9 +222,16 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'assistant_delta') {
 			assistantFlushedForToolRef.current = false;
-			if (event.reasoning) { reasoningBufferRef.current += event.reasoning; }
+			if (event.reasoning) {
+				reasoningBufferRef.current += event.reasoning;
+			}
 			const delta = event.message ?? '';
 			if (!delta) {
+				if (showThinking && reasoningBufferRef.current.trim()) {
+					const display = reasoningBufferRef.current.trim();
+					assistantBufferRef.current = display;
+					setAssistantBuffer(display);
+				}
 				return;
 			}
 			pendingAssistantDeltaRef.current += delta;
@@ -238,7 +258,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			if (!assistantFlushedForToolRef.current) {
 				const text = event.message ?? rawBufferRef.current;
 				const reasoning = (event.reasoning ?? reasoningBufferRef.current) || undefined;
-				if (text.trim()) {
+				if (text.trim() || (reasoning ?? '').trim()) {
 					pushStatic({role: 'assistant', text: stripToolCallLines(text), reasoning});
 				}
 			}
@@ -257,18 +277,19 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if ((event.type === 'tool_started' || event.type === 'tool_completed') && event.item) {
 			if (event.type === 'tool_started') {
 				// Commit any pending assistant text to static before the tool call appears
-				if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current) {
+				if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current || reasoningBufferRef.current.trim()) {
 					if (assistantFlushTimerRef.current) {
 						clearTimeout(assistantFlushTimerRef.current);
 						assistantFlushTimerRef.current = null;
 					}
 					flushAssistantDelta();
 					const text = rawBufferRef.current;
-					if (text.trim()) {
+					const reasoning = reasoningBufferRef.current || undefined;
+					if (text.trim() || (reasoning ?? '').trim()) {
 						pushStatic({
 							role: 'assistant',
 							text: stripToolCallLines(text),
-							reasoning: reasoningBufferRef.current || undefined,
+							reasoning,
 						});
 					}
 					clearAssistantDelta();
@@ -378,7 +399,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setModal,
 			setSelectRequest,
 			setBusy,
-			setShowThinking,
 			sendRequest,
 			clearStaticItems,
 			pushStatic,

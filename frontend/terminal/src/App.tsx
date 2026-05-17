@@ -279,11 +279,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 			return;
 		}
-		// Ctrl+T → 切换思考过程显示
-		if (key.ctrl && chunk.toLowerCase() === 't') {
-			session.setShowThinking((prev: boolean) => !prev);
-			return;
-		}
 		// Ctrl+O → 将完整结果内容显示在对话中（不发送到 AI）
 		if (key.ctrl && chunk.toLowerCase() === 'o' && session.commandResult) {
 			session.pushStatic({role: 'system', text: session.commandResult.text});
@@ -548,7 +543,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* Status bar (only after backend is ready) */}
 			{session.ready ? (
-				<StatusBar status={session.status} tasks={session.tasks} showThinking={session.showThinking} />
+				<StatusBar status={session.status} tasks={session.tasks} />
 			) : null}
 
 			{/* Input — show loading indicator until backend is ready */}

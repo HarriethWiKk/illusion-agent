@@ -9,7 +9,7 @@ import pytest
 
 from illusion.api.client import ApiMessageCompleteEvent
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, TextBlock
+from illusion.engine.messages import ConversationMessage, ThinkingBlock, TextBlock
 from illusion.ui.backend_host import BackendHostConfig, ReactBackendHost
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import BackendEvent
@@ -26,6 +26,22 @@ class StaticApiClient:
         del request
         yield ApiMessageCompleteEvent(
             message=ConversationMessage(role="assistant", content=[TextBlock(text=self._text)]),
+            usage=UsageSnapshot(input_tokens=2, output_tokens=3),
+            stop_reason=None,
+        )
+
+
+class StaticThinkingApiClient:
+    async def stream_message(self, request):
+        del request
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(
+                role="assistant",
+                content=[
+                    ThinkingBlock(thinking="先检查上下文"),
+                    TextBlock(text="最终答案"),
+                ],
+            ),
             usage=UsageSnapshot(input_tokens=2, output_tokens=3),
             stop_reason=None,
         )
@@ -105,6 +121,34 @@ async def test_backend_host_processes_model_turn(tmp_path, monkeypatch):
         and "hello from react backend" in event.item.text
         for event in events
     )
+
+
+@pytest.mark.asyncio
+async def test_backend_host_emits_assistant_reasoning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticThinkingApiClient()))
+    host._bundle = await build_runtime(api_client=StaticThinkingApiClient())
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        should_continue = await host._process_line("hi")
+    finally:
+        await close_runtime(host._bundle)
+
+    assert should_continue is True
+    complete_events = [event for event in events if event.type == "assistant_complete"]
+    assert complete_events
+    assert complete_events[0].reasoning == "先检查上下文"
+    assert complete_events[0].item is not None
+    assert complete_events[0].item.reasoning == "先检查上下文"
 
 
 @pytest.mark.asyncio

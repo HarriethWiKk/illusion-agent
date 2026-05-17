@@ -210,6 +210,7 @@ class Settings(BaseModel):
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
     ui_language: str = "zh-CN"
     output_style: str = "default"
+    show_thinking: bool = True
     fast_mode: bool = False
     effort: str = "medium"
     passes: int = 1

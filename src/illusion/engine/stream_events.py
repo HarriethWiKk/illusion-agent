@@ -48,9 +48,11 @@ class AssistantTextDelta:
 
     Attributes:
         text: 新增的文本内容
+        reasoning: 新增的思考内容（可选）
     """
 
     text: str
+    reasoning: str | None = None
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ import pytest
 
 from illusion.api.client import ApiMessageRequest, ApiMessageCompleteEvent, ApiTextDeltaEvent
 from illusion.api.codex_client import CodexApiClient, _convert_messages_to_codex, _resolve_codex_url
-from illusion.engine.messages import ConversationMessage, TextBlock, ToolResultBlock, ToolUseBlock
+from illusion.engine.messages import ConversationMessage, ThinkingBlock, TextBlock, ToolResultBlock, ToolUseBlock
 
 
 class _FakeStreamResponse:
@@ -179,3 +179,42 @@ async def test_codex_client_emits_tool_use(monkeypatch):
     assert tool_use.name == "glob"
     assert tool_use.input == {"pattern": "src/**/*.py"}
     assert sink["json"]["tools"][0]["name"] == "glob"
+
+
+@pytest.mark.asyncio
+async def test_codex_client_collects_reasoning_delta(monkeypatch):
+    sink: dict[str, Any] = {}
+    response = _FakeStreamResponse(
+        lines=[
+            'data: {"type":"response.reasoning_summary_text.delta","delta":"先分析。"}',
+            "",
+            'data: {"type":"response.output_text.delta","delta":"答案"}',
+            "",
+            'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":2,"output_tokens":1}}}',
+            "",
+        ]
+    )
+    monkeypatch.setattr(
+        "illusion.api.codex_client.httpx.AsyncClient",
+        lambda *args, **kwargs: _FakeAsyncClient(response, sink),
+    )
+
+    client = CodexApiClient(_fake_codex_token())
+    request = ApiMessageRequest(
+        model="gpt-5.4",
+        messages=[ConversationMessage.from_user_text("hi")],
+        system_prompt="Be helpful.",
+    )
+    events = [event async for event in client.stream_message(request)]
+
+    reasoning_deltas = [
+        event.reasoning
+        for event in events
+        if isinstance(event, ApiTextDeltaEvent) and event.reasoning
+    ]
+    assert reasoning_deltas == ["先分析。"]
+    complete = next(event for event in events if isinstance(event, ApiMessageCompleteEvent))
+    assert complete.message.text == "答案"
+    thinking_blocks = [block for block in complete.message.content if isinstance(block, ThinkingBlock)]
+    assert len(thinking_blocks) == 1
+    assert thinking_blocks[0].thinking == "先分析。"

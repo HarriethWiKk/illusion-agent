@@ -36,6 +36,11 @@ from illusion.api.client import (
     ApiStreamEvent,
     ApiTextDeltaEvent,
 )
+from illusion.api.compat import (
+    merge_reasoning_text,
+    parse_tool_arguments,
+    split_thinking_from_text,
+)
 from illusion.api.errors import (
     AuthenticationFailure,
     IllusionCodeApiError,
@@ -145,12 +150,7 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     """将 assistant ConversationMessage 转换为 OpenAI 格式
 
     支持思维模型（如 Kimi k2.5）的 providers 要求每个包含 tool calls 的 assistant
-    消息都有 ``reasoning_content`` 字段。在解析和回放期间，我们将原始推理文本存储在
-    ``msg._reasoning`` 中。
-
-    Anthropic extended thinking 的 ``thinking`` 内容块也会被提取并转换为
-    ``reasoning_content``，确保 DeepSeek 等 provider 的 thinking mode 下
-    thinking 内容能正确回传。
+    消息都有 ``reasoning_content`` 字段。这里统一从 ThinkingBlock 回放 reasoning。
 
     Args:
         msg: ConversationMessage 对象
@@ -164,18 +164,16 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
 
     openai_msg: dict[str, Any] = {"role": "assistant"}
 
-    content = "".join(text_parts)
+    content, tagged_reasoning = split_thinking_from_text("".join(text_parts))
     openai_msg["content"] = content if content else None
 
-    # 为思维模型回放 reasoning_content
-    # 优先级：流式收集的 _reasoning > ThinkingBlock 内容
-    reasoning = getattr(msg, "_reasoning", None)
+    # 为思维模型回放 reasoning_content（统一来源：ThinkingBlock）
+    reasoning = merge_reasoning_text(
+        *(b.thinking for b in thinking_blocks),
+        tagged_reasoning,
+    )
     if reasoning:
         openai_msg["reasoning_content"] = reasoning
-    elif thinking_blocks:
-        openai_msg["reasoning_content"] = "\n".join(
-            b.thinking for b in thinking_blocks
-        )
     elif tool_uses:
         # 思维模型即使为空也需要此字段
         openai_msg["reasoning_content"] = ""
@@ -210,14 +208,25 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
     content: list[ContentBlock] = []
 
     if message.content:
-        content.append(TextBlock(text=message.content))
+        plain_text, tagged_reasoning = split_thinking_from_text(str(message.content))
+        if tagged_reasoning:
+            content.append(ThinkingBlock(thinking=tagged_reasoning))
+        if plain_text:
+            content.append(TextBlock(text=plain_text))
+
+    reasoning_content = getattr(message, "reasoning_content", None)
+    if isinstance(reasoning_content, str) and reasoning_content.strip():
+        merged = merge_reasoning_text(
+            *(b.thinking for b in content if isinstance(b, ThinkingBlock)),
+            reasoning_content,
+        )
+        content = [b for b in content if not isinstance(b, ThinkingBlock)]
+        if merged:
+            content.insert(0, ThinkingBlock(thinking=merged))
 
     if message.tool_calls:
         for tc in message.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments)
-            except (json.JSONDecodeError, TypeError):
-                args = {}
+            args = parse_tool_arguments(getattr(tc.function, "arguments", ""))
             content.append(ToolUseBlock(
                 id=tc.id,
                 name=tc.function.name,
@@ -342,6 +351,7 @@ class OpenAICompatibleClient:
             reasoning_piece = getattr(delta, "reasoning_content", None) or ""
             if reasoning_piece:
                 collected_reasoning += reasoning_piece
+                yield ApiTextDeltaEvent(text="", reasoning=reasoning_piece)
 
             # 向用户流式传输文本内容
             if delta.content:
@@ -376,30 +386,30 @@ class OpenAICompatibleClient:
 
         # 构建最终 ConversationMessage
         content: list[ContentBlock] = []
-        if collected_content:
-            content.append(TextBlock(text=collected_content))
+        cleaned_text, tagged_reasoning = split_thinking_from_text(collected_content)
+        if cleaned_text:
+            content.append(TextBlock(text=cleaned_text))
 
         for _idx in sorted(collected_tool_calls.keys()):
             tc = collected_tool_calls[_idx]
             # 跳过某些 provider 发送的空/幻影工具调用
             if not tc["name"]:
                 continue
-            try:
-                args = json.loads(tc["arguments"])
-            except (json.JSONDecodeError, TypeError):
-                args = {}
+            args = parse_tool_arguments(tc["arguments"])
             content.append(ToolUseBlock(
                 id=tc["id"],
                 name=tc["name"],
                 input=args,
             ))
 
-        final_message = ConversationMessage(role="assistant", content=content)
+        merged_reasoning = merge_reasoning_text(collected_reasoning, tagged_reasoning)
+        if merged_reasoning:
+            content.insert(0, ThinkingBlock(thinking=merged_reasoning))
 
-        # 为思维模型存储 reasoning，以便 _convert_assistant_message 
-        # 在消息发送回 API 时可以回放
-        if collected_reasoning:
-            final_message._reasoning = collected_reasoning  # type: ignore[attr-defined]
+        final_message = ConversationMessage(
+            role="assistant",
+            content=content,
+        )
 
         yield ApiMessageCompleteEvent(
             message=final_message,
@@ -514,6 +524,7 @@ class OpenAICompatibleClient:
             params["tools"] = resp_tools
 
         collected_content = ""
+        collected_reasoning = ""
         collected_tool_calls: dict[int, dict[str, Any]] = {}
         usage_data: dict[str, int] = {}
 
@@ -522,8 +533,21 @@ class OpenAICompatibleClient:
                 if isinstance(event, ResponseTextDeltaEvent):
                     collected_content += event.delta
                     yield ApiTextDeltaEvent(text=event.delta)
+                    continue
 
-                elif isinstance(event, ResponseOutputItemAddedEvent):
+                event_type = str(getattr(event, "type", "") or "")
+                if event_type in {
+                    "response.reasoning_summary_text.delta",
+                    "response.reasoning_text.delta",
+                    "response.output_text.reasoning.delta",
+                }:
+                    delta = getattr(event, "delta", "")
+                    if isinstance(delta, str) and delta:
+                        collected_reasoning += delta
+                        yield ApiTextDeltaEvent(text="", reasoning=delta)
+                    continue
+
+                if isinstance(event, ResponseOutputItemAddedEvent):
                     item = event.item
                     if getattr(item, "type", None) == "function_call":
                         idx = event.output_index
@@ -553,22 +577,24 @@ class OpenAICompatibleClient:
 
         # 构建最终消息
         content: list[ContentBlock] = []
-        if collected_content:
-            content.append(TextBlock(text=collected_content))
+        cleaned_text, tagged_reasoning = split_thinking_from_text(collected_content)
+        if cleaned_text:
+            content.append(TextBlock(text=cleaned_text))
 
         for _idx in sorted(collected_tool_calls.keys()):
             tc = collected_tool_calls[_idx]
             if not tc["name"]:
                 continue
-            try:
-                args = json.loads(tc["arguments"])
-            except (json.JSONDecodeError, TypeError):
-                args = {}
+            args = parse_tool_arguments(tc["arguments"])
             content.append(ToolUseBlock(
                 id=tc["id"],
                 name=tc["name"],
                 input=args,
             ))
+
+        merged_reasoning = merge_reasoning_text(collected_reasoning, tagged_reasoning)
+        if merged_reasoning:
+            content.insert(0, ThinkingBlock(thinking=merged_reasoning))
 
         final_message = ConversationMessage(role="assistant", content=content)
         yield ApiMessageCompleteEvent(

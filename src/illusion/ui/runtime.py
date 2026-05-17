@@ -269,6 +269,7 @@ async def build_runtime(
             mcp_failed=sum(1 for status in mcp_manager.list_statuses() if status.state == "failed"),
             bridge_sessions=len(bridge_manager.list_sessions()),
             output_style=settings.output_style,
+            show_thinking=settings.show_thinking,
             phase="idle",
             session_id=session_id,
         )
@@ -475,6 +476,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         mcp_failed=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "failed"),
         bridge_sessions=len(get_bridge_manager().list_sessions()),
         output_style=settings.output_style,
+        show_thinking=settings.show_thinking,
         phase=bundle.app_state.get().phase,
         session_id=bundle.session_id,
     )
