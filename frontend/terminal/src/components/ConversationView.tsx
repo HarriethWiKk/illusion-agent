@@ -166,11 +166,13 @@ function ToolGroupRow({
 	return (
 		<Box flexDirection="column" marginTop={needsGap ? 1 : 0}>
 			<Box>
-				<Text color={theme.colors.info}>{theme.icons.tool} </Text>
-				<Text bold>{toolName}</Text>
-				{summary ? (
-					<Text dimColor>{' ('}{summary}{')'}</Text>
-				) : null}
+				<Text>
+					<Text color={theme.colors.info}>{theme.icons.tool} </Text>
+					<Text bold>{toolName}</Text>
+					{summary ? (
+						<Text dimColor>{' ('}{summary}{')'}</Text>
+					) : null}
+				</Text>
 			</Box>
 		</Box>
 	);
