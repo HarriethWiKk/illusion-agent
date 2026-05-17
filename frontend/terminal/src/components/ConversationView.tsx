@@ -109,17 +109,17 @@ type DisplayEntry = {
 function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 	const result: GroupEntry[] = [];
 	const usedResults = new Set<number>();
+	const resultToTool = new Map<number, number>();
 	let i = 0;
 	while (i < items.length) {
 		const item = items[i];
 		if (item.role === 'tool') {
 			let resultItem: TranscriptItem | null = null;
-			// Look ahead for the matching tool_result (handles concurrent tool calls
-			// where all tool_started events arrive before any tool_completed events)
 			for (let j = i + 1; j < items.length; j++) {
 				if (items[j].role === 'tool_result' && items[j].tool_name === item.tool_name && !usedResults.has(j)) {
 					resultItem = items[j];
 					usedResults.add(j);
+					resultToTool.set(j, i);
 					break;
 				}
 			}
@@ -127,8 +127,18 @@ function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 			i += 1;
 			continue;
 		}
-		// Skip orphaned tool_result items that were already paired
 		if (item.role === 'tool_result' && usedResults.has(i)) {
+			const toolIdx = resultToTool.get(i)!;
+			let hasConcurrentTool = false;
+			for (let k = toolIdx + 1; k < i; k++) {
+				if (items[k].role === 'tool') {
+					hasConcurrentTool = true;
+					break;
+				}
+			}
+			if (!hasConcurrentTool) {
+				result.push({type: 'single', item, role: 'tool_result'});
+			}
 			i += 1;
 			continue;
 		}
@@ -162,7 +172,6 @@ function ToolGroupRow({
 					<Text dimColor>{' ('}{summary}{')'}</Text>
 				) : null}
 			</Box>
-			{resultItem ? <ToolResultBlock item={resultItem} theme={theme} /> : null}
 		</Box>
 	);
 }
