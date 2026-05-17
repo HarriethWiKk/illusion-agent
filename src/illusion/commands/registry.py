@@ -947,6 +947,9 @@ def create_default_command_registry() -> CommandRegistry:
             context.app_state.set(show_thinking=enabled)
         return CommandResult(message=f"Thinking mode {'enabled' if enabled else 'disabled'}.")
 
+    async def _help_handler(args: str, context: CommandContext) -> CommandResult:
+        return CommandResult(message=registry.help_text())
+
     async def _effort_handler(args: str, context: CommandContext) -> CommandResult:
         settings = load_settings()
         current = context.app_state.get().effort if context.app_state is not None else settings.effort
@@ -1536,6 +1539,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("permissions", "Show or update permission mode", _permissions_handler))
     registry.register(SlashCommand("plan", "Toggle plan permission mode", _plan_handler))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", _thinking_handler))
+    registry.register(SlashCommand("help", "Show available commands and their usage", _help_handler))
     registry.register(SlashCommand("fast", "Show or update fast mode", _fast_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", _effort_handler))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", _passes_handler))

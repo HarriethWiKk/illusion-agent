@@ -93,6 +93,13 @@ export function extractThinkContent(raw: string): string {
 	return parts.filter(Boolean).join('\n');
 }
 
+export function mergeReasoning(a: string | undefined, b: string): string {
+	const parts: string[] = [];
+	if (a) appendUnique(parts, a);
+	if (b) appendUnique(parts, b);
+	return parts.join('\n').trim();
+}
+
 /**
  * 判断文本是否包含 `<think` 标签
  */
@@ -101,7 +108,7 @@ export function hasThinkTags(raw: string): boolean {
 	return /<think\b/i.test(raw);
 }
 
-function stripToolCallArtifacts(raw: string): string {
+export function stripToolCallArtifacts(raw: string): string {
 	if (!raw) return '';
 	return raw
 		.replace(DSML_TOOL_CALL_PREFIX, '')

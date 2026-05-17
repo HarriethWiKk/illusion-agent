@@ -27,6 +27,7 @@ const ZH: Dict = {
 	longTextHint: '多段需求或长文本建议写入文档后命 illusion code 读取',
 	clearInput: '清空输入',
 	taskStopped: '当前任务已停止。',
+	reasoning: '思考过程',
 };
 
 const EN: Dict = {
@@ -54,6 +55,7 @@ const EN: Dict = {
 	longTextHint: 'For complex or long text, write to doc and let illusion code read it',
 	clearInput: 'clear input',
 	taskStopped: 'Current task stopped.',
+	reasoning: 'Thinking',
 };
 
 const ALL: Record<UiLanguage, Dict> = {

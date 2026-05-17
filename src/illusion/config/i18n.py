@@ -137,6 +137,7 @@ MESSAGES: dict[str, dict[str, str]] = {
 
 # --- 命令描述翻译 ---
 COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
+    "help": "显示可用命令及用法说明",
     "exit": "退出 IllusionCode",
     "clear": "清空当前对话历史",
     "new": "开启新对话并重置任务 ID",

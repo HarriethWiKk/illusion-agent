@@ -2,17 +2,19 @@ import React, {useMemo} from 'react';
 import {Box, Static, Text} from 'ink';
 
 import type {UiLanguage} from '../i18n.js';
+import {t} from '../i18n.js';
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
-import {renderAssistantText} from '../utils/thinking.js';
+import {renderAssistantText, stripThinkTags, extractThinkContent, hasThinkTags, stripToolCallArtifacts, mergeReasoning} from '../utils/thinking.js';
 import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
 const MAX_RESULT_LINES = 2;
 const MAX_COMMAND_LINES = 2;
 const MAX_COMMAND_CHARS = 160;
-const STREAMING_TAIL_LINES = 15;
+const STREAMING_TAIL_LINES = 10;
+const STREAMING_LINE_MAX_CHARS = 100;
 
 export function ConversationView({
 	staticItems,
@@ -272,8 +274,21 @@ function MessageRow({
 		}
 
 		case 'assistant': {
-				const displayText = renderAssistantText(item.text, showThinking, item.reasoning);
-				return renderAssistantBlock(displayText, theme) ?? <Box />;
+				const sanitized = stripToolCallArtifacts(item.text);
+				const hasTags = hasThinkTags(sanitized);
+				let cleanText = sanitized;
+				let thinkFromTags = '';
+				if (hasTags) {
+					thinkFromTags = extractThinkContent(sanitized);
+					cleanText = stripThinkTags(sanitized);
+				}
+				const reasoning = showThinking ? mergeReasoning(item.reasoning, thinkFromTags) : '';
+				return (
+					<Box flexDirection="column">
+						{reasoning ? renderReasoningBlock(reasoning, theme, t(language, 'reasoning')) : null}
+						{renderAssistantBlock(cleanText, theme)}
+					</Box>
+				);
 			}
 
 		case 'assistant_streaming': {
@@ -368,6 +383,24 @@ function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Eleme
 	);
 }
 
+
+function renderReasoningBlock(text: string, theme: ThemeConfig, label: string): React.JSX.Element | null {
+	if (!text.trim()) return null;
+
+	const lines = text.split('\n');return (
+		<Box marginTop={1} flexDirection="column">
+			<Box>
+				<Text color={theme.colors.muted} italic>● [{label}]：</Text>
+			</Box>
+			{lines.map((line, idx) => (
+				<Box key={idx} marginLeft={2}>
+					<Text color={theme.colors.muted} italic>{line || ' '}</Text>
+				</Box>
+			))}
+		</Box>
+	);
+}
+
 function renderStreamingTail(
 	text: string,
 	grouped: GroupEntry[],
@@ -378,9 +411,9 @@ function renderStreamingTail(
 	const lines = allLines.filter(l => l.trim() !== '');
 	if (lines.length === 0) return <Box />;
 
-	const tailLines = lines.length > STREAMING_TAIL_LINES
-		? lines.slice(-STREAMING_TAIL_LINES)
-		: lines;
+	const hasOverflow = lines.length > STREAMING_TAIL_LINES;
+	const tailCount = hasOverflow ? STREAMING_TAIL_LINES - 1 : STREAMING_TAIL_LINES;
+	const tailLines = lines.slice(-tailCount);
 
 	const lastStaticRole = grouped.length > 0 ? grouped[grouped.length - 1].role : undefined;
 	const showIcon = lastStaticRole !== 'assistant' && lastStaticRole !== 'assistant_streaming';
@@ -394,17 +427,20 @@ function renderStreamingTail(
 			) : null}
 			{tailLines.map((line, i) => {
 				const isFirst = i === 0 && showIcon;
+				const truncated = line.length > STREAMING_LINE_MAX_CHARS
+					? line.slice(0, STREAMING_LINE_MAX_CHARS) + '\u2026'
+					: line;
 				return (
 					<Box key={i} marginLeft={isFirst ? 0 : 2}>
 						{isFirst ? (
 							<>
 								<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
 								<Box marginLeft={1} flexGrow={1}>
-									<Text>{line}</Text>
+									<Text>{truncated}</Text>
 								</Box>
 							</>
 						) : (
-							<Text>{line}</Text>
+							<Text>{truncated}</Text>
 						)}
 					</Box>
 				);
