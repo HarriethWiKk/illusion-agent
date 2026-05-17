@@ -9,6 +9,10 @@ import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {stringWidth, padAligned, wrapText} from '../utils/markdown.js';
 
 const INLINE_CODE_COLOR = '#b1b9f9';
+type MarkdownRenderStyle = {
+	color?: string;
+	italic?: boolean;
+};
 
 const NAMED_COLORS: Record<string, [number, number, number]> = {
 	black: [0, 0, 0], red: [205, 0, 0], green: [0, 205, 0], yellow: [205, 205, 0],
@@ -32,6 +36,7 @@ function renderInline(
 	tokens: Token[] | undefined,
 	theme: ThemeConfig,
 	prefix: string,
+	style?: MarkdownRenderStyle,
 ): ReactNode[] {
 	if (!tokens || tokens.length === 0) return [];
 	const result: ReactNode[] = [];
@@ -44,29 +49,29 @@ function renderInline(
 			case 'strong': {
 				const st = t as Tokens.Strong;
 				result.push(
-					<Text key={k} bold>{renderInline(st.tokens, theme, k)}</Text>,
+					<Text key={k} bold color={style?.color} italic={style?.italic}>{renderInline(st.tokens, theme, k, style)}</Text>,
 				);
 				break;
 			}
 			case 'em': {
 				const et = t as Tokens.Em;
 				result.push(
-					<Text key={k} italic>{renderInline(et.tokens, theme, k)}</Text>,
+					<Text key={k} italic color={style?.color}>{renderInline(et.tokens, theme, k, style)}</Text>,
 				);
 				break;
 			}
 			case 'codespan': {
 				const ct = t as Tokens.Codespan;
 				result.push(
-					<Text key={k} color={INLINE_CODE_COLOR}>{ct.text}</Text>,
+					<Text key={k} color={INLINE_CODE_COLOR} italic={style?.italic}>{ct.text}</Text>,
 				);
 				break;
 			}
 			case 'link': {
 				const lt = t as Tokens.Link;
 				result.push(
-					<Text key={k} color={theme.colors.info} underline>
-						{renderInline(lt.tokens, theme, k)}
+					<Text key={k} color={theme.colors.info} underline italic={style?.italic}>
+						{renderInline(lt.tokens, theme, k, style)}
 					</Text>,
 				);
 				break;
@@ -74,23 +79,23 @@ function renderInline(
 			case 'text': {
 				const tt = t as Tokens.Text;
 				if (tt.tokens && tt.tokens.length > 0) {
-					result.push(...renderInline(tt.tokens, theme, k));
+					result.push(...renderInline(tt.tokens, theme, k, style));
 				} else {
-					result.push(<Text key={k}>{tt.raw ?? tt.text}</Text>);
+					result.push(<Text key={k} color={style?.color} italic={style?.italic}>{tt.raw ?? tt.text}</Text>);
 				}
 				break;
 			}
 			case 'escape': {
-				result.push(<Text key={k}>{t.text}</Text>);
+				result.push(<Text key={k} color={style?.color} italic={style?.italic}>{t.text}</Text>);
 				break;
 			}
 			case 'br': {
-				result.push(<Text key={k}>{'\n'}</Text>);
+				result.push(<Text key={k} color={style?.color} italic={style?.italic}>{'\n'}</Text>);
 				break;
 			}
 			default: {
 				const raw = (t as {raw?: string}).raw ?? (t as {text?: string}).text ?? '';
-				result.push(<Text key={k}>{raw}</Text>);
+				result.push(<Text key={k} color={style?.color} italic={style?.italic}>{raw}</Text>);
 				break;
 			}
 		}
@@ -99,9 +104,9 @@ function renderInline(
 	return result;
 }
 
-function renderItemContent(item: Tokens.ListItem, theme: ThemeConfig, prefix: string): ReactNode {
+function renderItemContent(item: Tokens.ListItem, theme: ThemeConfig, prefix: string, style?: MarkdownRenderStyle): ReactNode {
 	if (!item.tokens || item.tokens.length === 0) {
-		return <Text>{item.text}</Text>;
+		return <Text color={style?.color} italic={style?.italic}>{item.text}</Text>;
 	}
 
 	const parts: ReactNode[] = [];
@@ -112,27 +117,27 @@ function renderItemContent(item: Tokens.ListItem, theme: ThemeConfig, prefix: st
 		if (t.type === 'text') {
 			const tt = t as Tokens.Text;
 			if (tt.tokens && tt.tokens.length > 0) {
-				parts.push(...renderInline(tt.tokens, theme, k));
+				parts.push(...renderInline(tt.tokens, theme, k, style));
 			} else {
-				parts.push(<Text key={k}>{tt.text}</Text>);
+				parts.push(<Text key={k} color={style?.color} italic={style?.italic}>{tt.text}</Text>);
 			}
 		} else if (t.type === 'paragraph') {
 			const pt = t as Tokens.Paragraph;
-			parts.push(...renderInline(pt.tokens, theme, k));
+			parts.push(...renderInline(pt.tokens, theme, k, style));
 		} else if (t.type === 'list') {
 			// 嵌套列表：递归渲染，使用不同符号和缩进
 			const nestedList = t as Tokens.List;
 			const bullet = nestedList.ordered ? '' : `${theme.icons.bullet} `;
 			for (let ni = 0; ni < nestedList.items.length; ni++) {
 				const nestedItem = nestedList.items[ni];
-				const nestedContent = renderItemContent(nestedItem, theme, `${k}-${ni}`);
+				const nestedContent = renderItemContent(nestedItem, theme, `${k}-${ni}`, style);
 				parts.push(
-					<Text key={`${k}-${ni}`}>{'\n'}{'  '}<Text color={theme.colors.muted}>{bullet}</Text>{nestedContent}</Text>,
+					<Text key={`${k}-${ni}`} color={style?.color} italic={style?.italic}>{'\n'}{'  '}<Text color={theme.colors.muted}>{bullet}</Text>{nestedContent}</Text>,
 				);
 			}
 		} else {
 			const raw = (t as {raw?: string}).raw ?? (t as {text?: string}).text ?? '';
-			parts.push(<Text key={k}>{raw}</Text>);
+			parts.push(<Text key={k} color={style?.color} italic={style?.italic}>{raw}</Text>);
 		}
 	}
 	return <>{parts}</>;
@@ -142,6 +147,7 @@ function tokensToElements(
 	tokens: Token[],
 	theme: ThemeConfig,
 	terminalWidth: number,
+	style?: MarkdownRenderStyle,
 ): ReactNode[] {
 	const elements: ReactNode[] = [];
 	let ki = 0;
@@ -225,30 +231,30 @@ function tokensToElements(
 
 				const allLines = [`╭${lineDash}╮`, ...innerLines, `╰${lineDash}╯`];
 				elements.push(
-					<Text key={`t-${ki++}`}>{allLines.join('\n')}</Text>,
+					<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>{allLines.join('\n')}</Text>,
 				);
 				break;
 			}
 
 			case 'heading': {
 				const ht = token as Tokens.Heading;
-				const content = renderInline(ht.tokens, theme, `h-${ki}`);
+				const content = renderInline(ht.tokens, theme, `h-${ki}`, style);
 
 				if (ht.depth === 1) {
 					elements.push(
-						<Text key={`t-${ki++}`} bold underline color={theme.colors.highlight}>
+						<Text key={`t-${ki++}`} bold underline color={theme.colors.highlight} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
 				} else if (ht.depth === 2) {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.highlight}>
+						<Text key={`t-${ki++}`} bold color={theme.colors.highlight} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
 				} else {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.subtle}>
+						<Text key={`t-${ki++}`} bold color={theme.colors.subtle} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
@@ -260,9 +266,9 @@ function tokensToElements(
 				const lt = token as Tokens.List;
 				for (let li = 0; li < lt.items.length; li++) {
 					const item = lt.items[li];
-					const content = renderItemContent(item, theme, `l-${ki}-${li}`);
+					const content = renderItemContent(item, theme, `l-${ki}-${li}`, style);
 					elements.push(
-						<Text key={`t-${ki++}`}>
+						<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>
 							<Text color={theme.colors.muted}>{`${theme.icons.arrow} `}</Text>
 							{content}
 						</Text>,
@@ -273,7 +279,7 @@ function tokensToElements(
 
 			case 'hr': {
 				elements.push(
-					<Text key={`t-${ki++}`} color={theme.colors.muted}>{'─'.repeat(40)}</Text>,
+					<Text key={`t-${ki++}`} color={theme.colors.muted} italic={style?.italic}>{'─'.repeat(40)}</Text>,
 				);
 				break;
 			}
@@ -283,7 +289,7 @@ function tokensToElements(
 				for (const inner of bt.tokens ?? []) {
 					if (inner.type === 'paragraph') {
 						const pt = inner as Tokens.Paragraph;
-						const content = renderInline(pt.tokens, theme, `bq-${ki}`);
+						const content = renderInline(pt.tokens, theme, `bq-${ki}`, style);
 						elements.push(
 							<Text key={`t-${ki++}`} italic color={theme.colors.muted}>
 								{content}
@@ -291,7 +297,7 @@ function tokensToElements(
 						);
 					} else if (inner.type === 'text') {
 						const tt = inner as Tokens.Text;
-						const content = renderInline(tt.tokens, theme, `bq-${ki}`);
+						const content = renderInline(tt.tokens, theme, `bq-${ki}`, style);
 						elements.push(
 							<Text key={`t-${ki++}`} italic color={theme.colors.muted}>
 								{content}
@@ -305,8 +311,8 @@ function tokensToElements(
 			case 'paragraph': {
 				const pt = token as Tokens.Paragraph;
 				elements.push(
-					<Text key={`t-${ki++}`}>
-						{renderInline(pt.tokens, theme, `p-${ki}`)}
+					<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>
+						{renderInline(pt.tokens, theme, `p-${ki}`, style)}
 					</Text>,
 				);
 				break;
@@ -316,14 +322,14 @@ function tokensToElements(
 				const tt = token as Tokens.Text;
 				if (tt.tokens && tt.tokens.length > 0) {
 					elements.push(
-						<Text key={`t-${ki++}`}>
-							{renderInline(tt.tokens, theme, `tx-${ki}`)}
+						<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>
+							{renderInline(tt.tokens, theme, `tx-${ki}`, style)}
 						</Text>,
 					);
 				} else {
 					const raw = tt.raw ?? tt.text ?? '';
 					raw.replace(/\n+$/, '').split('\n').forEach((line) => {
-						elements.push(<Text key={`t-${ki++}`}>{line}</Text>);
+						elements.push(<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>{line}</Text>);
 					});
 				}
 				break;
@@ -333,7 +339,7 @@ function tokensToElements(
 				const raw = (token as {raw?: string}).raw;
 				if (raw) {
 					raw.replace(/\n+$/, '').split('\n').forEach((line) => {
-						elements.push(<Text key={`t-${ki++}`}>{line}</Text>);
+						elements.push(<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>{line}</Text>);
 					});
 				}
 				break;
@@ -344,19 +350,19 @@ function tokensToElements(
 	return elements;
 }
 
-export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix: string): ReactNode[] {
-	if (!text || !text.trim()) return [<Text key={`${keyPrefix}-empty`}>{text}</Text>];
+export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix: string, style?: MarkdownRenderStyle): ReactNode[] {
+	if (!text || !text.trim()) return [<Text key={`${keyPrefix}-empty`} color={style?.color} italic={style?.italic}>{text}</Text>];
 	try {
 		const tokens = lexer(text);
 		for (const token of tokens) {
 			if (token.type === 'paragraph') {
 				const pt = token as Tokens.Paragraph;
-				const rendered = renderInline(pt.tokens, theme, keyPrefix);
+				const rendered = renderInline(pt.tokens, theme, keyPrefix, style);
 				if (rendered.length > 0) return rendered;
 			} else if (token.type === 'text') {
 				const tt = token as Tokens.Text;
 				if (tt.tokens && tt.tokens.length > 0) {
-					const rendered = renderInline(tt.tokens, theme, keyPrefix);
+					const rendered = renderInline(tt.tokens, theme, keyPrefix, style);
 					if (rendered.length > 0) return rendered;
 				}
 			} else if (token.type === 'list') {
@@ -369,37 +375,37 @@ export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix
 							if (itemToken.type === 'text') {
 								const tt = itemToken as Tokens.Text;
 								if (tt.tokens && tt.tokens.length > 0) {
-									return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} </Text>, ...renderInline(tt.tokens, theme, `${keyPrefix}-list`)];
+									return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} </Text>, ...renderInline(tt.tokens, theme, `${keyPrefix}-list`, style)];
 								}
 							} else if (itemToken.type === 'paragraph') {
 								const pt = itemToken as Tokens.Paragraph;
-								return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} </Text>, ...renderInline(pt.tokens, theme, `${keyPrefix}-list`)];
+								return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} </Text>, ...renderInline(pt.tokens, theme, `${keyPrefix}-list`, style)];
 							}
 						}
 					}
 					// fallback: 用 raw 文本
-					return [<Text key={`${keyPrefix}-list`}>{theme.icons.arrow} {item.text}</Text>];
+					return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} {item.text}</Text>];
 				}
 			}
 		}
 	} catch {
 		// fall through to raw text
 	}
-	return [<Text key={`${keyPrefix}-raw`}>{text}</Text>];
+	return [<Text key={`${keyPrefix}-raw`} color={style?.color} italic={style?.italic}>{text}</Text>];
 }
 
-export function MarkdownContent({text}: {text: string}): React.JSX.Element {
+export function MarkdownContent({text, style}: {text: string; style?: MarkdownRenderStyle}): React.JSX.Element {
 	const theme = useTheme();
 	const {columns: terminalWidth} = useTerminalSize();
 	const elements = useMemo(() => {
 		if (!text.trim()) return [];
 		try {
 			const tokens = lexer(text);
-			return tokensToElements(tokens, theme, terminalWidth);
+			return tokensToElements(tokens, theme, terminalWidth, style);
 		} catch {
-			return text.split('\n').map((line, i) => <Text key={`f-${i}`}>{line}</Text>);
+			return text.split('\n').map((line, i) => <Text key={`f-${i}`} color={style?.color} italic={style?.italic}>{line}</Text>);
 		}
-	}, [text, theme, terminalWidth]);
+	}, [text, theme, terminalWidth, style]);
 
 	return (
 		<Box flexDirection="column">

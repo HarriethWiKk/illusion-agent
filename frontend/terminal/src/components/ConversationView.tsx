@@ -85,7 +85,7 @@ export function ConversationView({
 }
 
 function isEmptyItem(item: TranscriptItem): boolean {
-	if (item.role === 'assistant' && (!item.text || item.text.trim() === '')) {
+	if (item.role === 'assistant' && (!item.text || item.text.trim() === '') && (!item.reasoning || item.reasoning.trim() === '')) {
 		return true;
 	}
 	if (item.role === 'assistant_streaming' && (!item.text || item.text.trim() === '')) {
@@ -387,16 +387,14 @@ function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Eleme
 function renderReasoningBlock(text: string, theme: ThemeConfig, label: string): React.JSX.Element | null {
 	if (!text.trim()) return null;
 
-	const lines = text.split('\n');return (
+	return (
 		<Box marginTop={1} flexDirection="column">
 			<Box>
-				<Text color={theme.colors.muted} italic>● [{label}]：</Text>
+				<Text color={theme.colors.muted}>● [{label}]：</Text>
 			</Box>
-			{lines.map((line, idx) => (
-				<Box key={idx} marginLeft={2}>
-					<Text color={theme.colors.muted} italic>{line || ' '}</Text>
-				</Box>
-			))}
+			<Box marginLeft={2} flexDirection="column">
+				<MarkdownContent text={text} style={{color: theme.colors.muted}} />
+			</Box>
 		</Box>
 	);
 }

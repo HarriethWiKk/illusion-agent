@@ -331,6 +331,87 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.services.session_storage import save_session_snapshot
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        host._bundle.engine.load_messages([
+            ConversationMessage(role="user", content=[TextBlock(text="hello")]),
+            ConversationMessage(
+                role="assistant",
+                content=[ThinkingBlock(thinking="先分析问题"), TextBlock(text="最终答案")],
+            ),
+        ])
+        save_session_snapshot(
+            cwd=tmp_path,
+            model="claude-test",
+            system_prompt="system",
+            messages=host._bundle.engine.messages,
+            usage=UsageSnapshot(),
+            session_id="sid-thinking-001",
+        )
+        await host._process_line("/resume sid-thinking-001")
+    finally:
+        await close_runtime(host._bundle)
+
+    replace_events = [e for e in events if e.type == "replace_transcript"]
+    assert replace_events
+    assert replace_events[0].items is not None
+    assistant_items = [item for item in replace_events[0].items if item.role == "assistant"]
+    assert assistant_items
+    assert assistant_items[0].reasoning == "先分析问题"
+    assert assistant_items[0].text == "最终答案"
+
+
+@pytest.mark.asyncio
+async def test_backend_rewind_replay_keeps_reasoning_only_assistant(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        host._bundle.engine.load_messages([
+            ConversationMessage(role="user", content=[TextBlock(text="turn1")]),
+            ConversationMessage(role="assistant", content=[ThinkingBlock(thinking="先检查上下文")]),
+            ConversationMessage(role="user", content=[TextBlock(text="turn2")]),
+            ConversationMessage(role="assistant", content=[TextBlock(text="final")]),
+        ])
+        await host._process_line("/rewind 1")
+    finally:
+        await close_runtime(host._bundle)
+
+    replace_events = [e for e in events if e.type == "replace_transcript"]
+    assert replace_events
+    assert replace_events[0].items is not None
+    assistant_items = [item for item in replace_events[0].items if item.role == "assistant"]
+    assert assistant_items
+    assert assistant_items[0].text == ""
+    assert assistant_items[0].reasoning == "先检查上下文"
+
+
+@pytest.mark.asyncio
 async def test_resume_replay_has_no_session_restored_system_banner(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))

@@ -695,8 +695,13 @@ async def _render_command_result(
 							"is_error": block.is_error,
 						})
 			elif msg.role == "assistant":
-				if msg.text.strip():
-					replay_items.append({"role": "assistant", "text": msg.text.strip()})
+				reasoning = msg.thinking_text.strip()
+				assistant_text = msg.text.strip()
+				if assistant_text or reasoning:
+					item = {"role": "assistant", "text": assistant_text}
+					if reasoning:
+						item["reasoning"] = reasoning
+					replay_items.append(item)
 				for block in msg.content:
 					if isinstance(block, ToolUseBlock):
 						tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
@@ -736,9 +741,14 @@ async def _render_command_result(
 								"is_error": block.is_error,
 							})
 				elif msg.role == "assistant":
-					if msg.text.strip() and replay_transcript_item is not None:
-						await replay_transcript_item({"role": "assistant", "text": msg.text.strip()})
-					elif msg.text.strip():
+					reasoning = msg.thinking_text.strip()
+					assistant_text = msg.text.strip()
+					if replay_transcript_item is not None and (assistant_text or reasoning):
+						item = {"role": "assistant", "text": assistant_text}
+						if reasoning:
+							item["reasoning"] = reasoning
+						await replay_transcript_item(item)
+					elif assistant_text:
 						await render_event(AssistantTurnComplete(message=msg, usage=UsageSnapshot()))
 					for block in msg.content:
 						if isinstance(block, ToolUseBlock):
