@@ -334,7 +334,7 @@ def _last_message_text(messages: list[ConversationMessage]) -> str:
 def _rewind_turns(messages: list[ConversationMessage], turns: int) -> list[ConversationMessage]:
     """回退指定数量的对话回合
     
-    回退到上一个非空的user消息
+    回退到上一个非空的、非斜杠命令的 user 消息
     
     Args:
         messages: 消息列表
@@ -343,13 +343,13 @@ def _rewind_turns(messages: list[ConversationMessage], turns: int) -> list[Conve
     Returns:
         list[ConversationMessage]: 回退后的消息列表
     """
-    updated = list(messages)  # 复制列表
-    for _ in range(max(0, turns)):  # 指定次数
-        if not updated:  # 空列表
+    updated = list(messages)
+    for _ in range(max(0, turns)):
+        if not updated:
             break
         while updated:
-            popped = updated.pop()  # 弹出
-            if popped.role == "user" and popped.text.strip():  # 找到用户消息
+            popped = updated.pop()
+            if popped.role == "user" and popped.text.strip() and not popped.text.strip().startswith("/"):
                 break
     return updated
 

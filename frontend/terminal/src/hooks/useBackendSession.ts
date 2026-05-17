@@ -291,6 +291,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearAssistantDelta();
 			return;
 		}
+		if (event.type === 'replace_transcript' && event.items) {
+			const newItems = (event.items as TranscriptItem[]).filter((item: TranscriptItem) => {
+				if (item.role === 'user' && item.text.startsWith('/')) {
+					return false;
+				}
+				return true;
+			});
+			setStaticItems(newItems);
+			setClearCount((c) => c + 1);
+			clearAssistantDelta();
+			return;
+		}
 		if (event.type === 'select_request') {
 			const m = event.modal ?? {};
 			setSelectRequest({

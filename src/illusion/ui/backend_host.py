@@ -466,6 +466,11 @@ class ReactBackendHost:
                 },
             ))
 
+        async def _replace_transcript_items(items: list[dict]) -> None:
+            """替换转录项列表（一次性清空并替换，避免 Ink Static 重复渲染）。"""
+            transcript_items = [TranscriptItem(**item) for item in items]
+            await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
+
         should_continue = await handle_line(
             self._bundle,
             line,
@@ -474,6 +479,7 @@ class ReactBackendHost:
             clear_output=_clear_output,
             replay_transcript_item=_replay_transcript_item,
             command_result_emitter=_command_result_emitter,
+            replace_transcript_items=_replace_transcript_items,
         )
 
         # 更新会话阶段为空闲
@@ -529,7 +535,7 @@ class ReactBackendHost:
             messages = self._bundle.engine.messages
             turns = sum(
                 1 for i, msg in enumerate(messages)
-                if i >= target_idx and msg.role == "user" and msg.text.strip()
+                if i >= target_idx and msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
             )
             return f"/rewind {turns}" if turns > 0 else None
         if command == "delete":
@@ -784,7 +790,7 @@ class ReactBackendHost:
             messages = self._bundle.engine.messages
             user_msgs = [
                 (i, msg) for i, msg in enumerate(messages)
-                if msg.role == "user" and msg.text.strip()
+                if msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
             ]
             if not user_msgs:
                 await self._emit(BackendEvent(type="error", message=("没有可回退的消息。" if zh else "No messages to rewind to.")))

@@ -176,6 +176,7 @@ class BackendEvent(BaseModel):
         "tool_chain_started",
         "tool_chain_completed",
         "clear_transcript",
+        "replace_transcript",
         "modal_request",
         "select_request",
         "todo_update",
@@ -207,6 +208,7 @@ class BackendEvent(BaseModel):
     swarm_teammates: list[dict[str, Any]] | None = None
     swarm_notifications: list[dict[str, Any]] | None = None
     command_result_data: dict[str, Any] | None = None
+    items: list[TranscriptItem] | None = None
 
     @classmethod
     def ready(

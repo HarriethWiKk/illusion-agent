@@ -31,7 +31,15 @@ export function ConversationView({
 	commandPickerOpen?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
-	const filtered = useMemo(() => staticItems.filter((item) => !isEmptyItem(item)), [staticItems]);
+	const filtered = useMemo(() => staticItems.filter((item) => {
+		if (!isEmptyItem(item)) {
+			if (item.role === 'user' && item.text.startsWith('/')) {
+				return false;
+			}
+			return true;
+		}
+		return false;
+	}), [staticItems]);
 	const grouped = useMemo(() => groupToolItems(filtered), [filtered]);
 	const displayItems = useMemo<DisplayEntry[]>(() => {
 		const entries: GroupEntry[] = showWelcome
@@ -235,10 +243,6 @@ function MessageRow({
 }): React.JSX.Element {
 	switch (item.role) {
 		case 'user': {
-			// 指令不显示（由 CommandPicker 单独展示结果）
-			if (item.text.startsWith('/')) {
-				return null;
-			}
 			const needsDivider = prevRole !== 'user';
 			return (
 				<Box flexDirection="column" marginTop={needsDivider ? 1 : 0}>

@@ -97,4 +97,5 @@ export type BackendEvent = {
 		message: string;
 		type: 'success' | 'error' | 'info';
 	} | null;
+	items?: TranscriptItem[] | null;
 };

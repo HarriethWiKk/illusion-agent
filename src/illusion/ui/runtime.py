@@ -78,6 +78,7 @@ StreamRenderer = Callable[[StreamEvent], Awaitable[None]]  # 流式事件渲染�
 ClearHandler = Callable[[], Awaitable[None]]  # 清空输出回调
 TranscriptItemSender = Callable[[dict], Awaitable[None]]  # 发送 transcript_item 的回调
 CommandResultEmitter = Callable[[str, str], Awaitable[None]]  # 指令结果发射回调（message, type）
+ReplaceTranscriptItems = Callable[[list[dict]], Awaitable[None]]  # 替换转录项列表的回调
 
 
 @dataclass
@@ -532,6 +533,7 @@ async def handle_line(
     clear_output: ClearHandler,
     replay_transcript_item: TranscriptItemSender | None = None,
     command_result_emitter: CommandResultEmitter | None = None,
+    replace_transcript_items: ReplaceTranscriptItems | None = None,
 ) -> bool:
     """处理提交的一行输入（用于无头或 TUI 渲染）。
 
@@ -545,6 +547,7 @@ async def handle_line(
         clear_output: 清空输出回调
         replay_transcript_item: 重播 transcript_item 的回调（用于 /resume）
         command_result_emitter: 指令结果发射回调
+        replace_transcript_items: 替换转录项列表的回调（用于 /rewind 等，避免 Ink Static 重复渲染）
 
     Returns:
         bool: 是否继续会话
@@ -578,7 +581,7 @@ async def handle_line(
             suffix = result.message or ""
             detail = f"\n{suffix}" if suffix else ""
             result.message = f"{prefix}{bundle.session_id}{detail}"
-        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter)
+        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter, replace_transcript_items)
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
         # 跨 env 切换模型时重建 API 客户端
@@ -658,6 +661,7 @@ async def _render_command_result(
 	render_event: StreamRenderer | None = None,
 	replay_transcript_item: TranscriptItemSender | None = None,
 	command_result_emitter: CommandResultEmitter | None = None,
+	replace_transcript_items: ReplaceTranscriptItems | None = None,
 ) -> None:
 	"""渲染命令执行结果。
 
@@ -668,47 +672,84 @@ async def _render_command_result(
 		render_event: 流式事件渲染回调
 		replay_transcript_item: 重播 transcript_item 的回调
 		command_result_emitter: 指令结果发射回调
+		replace_transcript_items: 替换转录项列表的回调
 	"""
-	if result.clear_screen:
-		await clear_output()
-	if result.replay_messages and render_event is not None:
-		from illusion.engine.stream_events import AssistantTurnComplete
-		from illusion.api.usage import UsageSnapshot
+	if result.replay_messages and replace_transcript_items is not None:
 		from illusion.engine.messages import ToolUseBlock, ToolResultBlock
 
-		await clear_output()
 		tool_uses_by_id: dict[str, dict] = {}
+		replay_items: list[dict] = []
 		for msg in result.replay_messages:
 			if msg.role == "user":
 				if msg.text.strip():
-					if replay_transcript_item is not None:
-						await replay_transcript_item({"role": "user", "text": msg.text})
-					else:
-						await print_system(f"> {msg.text}")
+					replay_items.append({"role": "user", "text": msg.text})
 				for block in msg.content:
-					if isinstance(block, ToolResultBlock) and replay_transcript_item is not None:
+					if isinstance(block, ToolResultBlock):
 						tool_info = tool_uses_by_id.get(block.tool_use_id, {})
-						await replay_transcript_item({
+						replay_items.append({
 							"role": "tool_result",
 							"text": block.content,
 							"tool_name": tool_info.get("name"),
 							"is_error": block.is_error,
 						})
 			elif msg.role == "assistant":
-				if msg.text.strip() and replay_transcript_item is not None:
-					await replay_transcript_item({"role": "assistant", "text": msg.text.strip()})
-				elif msg.text.strip():
-					await render_event(AssistantTurnComplete(message=msg, usage=UsageSnapshot()))
+				if msg.text.strip():
+					replay_items.append({"role": "assistant", "text": msg.text.strip()})
 				for block in msg.content:
 					if isinstance(block, ToolUseBlock):
 						tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
+						replay_items.append({
+							"role": "tool",
+							"text": f"{block.name} {json.dumps(block.input, ensure_ascii=True)}",
+							"tool_name": block.name,
+							"tool_input": block.input,
+						})
+		await replace_transcript_items(replay_items)
+		if result.message and command_result_emitter is not None:
+			await command_result_emitter(result.message, "info")
+		return
+	elif result.clear_screen:
+		await clear_output()
+		if result.replay_messages and render_event is not None:
+			from illusion.engine.stream_events import AssistantTurnComplete
+			from illusion.api.usage import UsageSnapshot
+			from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+
+			await clear_output()
+			tool_uses_by_id: dict[str, dict] = {}
+			for msg in result.replay_messages:
+				if msg.role == "user":
+					if msg.text.strip():
 						if replay_transcript_item is not None:
+							await replay_transcript_item({"role": "user", "text": msg.text})
+						else:
+							await print_system(f"> {msg.text}")
+					for block in msg.content:
+						if isinstance(block, ToolResultBlock) and replay_transcript_item is not None:
+							tool_info = tool_uses_by_id.get(block.tool_use_id, {})
 							await replay_transcript_item({
-								"role": "tool",
-								"text": f"{block.name} {json.dumps(block.input, ensure_ascii=True)}",
-								"tool_name": block.name,
-								"tool_input": block.input,
+								"role": "tool_result",
+								"text": block.content,
+								"tool_name": tool_info.get("name"),
+								"is_error": block.is_error,
 							})
+				elif msg.role == "assistant":
+					if msg.text.strip() and replay_transcript_item is not None:
+						await replay_transcript_item({"role": "assistant", "text": msg.text.strip()})
+					elif msg.text.strip():
+						await render_event(AssistantTurnComplete(message=msg, usage=UsageSnapshot()))
+					for block in msg.content:
+						if isinstance(block, ToolUseBlock):
+							tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
+							if replay_transcript_item is not None:
+								await replay_transcript_item({
+									"role": "tool",
+									"text": f"{block.name} {json.dumps(block.input, ensure_ascii=True)}",
+									"tool_name": block.name,
+									"tool_input": block.input,
+								})
+	elif result.clear_screen:
+		await clear_output()
 	if result.message and not result.replay_messages:
 		if command_result_emitter is not None:
 			await command_result_emitter(result.message, "info")
