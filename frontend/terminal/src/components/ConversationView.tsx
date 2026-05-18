@@ -174,7 +174,7 @@ function ToolGroupRow({
 	const continuationPrefix = ' '.repeat(stringWidth(prefix));
 	const content = summary ? `${toolName} (${summary})` : toolName;
 	const wrapped = wrapForPrefix(content, terminalWidth, prefix);
-	const continuationDim = Boolean(summary);
+	const continuationDim = false;
 
 	return (
 		<Box flexDirection="column" marginTop={needsGap ? 1 : 0}>
