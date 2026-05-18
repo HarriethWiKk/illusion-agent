@@ -10,6 +10,7 @@ import pytest
 
 from illusion.state import AppState, AppStateStore
 from illusion.swarm.team_helpers import read_team_file, write_team_file
+from illusion.tasks import get_task_manager
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.team_create_tool import TeamCreateTool, TeamCreateToolInput
 from illusion.tools.team_delete_tool import TeamDeleteTool, TeamDeleteToolInput
@@ -117,3 +118,30 @@ async def test_team_delete_blocks_when_non_lead_member_active(tmp_path: Path, mo
     delete_payload = json.loads(delete_result.output)
     assert delete_payload["success"] is False
     assert "Cannot cleanup team" in delete_payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_team_switch_preserves_default_task_manager_tasks(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("ILLUSION_TASK_LIST_ID", raising=False)
+
+    store = AppStateStore(AppState(model="demo-model", permission_mode="default"))
+    context = _context(tmp_path, store)
+
+    default_manager = get_task_manager()
+    default_task = default_manager.create_pending_task(
+        subject="default task",
+        description="created before team create",
+    )
+
+    create_result = await TeamCreateTool().execute(
+        TeamCreateToolInput(team_name="demo-team"),
+        context,
+    )
+    assert create_result.is_error is False
+    assert get_task_manager().get_task(default_task.id) is None
+
+    delete_result = await TeamDeleteTool().execute(TeamDeleteToolInput(), context)
+    assert delete_result.is_error is False
+    assert get_task_manager().get_task(default_task.id) is not None

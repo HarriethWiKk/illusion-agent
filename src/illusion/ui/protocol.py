@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from illusion.state.app_state import AppState
 from illusion.bridge.manager import BridgeSessionRecord
 from illusion.mcp.types import McpConnectionStatus
-from illusion.tasks.types import TaskRecord
+from illusion.tasks.types import TaskRecord, to_task_display_status
 
 
 class FrontendRequest(BaseModel):
@@ -129,7 +129,7 @@ class TaskSnapshot(BaseModel):
         return cls(
             id=record.id,
             type=record.type,
-            status=record.status,
+            status=to_task_display_status(record.status),
             description=record.description,
             metadata=dict(record.metadata),
         )

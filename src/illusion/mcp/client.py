@@ -169,13 +169,18 @@ class McpClientManager:
             tools.extend(status.tools)
         return tools
 
-    def list_resources(self) -> list[McpResourceInfo]:
+    def list_resources(self, *, server_name: str | None = None) -> list[McpResourceInfo]:
         """
         获取所有已连接 MCP 服务器提供的资源列表
-        
+         
         Returns:
             合并后的资源信息列表
         """
+        if server_name is not None:
+            status = self._statuses.get(server_name)
+            if status is None:
+                return []
+            return list(status.resources)
         resources: list[McpResourceInfo] = []
         for status in self.list_statuses():
             resources.extend(status.resources)
@@ -195,7 +200,7 @@ class McpClientManager:
         Returns:
             工具执行结果的字符串形式
         """
-        session = self._sessions[server_name]
+        session = self._require_session(server_name)
         result: CallToolResult = await session.call_tool(tool_name, arguments)
         parts: list[str] = []
         # 处理返回的内容，支持文本和其他类型
@@ -225,7 +230,7 @@ class McpClientManager:
         Returns:
             资源内容的字符串形式
         """
-        session = self._sessions[server_name]
+        session = self._require_session(server_name)
         result: ReadResourceResult = await session.read_resource(uri)
         parts: list[str] = []
         for item in result.contents:
@@ -300,6 +305,33 @@ class McpClientManager:
             except Exception:
                 # 服务器不支持 resources 能力，忽略错误
                 pass
+            # 获取资源模板（部分服务器只暴露模板，不暴露静态资源）
+            try:
+                template_result = await session.list_resource_templates()
+                template_items = getattr(template_result, "resourceTemplates", None)
+                if template_items is None:
+                    template_items = getattr(template_result, "resource_templates", [])
+                for template in template_items or []:
+                    template_uri = str(
+                        getattr(template, "uriTemplate", None)
+                        or getattr(template, "uri_template", None)
+                        or ""
+                    ).strip()
+                    if not template_uri:
+                        continue
+                    if any(item.uri == template_uri for item in resources):
+                        continue
+                    resources.append(
+                        McpResourceInfo(
+                            server_name=name,
+                            name=getattr(template, "name", None) or template_uri,
+                            uri=template_uri,
+                            description=getattr(template, "description", "") or "",
+                        )
+                    )
+            except Exception:
+                # 服务器不支持 resource templates 能力，忽略错误
+                pass
             # 保存会话和栈
             self._sessions[name] = session
             self._stacks[name] = stack
@@ -322,3 +354,16 @@ class McpClientManager:
                 auth_configured=bool(config.env),
                 detail=str(exc),
             )
+
+    def _require_session(self, server_name: str) -> ClientSession:
+        """获取服务器会话，不存在时抛出可读错误。"""
+        session = self._sessions.get(server_name)
+        if session is not None:
+            return session
+        status = self._statuses.get(server_name)
+        if status is None:
+            raise ValueError(f"Unknown MCP server: {server_name}")
+        detail = f" ({status.detail})" if status.detail else ""
+        raise ValueError(
+            f"MCP server '{server_name}' is not connected (state={status.state}{detail})"
+        )

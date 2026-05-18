@@ -17,6 +17,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from illusion.tasks.manager import get_task_manager
+from illusion.tasks.types import to_task_display_status
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -46,7 +47,7 @@ class TaskListTool(BaseTool):
 Returns a summary of each task:
 - **id**: Task identifier (use with TaskGet, TaskUpdate)
 - **subject**: Brief description of the task
-- **status**: 'pending', 'in_progress', or 'completed'
+- **status**: 'pending', 'in_progress', 'completed', 'failed', or 'killed'
 - **owner**: Agent ID if assigned, empty if available
 - **blockedBy**: List of open task IDs that must be resolved first (tasks with blockedBy cannot be claimed until dependencies resolve)
 
@@ -85,6 +86,9 @@ When working as a teammate:
             active_blockers = [bid for bid in task.blocked_by if bid not in completed_ids]
             blocked_str = f" blockedBy={active_blockers}" if active_blockers else ""
             owner_str = f" owner={owner}" if owner else ""
-            lines.append(f"id={task.id} status={task.status} subject={subject}{owner_str}{blocked_str}")
+            status = to_task_display_status(task.status)
+            lines.append(
+                f"id={task.id} status={status} subject={subject}{owner_str}{blocked_str}"
+            )
 
         return ToolResult(output="\n".join(lines))

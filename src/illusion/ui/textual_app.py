@@ -50,6 +50,7 @@ from illusion.engine.stream_events import (
 )
 from illusion.swarm.agent_executor import list_active_agents
 from illusion.tasks import get_task_manager
+from illusion.tasks.types import to_task_display_status
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 
 # Agent 状态指示器颜色（与 agent_definitions.py 中的 AGENT_COLORS 一致）
@@ -513,7 +514,9 @@ class illusionTerminalApp(App[None]):
                 if task.metadata.get("status_note"):
                     suffix.append(task.metadata["status_note"])
                 detail = f" ({' | '.join(suffix)})" if suffix else ""
-                task_lines.append(f"{task.id} {task.status} {task.description}{detail}")
+                task_lines.append(
+                    f"{task.id} {to_task_display_status(task.status)} {task.description}{detail}"
+                )
         else:
             task_lines = ["[b]Tasks[/b]", "No background tasks."]
         self.query_one("#tasks-panel", Static).update("\n".join(task_lines))

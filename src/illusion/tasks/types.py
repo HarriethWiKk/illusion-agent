@@ -17,16 +17,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 
 # 任务类型
 TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate"]
 # 任务状态
 TaskStatus = Literal["pending", "running", "completed", "failed", "killed"]
+# 对外显示状态
+TaskDisplayStatus = Literal["pending", "in_progress", "completed", "failed", "killed"]
 
 # 扩展状态，包含任务更新操作的 deleted
 TaskUpdateStatus = Literal["pending", "in_progress", "completed", "deleted"]
+
+_INTERNAL_TO_DISPLAY_STATUS: dict[str, str] = {
+    "pending": "pending",
+    "running": "in_progress",
+    "completed": "completed",
+    "failed": "failed",
+    "killed": "killed",
+}
+
+_DISPLAY_TO_INTERNAL_STATUS: dict[str, str] = {
+    "pending": "pending",
+    "in_progress": "running",
+    "completed": "completed",
+    "failed": "failed",
+    "killed": "killed",
+}
+
+
+def to_task_display_status(status: TaskStatus | str) -> TaskDisplayStatus | str:
+    """将内部任务状态转换为对外显示状态。"""
+    mapped = _INTERNAL_TO_DISPLAY_STATUS.get(status)
+    if mapped is None:
+        return status
+    return cast(TaskDisplayStatus, mapped)
+
+
+def to_task_internal_status(status: TaskUpdateStatus | TaskDisplayStatus | TaskStatus | str) -> TaskStatus:
+    """将对外状态转换为内部任务状态。"""
+    mapped = _DISPLAY_TO_INTERNAL_STATUS.get(status, status)
+    if mapped not in {"pending", "running", "completed", "failed", "killed"}:
+        raise ValueError(f"Unsupported task status: {status}")
+    return cast(TaskStatus, mapped)
 
 
 @dataclass

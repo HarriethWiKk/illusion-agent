@@ -39,7 +39,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from illusion.config.paths import get_tasks_dir
-from illusion.tasks.types import TaskRecord, TaskStatus, TaskType
+from illusion.tasks.types import TaskRecord, TaskStatus, TaskType, to_task_internal_status
 from illusion.utils.shell import create_shell_subprocess
 
 
@@ -186,13 +186,7 @@ class BackgroundTaskManager:
         if active_form is not None:
             task.active_form = active_form
         if status is not None:
-            # 映射任务列表状态到任务管理器状态
-            status_map = {
-                "pending": "pending",
-                "in_progress": "running",
-                "completed": "completed",
-            }
-            task.status = status_map.get(status, status)
+            task.status = to_task_internal_status(status)
         if owner is not None:
             task.owner = owner
         if progress is not None:
@@ -355,19 +349,18 @@ class BackgroundTaskManager:
         return await self._start_process(task.id)
 
 
-# 默认任务管理器单例
-_DEFAULT_MANAGER: BackgroundTaskManager | None = None
-_DEFAULT_MANAGER_KEY: str | None = None
+# 按任务目录隔离的任务管理器缓存
+_MANAGERS_BY_KEY: dict[str, BackgroundTaskManager] = {}
 
 
 def get_task_manager() -> BackgroundTaskManager:
     """返回单例任务管理器。"""
-    global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     current_key = str(get_tasks_dir().resolve())
-    if _DEFAULT_MANAGER is None or _DEFAULT_MANAGER_KEY != current_key:
-        _DEFAULT_MANAGER = BackgroundTaskManager()
-        _DEFAULT_MANAGER_KEY = current_key
-    return _DEFAULT_MANAGER
+    manager = _MANAGERS_BY_KEY.get(current_key)
+    if manager is None:
+        manager = BackgroundTaskManager()
+        _MANAGERS_BY_KEY[current_key] = manager
+    return manager
 
 
 def _task_id(task_type: TaskType) -> str:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from illusion.config.settings import Settings
 from illusion.mcp.config import load_mcp_server_configs
@@ -22,8 +23,17 @@ class FakeMcpManager:
     def list_tools(self):
         return self.tools
 
-    def list_resources(self):
-        return self.resources
+    def list_resources(self, *, server_name: str | None = None):
+        if server_name is None:
+            return self.resources
+        return [resource for resource in self.resources if resource.server_name == server_name]
+
+    def list_statuses(self):
+        names = sorted(
+            {resource.server_name for resource in self.resources}
+            | {tool.server_name for tool in self.tools}
+        )
+        return [SimpleNamespace(name=name, state="connected", detail="") for name in names]
 
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict):
         return f"{server_name}:{tool_name}:{arguments['name']}"
@@ -77,3 +87,13 @@ async def test_mcp_tools_are_registered():
     assert list_tool is not None
     list_result = await list_tool.execute(list_tool.input_model(), ToolExecutionContext(cwd=Path(".")))
     assert "demo://readme" in list_result.output
+    filtered_result = await list_tool.execute(
+        list_tool.input_model(server="demo"),
+        ToolExecutionContext(cwd=Path(".")),
+    )
+    assert "demo://readme" in filtered_result.output
+    missing_result = await list_tool.execute(
+        list_tool.input_model(server="missing"),
+        ToolExecutionContext(cwd=Path(".")),
+    )
+    assert missing_result.is_error is True

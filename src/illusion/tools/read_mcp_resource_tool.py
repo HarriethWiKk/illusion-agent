@@ -56,5 +56,8 @@ Parameters:
     async def execute(self, arguments: ReadMcpResourceToolInput, context: ToolExecutionContext) -> ToolResult:
         del context
         # 读取资源
-        output = await self._manager.read_resource(arguments.server, arguments.uri)
+        try:
+            output = await self._manager.read_resource(arguments.server, arguments.uri)
+        except ValueError as exc:
+            return ToolResult(output=str(exc), is_error=True)
         return ToolResult(output=output)

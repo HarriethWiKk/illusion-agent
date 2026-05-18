@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from illusion.tasks.manager import BackgroundTaskManager
+from illusion.tasks.manager import BackgroundTaskManager, get_task_manager
 
 
 @pytest.mark.asyncio
@@ -82,3 +82,24 @@ async def test_stop_task(tmp_path: Path, monkeypatch):
     updated = manager.get_task(task.id)
     assert updated is not None
     assert updated.status == "killed"
+
+
+def test_get_task_manager_keeps_managers_per_task_list(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("ILLUSION_TASK_LIST_ID", raising=False)
+
+    default_manager = get_task_manager()
+    default_task = default_manager.create_pending_task(
+        subject="default",
+        description="default task",
+    )
+
+    monkeypatch.setenv("ILLUSION_TASK_LIST_ID", "team-alpha")
+    team_manager = get_task_manager()
+    assert team_manager is not default_manager
+    assert team_manager.get_task(default_task.id) is None
+
+    monkeypatch.delenv("ILLUSION_TASK_LIST_ID", raising=False)
+    restored_default_manager = get_task_manager()
+    assert restored_default_manager is default_manager
+    assert restored_default_manager.get_task(default_task.id) is not None

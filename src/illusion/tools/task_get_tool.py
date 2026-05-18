@@ -17,6 +17,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from illusion.tasks.manager import get_task_manager
+from illusion.tasks.types import to_task_display_status
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -50,7 +51,7 @@ class TaskGetTool(BaseTool):
 Returns full task details:
 - **subject**: Task title
 - **description**: Detailed requirements and context
-- **status**: 'pending', 'in_progress', or 'completed'
+- **status**: 'pending', 'in_progress', 'completed', 'failed', or 'killed'
 - **blocks**: Tasks waiting on this one to complete
 - **blockedBy**: Tasks that must complete before this one can start
 
@@ -78,7 +79,7 @@ Returns full task details:
         ]
         if task.description and task.subject:
             parts.append(f"description: {task.description}")
-        parts.append(f"status: {task.status}")
+        parts.append(f"status: {to_task_display_status(task.status)}")
         if task.owner:
             parts.append(f"owner: {task.owner}")
         if task.blocks:

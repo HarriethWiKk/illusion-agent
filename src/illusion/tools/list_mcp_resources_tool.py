@@ -14,7 +14,7 @@ MCP 资源列表工具
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from illusion.mcp.client import McpClientManager
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -22,6 +22,11 @@ from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 class ListMcpResourcesToolInput(BaseModel):
     """MCP 资源列表参数。"""
+
+    server: str | None = Field(
+        default=None,
+        description="Optional MCP server name to filter resources",
+    )
 
 
 class ListMcpResourcesTool(BaseTool):
@@ -48,10 +53,27 @@ Parameters:
         return True
 
     async def execute(self, arguments: ListMcpResourcesToolInput, context: ToolExecutionContext) -> ToolResult:
-        del arguments, context
-        # 获取所有资源
-        resources = self._manager.list_resources()
+        del context
+        server = (arguments.server or "").strip() or None
+        # 获取资源（支持按 server 过滤）
+        resources = self._manager.list_resources(server_name=server)
         if not resources:
+            statuses_getter = getattr(self._manager, "list_statuses", None)
+            if callable(statuses_getter):
+                statuses = statuses_getter()
+                if server is not None:
+                    status = next((item for item in statuses if item.name == server), None)
+                    if status is None:
+                        return ToolResult(output=f"Unknown MCP server: {server}", is_error=True)
+                    detail = f" ({status.detail})" if status.detail else ""
+                    return ToolResult(
+                        output=f"(no MCP resources on server '{server}', state={status.state}{detail})"
+                    )
+                connected = [item.name for item in statuses if item.state == "connected"]
+                if connected:
+                    return ToolResult(
+                        output=f"(no MCP resources from connected servers: {', '.join(connected)})"
+                    )
             return ToolResult(output="(no MCP resources)")
         return ToolResult(
             output="\n".join(f"{item.server_name}:{item.uri} {item.description}".strip() for item in resources)

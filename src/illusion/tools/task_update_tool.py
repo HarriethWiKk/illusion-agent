@@ -17,6 +17,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from illusion.tasks.manager import get_task_manager
+from illusion.tasks.types import to_task_display_status
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -192,7 +193,7 @@ Set up task dependencies:
         if arguments.active_form:
             parts.append(f"activeForm={task.active_form}")
         if arguments.status:
-            parts.append(f"status={task.status}")
+            parts.append(f"status={to_task_display_status(task.status)}")
         if arguments.owner:
             parts.append(f"owner={task.owner}")
         if arguments.progress is not None:
