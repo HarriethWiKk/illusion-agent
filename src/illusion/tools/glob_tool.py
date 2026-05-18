@@ -94,8 +94,14 @@ class GlobTool(BaseTool):
         """
         # 解析根目录路径
         root = _resolve_path(context.cwd, arguments.root) if arguments.root else context.cwd
+        pattern = arguments.pattern
+        # 兼容绝对 glob 模式（例如 "E:\\repo\\**\\*.py"）
+        if arguments.root is None:
+            split_root_pattern = _split_absolute_glob_pattern(arguments.pattern)
+            if split_root_pattern is not None:
+                root, pattern = split_root_pattern
         # 执行异步glob搜索
-        matches = await _glob(root, arguments.pattern, limit=arguments.limit)
+        matches = await _glob(root, pattern, limit=arguments.limit)
         if not matches:
             return ToolResult(output="(no matches)")
         return ToolResult(output="\n".join(matches))
@@ -115,6 +121,39 @@ def _resolve_path(base: Path, candidate: str | None) -> Path:
     if not path.is_absolute():
         path = base / path
     return path.resolve()
+
+
+def _split_absolute_glob_pattern(pattern: str) -> tuple[Path, str] | None:
+    """拆分绝对 glob 模式为根目录和相对模式。
+
+    Args:
+        pattern: 可能包含通配符的模式
+
+    Returns:
+        tuple[Path, str] | None: (root, relative_pattern) 或 None
+    """
+    candidate = Path(pattern).expanduser()
+    if not candidate.is_absolute():
+        return None
+
+    parts = list(candidate.parts)
+    wildcard_index = -1
+    for index, part in enumerate(parts):
+        if any(token in part for token in ("*", "?", "[")):
+            wildcard_index = index
+            break
+
+    if wildcard_index < 0:
+        return candidate.parent, candidate.name
+
+    root_parts = parts[:wildcard_index]
+    if not root_parts:
+        return None
+    root = Path(root_parts[0])
+    for part in root_parts[1:]:
+        root /= part
+    relative_pattern = "/".join(parts[wildcard_index:])
+    return root, relative_pattern
 
 
 def _looks_like_git_repo(path: Path) -> bool:
@@ -155,13 +194,16 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
         list[str]: 匹配的文件路径列表
     """
     # 检查ripgrep是否可用
+    if not root.exists():
+        return []
+
     rg = shutil.which("rg")
     # Path.glob("**/*") 会遍历隐藏和忽略的路径（如 .venv/）
     # 在实际工作区上可能很慢。优先使用 rg --files。
     if rg and ("**" in pattern or "/" in pattern):
         # 判断是否应该包含隐藏文件
         include_hidden = _looks_like_git_repo(root)
-        cmd = [rg, "--files"]
+        cmd = [rg, "--files", "--no-messages"]
         if include_hidden:
             cmd.append("--hidden")
         cmd.extend(["--glob", pattern, "."])
@@ -175,7 +217,7 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
             cwd=str(root),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
             **kwargs,
         )
 

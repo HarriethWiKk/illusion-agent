@@ -314,7 +314,7 @@ async def _rg_search(
     # 判断是否包含隐藏文件
     include_hidden = is_dir and ((path / ".git").exists() or (path / ".gitignore").exists())
 
-    cmd: list[str] = [rg, "--color", "never"]
+    cmd: list[str] = [rg, "--color", "never", "--no-messages"]
 
     # 输出模式标志
     if output_mode == "files_with_matches":
@@ -381,12 +381,13 @@ async def _rg_search(
         cwd=str(path) if is_dir else str(path.parent),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
         **kwargs,
     )
 
     raw_lines: list[str] = []
     limit = head_limit if head_limit > 0 else 10000  # 无限制的安全上限
+    reached_limit = False
     try:
         assert process.stdout is not None
         while len(raw_lines) < limit + offset:
@@ -400,14 +401,15 @@ async def _rg_search(
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
             if line:
                 raw_lines.append(line)
+        reached_limit = len(raw_lines) >= limit + offset
     finally:
         if process.returncode is None:
             process.kill()
             await process.wait()
 
     # rg 在找到匹配时退出0，未找到时退出1
-    if process.returncode not in {0, 1}:
-        return None
+    if process.returncode not in {0, 1} and not reached_limit:
+        return f"(rg failed with exit code {process.returncode})"
 
     if not raw_lines:
         return "(no matches)"
