@@ -156,7 +156,7 @@ function tokensToElements(
 		switch (token.type) {
 			case 'table': {
 				elements.push(
-					<MarkdownTable key={`t-${ki++}`} token={token as Tokens.Table} />,
+					<MarkdownTable key={`t-${ki++}`} token={token as Tokens.Table} forceWidth={terminalWidth} />,
 				);
 				break;
 			}
@@ -394,21 +394,30 @@ export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix
 	return [<Text key={`${keyPrefix}-raw`} color={style?.color} italic={style?.italic}>{text}</Text>];
 }
 
-export function MarkdownContent({text, style}: {text: string; style?: MarkdownRenderStyle}): React.JSX.Element {
+export function MarkdownContent({
+	text,
+	style,
+	availableWidth,
+}: {
+	text: string;
+	style?: MarkdownRenderStyle;
+	availableWidth?: number;
+}): React.JSX.Element {
 	const theme = useTheme();
 	const {columns: terminalWidth} = useTerminalSize();
+	const contentWidth = Math.max(20, Math.min(availableWidth ?? terminalWidth, terminalWidth));
 	const elements = useMemo(() => {
 		if (!text.trim()) return [];
 		try {
 			const tokens = lexer(text);
-			return tokensToElements(tokens, theme, terminalWidth, style);
+			return tokensToElements(tokens, theme, contentWidth, style);
 		} catch {
 			return text.split('\n').map((line, i) => <Text key={`f-${i}`} color={style?.color} italic={style?.italic}>{line}</Text>);
 		}
-	}, [text, theme, terminalWidth, style]);
+	}, [text, theme, contentWidth, style]);
 
 	return (
-		<Box flexDirection="column">
+		<Box flexDirection="column" width={contentWidth}>
 			{elements}
 		</Box>
 	);

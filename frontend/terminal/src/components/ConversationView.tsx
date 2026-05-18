@@ -1,11 +1,13 @@
 import React, {useMemo} from 'react';
 import {Box, Static, Text} from 'ink';
 
+import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
+import {stringWidth, wrapText} from '../utils/markdown.js';
 import {renderAssistantText, stripThinkTags, extractThinkContent, hasThinkTags, stripToolCallArtifacts, mergeReasoning} from '../utils/thinking.js';
 import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
@@ -14,7 +16,8 @@ const MAX_RESULT_LINES = 2;
 const MAX_COMMAND_LINES = 2;
 const MAX_COMMAND_CHARS = 160;
 const STREAMING_TAIL_LINES = 10;
-const STREAMING_LINE_MAX_CHARS = 100;
+const MIN_WRAP_WIDTH = 12;
+const WIDTH_SAFETY_EXTRA = 2;
 
 export function ConversationView({
 	staticItems,
@@ -33,6 +36,7 @@ export function ConversationView({
 	commandPickerOpen?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
+	const {columns: terminalWidth} = useTerminalSize();
 	const filtered = useMemo(() => staticItems.filter((item) => {
 		if (!isEmptyItem(item)) {
 			if (item.role === 'user' && item.text.startsWith('/')) {
@@ -73,13 +77,13 @@ export function ConversationView({
 						return <WelcomeBanner key={key} language={language} />;
 					}
 					if (entry.type === 'tool_group') {
-						return <ToolGroupRow key={key} toolItem={entry.toolItem} resultItem={entry.resultItem} theme={theme} prevRole={prevRole} />;
+						return <ToolGroupRow key={key} toolItem={entry.toolItem} resultItem={entry.resultItem} theme={theme} prevRole={prevRole} terminalWidth={terminalWidth} />;
 					}
-					return <MessageRow key={key} item={entry.item} theme={theme} language={language} prevRole={prevRole} showThinking={showThinking} />;
+					return <MessageRow key={key} item={entry.item} theme={theme} language={language} prevRole={prevRole} showThinking={showThinking} terminalWidth={terminalWidth} />;
 				}}
 			</Static>
 
-			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme) : null}
+			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme, terminalWidth) : null}
 		</>
 	);
 }
@@ -155,27 +159,37 @@ function ToolGroupRow({
 	resultItem,
 	theme,
 	prevRole,
+	terminalWidth,
 }: {
 	toolItem: TranscriptItem;
 	resultItem: TranscriptItem | null;
 	theme: ThemeConfig;
 	prevRole?: string;
+	terminalWidth: number;
 }): React.JSX.Element {
 	const toolName = toolItem.tool_name ?? 'tool';
 	const summary = summarizeInput(toolName, toolItem.tool_input, toolItem.text);
 	const needsGap = prevRole !== undefined && prevRole !== 'tool' && prevRole !== 'tool_result';
+	const prefix = `${theme.icons.tool} `;
+	const continuationPrefix = ' '.repeat(stringWidth(prefix));
+	const content = summary ? `${toolName} (${summary})` : toolName;
+	const wrapped = wrapForPrefix(content, terminalWidth, prefix);
+	const continuationDim = Boolean(summary);
 
 	return (
 		<Box flexDirection="column" marginTop={needsGap ? 1 : 0}>
-			<Box>
-				<Text>
-					<Text color={theme.colors.info}>{theme.icons.tool} </Text>
-					<Text bold>{toolName}</Text>
-					{summary ? (
-						<Text dimColor>{' ('}{summary}{')'}</Text>
-					) : null}
-				</Text>
-			</Box>
+			{wrapped.map((line, i) => (
+				<Box key={i}>
+					{i === 0 ? (
+						<Text>
+							<Text color={theme.colors.info}>{prefix}</Text>
+							<Text bold>{line}</Text>
+						</Text>
+					) : (
+						<Text dimColor={continuationDim}>{continuationPrefix}{line}</Text>
+					)}
+				</Box>
+			))}
 		</Box>
 	);
 }
@@ -183,9 +197,11 @@ function ToolGroupRow({
 function ToolResultBlock({
 	item,
 	theme,
+	terminalWidth,
 }: {
 	item: TranscriptItem;
 	theme: ThemeConfig;
+	terminalWidth: number;
 }): React.JSX.Element {
 	const lines = item.text.split('\n').filter((l) => l.trim() !== '');
 	const truncated = lines.length > MAX_RESULT_LINES;
@@ -205,6 +221,11 @@ function ToolResultBlock({
 	const isError = item.is_error;
 	const icon = isError ? theme.icons.cross : theme.icons.check;
 	const iconColor = isError ? theme.colors.error : theme.colors.success;
+	const firstPrefix = `  ${theme.icons.resultPrefix} ${icon} `;
+	const firstPrefixText = `  ${theme.icons.resultPrefix} `;
+	const continuationPrefix = '      ';
+	const firstWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(firstPrefix) - WIDTH_SAFETY_EXTRA);
+	const continuationWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(continuationPrefix) - WIDTH_SAFETY_EXTRA);
 
 	return (
 		<Box flexDirection="column">
@@ -223,17 +244,25 @@ function ToolResultBlock({
 					lineColor = theme.colors.info;
 					lineDim = false;
 				}
+				const wrapped = wrapText(line, i === 0 ? firstWidth : continuationWidth, {hard: true});
 
 				return (
-					<Box key={i}>
-						<Text dimColor>{i === 0 ? `  ${theme.icons.resultPrefix} ` : '      '}</Text>
-						{i === 0 ? (
-							<Text color={iconColor}>{icon} </Text>
-						) : null}
-						<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
-							{line}
-						</Text>
-					</Box>
+					<React.Fragment key={i}>
+						{wrapped.map((segment, segIndex) => {
+							const showLeadingIcon = i === 0 && segIndex === 0;
+							return (
+								<Box key={`${i}-${segIndex}`}>
+									<Text dimColor>{showLeadingIcon ? firstPrefixText : continuationPrefix}</Text>
+									{showLeadingIcon ? (
+										<Text color={iconColor}>{icon} </Text>
+									) : null}
+									<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
+										{segment}
+									</Text>
+								</Box>
+							);
+						})}
+					</React.Fragment>
 				);
 			})}
 		</Box>
@@ -246,16 +275,21 @@ function MessageRow({
 	language,
 	prevRole,
 	showThinking = true,
+	terminalWidth,
 }: {
 	item: TranscriptItem;
 	theme: ThemeConfig;
 	language: UiLanguage;
 	prevRole?: string;
 	showThinking?: boolean;
+	terminalWidth: number;
 }): React.JSX.Element {
 	switch (item.role) {
 		case 'user': {
 			const needsDivider = prevRole !== 'user';
+			const prefix = `${theme.icons.pointer} `;
+			const continuationPrefix = ' '.repeat(stringWidth(prefix));
+			const wrapped = wrapForPrefix(item.text, terminalWidth, prefix);
 			return (
 				<Box flexDirection="column" marginTop={needsDivider ? 1 : 0}>
 					{needsDivider ? (
@@ -263,12 +297,18 @@ function MessageRow({
 							<Text color={theme.colors.text}>{' '}{'─'.repeat(60)}</Text>
 						</Box>
 					) : null}
-					<Box>
-						<Text>
-							<Text color={theme.colors.illusion}>{theme.icons.pointer}</Text>
-							<Text bold>{' '}{item.text}</Text>
-						</Text>
-					</Box>
+					{wrapped.map((line, i) => (
+						<Box key={i}>
+							{i === 0 ? (
+								<Text>
+									<Text color={theme.colors.illusion}>{theme.icons.pointer}</Text>
+									<Text bold>{' '}{line}</Text>
+								</Text>
+							) : (
+								<Text bold>{continuationPrefix}{line}</Text>
+							)}
+						</Box>
+					))}
 				</Box>
 			);
 		}
@@ -285,8 +325,8 @@ function MessageRow({
 				const reasoning = showThinking ? mergeReasoning(item.reasoning, thinkFromTags) : '';
 				return (
 					<Box flexDirection="column">
-						{reasoning ? renderReasoningBlock(reasoning, theme, t(language, 'reasoning')) : null}
-						{renderAssistantBlock(cleanText, theme)}
+						{reasoning ? renderReasoningBlock(reasoning, theme, t(language, 'reasoning'), terminalWidth) : null}
+						{renderAssistantBlock(cleanText, theme, terminalWidth)}
 					</Box>
 				);
 			}
@@ -311,7 +351,7 @@ function MessageRow({
 			}
 
 		case 'tool_result': {
-			return <ToolResultBlock item={item} theme={theme} />;
+			return <ToolResultBlock item={item} theme={theme} terminalWidth={terminalWidth} />;
 		}
 
 		case 'system': {
@@ -352,7 +392,7 @@ function MessageRow({
 	}
 }
 
-function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Element | null {
+function renderAssistantBlock(text: string, theme: ThemeConfig, terminalWidth: number): React.JSX.Element | null {
 	if (!text) return null;
 
 	const firstNewline = text.indexOf('\n');
@@ -376,7 +416,7 @@ function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Eleme
 			</Box>
 			{restText ? (
 				<Box marginLeft={2} flexDirection="column">
-					<MarkdownContent text={restText} />
+					<MarkdownContent text={restText} availableWidth={Math.max(MIN_WRAP_WIDTH, terminalWidth - 2 - WIDTH_SAFETY_EXTRA)} />
 				</Box>
 			) : null}
 		</Box>
@@ -384,7 +424,7 @@ function renderAssistantBlock(text: string, theme: ThemeConfig): React.JSX.Eleme
 }
 
 
-function renderReasoningBlock(text: string, theme: ThemeConfig, label: string): React.JSX.Element | null {
+function renderReasoningBlock(text: string, theme: ThemeConfig, label: string, terminalWidth: number): React.JSX.Element | null {
 	if (!text.trim()) return null;
 
 	return (
@@ -393,7 +433,11 @@ function renderReasoningBlock(text: string, theme: ThemeConfig, label: string): 
 				<Text color={theme.colors.muted}>● [{label}]：</Text>
 			</Box>
 			<Box marginLeft={2} flexDirection="column">
-				<MarkdownContent text={text} style={{color: theme.colors.muted}} />
+				<MarkdownContent
+					text={text}
+					style={{color: theme.colors.muted}}
+					availableWidth={Math.max(MIN_WRAP_WIDTH, terminalWidth - 2 - WIDTH_SAFETY_EXTRA)}
+				/>
 			</Box>
 		</Box>
 	);
@@ -403,6 +447,7 @@ function renderStreamingTail(
 	text: string,
 	grouped: GroupEntry[],
 	theme: ThemeConfig,
+	terminalWidth: number,
 ): React.JSX.Element {
 	// Filter empty lines to prevent showing golden ● with no text
 	const allLines = text.split('\n');
@@ -425,9 +470,9 @@ function renderStreamingTail(
 			) : null}
 			{tailLines.map((line, i) => {
 				const isFirst = i === 0 && showIcon;
-				const truncated = line.length > STREAMING_LINE_MAX_CHARS
-					? line.slice(0, STREAMING_LINE_MAX_CHARS) + '\u2026'
-					: line;
+				const prefixWidth = isFirst ? stringWidth(`${theme.icons.assistant} `) : 2;
+				const maxWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - prefixWidth - WIDTH_SAFETY_EXTRA);
+				const truncated = truncateToDisplayWidth(line, maxWidth);
 				return (
 					<Box key={i} marginLeft={isFirst ? 0 : 2}>
 						{isFirst ? (
@@ -445,6 +490,38 @@ function renderStreamingTail(
 			})}
 		</Box>
 	);
+}
+
+function wrapForPrefix(text: string, terminalWidth: number, prefix: string): string[] {
+	const availableWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(prefix) - WIDTH_SAFETY_EXTRA);
+	const sourceLines = text.split('\n');
+	const wrapped: string[] = [];
+	for (const source of sourceLines) {
+		const segments = wrapText(source, availableWidth, {hard: true});
+		if (segments.length === 0) {
+			wrapped.push('');
+			continue;
+		}
+		wrapped.push(...segments);
+	}
+	return wrapped.length > 0 ? wrapped : [''];
+}
+
+function truncateToDisplayWidth(text: string, maxWidth: number): string {
+	if (stringWidth(text) <= maxWidth) {
+		return text;
+	}
+	let result = '';
+	let width = 0;
+	for (const ch of text) {
+		const charWidth = stringWidth(ch);
+		if (width + charWidth > Math.max(1, maxWidth - 1)) {
+			break;
+		}
+		result += ch;
+		width += charWidth;
+	}
+	return result + '…';
 }
 
 function normalizeTextForCompare(raw: string): string {
