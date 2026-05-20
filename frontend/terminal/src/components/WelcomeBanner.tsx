@@ -27,10 +27,26 @@ export function WelcomeBanner({language}: {language?: string}): React.JSX.Elemen
 				<Text color={theme.colors.illusion} bold>{'  Illusion Code · AI Coding Assistant'}</Text>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
-				<Text dimColor>{`  ${theme.icons.pointer} `}<Text color={theme.colors.suggestion}>/help</Text>{' view all commands'}</Text>
-				<Text dimColor>{`  ${theme.icons.pointer} `}<Text color={theme.colors.suggestion}>/model</Text>{' switch model'}</Text>
-				<Text dimColor>{`  ${theme.icons.pointer} `}<Text color={theme.colors.suggestion}>/resume</Text>{' resume session'}</Text>
-				<Text dimColor>{`  ${theme.icons.pointer} `}<Text color={theme.colors.suggestion}>/language</Text>{' switch language'}</Text>
+				<Box>
+					<Text dimColor>{`  ${theme.icons.pointer} `}</Text>
+					<Text color={theme.colors.subtle}>/help</Text>
+					<Text dimColor>{' view all commands'}</Text>
+				</Box>
+				<Box>
+					<Text dimColor>{`  ${theme.icons.pointer} `}</Text>
+					<Text color={theme.colors.subtle}>/model</Text>
+					<Text dimColor>{' switch model'}</Text>
+				</Box>
+				<Box>
+					<Text dimColor>{`  ${theme.icons.pointer} `}</Text>
+					<Text color={theme.colors.subtle}>/resume</Text>
+					<Text dimColor>{' resume session'}</Text>
+				</Box>
+				<Box>
+					<Text dimColor>{`  ${theme.icons.pointer} `}</Text>
+					<Text color={theme.colors.subtle}>/language</Text>
+					<Text dimColor>{' switch language'}</Text>
+				</Box>
 			</Box>
 		</Box>
 	);
