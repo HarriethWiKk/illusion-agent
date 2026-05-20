@@ -56,7 +56,7 @@ export const defaultTheme: ThemeConfig = {
 		warning: 'yellow',
 		error: 'red',
 		info: '#89ddff',
-		illusion: '#d4a574',
+		illusion: '#e8c49a',
 		illusionShimmer: '#e8c49a',
 		text: 'white',
 		subtle: '#a8b2c1',
