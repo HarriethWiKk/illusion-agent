@@ -46,18 +46,25 @@ export function PromptInput({
 	inputRef.current = input;
 
 	// Ctrl+U 清空输入框，Ctrl+O 阻止输入框捕获
+	// 由于 React effect 提交顺序（子组件先于父组件），ink-text-input 的 useInput
+	// 比 PromptInput 的先注册，导致 Ctrl+U 时 ink-text-input 先插入 'u' 再触发 onChange，
+	// 此时 shouldClearRef 尚未设置。直接调用 setInput 并利用 React 18 批处理，
+	// 确保 setInput('') 覆盖 onChange 中的 setInput(valueWithU)。
 	useInput((chunk, key) => {
 		if (key.ctrl && chunk.toLowerCase() === 'u') {
-			// 标记需要清空，onChange 会检测到并清空
 			shouldClearRef.current = true;
+			setInput('');
+			// 微任务中重置标记，防止残留 flag 导致下次正常输入被误清空
+			Promise.resolve().then(() => { shouldClearRef.current = false; });
 		}
 		if (key.ctrl && chunk.toLowerCase() === 'o') {
-			// 标记需要抑制下一次 onChange，防止 'o' 出现在输入框
 			suppressNextChangeRef.current = true;
+			setInput(inputRef.current);
+			Promise.resolve().then(() => { suppressNextChangeRef.current = false; });
 		}
 	}, {isActive: !busy});
 
-	// 处理 onChange，拦截 Ctrl+U 导致的 'u' 输入和 Ctrl+O 导致的 'o' 输入
+	// 处理 onChange，拦截 Ctrl+U/Ctrl+O 产生的多余字符
 	const handleChange = useCallback((value: string) => {
 		if (shouldClearRef.current) {
 			shouldClearRef.current = false;
