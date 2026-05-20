@@ -326,7 +326,7 @@ function MessageRow({
 				return (
 					<Box flexDirection="column">
 						{reasoning ? renderReasoningBlock(reasoning, theme, t(language, 'reasoning'), terminalWidth) : null}
-						{renderAssistantBlock(cleanText, theme, terminalWidth)}
+						{renderAssistantBlock(cleanText, theme, terminalWidth, t(language, 'assistantReply'))}
 					</Box>
 				);
 			}
@@ -392,33 +392,20 @@ function MessageRow({
 	}
 }
 
-function renderAssistantBlock(text: string, theme: ThemeConfig, terminalWidth: number): React.JSX.Element | null {
+function renderAssistantBlock(text: string, theme: ThemeConfig, terminalWidth: number, label: string): React.JSX.Element | null {
 	if (!text) return null;
-
-	const firstNewline = text.indexOf('\n');
-	const firstLine = firstNewline >= 0 ? text.slice(0, firstNewline) : text;
-	const restText = firstNewline >= 0 ? text.slice(firstNewline + 1) : '';
-
-	// Strip heading markers (## etc.) from first line for inline rendering with ●
-	const headingMatch = firstLine.match(/^#{1,6}\s+(.+)$/);
 
 	return (
 		<Box marginTop={1} flexDirection="column">
 			<Box>
 				<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
 				<Box marginLeft={1} flexGrow={1}>
-					{headingMatch ? (
-						<Text bold color={theme.colors.highlight}>{headingMatch[1]}</Text>
-					) : (
-						<Text>{renderInlineMarkdown(firstLine, theme, 'fl')}</Text>
-					)}
+					<Text color={theme.colors.illusion}>{'[' + label + ']'}</Text>
 				</Box>
 			</Box>
-			{restText ? (
-				<Box marginLeft={2} flexDirection="column">
-					<MarkdownContent text={restText} availableWidth={Math.max(MIN_WRAP_WIDTH, terminalWidth - 2 - WIDTH_SAFETY_EXTRA)} />
-				</Box>
-			) : null}
+			<Box marginLeft={2} flexDirection="column">
+				<MarkdownContent text={text} availableWidth={Math.max(MIN_WRAP_WIDTH, terminalWidth - 2 - WIDTH_SAFETY_EXTRA)} />
+			</Box>
 		</Box>
 	);
 }
@@ -430,7 +417,7 @@ function renderReasoningBlock(text: string, theme: ThemeConfig, label: string, t
 	return (
 		<Box marginTop={1} flexDirection="column">
 			<Box>
-				<Text color={theme.colors.muted}>● [{label}]：</Text>
+				<Text color={theme.colors.muted}>● [{label}]</Text>
 			</Box>
 			<Box marginLeft={2} flexDirection="column">
 				<MarkdownContent

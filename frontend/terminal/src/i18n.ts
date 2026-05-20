@@ -28,6 +28,7 @@ const ZH: Dict = {
 	clearInput: '清空输入',
 	taskStopped: '当前任务已停止。',
 	reasoning: '思考过程',
+	assistantReply: '助手回复',
 };
 
 const EN: Dict = {
@@ -56,6 +57,7 @@ const EN: Dict = {
 	clearInput: 'clear input',
 	taskStopped: 'Current task stopped.',
 	reasoning: 'Thinking',
+	assistantReply: 'Response',
 };
 
 const ALL: Record<UiLanguage, Dict> = {
