@@ -400,7 +400,7 @@ function renderAssistantBlock(text: string, theme: ThemeConfig, terminalWidth: n
 			<Box>
 				<Text color={theme.colors.illusion}>{theme.icons.assistant}</Text>
 				<Box marginLeft={1} flexGrow={1}>
-					<Text color={theme.colors.illusion}>{'[' + label + ']'}</Text>
+					<Text>{'(' + label + ')'}</Text>
 				</Box>
 			</Box>
 			<Box marginLeft={2} flexDirection="column">
@@ -417,7 +417,7 @@ function renderReasoningBlock(text: string, theme: ThemeConfig, label: string, t
 	return (
 		<Box marginTop={1} flexDirection="column">
 			<Box>
-				<Text color={theme.colors.muted}>● [{label}]</Text>
+				<Text color={theme.colors.muted}>● ({label})</Text>
 			</Box>
 			<Box marginLeft={2} flexDirection="column">
 				<MarkdownContent
