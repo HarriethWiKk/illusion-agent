@@ -10,7 +10,7 @@ function AutoModeIndicator(): React.JSX.Element {
 	const theme = useTheme();
 	return (
 		<Box marginLeft={1}>
-			<Text backgroundColor={theme.colors.success} color={theme.colors.background} bold>
+			<Text backgroundColor={theme.colors.illusion} color={theme.colors.background} bold>
 				{' AUTO '}
 			</Text>
 		</Box>
@@ -41,8 +41,8 @@ function TaskIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	return (
 		<Box>
-			<Text color={theme.colors.info}>{theme.icons.inProgress}</Text>
-			<Text color={theme.colors.info}> {count} task{count !== 1 ? 's' : ''}</Text>
+			<Text color={theme.colors.illusion}>{theme.icons.inProgress}</Text>
+			<Text color={theme.colors.illusion}> {count} task{count !== 1 ? 's' : ''}</Text>
 		</Box>
 	);
 }
@@ -51,7 +51,7 @@ function McpIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	return (
 		<Box>
-			<Text color={theme.colors.permission}> · {count} MCP</Text>
+			<Text color={theme.colors.illusion}> · {count} MCP</Text>
 		</Box>
 	);
 }
@@ -71,7 +71,7 @@ function AgentIndicator({count}: {count: number}): React.JSX.Element {
 
 	return (
 		<Box>
-			<Text color={theme.colors.permission}> · {count} agent{count !== 1 ? 's' : ''}</Text>
+			<Text color={theme.colors.illusion}> · {count} agent{count !== 1 ? 's' : ''}</Text>
 		</Box>
 	);
 }
@@ -104,19 +104,19 @@ export function StatusBar({
 				<Text color={theme.colors.illusion}>{model}</Text>
 				{(inputTokens > 0 || outputTokens > 0) ? (
 					<>
-						<Text dimColor>{SEP}</Text>
-						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.muted} />
+						<Text color={theme.colors.illusion}>{SEP}</Text>
+						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} />
 					</>
 				) : null}
 				{mode !== 'default' ? (
 					<>
-						<Text dimColor>{SEP}</Text>
-						<Text dimColor>{mode}</Text>
+						<Text color={theme.colors.illusion}>{SEP}</Text>
+						<Text color={theme.colors.illusion}>{mode}</Text>
 					</>
 				) : null}
 				{taskCount > 0 ? (
 					<>
-						<Text dimColor>{SEP}</Text>
+						<Text color={theme.colors.illusion}>{SEP}</Text>
 						<TaskIndicator count={taskCount} />
 					</>
 				) : null}
