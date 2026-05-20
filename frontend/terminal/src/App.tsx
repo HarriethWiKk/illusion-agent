@@ -592,6 +592,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+u</Text> {t(language, 'clearInput')}
+						<Text> {theme.icons.middleDot} </Text>
+						<Text color={theme.colors.muted}>ctrl+j</Text> {t(language, 'newline')}
 					</Text>
 				</Box>
 			) : session.ready && session.busy && !session.modal && !selectModal ? (
