@@ -12,10 +12,10 @@ function noop(): void {}
 
 function sanitizeInput(value: string): string {
 	// 将多行文本转为单行：换行符替换为空格，并清理多余空格
+	// 注意：不在输入阶段 trim，避免 ink-text-input 的 cursorOffset 与实际值不同步
 	return value
 		.replace(/[\r\n]+/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
+		.replace(/\s+/g, ' ');
 }
 
 export function PromptInput({
@@ -25,6 +25,7 @@ export function PromptInput({
 	onSubmit,
 	toolName,
 	suppressSubmit,
+	cursorReset,
 	language,
 	todoItems,
 }: {
@@ -34,6 +35,7 @@ export function PromptInput({
 	onSubmit: (value: string) => void;
 	toolName?: string;
 	suppressSubmit?: boolean;
+	cursorReset?: number;
 	language: UiLanguage;
 	todoItems?: TodoItemSnapshot[];
 }): React.JSX.Element {
@@ -79,6 +81,7 @@ export function PromptInput({
 			) : null}
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>
 				<TextInput
+					key={cursorReset ?? 0}
 					value={input}
 					onChange={handleChange}
 					onSubmit={suppressSubmit ? noop : onSubmit}

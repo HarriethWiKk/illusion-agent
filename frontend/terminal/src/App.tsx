@@ -67,6 +67,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [selectIndex, setSelectIndex] = useState(0);
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
+	const [cursorReset, setCursorReset] = useState(0);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
@@ -398,6 +399,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				const selected = commandHints[pickerIndex];
 				if (selected) {
 					setInput('');
+					setCursorReset((c) => c + 1);
 					if (!handleCommand(selected)) {
 						onSubmit(selected);
 					}
@@ -408,11 +410,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				const selected = commandHints[pickerIndex];
 				if (selected) {
 					setInput(selected + ' ');
+					setCursorReset((c) => c + 1);
 				}
 				return;
 			}
 			if (key.escape) {
 				setInput('');
+				setCursorReset((c) => c + 1);
 				return;
 			}
 		}
@@ -432,15 +436,16 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			setModalInput('');
 			return;
 		}
-		if (!value.trim() || session.busy || !session.ready) {
+		const trimmed = value.trim();
+		if (!trimmed || session.busy || !session.ready) {
 			return;
 		}
 		// Check if it's an interactive command
-		if (handleCommand(value)) {
+		if (handleCommand(trimmed)) {
 			setInput('');
 			return;
 		}
-		session.sendRequest({type: 'submit_line', line: value});
+		session.sendRequest({type: 'submit_line', line: trimmed});
 		setInput('');
 		session.setBusy(true);
 	};
@@ -568,6 +573,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					onSubmit={onSubmit}
 					toolName={session.busy ? currentToolName : undefined}
 					suppressSubmit={showPicker}
+					cursorReset={cursorReset}
 					language={language}
 					todoItems={session.todoItems}
 				/>
