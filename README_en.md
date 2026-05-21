@@ -34,17 +34,19 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 ### Interface Preview
 
-Welcome screen:
+<div align="center">
+  <p>Welcome screen & rich text rendering</p>
+  <img src="docs/images/image1.png" alt="IllusionCode welcome screen" width="48%" />
+  <img src="docs/images/image2.png" alt="IllusionCode rich text rendering" width="48%" />
+</div>
 
-![IllusionCode welcome screen](docs/images/image1.png)
-
-Rich text rendering:
-
-![IllusionCode rich text rendering](docs/images/image2.png)
-
-Demo video:
-
-<video controls src="docs/videos/demonstration.mp4" width="720"></video>
+<div align="center">
+  <p>Demo video</p>
+  <video controls width="720">
+    <source src="docs/videos/demonstration.mp4" type="video/mp4" />
+  </video>
+  <p>Video link (fallback): <a href="docs/videos/demonstration.mp4">docs/videos/demonstration.mp4</a></p>
+</div>
 
 ### Design Origins & Innovations
 

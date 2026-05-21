@@ -34,17 +34,19 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 ### 界面展示
 
-欢迎界面：
+<div align="center">
+  <p>欢迎界面 & 富文本渲染</p>
+  <img src="docs/images/image1.png" alt="IllusionCode 欢迎界面" width="48%" />
+  <img src="docs/images/image2.png" alt="IllusionCode 富文本渲染" width="48%" />
+</div>
 
-![IllusionCode 欢迎界面](docs/images/image1.png)
-
-富文本渲染：
-
-![IllusionCode 富文本渲染](docs/images/image2.png)
-
-演示视频：
-
-<video controls src="docs/videos/demonstration.mp4" width="720"></video>
+<div align="center">
+  <p>演示视频</p>
+  <video controls width="720">
+    <source src="docs/videos/demonstration.mp4" type="video/mp4" />
+  </video>
+  <p>视频链接（回退）：<a href="docs/videos/demonstration.mp4">docs/videos/demonstration.mp4</a></p>
+</div>
 
 ### 设计来源与创新
 
