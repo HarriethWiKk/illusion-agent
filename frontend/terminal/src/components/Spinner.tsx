@@ -59,11 +59,11 @@ export function Spinner({label, todoItems, language, toolName, sessionId}: {labe
 		<Box flexDirection="column">
 			<Box>
 				<Box width={2}>
-					<Text color={theme.colors.illusion}>{frames[frame]}</Text>
+					<Text color={theme.colors.illusionShimmer}>{frames[frame]}</Text>
 				</Box>
 				<Text color={theme.colors.illusionShimmer}>{verb}</Text>
 				<Box width={5}>
-					<Text color={theme.colors.muted}> {dots}</Text>
+					<Text color={theme.colors.illusionShimmer}> {dots}</Text>
 				</Box>
 				{sessionId ? <Text color={theme.colors.muted} dimColor>(SESSION ID = {sessionId})</Text> : null}
 			</Box>
