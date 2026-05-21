@@ -42,10 +42,10 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 <div align="center">
   <p>演示视频</p>
-  <video controls width="720">
-    <source src="docs/videos/demonstration.mp4" type="video/mp4" />
-  </video>
-  <p>视频链接（回退）：<a href="docs/videos/demonstration.mp4">docs/videos/demonstration.mp4</a></p>
+  <a href="https://www.bilibili.com/video/BV1f7LJ64ELi">
+    <img src="docs/images/image1.png" alt="点击观看演示视频" width="720" />
+  </a>
+  <p><a href="https://www.bilibili.com/video/BV1f7LJ64ELi">📺 B站观看演示视频</a></p>
 </div>
 
 ### 设计来源与创新
