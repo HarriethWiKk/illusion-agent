@@ -32,6 +32,20 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 💾 **记忆与上下文** - 项目知识持久化与动态检索
 - 🎨 **现代终端界面** - React + Ink 组件化 TUI
 
+### 界面展示
+
+欢迎界面：
+
+![IllusionCode 欢迎界面](docs/images/image1.png)
+
+富文本渲染：
+
+![IllusionCode 富文本渲染](docs/images/image2.png)
+
+演示视频：
+
+<video controls src="docs/videos/demonstration.mp4" width="720"></video>
+
 ### 设计来源与创新
 
 **继承自 Claude Code**：完整注入 Claude Code 的系统提示词、工具定义、权限模型和多智能体协调架构，确保行为一致性。

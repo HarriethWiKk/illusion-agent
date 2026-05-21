@@ -32,6 +32,20 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
 - 🎨 **Modern Terminal Interface** - React + Ink component-based TUI
 
+### Interface Preview
+
+Welcome screen:
+
+![IllusionCode welcome screen](docs/images/image1.png)
+
+Rich text rendering:
+
+![IllusionCode rich text rendering](docs/images/image2.png)
+
+Demo video:
+
+<video controls src="docs/videos/demonstration.mp4" width="720"></video>
+
 ### Design Origins & Innovations
 
 **Inherited from Claude Code**: Complete injection of Claude Code's system prompts, tool definitions, permission model, and multi-agent coordination architecture, ensuring behavioral consistency.
