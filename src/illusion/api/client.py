@@ -330,7 +330,7 @@ class AnthropicApiClient:
         # 构建请求参数
         params: dict[str, Any] = {
             "model": request.model,
-            "messages": [message.to_api_param() for message in request.messages],
+            "messages": [message.to_api_param(provider_type="anthropic") for message in request.messages],
             "max_tokens": request.max_tokens,
         }
         # 添加系统提示词

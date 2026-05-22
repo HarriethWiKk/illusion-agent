@@ -140,18 +140,48 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
     for msg in messages:
         if msg.role == "user":
             text = "".join(block.text for block in msg.content if isinstance(block, TextBlock))
-            if text.strip():
+            media_blocks = [b for b in msg.content if isinstance(b, MediaBlock)]
+            if text.strip() or media_blocks:
+                parts = []
+                if text.strip():
+                    parts.append({"type": "input_text", "text": text})
+                for mb in media_blocks:
+                    if mb.category == "image":
+                        parts.append({
+                            "type": "input_image",
+                            "image_url": f"data:{mb.media_type};base64,{mb.data}",
+                        })
+                    else:
+                        parts.append({
+                            "type": "input_text",
+                            "text": f"[{mb.category} file: {mb.file_path}] This model does not support {mb.category} input",
+                        })
                 result.append({
                     "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
+                    "content": parts,
                 })
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
-                    result.append({
-                        "type": "function_call_output",
-                        "call_id": block.tool_use_id,
-                        "output": block.text_content,
-                    })
+                    if isinstance(block.content, list):
+                        for inner in block.content:
+                            if isinstance(inner, TextBlock):
+                                result.append({
+                                    "type": "function_call_output",
+                                    "call_id": block.tool_use_id,
+                                    "output": inner.text,
+                                })
+                            elif isinstance(inner, MediaBlock):
+                                result.append({
+                                    "type": "function_call_output",
+                                    "call_id": block.tool_use_id,
+                                    "output": f"[{inner.category} file: {inner.file_path}]",
+                                })
+                    else:
+                        result.append({
+                            "type": "function_call_output",
+                            "call_id": block.tool_use_id,
+                            "output": block.text_content,
+                        })
             continue
 
         assistant_text = "".join(block.text for block in msg.content if isinstance(block, TextBlock))
