@@ -114,6 +114,28 @@ class MediaBlock(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+def _build_tool_result_content(
+    output: str,
+    metadata: dict[str, Any],
+) -> str | list[ContentBlock]:
+    """从工具输出和元数据构建 ToolResultBlock 的内容。
+
+    如果元数据中包含媒体信息，返回包含 MediaBlock 的列表；
+    否则返回原始文本。
+    """
+    if "media_category" not in metadata:
+        return output
+
+    media_block = MediaBlock(
+        file_path=metadata.get("media_path", ""),
+        media_type=metadata.get("media_type", "application/octet-stream"),
+        category=metadata["media_category"],
+        data=metadata.get("media_data", ""),
+        metadata={"size": metadata.get("media_size", 0)},
+    )
+    return [media_block]
+
+
 # 内容块联合类型
 ContentBlock = Annotated[
     TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock,

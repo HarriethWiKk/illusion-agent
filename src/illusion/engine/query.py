@@ -34,7 +34,7 @@ from illusion.api.client import (
     SupportsStreamingMessages,
 )
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, ToolResultBlock
+from illusion.engine.messages import ConversationMessage, ToolResultBlock, _build_tool_result_content
 from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -349,7 +349,7 @@ async def _execute_tool_call(
     )
     tool_result = ToolResultBlock(
         tool_use_id=tool_use_id,
-        content=result.output,
+        content=_build_tool_result_content(result.output, result.metadata),
         is_error=result.is_error,
     )
     # 执行后工具钩子

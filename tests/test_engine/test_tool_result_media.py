@@ -5,6 +5,7 @@ from illusion.engine.messages import (
     MediaBlock,
     TextBlock,
     ToolResultBlock,
+    _build_tool_result_content,
     serialize_content_block,
 )
 
@@ -94,3 +95,25 @@ def test_tool_result_block_default_content():
     block = ToolResultBlock(tool_use_id="toolu_123")
     assert block.content == ""
     assert block.text_content == ""
+
+
+def test_build_tool_result_content_with_media():
+    metadata = {
+        "media_category": "image",
+        "media_type": "image/png",
+        "media_data": "iVBOR...",
+        "media_path": "/tmp/test.png",
+        "media_size": 1024,
+    }
+    content = _build_tool_result_content("[image file: /tmp/test.png (1.0 KB, image/png)]", metadata)
+    assert isinstance(content, list)
+    assert len(content) == 1
+    assert isinstance(content[0], MediaBlock)
+    assert content[0].category == "image"
+    assert content[0].data == "iVBOR..."
+
+
+def test_build_tool_result_content_without_media():
+    metadata = {}
+    content = _build_tool_result_content("hello world", metadata)
+    assert content == "hello world"
