@@ -120,7 +120,7 @@ def _build_tool_result_content(
 ) -> str | list[ContentBlock]:
     """从工具输出和元数据构建 ToolResultBlock 的内容。
 
-    如果元数据中包含媒体信息，返回包含 MediaBlock 的列表；
+    如果元数据中包含媒体信息，返回 TextBlock + MediaBlock 的列表；
     否则返回原始文本。
     """
     if "media_category" not in metadata:
@@ -133,7 +133,7 @@ def _build_tool_result_content(
         data=metadata.get("media_data", ""),
         metadata={"size": metadata.get("media_size", 0)},
     )
-    return [media_block]
+    return [TextBlock(text=output), media_block]
 
 
 # 内容块联合类型

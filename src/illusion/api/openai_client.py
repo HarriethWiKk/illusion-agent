@@ -150,21 +150,26 @@ def _convert_messages_to_openai(
 
             if tool_results:
                 # 每个 tool result 成为独立的 role="tool" 消息
+                # 注意：OpenAI tool 消息只接受字符串 content，不支持图片
+                # 如果 tool result 包含媒体，额外生成一条 user 消息携带媒体
                 for tr in tool_results:
                     if isinstance(tr.content, list):
-                        openai_parts = []
-                        for inner in tr.content:
-                            if isinstance(inner, TextBlock):
-                                openai_parts.append({"type": "text", "text": inner.text})
-                            elif isinstance(inner, MediaBlock):
-                                openai_parts.append(
-                                    _serialize_media_for_openai(inner)
-                                )
+                        # 提取文本和媒体部分
+                        tr_media = [b for b in tr.content if isinstance(b, MediaBlock)]
                         openai_messages.append({
                             "role": "tool",
                             "tool_call_id": tr.tool_use_id,
-                            "content": openai_parts,
+                            "content": tr.text_content,
                         })
+                        # 媒体内容通过独立的 user 消息传递
+                        if tr_media:
+                            media_parts: list[dict[str, Any]] = []
+                            for mb in tr_media:
+                                media_parts.append(_serialize_media_for_openai(mb))
+                            openai_messages.append({
+                                "role": "user",
+                                "content": media_parts,
+                            })
                     else:
                         openai_messages.append({
                             "role": "tool",

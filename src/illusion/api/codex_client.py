@@ -162,26 +162,13 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
                 })
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
-                    if isinstance(block.content, list):
-                        for inner in block.content:
-                            if isinstance(inner, TextBlock):
-                                result.append({
-                                    "type": "function_call_output",
-                                    "call_id": block.tool_use_id,
-                                    "output": inner.text,
-                                })
-                            elif isinstance(inner, MediaBlock):
-                                result.append({
-                                    "type": "function_call_output",
-                                    "call_id": block.tool_use_id,
-                                    "output": f"[{inner.category} file: {inner.file_path}]",
-                                })
-                    else:
-                        result.append({
-                            "type": "function_call_output",
-                            "call_id": block.tool_use_id,
-                            "output": block.text_content,
-                        })
+                    # Codex function_call_output 只接受字符串，不支持媒体
+                    # 始终使用 text_content，不传 base64 数据
+                    result.append({
+                        "type": "function_call_output",
+                        "call_id": block.tool_use_id,
+                        "output": block.text_content,
+                    })
             continue
 
         assistant_text = "".join(block.text for block in msg.content if isinstance(block, TextBlock))

@@ -107,10 +107,12 @@ def test_build_tool_result_content_with_media():
     }
     content = _build_tool_result_content("[image file: /tmp/test.png (1.0 KB, image/png)]", metadata)
     assert isinstance(content, list)
-    assert len(content) == 1
-    assert isinstance(content[0], MediaBlock)
-    assert content[0].category == "image"
-    assert content[0].data == "iVBOR..."
+    assert len(content) == 2
+    assert isinstance(content[0], TextBlock)
+    assert "[image file:" in content[0].text
+    assert isinstance(content[1], MediaBlock)
+    assert content[1].category == "image"
+    assert content[1].data == "iVBOR..."
 
 
 def test_build_tool_result_content_without_media():
