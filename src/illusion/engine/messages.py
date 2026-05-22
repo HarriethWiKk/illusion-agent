@@ -57,14 +57,27 @@ class ToolResultBlock(BaseModel):
     Attributes:
         type: 块类型（固定为 "tool_result"）
         tool_use_id: 对应的工具调用 ID
-        content: 工具返回的内容
+        content: 工具返回的内容（纯文本或内容块列表）
         is_error: 是否为错误结果
     """
 
     type: Literal["tool_result"] = "tool_result"
     tool_use_id: str
-    content: str
+    content: str | list[ContentBlock] = ""
     is_error: bool = False
+
+    @property
+    def text_content(self) -> str:
+        """返回纯文本内容。
+
+        Returns:
+            str: 文本字符串（content 为列表时提取 TextBlock 的文本）
+        """
+        if isinstance(self.content, str):
+            return self.content
+        return "".join(
+            block.text for block in self.content if isinstance(block, TextBlock)
+        )
 
 
 class ThinkingBlock(BaseModel):
@@ -205,10 +218,18 @@ def serialize_content_block(block: ContentBlock, *, provider_type: str = "anthro
     if isinstance(block, MediaBlock):
         return _serialize_media_block(block, provider_type)
 
+    # tool_result
+    if isinstance(block.content, list):
+        serialized_content = [
+            serialize_content_block(inner, provider_type=provider_type)
+            for inner in block.content
+        ]
+    else:
+        serialized_content = block.content
     return {
         "type": "tool_result",
         "tool_use_id": block.tool_use_id,
-        "content": block.content,
+        "content": serialized_content,
         "is_error": block.is_error,
     }
 

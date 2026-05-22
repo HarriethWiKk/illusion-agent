@@ -43,6 +43,7 @@ from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import (
     ContentBlock,
     ConversationMessage,
+    MediaBlock,
     ThinkingBlock,
     TextBlock,
     ToolResultBlock,
@@ -149,7 +150,7 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
                     result.append({
                         "type": "function_call_output",
                         "call_id": block.tool_use_id,
-                        "output": block.content,
+                        "output": block.text_content,
                     })
             continue
 

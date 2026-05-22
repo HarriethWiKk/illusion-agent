@@ -51,6 +51,7 @@ from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import (
     ConversationMessage,
     ContentBlock,
+    MediaBlock,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -64,6 +65,25 @@ log = logging.getLogger(__name__)
 MAX_RETRIES = 3  # 最大重试次数
 BASE_DELAY = 1.0  # 基础延迟（秒）
 MAX_DELAY = 30.0  # 最大延迟（秒）
+
+
+def _serialize_media_for_openai(block: MediaBlock) -> dict[str, Any]:
+    """将 MediaBlock 转换为 OpenAI 消息内容部分。"""
+    if block.category == "image":
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
+        }
+    if block.category == "audio":
+        fmt = block.media_type.split("/")[-1]
+        if fmt == "mpeg":
+            fmt = "mp3"
+        return {"type": "input_audio", "input_audio": {"data": block.data, "format": fmt}}
+    # video — 以 image_url 方式传递
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
+    }
 
 
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -123,23 +143,46 @@ def _convert_messages_to_openai(
             openai_msg = _convert_assistant_message(msg)
             openai_messages.append(openai_msg)
         elif msg.role == "user":
-            # 用户消息可能包含文本或 tool_result blocks
+            # 用户消息可能包含文本、tool_result 或 media blocks
             tool_results = [b for b in msg.content if isinstance(b, ToolResultBlock)]
             text_blocks = [b for b in msg.content if isinstance(b, TextBlock)]
+            media_blocks = [b for b in msg.content if isinstance(b, MediaBlock)]
 
             if tool_results:
                 # 每个 tool result 成为独立的 role="tool" 消息
                 for tr in tool_results:
-                    openai_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tr.tool_use_id,
-                        "content": tr.content,
-                    })
-            if text_blocks:
+                    if isinstance(tr.content, list):
+                        openai_parts = []
+                        for inner in tr.content:
+                            if isinstance(inner, TextBlock):
+                                openai_parts.append({"type": "text", "text": inner.text})
+                            elif isinstance(inner, MediaBlock):
+                                openai_parts.append(
+                                    _serialize_media_for_openai(inner)
+                                )
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tr.tool_use_id,
+                            "content": openai_parts,
+                        })
+                    else:
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tr.tool_use_id,
+                            "content": tr.content,
+                        })
+            if text_blocks or media_blocks:
                 text = "".join(b.text for b in text_blocks)
-                if text.strip():
+                if media_blocks:
+                    parts: list[dict[str, Any]] = []
+                    if text.strip():
+                        parts.append({"type": "text", "text": text})
+                    for mb in media_blocks:
+                        parts.append(_serialize_media_for_openai(mb))
+                    openai_messages.append({"role": "user", "content": parts})
+                elif text.strip():
                     openai_messages.append({"role": "user", "content": text})
-            if not tool_results and not text_blocks:
+            if not tool_results and not text_blocks and not media_blocks:
                 # 空用户消息（不应发生，但需优雅处理）
                 openai_messages.append({"role": "user", "content": ""})
 
@@ -463,10 +506,18 @@ class OpenAICompatibleClient:
                     })
             elif role == "tool":
                 # tool 结果消息 → function_call_output item
+                if isinstance(content, list):
+                    text_parts = [
+                        p.get("text", "") for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    ]
+                    output = " ".join(text_parts) if text_parts else json.dumps(content, ensure_ascii=False)
+                else:
+                    output = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
                 items.append({
                     "type": "function_call_output",
                     "call_id": msg.get("tool_call_id", ""),
-                    "output": content if isinstance(content, str) else json.dumps(content, ensure_ascii=False),
+                    "output": output,
                 })
             else:
                 # user / assistant 纯文本消息

@@ -217,7 +217,7 @@ async def run_query(
             result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
             yield ToolExecutionCompleted(
                 tool_name=tc.name,
-                output=result.content,
+                output=result.text_content,
                 is_error=result.is_error,
             ), None
             tool_results = [result]
@@ -236,7 +236,7 @@ async def run_query(
             for tc, result in zip(tool_calls, tool_results):
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
-                    output=result.content,
+                    output=result.text_content,
                     is_error=result.is_error,
                 ), None
 
@@ -359,7 +359,7 @@ async def _execute_tool_call(
             {
                 "tool_name": tool_name,
                 "tool_input": tool_input,
-                "tool_output": tool_result.content,
+                "tool_output": tool_result.text_content,
                 "tool_is_error": tool_result.is_error,
                 "event": HookEvent.POST_TOOL_USE.value,
             },
