@@ -32,7 +32,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ProviderSpec:
     """LLM 提供商元数据
-    
+
     Attributes:
         name: 规范名称，如 "dashscope"
         keywords: 模型名称关键字元组，用于检测（小写）
@@ -45,6 +45,9 @@ class ProviderSpec:
         is_gateway: 是否为网关（OpenRouter、AiHubMix 等）
         is_local: 是否为本地部署（vLLM、Ollama）
         is_oauth: 是否使用 OAuth 而非 API 密钥
+        supports_image: 是否支持图片输入
+        supports_video: 是否支持视频输入
+        supports_audio: 是否支持音频输入
     """
     name: str
     keywords: tuple[str, ...]
@@ -57,6 +60,9 @@ class ProviderSpec:
     is_gateway: bool
     is_local: bool
     is_oauth: bool
+    supports_image: bool = True
+    supports_video: bool = False
+    supports_audio: bool = False
 
     @property
     def label(self) -> str:
@@ -183,6 +189,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=False,
         is_local=False,
         is_oauth=False,
+        supports_audio=True,
     ),
     # DeepSeek
     ProviderSpec(
