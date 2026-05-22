@@ -81,9 +81,29 @@ class ThinkingBlock(BaseModel):
     signature: str = ""
 
 
+class MediaBlock(BaseModel):
+    """媒体文件内容块（图片/视频/音频）。
+
+    Attributes:
+        type: 块类型（固定为 "media"）
+        file_path: 文件绝对路径
+        media_type: MIME 类型，如 "image/png"
+        category: 媒体类别
+        data: base64 编码的文件数据
+        metadata: 额外信息（文件大小等）
+    """
+
+    type: Literal["media"] = "media"
+    file_path: str
+    media_type: str
+    category: Literal["image", "video", "audio"]
+    data: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 # 内容块联合类型
 ContentBlock = Annotated[
-    TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock,
+    TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock,
     Field(discriminator="type"),
 ]
 
@@ -140,24 +160,28 @@ class ConversationMessage(BaseModel):
             if isinstance(block, ThinkingBlock) and block.thinking.strip()
         )
 
-    def to_api_param(self) -> dict[str, Any]:
-        """将消息转换为 Anthropic SDK 消息参数
-        
+    def to_api_param(self, *, provider_type: str = "anthropic") -> dict[str, Any]:
+        """将消息转换为提供商 SDK 消息参数。
+
+        Args:
+            provider_type: 提供商类型
+
         Returns:
             dict[str, Any]: API 参数格式的字典
         """
         return {
             "role": self.role,
-            "content": [serialize_content_block(block) for block in self.content],
+            "content": [serialize_content_block(block, provider_type=provider_type) for block in self.content],
         }
 
 
-def serialize_content_block(block: ContentBlock) -> dict[str, Any]:
-    """将本地内容块转换为提供商线格式
-    
+def serialize_content_block(block: ContentBlock, *, provider_type: str = "anthropic") -> dict[str, Any]:
+    """将本地内容块转换为提供商线格式。
+
     Args:
         block: 内容块
-    
+        provider_type: 提供商类型（"anthropic"、"openai_compat"、"openai_codex"）
+
     Returns:
         dict[str, Any]: 线格式字典
     """
@@ -178,11 +202,63 @@ def serialize_content_block(block: ContentBlock) -> dict[str, Any]:
             result["signature"] = block.signature
         return result
 
+    if isinstance(block, MediaBlock):
+        return _serialize_media_block(block, provider_type)
+
     return {
         "type": "tool_result",
         "tool_use_id": block.tool_use_id,
         "content": block.content,
         "is_error": block.is_error,
+    }
+
+
+def _format_fallback_text(block: MediaBlock) -> str:
+    """生成不支持时的降级文本描述。"""
+    size_str = f", size: {block.metadata['size']} bytes" if "size" in block.metadata else ""
+    return f"[{block.category} file: {block.file_path}{size_str}] This model does not support {block.category} input"
+
+
+def _serialize_media_block(block: MediaBlock, provider_type: str) -> dict[str, Any]:
+    """将 MediaBlock 按提供商格式序列化。"""
+    if block.category == "image":
+        return _serialize_image_block(block, provider_type)
+    if block.category == "audio":
+        if provider_type == "openai_compat":
+            fmt = block.media_type.split("/")[-1]
+            if fmt == "mpeg":
+                fmt = "mp3"
+            return {"type": "input_audio", "input_audio": {"data": block.data, "format": fmt}}
+        return {"type": "text", "text": _format_fallback_text(block)}
+    # video
+    if provider_type == "openai_compat":
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
+        }
+    return {"type": "text", "text": _format_fallback_text(block)}
+
+
+def _serialize_image_block(block: MediaBlock, provider_type: str) -> dict[str, Any]:
+    """将图片 MediaBlock 按提供商格式序列化。"""
+    if provider_type == "anthropic":
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": block.media_type,
+                "data": block.data,
+            },
+        }
+    if provider_type == "openai_codex":
+        return {
+            "type": "input_image",
+            "image_url": f"data:{block.media_type};base64,{block.data}",
+        }
+    # openai_compat
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
     }
 
 
