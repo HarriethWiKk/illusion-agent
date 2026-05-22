@@ -213,7 +213,7 @@ def assistant_message_from_api(raw_message: Any) -> ConversationMessage:
             content.append(
                 ThinkingBlock(
                     thinking=getattr(raw_block, "thinking", ""),
-                    signature=getattr(raw_block, "signature", ""),
+                    signature=getattr(raw_block, "signature", "") or "",
                 )
             )
 

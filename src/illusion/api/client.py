@@ -35,6 +35,13 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Protocol
 
 from anthropic import APIError, APIStatusError, AsyncAnthropic
+from anthropic.types import ThinkingBlock as _SDKThinkingBlock
+
+# 兼容第三方 API（如 MiMo）返回 "signature": null 的情况
+# anthropic SDK 的 ThinkingBlock 要求 signature 为 str，但部分提供商返回 null
+_sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
+_sdk_sig_field.annotation = str | None
+_SDKThinkingBlock.model_rebuild()
 
 from illusion.api.errors import (
     AuthenticationFailure,
