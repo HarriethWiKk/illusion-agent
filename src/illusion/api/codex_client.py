@@ -145,17 +145,14 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
                 parts = []
                 if text.strip():
                     parts.append({"type": "input_text", "text": text})
+                # Codex 上下文窗口有限（272K token），input_image 的 base64
+                # 数据会被计算为海量 token，因此统一用文本描述替代
                 for mb in media_blocks:
-                    if mb.category == "image":
-                        parts.append({
-                            "type": "input_image",
-                            "image_url": f"data:{mb.media_type};base64,{mb.data}",
-                        })
-                    else:
-                        parts.append({
-                            "type": "input_text",
-                            "text": f"[{mb.category} file: {mb.file_path}] This model does not support {mb.category} input",
-                        })
+                    size_str = f" ({mb.metadata['size']} bytes)" if "size" in mb.metadata else ""
+                    parts.append({
+                        "type": "input_text",
+                        "text": f"[{mb.category} file: {mb.file_path}{size_str}, {mb.media_type}] This model does not support {mb.category} input",
+                    })
                 result.append({
                     "role": "user",
                     "content": parts,
