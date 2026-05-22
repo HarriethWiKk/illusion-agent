@@ -68,18 +68,7 @@ MAX_DELAY = 30.0  # 最大延迟（秒）
 
 
 def _serialize_media_for_openai(block: MediaBlock) -> dict[str, Any]:
-    """将 MediaBlock 转换为 OpenAI 消息内容部分。"""
-    if block.category == "image":
-        return {
-            "type": "image_url",
-            "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
-        }
-    if block.category == "audio":
-        fmt = block.media_type.split("/")[-1]
-        if fmt == "mpeg":
-            fmt = "mp3"
-        return {"type": "input_audio", "input_audio": {"data": block.data, "format": fmt}}
-    # video — 以 image_url 方式传递
+    """将图片 MediaBlock 转换为 OpenAI 消息内容部分。"""
     return {
         "type": "image_url",
         "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},

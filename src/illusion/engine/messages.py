@@ -95,13 +95,12 @@ class ThinkingBlock(BaseModel):
 
 
 class MediaBlock(BaseModel):
-    """媒体文件内容块（图片/视频/音频）。
+    """图片文件内容块。
 
     Attributes:
         type: 块类型（固定为 "media"）
         file_path: 文件绝对路径
         media_type: MIME 类型，如 "image/png"
-        category: 媒体类别
         data: base64 编码的文件数据
         metadata: 额外信息（文件大小等）
     """
@@ -109,7 +108,6 @@ class MediaBlock(BaseModel):
     type: Literal["media"] = "media"
     file_path: str
     media_type: str
-    category: Literal["image", "video", "audio"]
     data: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -129,7 +127,6 @@ def _build_tool_result_content(
     media_block = MediaBlock(
         file_path=metadata.get("media_path", ""),
         media_type=metadata.get("media_type", "application/octet-stream"),
-        category=metadata["media_category"],
         data=metadata.get("media_data", ""),
         metadata={"size": metadata.get("media_size", 0)},
     )
@@ -256,33 +253,7 @@ def serialize_content_block(block: ContentBlock, *, provider_type: str = "anthro
     }
 
 
-def _format_fallback_text(block: MediaBlock) -> str:
-    """生成不支持时的降级文本描述。"""
-    size_str = f", size: {block.metadata['size']} bytes" if "size" in block.metadata else ""
-    return f"[{block.category} file: {block.file_path}{size_str}] This model does not support {block.category} input"
-
-
 def _serialize_media_block(block: MediaBlock, provider_type: str) -> dict[str, Any]:
-    """将 MediaBlock 按提供商格式序列化。"""
-    if block.category == "image":
-        return _serialize_image_block(block, provider_type)
-    if block.category == "audio":
-        if provider_type == "openai_compat":
-            fmt = block.media_type.split("/")[-1]
-            if fmt == "mpeg":
-                fmt = "mp3"
-            return {"type": "input_audio", "input_audio": {"data": block.data, "format": fmt}}
-        return {"type": "text", "text": _format_fallback_text(block)}
-    # video
-    if provider_type == "openai_compat":
-        return {
-            "type": "image_url",
-            "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
-        }
-    return {"type": "text", "text": _format_fallback_text(block)}
-
-
-def _serialize_image_block(block: MediaBlock, provider_type: str) -> dict[str, Any]:
     """将图片 MediaBlock 按提供商格式序列化。"""
     if provider_type == "anthropic":
         return {

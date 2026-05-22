@@ -2,10 +2,10 @@
 文件读取工具
 ===========
 
-本模块提供读取本地文件系统文件的功能，支持文本文件和媒体文件（图片/视频/音频）。
+本模块提供读取本地文件系统文件的功能，支持文本文件和图片文件。
 
 主要组件：
-    - FileReadTool: 读取文本文件和媒体文件的工具
+    - FileReadTool: 读取文本文件和图片文件的工具
 
 使用示例：
     >>> from illusion.tools import FileReadTool
@@ -22,30 +22,18 @@ from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
-# 媒体文件扩展名到分类的映射
-_MEDIA_EXTENSIONS: dict[str, str] = {
-    # 图片
-    ".png": "image", ".jpg": "image", ".jpeg": "image",
-    ".gif": "image", ".webp": "image", ".bmp": "image", ".svg": "image",
-    # 视频
-    ".mp4": "video", ".avi": "video", ".mov": "video",
-    ".mkv": "video", ".webm": "video",
-    # 音频
-    ".mp3": "audio", ".wav": "audio", ".ogg": "audio",
-    ".flac": "audio", ".aac": "audio", ".m4a": "audio",
-}
+# 图片文件扩展名集合
+_IMAGE_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
+})
 
-# 各类别的文件大小限制（字节）
-_SIZE_LIMITS: dict[str, int] = {
-    "image": 20 * 1024 * 1024,   # 20 MB
-    "video": 50 * 1024 * 1024,   # 50 MB
-    "audio": 25 * 1024 * 1024,   # 25 MB
-}
+# 图片文件大小限制（字节）
+_IMAGE_SIZE_LIMIT: int = 20 * 1024 * 1024  # 20 MB
 
 
-def _detect_media_category(path: Path) -> str | None:
-    """检测文件是否为媒体文件，返回分类或 None。"""
-    return _MEDIA_EXTENSIONS.get(path.suffix.lower())
+def _is_image_file(path: Path) -> bool:
+    """检测文件是否为图片文件。"""
+    return path.suffix.lower() in _IMAGE_EXTENSIONS
 
 
 def _get_media_type(path: Path) -> str:
@@ -55,9 +43,6 @@ def _get_media_type(path: Path) -> str:
         return media_type
     fallback = {
         ".svg": "image/svg+xml",
-        ".webm": "video/webm",
-        ".flac": "audio/flac",
-        ".m4a": "audio/mp4",
     }
     return fallback.get(path.suffix.lower(), "application/octet-stream")
 
@@ -77,10 +62,9 @@ class FileReadToolInput(BaseModel):
 
 
 class FileReadTool(BaseTool):
-    """读取文本文件和媒体文件。
+    """读取文本文件和图片文件。
 
-    支持图片（PNG, JPG, GIF, WebP 等）、音频（MP3, WAV 等）和视频（MP4 等）。
-    媒体文件通过 base64 编码后传递给多模态模型。
+    支持图片（PNG, JPG, GIF, WebP 等），通过 base64 编码传递给多模态模型。
     """
 
     name = "read_file"
@@ -95,7 +79,6 @@ Usage:
 - This tool allows Illusion Code to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Illusion Code is a multimodal LLM.
 - This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.
 - This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
-- This tool can read audio files (MP3, WAV, OGG, FLAC, AAC, M4A) and video files (MP4, AVI, MOV, MKV, WebM) for multimodal models that support them.
 - This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
 - You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
@@ -119,25 +102,23 @@ Usage:
         if path.is_dir():
             return ToolResult(output=f"Cannot read directory: {path}", is_error=True)
 
-        # 检测是否为媒体文件
-        category = _detect_media_category(path)
-        if category is not None:
-            return self._read_media_file(path, category)
+        # 检测是否为图片文件
+        if _is_image_file(path):
+            return self._read_image_file(path)
 
         # 读取文本文件
         return self._read_text_file(path, arguments)
 
-    def _read_media_file(self, path: Path, category: str) -> ToolResult:
-        """读取媒体文件并返回 base64 编码数据。"""
+    def _read_image_file(self, path: Path) -> ToolResult:
+        """读取图片文件并返回 base64 编码数据。"""
         raw = path.read_bytes()
         file_size = len(raw)
 
         # 检查文件大小限制
-        size_limit = _SIZE_LIMITS.get(category, 20 * 1024 * 1024)
-        if file_size > size_limit:
-            limit_mb = size_limit // (1024 * 1024)
+        if file_size > _IMAGE_SIZE_LIMIT:
+            limit_mb = _IMAGE_SIZE_LIMIT // (1024 * 1024)
             return ToolResult(
-                output=f"File too large for {category}: {file_size} bytes exceeds {limit_mb} MB limit",
+                output=f"Image file too large: {file_size} bytes exceeds {limit_mb} MB limit",
                 is_error=True,
             )
 
@@ -146,12 +127,12 @@ Usage:
 
         # 生成输出描述
         size_str = _human_size(file_size)
-        output = f"[{category} file: {path} ({size_str}, {media_type})]"
+        output = f"[image file: {path} ({size_str}, {media_type})]"
 
         return ToolResult(
             output=output,
             metadata={
-                "media_category": category,
+                "media_category": "image",
                 "media_type": media_type,
                 "media_data": encoded,
                 "media_path": str(path),

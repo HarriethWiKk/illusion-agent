@@ -151,7 +151,7 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
                     size_str = f" ({mb.metadata['size']} bytes)" if "size" in mb.metadata else ""
                     parts.append({
                         "type": "input_text",
-                        "text": f"[{mb.category} file: {mb.file_path}{size_str}, {mb.media_type}] This model does not support {mb.category} input",
+                        "text": f"[image file: {mb.file_path}{size_str}, {mb.media_type}] This model does not support image input",
                     })
                 result.append({
                     "role": "user",

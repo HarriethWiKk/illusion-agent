@@ -14,7 +14,6 @@ def test_tool_result_block_with_media_list():
     media = MediaBlock(
         file_path="/tmp/img.png",
         media_type="image/png",
-        category="image",
         data="abc",
     )
     block = ToolResultBlock(
@@ -38,7 +37,6 @@ def test_tool_result_block_text_content_property():
     media = MediaBlock(
         file_path="/tmp/img.png",
         media_type="image/png",
-        category="image",
         data="abc",
     )
     block = ToolResultBlock(
@@ -52,7 +50,6 @@ def test_tool_result_block_text_content_mixed():
     media = MediaBlock(
         file_path="/tmp/img.png",
         media_type="image/png",
-        category="image",
         data="abc",
     )
     text = TextBlock(text="some text")
@@ -67,7 +64,6 @@ def test_serialize_tool_result_with_media():
     media = MediaBlock(
         file_path="/tmp/img.png",
         media_type="image/png",
-        category="image",
         data="abc",
     )
     block = ToolResultBlock(
@@ -111,7 +107,6 @@ def test_build_tool_result_content_with_media():
     assert isinstance(content[0], TextBlock)
     assert "[image file:" in content[0].text
     assert isinstance(content[1], MediaBlock)
-    assert content[1].category == "image"
     assert content[1].data == "iVBOR..."
 
 
