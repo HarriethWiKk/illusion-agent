@@ -160,6 +160,213 @@ def extract_symbol_at_position(
     return None
 
 
+def go_to_implementation(
+    *,
+    root: Path,
+    file_path: Path,
+    symbol: str | None = None,
+    line: int | None = None,
+    character: int | None = None,
+) -> list[SymbolLocation]:
+    """查找类或方法的子类实现。
+
+    对于类：查找继承该类的子类。
+    对于方法：查找子类中重写该方法的位置。
+    """
+    target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
+    if not target:
+        return []
+
+    is_method = "." in target
+    base_class = target.split(".")[0] if is_method else target
+    method_name = target.split(".")[-1] if is_method else None
+
+    matches: list[SymbolLocation] = []
+    for candidate in iter_python_files(root):
+        tree = ast.parse(candidate.read_text(encoding="utf-8"), filename=str(candidate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for base in node.bases:
+                    base_name = _get_ast_name(base)
+                    if base_name and (base_name == base_class or base_name.endswith(f".{base_class}")):
+                        if method_name:
+                            for child in ast.iter_child_nodes(node):
+                                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name == method_name:
+                                    matches.append(SymbolLocation(
+                                        name=f"{node.name}.{child.name}",
+                                        kind="method",
+                                        path=candidate,
+                                        line=child.lineno,
+                                        character=child.col_offset + 1,
+                                        signature=f"def {child.name}(...)",
+                                        docstring=ast.get_docstring(child) or "",
+                                    ))
+                        else:
+                            matches.append(SymbolLocation(
+                                name=node.name,
+                                kind="class",
+                                path=candidate,
+                                line=node.lineno,
+                                character=node.col_offset + 1,
+                                signature=f"class {node.name}",
+                                docstring=ast.get_docstring(node) or "",
+                            ))
+    return matches
+
+
+def prepare_call_hierarchy(
+    *,
+    root: Path,
+    file_path: Path,
+    symbol: str | None = None,
+    line: int | None = None,
+    character: int | None = None,
+) -> SymbolLocation | None:
+    """获取指定位置的调用层次节点。"""
+    target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
+    if not target:
+        return None
+    matches = go_to_definition(root=root, file_path=file_path, symbol=target)
+    return matches[0] if matches else None
+
+
+def incoming_calls(
+    *,
+    root: Path,
+    file_path: Path,
+    symbol: str | None = None,
+    line: int | None = None,
+    character: int | None = None,
+) -> list[tuple[Path, int, str, str]]:
+    """查找所有调用指定函数/方法的位置。
+
+    返回 (调用文件, 行号, 调用者函数名, 行文本) 列表。
+    """
+    target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
+    if not target:
+        return []
+
+    # 方法名称可能包含类前缀，调用时只用方法名
+    call_name = target.split(".")[-1]
+
+    results: list[tuple[Path, int, str, str]] = []
+    for candidate in iter_python_files(root):
+        try:
+            tree = ast.parse(candidate.read_text(encoding="utf-8"), filename=str(candidate))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                callee = _get_ast_name(node.func)
+                if callee == target or callee == call_name:
+                    caller = _find_enclosing_def(tree, node.lineno)
+                    results.append((candidate, node.lineno, caller or "(module level)", _get_source_line(candidate, node.lineno)))
+    return results
+
+
+def outgoing_calls(
+    *,
+    root: Path,
+    file_path: Path,
+    symbol: str | None = None,
+    line: int | None = None,
+    character: int | None = None,
+) -> list[tuple[str, Path, int]]:
+    """查找指定函数/方法内部调用的所有函数。
+
+    返回 (被调用名, 定义文件, 行号) 列表。
+    """
+    target = symbol or extract_symbol_at_position(file_path, line=line, character=character)
+    if not target:
+        return []
+
+    tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
+    func_node = _find_func_node(tree, target)
+    if func_node is None:
+        return []
+
+    seen: set[str] = set()
+    results: list[tuple[str, Path, int]] = []
+    for node in ast.walk(func_node):
+        if node is func_node:
+            continue
+        if isinstance(node, ast.Call):
+            callee = _get_ast_name(node.func)
+            if callee and callee not in seen:
+                seen.add(callee)
+                # 尝试找到被调用函数的定义位置
+                defs = go_to_definition(root=root, file_path=file_path, symbol=callee)
+                if defs:
+                    results.append((callee, defs[0].path, defs[0].line))
+                else:
+                    results.append((callee, Path(), 0))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 内部辅助函数
+# ---------------------------------------------------------------------------
+
+
+def _get_ast_name(node: ast.AST) -> str | None:
+    """从 AST 节点提取名称字符串（支持 a.b.c 形式的属性访问）。"""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        inner = _get_ast_name(node.value)
+        if inner is not None:
+            return f"{inner}.{node.attr}"
+        return node.attr
+    return None
+
+
+def _find_enclosing_def(tree: ast.AST, lineno: int) -> str | None:
+    """按行号查找所在的函数/类定义名。"""
+    best: str | None = None
+    best_end: int = -1
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            end = node.end_lineno or node.lineno
+            if node.lineno <= lineno <= end and end > best_end:
+                best_end = end
+                best = node.name
+    return best
+
+
+def _find_func_node(tree: ast.AST, target: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """在 AST 树中按名称或 ClassName.method 形式查找函数节点。"""
+    parts = target.split(".")
+    func_name = parts[-1]
+    class_name = parts[0] if len(parts) >= 2 else None
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == func_name:
+                if class_name:
+                    # 检查是否在正确的类内
+                    for parent in ast.walk(tree):
+                        if isinstance(parent, ast.ClassDef) and parent.name == class_name:
+                            # 检查 node 是否是 parent 的子节点
+                            for child in ast.walk(parent):
+                                if child is node:
+                                    return node
+                else:
+                    return node
+    return None
+
+
+def _get_source_line(file_path: Path, lineno: int) -> str:
+    """读取文件指定行的文本。"""
+    try:
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+        if 1 <= lineno <= len(lines):
+            return lines[lineno - 1].strip()
+    except OSError:
+        pass
+    return ""
+
+
 def iter_python_files(root: Path) -> list[Path]:
     """按稳定顺序返回 Python 源文件列表。"""
     files: list[Path] = []
@@ -237,8 +444,12 @@ __all__ = [
     "extract_symbol_at_position",
     "find_references",
     "go_to_definition",
+    "go_to_implementation",
     "hover",
+    "incoming_calls",
     "iter_python_files",
     "list_document_symbols",
+    "outgoing_calls",
+    "prepare_call_hierarchy",
     "workspace_symbol_search",
 ]

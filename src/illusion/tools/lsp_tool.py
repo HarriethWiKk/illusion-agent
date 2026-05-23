@@ -2,7 +2,7 @@
 轻量级代码智能工具
 ==================
 
-本模块提供与语言服务器协议（LSP）交互的功能，用于 Python 代码的代码智能查询。
+本模块提供基于 AST 的代码智能查询功能，用于 Python 代码的定义、引用、符号搜索等。
 
 主要组件：
     - LspTool: 代码智能查询工具
@@ -15,25 +15,43 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from illusion.services.lsp import (
     find_references,
     go_to_definition,
+    go_to_implementation,
     hover,
+    incoming_calls,
     list_document_symbols,
+    outgoing_calls,
+    prepare_call_hierarchy,
     workspace_symbol_search,
 )
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+# ---------------------------------------------------------------------------
+# 驼峰 → 蛇形操作名映射（兼容两种命名风格）
+# ---------------------------------------------------------------------------
+_OP_CAMEL_TO_SNAKE: dict[str, str] = {
+    "goToDefinition": "go_to_definition",
+    "findReferences": "find_references",
+    "documentSymbol": "document_symbol",
+    "workspaceSymbol": "workspace_symbol",
+    "goToImplementation": "go_to_implementation",
+    "prepareCallHierarchy": "prepare_call_hierarchy",
+    "incomingCalls": "incoming_calls",
+    "outgoingCalls": "outgoing_calls",
+}
 
 
 class LspToolInput(BaseModel):
     """代码智能查询参数。
 
     属性：
-        operation: 要执行的代码智能操作
+        operation: 要执行的代码智能操作（支持驼峰和蛇形两种命名）
         file_path: 用于基于文件的操作的源文件路径
         symbol: 要查找的显式符号名称
         line: 基于位置查询的 1-based 行号
@@ -47,12 +65,26 @@ class LspToolInput(BaseModel):
         "go_to_definition",
         "find_references",
         "hover",
+        "go_to_implementation",
+        "prepare_call_hierarchy",
+        "incoming_calls",
+        "outgoing_calls",
     ] = Field(description="The code intelligence operation to perform")
     file_path: str | None = Field(default=None, description="Path to the source file for file-based operations")
     symbol: str | None = Field(default=None, description="Explicit symbol name to look up")
     line: int | None = Field(default=None, ge=1, description="1-based line number for position-based lookups")
     character: int | None = Field(default=None, ge=1, description="1-based character offset for position-based lookups")
     query: str | None = Field(default=None, description="Substring query for workspace_symbol")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_operation(cls, data: Any) -> Any:
+        """将驼峰操作名映射为蛇形。"""
+        if isinstance(data, dict) and "operation" in data:
+            op: str = data["operation"]
+            if op in _OP_CAMEL_TO_SNAKE:
+                data["operation"] = _OP_CAMEL_TO_SNAKE[op]
+        return data
 
     @model_validator(mode="after")
     def validate_arguments(self) -> "LspToolInput":
@@ -67,16 +99,16 @@ class LspToolInput(BaseModel):
         # document_symbol 不需要 symbol 或 line
         if self.operation == "document_symbol":
             return self
-        # 其他操作需要 symbol 或 line
+        # 其余操作需要 symbol 或 line
         if not self.symbol and self.line is None:
             raise ValueError(f"{self.operation} requires symbol or line")
         return self
 
 
 class LspTool(BaseTool):
-    """Python 源文件的只读代码智能。
+    """Python 源文件的只读代码智能（基于 AST 分析）。
 
-    用于查询代码定义、引用、悬停信息等。
+    用于查询代码定义、引用、悬停信息、调用层次等。
     """
 
     name = "lsp"
@@ -109,23 +141,24 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         # 获取工作区根目录
         root = context.cwd.resolve()
 
-        # workspace_symbol 操作
+        # workspace_symbol 操作 — 不需要 file_path
         if arguments.operation == "workspace_symbol":
             results = workspace_symbol_search(root, arguments.query or "")
             return ToolResult(output=_format_symbol_locations(results, root))
 
-        # 解析文件路径
-        assert arguments.file_path is not None  # 已在上面验证
+        # 解析文件路径（后续操作都需要）
+        assert arguments.file_path is not None  # 已在上述验证
         file_path = _resolve_path(root, arguments.file_path)
         if not file_path.exists():
             return ToolResult(output=f"File not found: {file_path}", is_error=True)
         if file_path.suffix != ".py":
             return ToolResult(output="The lsp tool currently supports Python files only.", is_error=True)
 
-        # 执行对应的代码智能操作
+        # document_symbol
         if arguments.operation == "document_symbol":
             return ToolResult(output=_format_symbol_locations(list_document_symbols(file_path), root))
 
+        # go_to_definition
         if arguments.operation == "go_to_definition":
             results = go_to_definition(
                 root=root,
@@ -136,6 +169,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             )
             return ToolResult(output=_format_symbol_locations(results, root))
 
+        # find_references
         if arguments.operation == "find_references":
             results = find_references(
                 root=root,
@@ -146,26 +180,77 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             )
             return ToolResult(output=_format_references(results, root))
 
-        # hover 操作
-        result = hover(
-            root=root,
-            file_path=file_path,
-            symbol=arguments.symbol,
-            line=arguments.line,
-            character=arguments.character,
-        )
-        if result is None:
-            return ToolResult(output="(no hover result)")
-        # 构建输出
-        parts = [
-            f"{result.kind} {result.name}",
-            f"path: {_display_path(result.path, root)}:{result.line}:{result.character}",
-        ]
-        if result.signature:
-            parts.append(f"signature: {result.signature}")
-        if result.docstring:
-            parts.append(f"docstring: {result.docstring.strip()}")
-        return ToolResult(output="\n".join(parts))
+        # hover
+        if arguments.operation == "hover":
+            result = hover(
+                root=root,
+                file_path=file_path,
+                symbol=arguments.symbol,
+                line=arguments.line,
+                character=arguments.character,
+            )
+            if result is None:
+                return ToolResult(output="(no hover result)")
+            parts = [
+                f"{result.kind} {result.name}",
+                f"path: {_display_path(result.path, root)}:{result.line}:{result.character}",
+            ]
+            if result.signature:
+                parts.append(f"signature: {result.signature}")
+            if result.docstring:
+                parts.append(f"docstring: {result.docstring.strip()}")
+            return ToolResult(output="\n".join(parts))
+
+        # go_to_implementation
+        if arguments.operation == "go_to_implementation":
+            results = go_to_implementation(
+                root=root,
+                file_path=file_path,
+                symbol=arguments.symbol,
+                line=arguments.line,
+                character=arguments.character,
+            )
+            return ToolResult(output=_format_symbol_locations(results, root))
+
+        # prepare_call_hierarchy
+        if arguments.operation == "prepare_call_hierarchy":
+            result = prepare_call_hierarchy(
+                root=root,
+                file_path=file_path,
+                symbol=arguments.symbol,
+                line=arguments.line,
+                character=arguments.character,
+            )
+            if result is None:
+                return ToolResult(output="(no call hierarchy item)")
+            return ToolResult(output=_format_hierarchy_item(result, root))
+
+        # incoming_calls
+        if arguments.operation == "incoming_calls":
+            results = incoming_calls(
+                root=root,
+                file_path=file_path,
+                symbol=arguments.symbol,
+                line=arguments.line,
+                character=arguments.character,
+            )
+            return ToolResult(output=_format_incoming_calls(results, root))
+
+        # outgoing_calls
+        if arguments.operation == "outgoing_calls":
+            results = outgoing_calls(
+                root=root,
+                file_path=file_path,
+                symbol=arguments.symbol,
+                line=arguments.line,
+                character=arguments.character,
+            )
+            return ToolResult(output=_format_outgoing_calls(results, root))
+
+
+# ---------------------------------------------------------------------------
+# 路径辅助函数
+# ---------------------------------------------------------------------------
 
 
 def _resolve_path(base: Path, candidate: str) -> Path:
@@ -182,6 +267,11 @@ def _display_path(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
+
+
+# ---------------------------------------------------------------------------
+# 结果格式化函数
+# ---------------------------------------------------------------------------
 
 
 def _format_symbol_locations(results, root: Path) -> str:
@@ -206,3 +296,38 @@ def _format_references(results: list[tuple[Path, int, str]], root: Path) -> str:
         return "(no results)"
     return "\n".join(f"{_display_path(path, root)}:{line}:{text}" for path, line, text in results)
 
+
+def _format_hierarchy_item(item, root: Path) -> str:
+    """格式化调用层次项。"""
+    parts = [
+        f"{item.kind} {item.name}",
+        f"path: {_display_path(item.path, root)}:{item.line}:{item.character}",
+    ]
+    if item.signature:
+        parts.append(f"signature: {item.signature}")
+    if item.docstring:
+        parts.append(f"docstring: {item.docstring.strip()}")
+    return "\n".join(parts)
+
+
+def _format_incoming_calls(results: list[tuple[Path, int, str, str]], root: Path) -> str:
+    """格式化入向调用结果。"""
+    if not results:
+        return "(no incoming calls)"
+    lines = []
+    for path, line, caller, text in results:
+        lines.append(f"{_display_path(path, root)}:{line} [{caller}] {text}")
+    return "\n".join(lines)
+
+
+def _format_outgoing_calls(results: list[tuple[str, Path, int]], root: Path) -> str:
+    """格式化出向调用结果。"""
+    if not results:
+        return "(no outgoing calls)"
+    lines = []
+    for name, path, line in results:
+        if path != Path() and line > 0:
+            lines.append(f"{name} -> {_display_path(path, root)}:{line}")
+        else:
+            lines.append(f"{name} -> (definition not found)")
+    return "\n".join(lines)
