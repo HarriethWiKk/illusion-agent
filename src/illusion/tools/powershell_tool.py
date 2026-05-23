@@ -254,7 +254,11 @@ class PowerShellToolInput(BaseModel):
 
     command: str = Field(description="PowerShell command to execute")
     cwd: str | None = Field(default=None, description="Working directory override")
-    timeout_seconds: int = Field(default=120, ge=1, le=600)
+    timeout_ms: int = Field(default=120000, ge=1000, le=600000)
+    run_in_background: bool = Field(
+        default=False,
+        description="Set to true to run this command in the background",
+    )
 
 
 class PowerShellTool(BaseTool):
@@ -299,10 +303,30 @@ class PowerShellTool(BaseTool):
             **kwargs,
         )
 
+        # 后台运行模式
+        if arguments.run_in_background:
+            async def _background_wait():
+                try:
+                    # 必须消费 stdout/stderr，避免管道缓冲区满导致进程挂起
+                    stdout_task = asyncio.create_task(process.stdout.read())
+                    stderr_task = asyncio.create_task(process.stderr.read())
+                    await process.wait()
+                    stdout_task.cancel()
+                    stderr_task.cancel()
+                except Exception:
+                    pass
+
+            asyncio.create_task(_background_wait(), name=f"ps-bg-{process.pid}")
+            return ToolResult(
+                output=f"Command launched in background (pid={process.pid})",
+                is_error=False,
+            )
+
         # 执行命令并归一化结果
+        timeout_seconds = arguments.timeout_ms // 1000
         result = await CommandExecutor.run_and_normalize(
             process,
-            timeout=arguments.timeout_seconds,
+            timeout=timeout_seconds,
         )
         return ToolResult(
             output=result.output,

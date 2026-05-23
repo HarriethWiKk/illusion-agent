@@ -87,6 +87,7 @@ async def create_shell_subprocess(
     *,
     cwd: str | Path,
     settings: Settings | None = None,
+    disable_sandbox: bool = False,
     stdin: int | None = None,
     stdout: int | None = None,
     stderr: int | None = None,
@@ -101,6 +102,7 @@ async def create_shell_subprocess(
         command: 要执行的 shell 命令
         cwd: 工作目录
         settings: 配置对象，默认自动加载
+        disable_sandbox: 是否绕过沙箱包装
         stdin: 标准输入文件描述符
         stdout: 标准输出文件描述符
         stderr: 标准错误文件描述符
@@ -115,8 +117,11 @@ async def create_shell_subprocess(
     """
     resolved_settings = settings or load_settings()
     argv = resolve_shell_command(command)
-    # 使用沙箱包装命令（如果配置启用）
-    argv, cleanup_path = wrap_command_for_sandbox(argv, settings=resolved_settings)
+    # 使用沙箱包装命令（如果配置启用且未显式禁用）
+    if disable_sandbox:
+        cleanup_path = None
+    else:
+        argv, cleanup_path = wrap_command_for_sandbox(argv, settings=resolved_settings)
 
     try:
         kwargs: dict = {}

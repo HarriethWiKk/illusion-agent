@@ -33,12 +33,22 @@ class BashToolInput(BaseModel):
     属性：
         command: 要执行的 shell 命令
         cwd: 可选的工作目录覆盖
-        timeout_seconds: 超时秒数（1-600）
+        timeout_ms: 超时毫秒数（1000-600000）
+        run_in_background: 是否在后台运行
+        dangerouslyDisableSandbox: 是否绕过沙箱
     """
 
     command: str = Field(description="Shell command to execute")
     cwd: str | None = Field(default=None, description="Working directory override")
-    timeout_seconds: int = Field(default=120, ge=1, le=600)
+    timeout_ms: int = Field(default=120000, ge=1000, le=600000)
+    run_in_background: bool = Field(
+        default=False,
+        description="Set to true to run this command in the background",
+    )
+    dangerouslyDisableSandbox: bool = Field(
+        default=False,
+        description="Set to true to bypass sandbox restrictions for this command",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -80,16 +90,15 @@ def _get_sleep_guidance() -> str | None:
 
 
 def _get_sandbox_section() -> str:
-    """Generate sandbox section for the prompt (simplified without live sandbox config)."""
-    return """\
+    """生成沙箱提示词段（包含实际沙箱配置）。"""
+    sandbox_config_text = _build_sandbox_config_text()
+
+    return f"""\
 ## Command sandbox
 
 By default, your command will be run in a sandbox. This sandbox controls which directories and network hosts commands may access or modify without an explicit override.
 
-The sandbox has the following restrictions:
-Filesystem: {...}
-Network: {...}
-
+{sandbox_config_text}
  - You should always default to running commands within the sandbox. Do NOT attempt to set `dangerouslyDisableSandbox: true` unless:
    - The user *explicitly* asks you to bypass sandbox
    - A specific command just failed and you see evidence of sandbox restrictions causing the failure.
@@ -105,6 +114,45 @@ Network: {...}
  - Treat each command you execute with `dangerouslyDisableSandbox: true` individually.
  - Do not suggest adding sensitive paths like ~/.bashrc, ~/.zshrc, ~/.ssh/*, or credential files to the sandbox allowlist.
  - For temporary files, always use the `$TMPDIR` environment variable. TMPDIR is automatically set to the correct sandbox-writable directory in sandbox mode. Do NOT use `/tmp` directly - use `$TMPDIR` instead."""
+
+
+def _build_sandbox_config_text() -> str:
+    """构建沙箱配置的描述文本，用于提示词中展示。"""
+    try:
+        from illusion.config import load_settings
+        from illusion.sandbox import build_sandbox_runtime_config, get_sandbox_availability
+
+        settings = load_settings()
+        availability = get_sandbox_availability(settings)
+
+        if not availability.active:
+            if settings.sandbox.enabled:
+                return (
+                    f"Sandbox is enabled but not currently available: {availability.reason}\n"
+                    "All commands will run WITHOUT sandbox restrictions.\n"
+                )
+            return "Sandbox is disabled. All commands will run WITHOUT sandbox restrictions.\n"
+
+        config = build_sandbox_runtime_config(settings)
+        fs = config.get("filesystem", {})
+        net = config.get("network", {})
+        parts = ["The sandbox has the following restrictions:"]
+        if fs:
+            parts.append(f"  Filesystem: {_format_sandbox_dict(fs)}")
+        if net:
+            parts.append(f"  Network: {_format_sandbox_dict(net)}")
+        return "\n".join(parts) + "\n"
+    except Exception:
+        return "Sandbox configuration is not available.\n"
+
+
+def _format_sandbox_dict(d: dict) -> str:
+    """格式化沙箱配置字典为简洁文本。"""
+    items = []
+    for key, values in d.items():
+        if isinstance(values, list) and values:
+            items.append(f"{key}: {values}")
+    return ", ".join(items) if items else "no restrictions"
 
 
 def _get_commit_and_pr_instructions() -> str:
@@ -325,6 +373,7 @@ class BashTool(BaseTool):
             process = await create_shell_subprocess(
                 arguments.command,
                 cwd=cwd,
+                disable_sandbox=arguments.dangerouslyDisableSandbox,
                 stdin=asyncio.subprocess.DEVNULL,  # 防止 Windows 上的句柄继承死锁
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -332,10 +381,30 @@ class BashTool(BaseTool):
         except SandboxUnavailableError as exc:
             return ToolResult(output=str(exc), is_error=True)
 
+        # 后台运行模式
+        if arguments.run_in_background:
+            async def _background_wait():
+                try:
+                    # 必须消费 stdout/stderr，避免管道缓冲区满导致进程挂起
+                    stdout_task = asyncio.create_task(process.stdout.read())
+                    stderr_task = asyncio.create_task(process.stderr.read())
+                    await process.wait()
+                    stdout_task.cancel()
+                    stderr_task.cancel()
+                except Exception:
+                    pass
+
+            asyncio.create_task(_background_wait(), name=f"bash-bg-{process.pid}")
+            return ToolResult(
+                output=f"Command launched in background (pid={process.pid})",
+                is_error=False,
+            )
+
         # 执行命令并归一化结果
+        timeout_seconds = arguments.timeout_ms // 1000
         result = await CommandExecutor.run_and_normalize(
             process,
-            timeout=arguments.timeout_seconds,
+            timeout=timeout_seconds,
         )
         return ToolResult(
             output=result.output,
