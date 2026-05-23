@@ -574,6 +574,7 @@ async def handle_line(
                 cwd=bundle.cwd,
                 tool_registry=bundle.tool_registry,
                 app_state=bundle.app_state,
+                session_id=bundle.session_id,
             ),
         )
         if result.reset_session:

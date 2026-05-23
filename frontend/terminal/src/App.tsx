@@ -242,8 +242,14 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /context → show context management selector
+		if (trimmed === '/context') {
+			session.sendRequest({type: 'select_command', command: 'context'});
+			return true;
+		}
+
 		// /new → clear conversation window and start fresh session
-		if (trimmed === '/new') {
+		if (trimmed === '/new' || trimmed === '/clear') {
 			session.sendRequest({type: 'submit_line', line: '/new'});
 			session.setBusy(true);
 			return true;
@@ -312,6 +318,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 			if (key.escape) {
 				setSelectModal(null);
+				session.setBusy(false);
 				return;
 			}
 			// Number keys for quick selection

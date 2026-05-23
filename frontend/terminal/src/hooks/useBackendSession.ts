@@ -331,6 +331,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				command: String(m.command ?? ''),
 				options: event.select_options ?? [],
 			});
+			setBusy(false);
 			return;
 		}
 		if (event.type === 'modal_request') {

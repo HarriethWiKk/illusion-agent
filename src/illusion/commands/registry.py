@@ -161,6 +161,7 @@ class CommandContext:
     cwd: str = "."  # 当前工作目录
     tool_registry: ToolRegistry | None = None  # 工具注册表
     app_state: AppStateStore | None = None  # 应用状态
+    session_id: str = ""  # 当前会话ID
 
 
 # 命令处理器类型别名
@@ -400,11 +401,18 @@ def create_default_command_registry() -> CommandRegistry:
         del context
         return CommandResult(should_exit=True)
 
-    async def _clear_handler(_: str, context: CommandContext) -> CommandResult:
-        context.engine.clear()
-        return CommandResult(message="Conversation cleared.", clear_screen=True)
-
     async def _new_handler(_: str, context: CommandContext) -> CommandResult:
+        if context.session_id and context.engine.messages:
+            settings = load_settings()
+            system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
+            save_session_snapshot(
+                cwd=context.cwd,
+                model=settings.active_model_name,
+                system_prompt=system_prompt,
+                messages=context.engine.messages,
+                usage=context.engine.total_usage,
+                session_id=context.session_id,
+            )
         context.engine.clear()
         return CommandResult(
             message="Started a new conversation session.",
@@ -442,6 +450,22 @@ def create_default_command_registry() -> CommandRegistry:
             return CommandResult(message=prompt)
         if subcommand == "window" or subcommand == "show":
             return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
+        if subcommand == "__usage__":
+            from illusion.services.compact import estimate_conversation_tokens, get_context_window
+            estimated = estimate_conversation_tokens(context.engine.messages)
+            usage = context.engine.total_usage
+            context_window = get_context_window(settings.active_model_name)
+            percentage = int(estimated * 100 / context_window) if context_window > 0 else 0
+            remaining = max(0, context_window - estimated)
+            return CommandResult(
+                message=(
+                    f"Context Window: {context_window:,} tokens\n"
+                    f"Estimated Used: ~{estimated:,} tokens ({percentage}%)\n"
+                    f"Remaining: ~{remaining:,} tokens\n"
+                    f"Actual API Usage: input={usage.input_tokens:,} output={usage.output_tokens:,}\n"
+                    f"Messages: {len(context.engine.messages)}"
+                )
+            )
         if subcommand == "set" and len(tokens) == 2:
             try:
                 value = int(tokens[1])
@@ -1451,11 +1475,23 @@ def create_default_command_registry() -> CommandRegistry:
         # /delete all / /delete __all__ — 清除所有会话
         if tokens[0] in ("all", "__all__"):
             count = delete_all_sessions(context.cwd)
-            return CommandResult(message=f"Deleted {count} session file(s).")
+            context.engine.clear()
+            return CommandResult(
+                message=f"Deleted {count} session file(s).",
+                clear_screen=True,
+                reset_session=True,
+            )
 
         # /delete <session_id> — 删除指定会话
         sid = tokens[0]
         if delete_session_by_id(context.cwd, sid):
+            if sid == context.session_id:
+                context.engine.clear()
+                return CommandResult(
+                    message=f"Deleted current session: {sid}",
+                    clear_screen=True,
+                    reset_session=True,
+                )
             return CommandResult(message=f"Deleted session: {sid}")
         return CommandResult(message=f"Session not found: {sid}")
 
@@ -1508,7 +1544,7 @@ def create_default_command_registry() -> CommandRegistry:
         return CommandResult(message=f"# {selected.stem}\n\n{content}")
 
     registry.register(SlashCommand("exit", "Exit IllusionCode", _exit_handler))
-    registry.register(SlashCommand("clear", "Clear conversation history", _clear_handler))
+    registry.register(SlashCommand("clear", "Clear conversation and start a new session", _new_handler))
     registry.register(SlashCommand("new", "Start a new conversation session", _new_handler))
     registry.register(SlashCommand("version", "Show the installed IllusionCode version", _version_handler))
     registry.register(SlashCommand("status", "Show session status", _status_handler))

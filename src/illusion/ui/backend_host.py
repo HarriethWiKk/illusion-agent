@@ -505,6 +505,23 @@ class ReactBackendHost:
         """应用选择的命令值。"""
         command = command_name.strip().lstrip("/").lower()
         selected = value.strip()
+        # 特殊路由：context → change window 时弹出子选择器
+        if command == "context" and selected == "__change_window__":
+            await self._handle_select_command("context-window")
+            return True
+        # 特殊路由：context-window → custom 时弹出输入框
+        if command == "context-window" and selected == "__custom__":
+            answer = await self._ask_question(
+                "请输入上下文窗口大小（tokens）："
+                if self._bundle and str(self._bundle.app_state.get().ui_language or "").lower().startswith("zh")
+                else "Enter context window size (tokens):"
+            )
+            await self._emit(BackendEvent(type="modal_request", modal=None))
+            answer = str(answer).strip()
+            if answer:
+                return await self._process_line(f"/context set {answer}", transcript_line="/context")
+            await self._emit(BackendEvent(type="line_complete"))
+            return True
         line = self._build_select_command_line(command, selected)
         if line is None:
             await self._emit(BackendEvent(type="error", message=f"Unknown select command: {command_name}"))
@@ -556,6 +573,12 @@ class ReactBackendHost:
             return f"/delete {value}"
         if command == "rules":
             return f"/rules {value}"
+        if command == "context":
+            if value == "__usage__":
+                return "/context __usage__"
+            return None
+        if command == "context-window":
+            return f"/context set {value}"
         return None
 
     def _status_snapshot(self) -> BackendEvent:
@@ -876,6 +899,60 @@ class ReactBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "查看规则" if zh else "View Rules", "command": "rules"},
+                    select_options=options,
+                )
+            )
+            return
+
+        if command == "context":
+            from illusion.services.compact import estimate_conversation_tokens
+
+            current_window = settings.context_window
+            estimated = estimate_conversation_tokens(self._bundle.engine.messages)
+            percentage = int(estimated * 100 / current_window) if current_window > 0 else 0
+            options = [
+                {
+                    "value": "__change_window__",
+                    "label": "修改上下文窗口大小" if zh else "Change context window size",
+                    "description": f"当前: {current_window:,} tokens" if zh else f"Current: {current_window:,} tokens",
+                },
+                {
+                    "value": "__usage__",
+                    "label": "查看上下文使用情况" if zh else "View context usage",
+                    "description": f"已用: ~{estimated:,} / {current_window:,} tokens ({percentage}%)" if zh else f"Used: ~{estimated:,} / {current_window:,} tokens ({percentage}%)",
+                },
+            ]
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": "上下文管理" if zh else "Context Management", "command": "context"},
+                    select_options=options,
+                )
+            )
+            return
+
+        if command == "context-window":
+            current = settings.context_window
+            preset_values = [128_000, 200_000, 512_000, 1_000_000]
+            if current not in preset_values:
+                preset_values.append(current)
+            preset_values.sort()
+            options = [
+                {
+                    "value": str(v),
+                    "label": f"{v:,} tokens",
+                    "active": v == current,
+                }
+                for v in preset_values
+            ]
+            options.append({
+                "value": "__custom__",
+                "label": "其他（自定义输入）" if zh else "Other (custom)",
+            })
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": "上下文窗口大小" if zh else "Context Window Size", "command": "context-window"},
                     select_options=options,
                 )
             )

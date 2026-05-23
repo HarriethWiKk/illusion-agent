@@ -139,7 +139,7 @@ MESSAGES: dict[str, dict[str, str]] = {
 COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "help": "显示可用命令及用法说明",
     "exit": "退出 IllusionCode",
-    "clear": "清空当前对话历史",
+    "clear": "清空当前对话并开启新会话",
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
     "status": "显示会话状态",
@@ -208,6 +208,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Started a new conversation session.": "已开启新对话。",
     "No saved sessions found for this project.": "当前项目未找到已保存会话。",
     "Nothing to copy.": "没有可复制的内容。",
+    "Deleted current session:": "已删除当前会话：",
     # 记忆与 hooks
     "No memory files.": "没有记忆文件。",
     "No hooks configured.": "未配置 hooks。",
@@ -308,6 +309,10 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     # 上下文窗口
     (r"^Context window: (\d[\d,]*) tokens$", r"上下文窗口：\1 tokens"),
     (r"^Context window set to (\d[\d,]*) tokens$", r"上下文窗口已设置为 \1 tokens"),
+    (r"^Context Window: (\d[\d,]*) tokens$", r"上下文窗口：\1 tokens"),
+    (r"^Estimated Used: ~(\d[\d,]*) tokens \((\d+)%\)$", r"预估已用：~\1 tokens（\2%）"),
+    (r"^Remaining: ~(\d[\d,]*) tokens$", r"剩余：~\1 tokens"),
+    (r"^Actual API Usage: input=(\d[\d,]*) output=(\d[\d,]*)$", r"实际 API 用量：input=\1 output=\2"),
     # 模型
     (r"^Model: (.+)$", r"模型：\1"),
     (r"^Model set to (.+)\. Restart session to use it\.$", r"模型已设置为 \1。重启会话后生效。"),
@@ -357,6 +362,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Updated task (.+) note$", r"已更新任务 \1 的备注"),
     (r"^Deleted (\d+) session file\(s\)\.$", r"已删除 \1 个会话文件。"),
     (r"^Deleted session: (.+)$", r"已删除会话：\1"),
+    (r"^Deleted current session: (.+)$", r"已删除当前会话：\1"),
     # Agent
     (r"^No agent found with ID: (.+)$", r"未找到 agent ID：\1"),
     # Bridge
