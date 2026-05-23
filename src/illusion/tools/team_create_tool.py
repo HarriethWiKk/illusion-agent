@@ -85,7 +85,9 @@ Create a new team to coordinate multiple agents working on a project. Teams have
 
 This creates:
 - A team file at `~/.illusion/teams/{team-name}/config.json`
-- A corresponding task list directory at `~/.illusion/tasks/{team-name}/`
+- A corresponding task list directory at `~/.illusion/data/tasks/{team-name}/`
+
+**Note**: If a team with the same name already exists, a random suffix is appended to ensure uniqueness (e.g., `my-project` may become `team-a1b2c3d4`). The actual name used is returned in the tool output.
 
 ## Team Workflow
 
@@ -95,7 +97,7 @@ This creates:
 4. **Assign tasks** using TaskUpdate with `owner` to give tasks to idle teammates
 5. **Teammates work on assigned tasks** and mark them completed via TaskUpdate
 6. **Teammates go idle between turns** - after each turn, teammates automatically go idle and send a notification. IMPORTANT: Be patient with idle teammates! Don't comment on their idleness until it actually impacts your work.
-7. **Shutdown your team** - when the task is completed, gracefully shut down your teammates via SendMessage with `message: {type: "shutdown_request"}`.
+7. **Shutdown your team** - when the task is completed, gracefully shut down your teammates via `SendMessage` with a shutdown request, then call TeamDelete.
 
 ## Task Ownership
 
@@ -145,7 +147,7 @@ Use the Read tool to read ~/.illusion/teams/{team-name}/config.json
 
 ## Task List Coordination
 
-Teams share a task list that all teammates can access at `~/.illusion/tasks/{team-name}/`.
+Teams share a task list that all teammates can access at `~/.illusion/data/tasks/{team-name}/`.
 
 Teammates should:
 1. Check TaskList periodically, **especially after completing each task**, to find available work or see newly unblocked tasks
