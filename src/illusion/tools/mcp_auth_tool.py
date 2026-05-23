@@ -44,7 +44,7 @@ class McpAuthTool(BaseTool):
     """
 
     name = "mcp_auth"
-    description = "Configure auth for an MCP server and reconnect active sessions when possible."
+    description = "Configure auth for an MCP server and reconnect all active sessions when possible."
     input_model = McpAuthToolInput
 
     async def execute(self, arguments: McpAuthToolInput, context: ToolExecutionContext) -> ToolResult:
@@ -76,7 +76,7 @@ class McpAuthTool(BaseTool):
             header_key = arguments.key or "Authorization"
             headers = dict(config.headers)
             headers[header_key] = (
-                f"Bearer {arguments.value}" if arguments.mode == "bearer" and header_key == "Authorization" else arguments.value
+                f"Bearer {arguments.value}" if arguments.mode == "bearer" else arguments.value
             )
             updated = config.model_copy(update={"headers": headers})
         else:
