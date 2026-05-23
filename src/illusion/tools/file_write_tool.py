@@ -17,7 +17,7 @@ from __future__ import annotations
 from difflib import unified_diff
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
@@ -26,14 +26,24 @@ class FileWriteToolInput(BaseModel):
     """文件写入参数。
 
     属性：
-        path: 要写入的文件路径
+        file_path: 要写入的文件路径
         content: 完整的文件内容
         create_directories: 是否创建父目录
+
+    兼容旧参数名：path 也可传入，会自动映射。
     """
 
-    path: str = Field(description="Path of the file to write")
+    file_path: str = Field(description="Path of the file to write")
     content: str = Field(description="Full file contents")
     create_directories: bool = Field(default=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_fields(cls, values: dict) -> dict:
+        """将旧参数名映射到新参数名，确保向后兼容。"""
+        if "path" in values and "file_path" not in values:
+            values["file_path"] = values.pop("path")
+        return values
 
 
 class FileWriteTool(BaseTool):
@@ -69,7 +79,7 @@ Usage:
             ToolResult: 包含写入结果和差异/预览文本的执行结果
         """
         # 解析文件路径
-        path = _resolve_path(context.cwd, arguments.path)
+        path = _resolve_path(context.cwd, arguments.file_path)
 
         # 对于已有文件，执行读后写强制检查
         if path.exists():

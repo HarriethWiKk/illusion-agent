@@ -18,7 +18,7 @@ import os
 from difflib import unified_diff
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
@@ -42,16 +42,30 @@ class FileEditToolInput(BaseModel):
     """文件编辑参数。
 
     属性：
-        path: 要编辑的文件路径
-        old_str: 要替换的现有文本
-        new_str: 替换文本
+        file_path: 要编辑的文件路径
+        old_string: 要替换的现有文本
+        new_string: 替换文本
         replace_all: 是否替换所有匹配项
+
+    兼容旧参数名：path, old_str, new_str 均可传入，会自动映射。
     """
 
-    path: str = Field(description="Path of the file to edit")
-    old_str: str = Field(description="Existing text to replace")
-    new_str: str = Field(description="Replacement text")
+    file_path: str = Field(description="Path of the file to edit")
+    old_string: str = Field(description="Existing text to replace")
+    new_string: str = Field(description="Replacement text")
     replace_all: bool = Field(default=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_fields(cls, values: dict) -> dict:
+        """将旧参数名映射到新参数名，确保向后兼容。"""
+        if "path" in values and "file_path" not in values:
+            values["file_path"] = values.pop("path")
+        if "old_str" in values and "old_string" not in values:
+            values["old_string"] = values.pop("old_str")
+        if "new_str" in values and "new_string" not in values:
+            values["new_string"] = values.pop("new_str")
+        return values
 
 
 class FileEditTool(BaseTool):
@@ -65,12 +79,12 @@ class FileEditTool(BaseTool):
 
 Usage:
 - You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + arrow. Everything after that arrow is the actual file content to match. Never include any part of the line number prefix in the old_str or new_str.
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + arrow. Everything after that arrow is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
-- The edit will FAIL if `old_str` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_str`.
+- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
 - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
-- Use the smallest old_str that's clearly unique — usually 2-4 adjacent lines is sufficient. Avoid including 10+ lines of context when less uniquely identifies the target."""
+- Use the smallest old_string that's clearly unique — usually 2-4 adjacent lines is sufficient. Avoid including 10+ lines of context when less uniquely identifies the target."""
     input_model = FileEditToolInput
 
     async def execute(
@@ -88,7 +102,7 @@ Usage:
             ToolResult: 包含编辑结果和差异文本的执行结果
         """
         # 解析文件路径
-        path = _resolve_path(context.cwd, arguments.path)
+        path = _resolve_path(context.cwd, arguments.file_path)
 
         # 拒绝 notebook 文件 — 模型应使用 NotebookEdit
         if path.suffix.lower() == ".ipynb":
@@ -97,19 +111,19 @@ Usage:
                 is_error=True,
             )
 
-        # 处理新文件创建：仅当 old_str 为空时允许
+        # 处理新文件创建：仅当 old_string 为空时允许
         if not path.exists():
-            if arguments.old_str:
+            if arguments.old_string:
                 return ToolResult(
-                    output=f"File not found: {path}. To create a new file, set old_str to empty string.",
+                    output=f"File not found: {path}. To create a new file, set old_string to empty string.",
                     is_error=True,
                 )
             # 创建新文件
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(arguments.new_str, encoding="utf-8")
+            path.write_text(arguments.new_string, encoding="utf-8")
             mark_file_read(str(path))
             # 生成新文件内容预览
-            preview = _generate_create_preview(str(path), arguments.new_str)
+            preview = _generate_create_preview(str(path), arguments.new_string)
             return ToolResult(output=f"Created {path}\n{preview}")
 
         # 读后编辑强制检查
@@ -124,15 +138,15 @@ Usage:
             )
 
         # 空操作保护
-        if arguments.old_str == arguments.new_str:
+        if arguments.old_string == arguments.new_string:
             return ToolResult(
                 output="old_string and new_string are identical — no changes needed.",
                 is_error=True,
             )
 
-        # 非空文件上的空 old_str
+        # 非空文件上的空 old_string
         original = path.read_text(encoding="utf-8")
-        if not arguments.old_str and original.strip():
+        if not arguments.old_string and original.strip():
             return ToolResult(
                 output=(
                     "old_string is empty but the file is not empty. "
@@ -141,16 +155,16 @@ Usage:
                 is_error=True,
             )
 
-        # 空文件上的空 old_str = 写入新内容
-        if not arguments.old_str and not original.strip():
-            path.write_text(arguments.new_str, encoding="utf-8")
-            diff_text = _generate_diff(str(path), original, arguments.new_str)
+        # 空文件上的空 old_string = 写入新内容
+        if not arguments.old_string and not original.strip():
+            path.write_text(arguments.new_string, encoding="utf-8")
+            diff_text = _generate_diff(str(path), original, arguments.new_string)
             return ToolResult(output=f"Updated {path}\n{diff_text}")
 
-        # 检查 old_str 是否存在于文件中
-        if arguments.old_str not in original:
+        # 检查 old_string 是否存在于文件中
+        if arguments.old_string not in original:
             # 尝试提供关于文件中内容的帮助上下文
-            _similar = _find_similar_lines(original, arguments.old_str)
+            _similar = _find_similar_lines(original, arguments.old_string)
             msg = "old_string was not found in the file."
             if _similar:
                 msg += f"\n\nThe closest matches in the file are:\n{_similar}"
@@ -158,7 +172,7 @@ Usage:
 
         # 唯一性检查（当不是替换所有时）
         if not arguments.replace_all:
-            count = original.count(arguments.old_str)
+            count = original.count(arguments.old_string)
             if count > 1:
                 return ToolResult(
                     output=(
@@ -171,9 +185,9 @@ Usage:
 
         # 应用编辑
         if arguments.replace_all:
-            updated = original.replace(arguments.old_str, arguments.new_str)
+            updated = original.replace(arguments.old_string, arguments.new_string)
         else:
-            updated = original.replace(arguments.old_str, arguments.new_str, 1)
+            updated = original.replace(arguments.old_string, arguments.new_string, 1)
 
         path.write_text(updated, encoding="utf-8")
         # 生成差异文本

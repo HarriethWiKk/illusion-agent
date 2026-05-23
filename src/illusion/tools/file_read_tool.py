@@ -19,7 +19,7 @@ import json
 import mimetypes
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
@@ -52,14 +52,24 @@ class FileReadToolInput(BaseModel):
     """文件读取参数。
 
     属性：
-        path: 要读取的文件路径
+        file_path: 要读取的文件路径
         offset: 起始行号（从 0 开始）
         limit: 返回的行数限制
+
+    兼容旧参数名：path 也可传入，会自动映射。
     """
 
-    path: str = Field(description="Path of the file to read")
+    file_path: str = Field(description="Path of the file to read")
     offset: int = Field(default=0, ge=0, description="Zero-based starting line")
     limit: int = Field(default=2000, ge=1, le=2000, description="Number of lines to return")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_fields(cls, values: dict) -> dict:
+        """将旧参数名映射到新参数名，确保向后兼容。"""
+        if "path" in values and "file_path" not in values:
+            values["file_path"] = values.pop("path")
+        return values
 
 
 class FileReadTool(BaseTool):
@@ -70,17 +80,17 @@ class FileReadTool(BaseTool):
 
     name = "read_file"
     description = """Reads a file from the local filesystem. You can access any file directly by using this tool.
-Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+Assume this tool is able to read all files on the machine. If the User provides a file_path to a file assume that file_path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
-- The path parameter must be an absolute path, not a relative path
+- The file_path parameter must be an absolute path, not a relative path
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 - Results are returned using cat -n format, with line numbers starting at 1
 - This tool allows Illusion Code to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Illusion Code is a multimodal LLM.
 - This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
 - This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
-- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
+- You will regularly be asked to read screenshots. If the user provides a file_path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."""
     input_model = FileReadToolInput
 
@@ -94,7 +104,7 @@ Usage:
         context: ToolExecutionContext,
     ) -> ToolResult:
         # 解析文件路径
-        path = _resolve_path(context.cwd, arguments.path)
+        path = _resolve_path(context.cwd, arguments.file_path)
         # 检查文件是否存在
         if not path.exists():
             return ToolResult(output=f"File not found: {path}", is_error=True)
