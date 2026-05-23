@@ -132,6 +132,30 @@ def get_pid_path() -> Path:
     return get_cron_dir() / "scheduler.pid"
 
 
+def _is_process_alive(pid: int) -> bool:
+    """检查给定 PID 的进程是否存活（跨平台安全）。
+
+    注意：Windows 上 os.kill(pid, 0) 会发送 CTRL_C_EVENT（signal 0 == CTRL_C_EVENT），
+    而非 POSIX 上的无操作检测，因此必须使用 OpenProcess 替代。
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000 (Vista+)
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
 def read_pid() -> int | None:
     """读取运行中的调度器 PID，如果不存在或进程已退出则返回 None。"""
     path = get_pid_path()
@@ -141,10 +165,7 @@ def read_pid() -> int | None:
         pid = int(path.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         return None
-    # 检查进程是否存活
-    try:
-        os.kill(pid, 0)
-    except OSError:
+    if not _is_process_alive(pid):
         logger.debug("Removed stale scheduler PID file (pid=%d)", pid)
         path.unlink(missing_ok=True)
         return None
@@ -330,13 +351,17 @@ async def _execute_prompt_in_subprocess(
     }
 
 
-async def execute_job(job: dict[str, Any]) -> dict[str, Any]:
+async def execute_job(
+    job: dict[str, Any],
+    timeout: int = _JOB_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     """执行单个 Cron 任务并返回历史记录条目。
 
     任务通过 `illusion -p` 在独立子进程中执行，不阻塞当前会话。
 
     Args:
         job: 任务字典，包含 name, prompt, cwd 等字段
+        timeout: 子进程执行超时秒数，默认 300
 
     Returns:
         历史记录条目字典
@@ -366,7 +391,7 @@ async def execute_job(job: dict[str, Any]) -> dict[str, Any]:
     logger.info("Executing cron job %r: %.80s", name, prompt)
 
     # 在独立子进程中执行提示词
-    result = await _execute_prompt_in_subprocess(prompt, cwd)
+    result = await _execute_prompt_in_subprocess(prompt, cwd, timeout=timeout)
 
     ended_at = _now_local()
     success = result["status"] == "success"

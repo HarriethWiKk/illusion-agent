@@ -58,22 +58,23 @@ class CronToolInput(BaseModel):
 
     属性：
         action: 操作类型
-        name: 任务名称（add/update/remove/run）
+        name: 任务名称（add 可选；update/remove/run 必填）
         schedule: 5 字段 cron 表达式（add/update）
-        prompt: 触发时执行的提示词（add）
-        recurring: 是否重复执行（add）
+        prompt: 触发时执行的提示词（add 必填；update 可选）
+        recurring: 是否重复执行（add/update）
         delete_after_run: 执行后自动删除（add/update）
         enabled: 启用/禁用状态（update）
         include_disabled: 列表是否包含禁用任务（list）
+        timeout_seconds: 手动运行超时秒数（run）
     """
 
     action: str = Field(
         description=f"Action: {', '.join(_ACTIONS)}",
     )
-    # add 操作参数
+    # add/update 操作通用参数
     name: str | None = Field(
         default=None,
-        description="Job name or ID (required for add/update/remove/run)",
+        description="Job name or ID (optional for add; required for update/remove/run)",
     )
     schedule: str | None = Field(
         default=None,
@@ -81,15 +82,15 @@ class CronToolInput(BaseModel):
     )
     prompt: str | None = Field(
         default=None,
-        description="Prompt to execute in an isolated session when the job fires (add required)",
+        description="Prompt to execute in an isolated session when the job fires (required for add; optional for update)",
     )
-    recurring: bool = Field(
-        default=True,
-        description="True = fire on every cron match until deleted. False = fire once then auto-delete.",
+    recurring: bool | None = Field(
+        default=None,
+        description="True = fire on every cron match until deleted. False = fire once then auto-delete. Set to true/false to change (add/update).",
     )
-    delete_after_run: bool = Field(
-        default=False,
-        description="Delete the job record after execution",
+    delete_after_run: bool | None = Field(
+        default=None,
+        description="Delete the job record after execution (add/update). Set to true/false to change.",
     )
     # update 操作参数
     enabled: bool | None = Field(
@@ -124,8 +125,8 @@ class CronTool(BaseTool):
 ACTIONS:
 - status: Check scheduler status and job counts
 - list: List all scheduled jobs (use include_disabled:true to show disabled)
-- add: Create a new scheduled job (requires name, schedule, prompt)
-- update: Modify an existing job (requires name; can update schedule/enabled/delete_after_run)
+- add: Create a new scheduled job (requires schedule, prompt; optional name)
+- update: Modify an existing job (requires name; can update schedule/prompt/recurring/delete_after_run/enabled)
 - remove: Delete a job (requires name)
 - run: Manually trigger a job immediately (requires name)
 
@@ -290,8 +291,12 @@ Returns JSON result for each action."""
         job_data: dict[str, Any] = {
             "schedule": arguments.schedule.strip(),
             "prompt": arguments.prompt,
-            "recurring": arguments.recurring,
-            "delete_after_run": arguments.delete_after_run,
+            "recurring": arguments.recurring
+            if arguments.recurring is not None
+            else True,
+            "delete_after_run": arguments.delete_after_run
+            if arguments.delete_after_run is not None
+            else False,
             "cwd": str(context.cwd),
         }
 
@@ -310,7 +315,7 @@ Returns JSON result for each action."""
             # 调度器启动失败不应阻止任务创建
             pass
 
-        kind = "recurring" if arguments.recurring else "one-shot"
+        kind = "recurring" if (arguments.recurring if arguments.recurring is not None else True) else "one-shot"
         name_display = arguments.name or job_id
         return ToolResult(
             output=f"Created {kind} job '{name_display}' [{arguments.schedule}] (id: {job_id})"
@@ -341,12 +346,12 @@ Returns JSON result for each action."""
                 is_error=True,
             )
 
-        updated = False
+        changes: list[str] = []
 
         if arguments.enabled is not None:
             if set_job_enabled(arguments.name, arguments.enabled):
                 state = "enabled" if arguments.enabled else "disabled"
-                updated = True
+                changes.append(f"{state}")
             else:
                 return ToolResult(
                     output=f"Failed to update job: {arguments.name}",
@@ -361,18 +366,32 @@ Returns JSON result for each action."""
                 )
             job["schedule"] = arguments.schedule.strip()
             upsert_cron_job(job)
-            updated = True
+            changes.append(f"schedule={arguments.schedule.strip()}")
 
-        if arguments.delete_after_run:
-            job["delete_after_run"] = True
+        if arguments.prompt is not None:
+            job["prompt"] = arguments.prompt
             upsert_cron_job(job)
-            updated = True
+            changes.append("prompt updated")
 
-        if updated:
-            return ToolResult(output=f"Updated cron job: {arguments.name}")
+        if arguments.recurring is not None:
+            if arguments.recurring != job.get("recurring", True):
+                job["recurring"] = arguments.recurring
+                upsert_cron_job(job)
+                changes.append(f"recurring={arguments.recurring}")
+
+        if arguments.delete_after_run is not None:
+            if arguments.delete_after_run != job.get("delete_after_run", False):
+                job["delete_after_run"] = arguments.delete_after_run
+                upsert_cron_job(job)
+                changes.append(f"delete_after_run={arguments.delete_after_run}")
+
+        if changes:
+            return ToolResult(
+                output=f"Updated cron job: {arguments.name} ({', '.join(changes)})"
+            )
         else:
             return ToolResult(
-                output="No fields to update (available: schedule, enabled, delete_after_run)",
+                output="No fields to update (available: schedule, prompt, recurring, enabled, delete_after_run)",
                 is_error=True,
             )
 
@@ -435,7 +454,7 @@ Returns JSON result for each action."""
             )
 
         # 在独立会话中执行
-        entry = await execute_job(job)
+        entry = await execute_job(job, timeout=arguments.timeout_seconds)
 
         status = entry.get("status", "unknown")
         returncode = entry.get("returncode", "?")
