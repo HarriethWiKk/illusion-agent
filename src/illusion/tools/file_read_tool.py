@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import mimetypes
 from pathlib import Path
 
@@ -58,7 +59,7 @@ class FileReadToolInput(BaseModel):
 
     path: str = Field(description="Path of the file to read")
     offset: int = Field(default=0, ge=0, description="Zero-based starting line")
-    limit: int = Field(default=200, ge=1, le=2000, description="Number of lines to return")
+    limit: int = Field(default=2000, ge=1, le=2000, description="Number of lines to return")
 
 
 class FileReadTool(BaseTool):
@@ -101,6 +102,10 @@ Usage:
         if path.is_dir():
             return ToolResult(output=f"Cannot read directory: {path}", is_error=True)
 
+        # 检测是否为 Jupyter notebook
+        if path.suffix.lower() == ".ipynb":
+            return self._read_notebook_file(path, arguments)
+
         # 检测是否为图片文件
         if _is_image_file(path):
             return self._read_image_file(path)
@@ -139,6 +144,96 @@ Usage:
             },
         )
 
+    def _read_notebook_file(self, path: Path, arguments: FileReadToolInput) -> ToolResult:
+        """读取 Jupyter notebook 文件，解析所有单元格及其输出。"""
+        try:
+            raw = path.read_text(encoding="utf-8")
+            nb = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            return ToolResult(output=f"Failed to parse notebook {path}: {e}", is_error=True)
+
+        cells = nb.get("cells", [])
+        if not cells:
+            return ToolResult(output=f"System reminder: The notebook at {path} exists but has no cells.")
+
+        # 应用 offset/limit 到单元格级别
+        selected_cells = cells[arguments.offset : arguments.offset + arguments.limit]
+        if not selected_cells:
+            return ToolResult(
+                output=f"System reminder: No cells in selected range (offset={arguments.offset}, limit={arguments.limit}) for {path}"
+            )
+
+        output_parts: list[str] = []
+        for cell in selected_cells:
+            idx = cells.index(cell)
+            cell_type = cell.get("cell_type", "code")
+            source = "".join(cell.get("source", ""))
+            if isinstance(source, list):
+                source = "".join(source)
+
+            if cell_type == "markdown":
+                output_parts.append(f"## Cell {idx} (markdown)\n{source}")
+            elif cell_type == "code":
+                exec_count = cell.get("execution_count")
+                status = f"executed, count={exec_count}" if exec_count is not None else "not executed"
+                output_parts.append(f"## Cell {idx} (code) [{status}]")
+                if source.strip():
+                    output_parts.append(source)
+                else:
+                    output_parts.append("(empty cell)")
+
+                # 格式化输出
+                outputs = cell.get("outputs", [])
+                if outputs:
+                    output_parts.append("\n**Outputs:**")
+                    for out in outputs:
+                        out_type = out.get("output_type", "")
+                        if out_type == "stream":
+                            text = "".join(out.get("text", ""))
+                            if isinstance(text, list):
+                                text = "".join(text)
+                            name = out.get("name", "stdout")
+                            output_parts.append(f"[{name}]:\n{text}")
+                        elif out_type == "execute_result":
+                            data = out.get("data", {})
+                            text = data.get("text/plain", "")
+                            if isinstance(text, list):
+                                text = "".join(text)
+                            output_parts.append(f"[result]: {text}")
+                        elif out_type == "error":
+                            ename = out.get("ename", "Error")
+                            evalue = out.get("evalue", "")
+                            traceback = out.get("traceback", [])
+                            if isinstance(traceback, list):
+                                traceback_text = "\n".join(traceback)
+                            else:
+                                traceback_text = str(traceback)
+                            output_parts.append(f"[error]: {ename}: {evalue}\n{traceback_text}")
+                        elif out_type == "display_data":
+                            data = out.get("data", {})
+                            text = data.get("text/plain", "")
+                            if isinstance(text, list):
+                                text = "".join(text)
+                            if text:
+                                output_parts.append(f"[display]: {text}")
+                            if "image/png" in data:
+                                output_parts.append("[display]: <image/png>")
+                elif exec_count is not None:
+                    output_parts.append("\n**Outputs:** (none)")
+            else:
+                source = "".join(cell.get("source", ""))
+                if isinstance(source, list):
+                    source = "".join(source)
+                output_parts.append(f"## Cell {idx} ({cell_type})\n{source}")
+
+            output_parts.append("")  # 单元格间空行
+
+        # 注册文件已被读取
+        from illusion.tools.file_edit_tool import mark_file_read
+        mark_file_read(str(path))
+
+        return ToolResult(output="\n".join(output_parts).strip())
+
     def _read_text_file(self, path: Path, arguments: FileReadToolInput) -> ToolResult:
         """读取文本文件。"""
         raw = path.read_bytes()
@@ -153,7 +248,9 @@ Usage:
             for index, line in enumerate(selected)
         ]
         if not numbered:
-            return ToolResult(output=f"(no content in selected range for {path})")
+            return ToolResult(
+                output=f"System reminder: The file at {path} exists but has empty contents."
+            )
 
         # 注册文件已被读取（用于读后编辑强制检查）
         from illusion.tools.file_edit_tool import mark_file_read
