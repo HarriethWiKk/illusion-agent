@@ -144,7 +144,7 @@ async def run_print_mode(
         return True
 
     # 空问答回调 - 返回空字符串
-    async def _noop_ask(question: str) -> str:
+    async def _noop_ask(question: str, questions: object = None) -> str:
         return ""
 
     # 构建运行时

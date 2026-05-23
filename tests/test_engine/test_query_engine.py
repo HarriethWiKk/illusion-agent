@@ -310,7 +310,7 @@ async def test_query_engine_respects_pre_tool_hook_blocks(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_query_engine_executes_ask_user_tool(tmp_path: Path):
-    async def _answer(question: str) -> str:
+    async def _answer(question: str, questions_data: object = None) -> str:
         assert "Which color?" in question
         return "green"
 

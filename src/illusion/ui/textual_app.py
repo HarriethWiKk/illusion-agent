@@ -36,7 +36,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, RichLog, Static
+from textual.widgets import Button, Checkbox, Footer, Header, Input, RadioButton, RadioSet, RichLog, Static
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.engine.stream_events import (
@@ -130,33 +130,39 @@ class PermissionScreen(ModalScreen[bool]):
         self.dismiss(False)  # 拒绝执行
 
 
-class QuestionScreen(ModalScreen[str]):
+class QuestionScreen(ModalScreen):
     """用户问答模态对话框。
 
-    在工具执行过程中提示用户输入简短答案。
-    支持快捷键：Enter=提交，Escape=取消。
-
-    Attributes:
-        _question: 要询问用户的问题
+    支持两种模式：
+    - 结构化模式：当提供 questions 数据时，渲染单选(RadioSet)/多选(Checkbox)UI
+    - 文本模式：无结构化数据时，回退为文本输入框
     """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
-        Binding("enter", "submit", "Submit"),
+        # Enter 不再全局绑定提交。多选时 Space 切换，Tab 到 Submit 按钮后回车提交。
     ]
 
-    def __init__(self, question: str) -> None:
+    def __init__(self, question: str, questions_data: list | None = None) -> None:
         super().__init__()
-        self._question = question  # 存储问题内容
+        self._question = question
+        self._questions_data: list[dict] = []
+        if questions_data:
+            self._questions_data = [
+                q.model_dump() if hasattr(q, "model_dump") else q
+                for q in questions_data
+            ]
 
     def compose(self) -> ComposeResult:
+        if self._questions_data:
+            yield from self._compose_structured()
+        else:
+            yield from self._compose_fallback()
+
+    def _compose_fallback(self) -> ComposeResult:
+        """文本输入模式（兼容旧行为）"""
         yield Container(
-            Static(
-                Panel.fit(
-                    self._question,
-                    title="Question",
-                )
-            ),
+            Static(Panel.fit(self._question, title="Question")),
             Input(placeholder="Type your answer", id="question-input"),
             Horizontal(
                 Button("Submit", id="submit", variant="primary"),
@@ -166,26 +172,96 @@ class QuestionScreen(ModalScreen[str]):
             id="permission-dialog",
         )
 
+    def _compose_structured(self) -> ComposeResult:
+        """结构化选项模式：单选用 RadioSet，多选用 Checkbox"""
+        with Container(id="permission-dialog"):
+            for i, q in enumerate(self._questions_data):
+                header = q.get("header", "")
+                question_text = q.get("question", "")
+                options: list[dict] = q.get("options", [])
+                multi: bool = q.get("multiSelect", False)
+
+                title = f"[{header}] {question_text}" if header else question_text
+                yield Static(title, classes="question-title")
+                yield Static("─" * 40, classes="question-separator")
+
+                if multi:
+                    for j, opt in enumerate(options):
+                        desc = opt.get("description", "")
+                        label = f"{opt['label']} — {desc}" if desc else opt["label"]
+                        yield Checkbox(label, id=f"q_{i}_opt_{j}", classes="question-option")
+                else:
+                    with RadioSet(id=f"q_{i}", classes="question-radioset"):
+                        for j, opt in enumerate(options):
+                            desc = opt.get("description", "")
+                            label = f"{opt['label']} — {desc}" if desc else opt["label"]
+                            yield RadioButton(label, id=f"q_{i}_opt_{j}")
+                yield Static("")
+
+            yield Horizontal(
+                Button("Submit", id="submit", variant="primary"),
+                Button("Cancel", id="cancel", variant="default"),
+                classes="permission-actions",
+            )
+            yield Static(
+                "空格=选中/取消   Tab=切换选项   聚焦[提交]后回车=确认   Esc=取消",
+                classes="question-hint",
+            )
+
     def on_mount(self) -> None:
-        # 挂载时自动聚焦输入框
-        self.query_one("#question-input", Input).focus()
+        if not self._questions_data:
+            self.query_one("#question-input", Input).focus()
 
     @on(Button.Pressed)
     def handle_button_press(self, event: Button.Pressed) -> None:
-        if event.button.id == "submit":
-            self.dismiss(self.query_one("#question-input", Input).value.strip())
+        if event.button.id == "cancel":
+            self.dismiss("")
             return
-        self.dismiss("")  # 取消时返回空字符串
+        if self._questions_data:
+            self.dismiss(self._collect_structured_answers())
+        else:
+            self.dismiss(self.query_one("#question-input", Input).value.strip())
 
     @on(Input.Submitted, "#question-input")
-    def handle_submit(self, event: Input.Submitted) -> None:
+    def handle_input_submit(self, event: Input.Submitted) -> None:
         self.dismiss(event.value.strip())
 
     def action_submit(self) -> None:
-        self.dismiss(self.query_one("#question-input", Input).value.strip())
+        if self._questions_data:
+            self.dismiss(self._collect_structured_answers())
+        else:
+            self.dismiss(self.query_one("#question-input", Input).value.strip())
 
     def action_cancel(self) -> None:
         self.dismiss("")
+
+    def _collect_structured_answers(self) -> dict[str, list[str] | str]:
+        """收集结构化问题的用户答案。"""
+        result: dict[str, list[str] | str] = {}
+        for i, q in enumerate(self._questions_data):
+            header = q.get("header", f"q{i}")
+            options: list[dict] = q.get("options", [])
+            multi: bool = q.get("multiSelect", False)
+
+            if multi:
+                selected: list[str] = []
+                for j, opt in enumerate(options):
+                    cb = self.query_one(f"#q_{i}_opt_{j}", Checkbox)
+                    if cb.value:
+                        selected.append(opt["label"])
+                result[header] = selected
+            else:
+                rs = self.query_one(f"#q_{i}", RadioSet)
+                pressed = rs.pressed_button
+                if pressed is not None:
+                    try:
+                        opt_idx = int(str(pressed.id).rsplit("_", 1)[-1])
+                        result[header] = options[opt_idx]["label"]
+                    except (ValueError, IndexError):
+                        result[header] = str(pressed.label).split(" — ")[0]
+                else:
+                    result[header] = ""
+        return result
 
 
 class illusionTerminalApp(App[None]):
@@ -346,9 +422,12 @@ class illusionTerminalApp(App[None]):
         """权限确认回调函数。"""
         return bool(await self._open_modal(PermissionScreen(tool_name, reason)))
 
-    async def _ask_question(self, question: str) -> str:
+    async def _ask_question(self, question: str, questions_data: object = None) -> str | dict:
         """用户问答回调函数。"""
-        return str(await self._open_modal(QuestionScreen(question)) or "")
+        result = await self._open_modal(QuestionScreen(question, questions_data)) or ""
+        if isinstance(result, dict):
+            return result  # 结构化答案（含多选 list）
+        return str(result)
 
     async def _open_modal(self, screen: ModalScreen) -> object:
         """打开模态对话框并等待用户响应。"""

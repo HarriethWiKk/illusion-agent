@@ -17,13 +17,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
 # 用户提示回调函数类型
-AskUserPrompt = Callable[..., Awaitable[dict[str, str]]]
+# 回调签名: (question_text: str, questions: list[QuestionItem]) -> str | dict[str, str | list[str]]
+# 返回 str 为兼容旧模式，返回 dict 时多选值为 list[str]
+AskUserPrompt = Callable[..., Awaitable[Any]]
 
 
 class QuestionOption(BaseModel):
@@ -62,6 +64,18 @@ class QuestionItem(BaseModel):
         description="Set to true to allow the user to select multiple options instead of just one.",
     )
 
+    @model_validator(mode="after")
+    def _check_preview_multiselect(self) -> "QuestionItem":
+        """preview 仅支持单选，多选时不能有选项携带 preview。"""
+        if self.multiSelect:
+            for opt in self.options:
+                if opt.preview is not None:
+                    raise ValueError(
+                        f"Option '{opt.label}' has a preview, but previews are only "
+                        "supported for single-select questions (multiSelect must be False)."
+                    )
+        return self
+
 
 class AskUserQuestionToolInput(BaseModel):
     """向用户提问的参数。
@@ -80,15 +94,15 @@ class AskUserQuestionToolInput(BaseModel):
     )
     answers: dict[str, str] | None = Field(
         default=None,
-        description="User answers collected by the permission component",
+        description="Reserved for the permission component to inject user answers. Do not provide.",
     )
     annotations: dict[str, Any] | None = Field(
         default=None,
-        description="Optional per-question annotations from the user",
+        description="Reserved for the permission component. Do not provide.",
     )
     metadata: dict[str, Any] | None = Field(
         default=None,
-        description="Optional metadata for tracking and analytics purposes",
+        description="Reserved for the permission component. Do not provide.",
     )
 
 
@@ -151,14 +165,22 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
                 parts.append("  (multi-select)")
 
         question_text = "\n".join(parts)
-        answers = await prompt(question_text)
+
+        # 将结构化问题数据传给回调，使其能正确渲染单选/多选UI
+        answers = await prompt(question_text, arguments.questions)
 
         if not answers:
             return ToolResult(output="(no response)")
 
-        # 格式化答案
+        # 格式化答案：dict 模式支持 list 值（多选），逐项展开
         if isinstance(answers, dict):
-            lines = [f"{k}: {v}" for k, v in answers.items()]
+            lines: list[str] = []
+            for k, v in answers.items():
+                if isinstance(v, list):
+                    for item in v:
+                        lines.append(f"{k}: {item}")
+                else:
+                    lines.append(f"{k}: {v}")
             return ToolResult(output="\n".join(lines))
 
         return ToolResult(output=str(answers))

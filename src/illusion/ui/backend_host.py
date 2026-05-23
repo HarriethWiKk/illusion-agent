@@ -207,7 +207,15 @@ class ReactBackendHost:
                 # 用户问答响应
                 if request.type == "question_response":
                     if request.request_id in self._question_requests:
-                        self._question_requests[request.request_id].set_result(request.answer or "")
+                        answer = request.answer or ""
+                        # 尝试解析 JSON 格式的多选答案
+                        try:
+                            parsed = json.loads(answer)
+                            if isinstance(parsed, dict):
+                                answer = parsed
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        self._question_requests[request.request_id].set_result(answer)
                     await self._emit(BackendEvent(type="modal_request", modal=None))
                     continue
                 # 列出会话
@@ -937,12 +945,21 @@ class ReactBackendHost:
         finally:
             self._permission_requests.pop(request_id, None)
 
-    async def _ask_question(self, question: str) -> str:
+    async def _ask_question(self, question: str, questions: object = None) -> str | dict:
         request_id = uuid4().hex
-        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._question_requests[request_id] = future
-        tool_input = self._last_tool_inputs.get("ask_user_question", {})
-        questions_data = tool_input.get("questions")
+        # 优先使用显式传入的结构化问题数据，回退到 _last_tool_inputs
+        questions_data = questions
+        if questions_data is None:
+            tool_input = self._last_tool_inputs.get("ask_user_question", {})
+            questions_data = tool_input.get("questions")
+        # 如果是 pydantic 模型列表，转为 dict
+        if questions_data is not None and not isinstance(questions_data, (dict, list)):
+            questions_data = [
+                q.model_dump() if hasattr(q, "model_dump") else q
+                for q in questions_data
+            ]
         modal_payload: dict = {
             "kind": "question",
             "request_id": request_id,

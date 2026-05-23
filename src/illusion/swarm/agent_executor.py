@@ -583,7 +583,7 @@ async def run_agent_in_process(
         logger.debug("[agent_executor] %s: auto-approving %s (reason: %s)", agent_id, tool_name, reason)
         return True
 
-    async def _noop_ask_user(question: str) -> str:
+    async def _noop_ask_user(question: str, questions_data: object = None) -> str:
         logger.debug("[agent_executor] %s: auto-answering: %s", agent_id, question)
         return ""
 

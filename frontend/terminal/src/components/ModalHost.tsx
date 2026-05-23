@@ -36,6 +36,7 @@ function QuestionModal({
 	const [extraLines, setExtraLines] = useState<string[]>([]);
 	const [optionIndex, setOptionIndex] = useState(0);
 	const [isCustomInput, setIsCustomInput] = useState(false);
+	const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
 	const questions: QuestionItem[] = useMemo(() => {
 		const raw = modal.questions;
@@ -46,13 +47,15 @@ function QuestionModal({
 	const firstQuestion = questions.length > 0 ? questions[0] : null;
 	const options = firstQuestion?.options ?? [];
 	const hasOptions = options.length > 0;
+	const isMultiSelect = firstQuestion?.multiSelect === true && hasOptions;
 
 	type OptionEntry = {type: 'option'; label: string; description?: string} | {type: 'other'; label: string; description?: undefined};
 
 	const allOptions = useMemo(() => {
 		if (!hasOptions) return [] as OptionEntry[];
 		const result: OptionEntry[] = options.map((opt) => ({type: 'option' as const, label: opt.label, description: opt.description}));
-		// 仅当 LLM 未提供"其他"类选项时，才追加硬编码的"其他"选项，避免重复
+		// 多选模式下不追加"其他"选项
+		if (isMultiSelect) return result;
 		const hasOtherAlready = options.some((opt) => {
 			const lbl = opt.label.toLowerCase();
 			return lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他');
@@ -61,14 +64,16 @@ function QuestionModal({
 			result.push({type: 'other' as const, label: language === 'zh-CN' ? '其他（手动输入）' : 'Other (type your answer)', description: undefined});
 		}
 		return result;
-	}, [options, hasOptions, language]);
+	}, [options, hasOptions, isMultiSelect, language]);
 
 	useEffect(() => {
 		setOptionIndex(0);
 		setIsCustomInput(false);
-	}, [hasOptions, allOptions.length]);
+		setSelectedIndices(new Set());
+	}, [hasOptions, allOptions.length, isMultiSelect]);
 
 	useInput((_chunk, key) => {
+		// ---- 自定义输入模式 ----
 		if (isCustomInput) {
 			if (key.shift && key.return) {
 				setExtraLines((lines) => [...lines, modalInput]);
@@ -81,6 +86,61 @@ function QuestionModal({
 			return;
 		}
 
+		// ---- 多选模式 ----
+		if (isMultiSelect && allOptions.length > 0) {
+			if (key.upArrow) {
+				setOptionIndex((i) => Math.max(0, i - 1));
+				return;
+			}
+			if (key.downArrow) {
+				setOptionIndex((i) => Math.min(allOptions.length - 1, i + 1));
+				return;
+			}
+			if (key.return) {
+				// 收集所有选中项
+				const selected = allOptions
+					.filter((_, i) => selectedIndices.has(i))
+					.map((opt) => opt.label);
+				// 如果什么都没选，默认选中当前高亮的选项
+				if (selected.length === 0) {
+					selected.push(allOptions[optionIndex]!.label);
+				}
+				const header = firstQuestion?.header ?? 'answer';
+				onSubmit(JSON.stringify({[header]: selected}));
+				return;
+			}
+			if (_chunk === ' ') {
+				// Space 切换选中/取消
+				setSelectedIndices((prev) => {
+					const next = new Set(prev);
+					if (next.has(optionIndex)) {
+						next.delete(optionIndex);
+					} else {
+						next.add(optionIndex);
+					}
+					return next;
+				});
+				return;
+			}
+			// 数字键也切换选中（不立即提交）
+			const num = parseInt(_chunk, 10);
+			if (num >= 1 && num <= allOptions.length) {
+				setSelectedIndices((prev) => {
+					const next = new Set(prev);
+					const idx = num - 1;
+					if (next.has(idx)) {
+						next.delete(idx);
+					} else {
+						next.add(idx);
+					}
+					return next;
+				});
+				return;
+			}
+			return;
+		}
+
+		// ---- 单选模式（原逻辑） ----
 		if (hasOptions && allOptions.length > 0) {
 			if (key.upArrow) {
 				setOptionIndex((i) => Math.max(0, i - 1));
@@ -169,13 +229,19 @@ function QuestionModal({
 			{hasOptions && !isCustomInput ? (
 				<Box flexDirection="column" marginTop={1}>
 					{allOptions.map((opt, i) => {
-						const isSelected = i === optionIndex;
+						const isCurrent = i === optionIndex;
+						const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
 						return (
 							<Box key={i}>
-								<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
-									{isSelected ? `${theme.icons.pointer} ` : '  '}
+								<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+									{isCurrent ? `${theme.icons.pointer} ` : '  '}
 								</Text>
-								<Text color={isSelected ? theme.colors.suggestion : undefined} bold={isSelected} dimColor={!isSelected}>
+								{isMultiSelect && (
+									<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
+										[{isSelected ? 'x' : ' '}]
+									</Text>
+								)}
+								<Text color={isCurrent && !isMultiSelect ? theme.colors.suggestion : (isMultiSelect && isSelected ? theme.colors.suggestion : undefined)} bold={isCurrent && !isMultiSelect} dimColor={!isCurrent}>
 									{`${i + 1}. `}
 									{opt.label}
 								</Text>
@@ -184,17 +250,30 @@ function QuestionModal({
 										<Text dimColor>{theme.icons.middleDot} {opt.description}</Text>
 									</Box>
 								) : null}
-								{isSelected ? <Text dimColor>{' [enter]'}</Text> : null}
+								{isCurrent && !isMultiSelect ? <Text dimColor>{' [enter]'}</Text> : null}
 							</Box>
 						);
 					})}
 					<Box marginTop={0}>
 						<Text dimColor>
 							<Text color={theme.colors.muted}>↑↓</Text> navigate
-							<Text> {theme.icons.middleDot} </Text>
-							<Text color={theme.colors.muted}>↵</Text> select
-							<Text> {theme.icons.middleDot} </Text>
-							<Text color={theme.colors.muted}>1-{allOptions.length}</Text> quick
+							{isMultiSelect ? (
+								<>
+									<Text> {theme.icons.middleDot} </Text>
+									<Text color={theme.colors.muted}>Space</Text> toggle
+									<Text> {theme.icons.middleDot} </Text>
+									<Text color={theme.colors.muted}>1-{allOptions.length}</Text> toggle
+									<Text> {theme.icons.middleDot} </Text>
+									<Text color={theme.colors.muted}>↵</Text> confirm
+								</>
+							) : (
+								<>
+									<Text> {theme.icons.middleDot} </Text>
+									<Text color={theme.colors.muted}>↵</Text> select
+									<Text> {theme.icons.middleDot} </Text>
+									<Text color={theme.colors.muted}>1-{allOptions.length}</Text> quick
+								</>
+							)}
 						</Text>
 					</Box>
 				</Box>
