@@ -145,8 +145,8 @@ Usage:
                 output_mode=arguments.output_mode,
                 glob=arguments.glob,
                 case_sensitive=arguments.case_sensitive,
-                context_before=arguments.context or arguments.context_before,
-                context_after=arguments.context or arguments.context_after,
+                context_before=(arguments.context or arguments.context_before) if arguments.output_mode == "content" else None,
+                context_after=(arguments.context or arguments.context_after) if arguments.output_mode == "content" else None,
                 type_filter=arguments.type,
                 multiline=arguments.multiline,
                 head_limit=arguments.head_limit,
@@ -177,8 +177,8 @@ Usage:
             output_mode=arguments.output_mode,
             glob=arguments.glob,
             case_sensitive=arguments.case_sensitive,
-            context_before=arguments.context or arguments.context_before,
-            context_after=arguments.context or arguments.context_after,
+            context_before=(arguments.context or arguments.context_before) if arguments.output_mode == "content" else None,
+            context_after=(arguments.context or arguments.context_after) if arguments.output_mode == "content" else None,
             type_filter=arguments.type,
             multiline=arguments.multiline,
             head_limit=arguments.head_limit,
@@ -440,10 +440,8 @@ async def _rg_search(
                 formatted.append(line)
         return "\n".join(formatted) if formatted else "(no matches)"
 
-    # content模式 - 转换路径为相对路径
+    # content模式 - rg的cwd已设置为path.parent，输出路径即为相对路径
     if not is_dir:
-        display_base = _display_base(path, cwd)
-        prefix = _format_path(path, display_base)
         return "\n".join(paged) if paged else "(no matches)"
 
     return "\n".join(paged) if paged else "(no matches)"
