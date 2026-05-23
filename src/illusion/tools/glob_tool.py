@@ -241,14 +241,15 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
                 process.kill()
                 await process.wait()
 
-        # 排序保持单元测试和用户输出的确定性
-        lines.sort()
+        # 按修改时间降序排列
+        def _mtime_key(line: str) -> float:
+            return (root / line).stat().st_mtime
+        lines.sort(key=_mtime_key, reverse=True)
         return lines
 
     # 后备：非递归模式通常很便宜；在线程中运行以避免阻塞事件循环
     def _fallback() -> list[str]:
-        return sorted(
-            str(p.relative_to(root))
-            for p in root.glob(pattern)
-        )[:limit]
+        paths = list(root.glob(pattern))
+        paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return [str(p.relative_to(root)) for p in paths[:limit]]
     return await asyncio.to_thread(_fallback)
