@@ -75,7 +75,7 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 		<Box flexDirection="column" marginTop={1}>
 			<Box marginBottom={0}>
 				<Text color={theme.colors.illusion} bold>{theme.icons.pointer} </Text>
-				<Text bold>Tasks</Text>
+				<Text bold>Todos</Text>
 				<Text dimColor>{` ${completed}/${items.length} done`}</Text>
 				{inProgress > 0 ? <Text color={theme.colors.info}>{` ${theme.icons.middleDot} ${inProgress} active`}</Text> : null}
 				{pending > 0 ? <Text dimColor>{` ${theme.icons.middleDot} ${pending} open`}</Text> : null}

@@ -87,7 +87,7 @@ export function StatusBar({
 	const model = String(status.model ?? 'unknown');
 	const mode = String(status.permission_mode ?? 'default');
 	const taskCount = tasks.filter(
-		(task) => task.status === 'pending' || task.status === 'in_progress' || task.status === 'running'
+		(task) => task.status === 'pending' || task.status === 'in_progress'
 	).length;
 	const mcpCount = Number(status.mcp_connected ?? 0);
 	const agentCount = Number(status.agent_count ?? 0);
