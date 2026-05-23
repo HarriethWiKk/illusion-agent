@@ -133,6 +133,52 @@ def _build_tool_result_content(
     return [TextBlock(text=output), media_block]
 
 
+def _messages_have_media(messages: list[ConversationMessage]) -> bool:
+    """检查消息列表中是否包含 MediaBlock"""
+    for msg in messages:
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                return True
+            if isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                if any(isinstance(b, MediaBlock) for b in block.content):
+                    return True
+    return False
+
+
+def _strip_media_from_messages(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """将消息中的 MediaBlock 替换为文本描述，用于不支持图片的模型优雅降级"""
+    result: list[ConversationMessage] = []
+    for msg in messages:
+        new_blocks: list[Any] = []
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                size_str = f" ({block.metadata['size']} bytes)" if "size" in block.metadata else ""
+                new_blocks.append(TextBlock(
+                    text=f"[image file: {block.file_path}{size_str}, {block.media_type}] "
+                         "This model does not support image input",
+                ))
+            elif isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                stripped: list[Any] = []
+                for b in block.content:
+                    if isinstance(b, MediaBlock):
+                        size_str = f" ({b.metadata['size']} bytes)" if "size" in b.metadata else ""
+                        stripped.append(TextBlock(
+                            text=f"[image file: {b.file_path}{size_str}, {b.media_type}] "
+                                 "This model does not support image input",
+                        ))
+                    else:
+                        stripped.append(b)
+                new_blocks.append(ToolResultBlock(
+                    tool_use_id=block.tool_use_id,
+                    content=stripped,
+                    is_error=block.is_error,
+                ))
+            else:
+                new_blocks.append(block)
+        result.append(ConversationMessage(role=msg.role, content=new_blocks))
+    return result
+
+
 # 内容块联合类型
 ContentBlock = Annotated[
     TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock,
