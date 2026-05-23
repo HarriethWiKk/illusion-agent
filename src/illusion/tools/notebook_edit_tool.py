@@ -58,7 +58,7 @@ class NotebookEditTool(BaseTool):
     """
 
     name = "notebook_edit"
-    description = """Completely replaces the contents of a specific cell in a Jupyter notebook (.ipynb file) with new source. Jupyter notebooks are interactive documents that combine code, text, and visualizations, commonly used for data analysis and scientific computing. The notebook_path parameter must be an absolute path, not a relative path. The cell_number is 0-indexed. Use edit_mode=insert to add a new cell at the index specified by cell_number. Use edit_mode=delete to delete the cell at the index specified by cell_number. Defaults to edit_mode=replace. When using edit_mode=insert, cell_type is required. When using edit_mode=replace, cell_type defaults to the current cell type."""
+    description = """Completely replaces the contents of a specific cell in a Jupyter notebook (.ipynb file) with new source. Jupyter notebooks are interactive documents that combine code, text, and visualizations, commonly used for data analysis and scientific computing. The notebook_path parameter must be an absolute path, not a relative path. The cell_id is 0-indexed. Use edit_mode=insert to add a new cell at the index specified by cell_id. Use edit_mode=delete to delete the cell at the index specified by cell_id. Defaults to edit_mode=replace. When using edit_mode=insert, cell_type is required. When using edit_mode=replace, cell_type defaults to the current cell type."""
     input_model = NotebookEditToolInput
 
     async def execute(
