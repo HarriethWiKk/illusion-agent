@@ -40,7 +40,7 @@ class NotebookEditToolInput(BaseModel):
         default=None,
         description="The ID of the cell to edit. Use edit_mode=insert to add a new cell at this index, edit_mode=delete to delete.",
     )
-    new_source: str = Field(description="The new source for the cell")
+    new_source: str = Field(default="", description="The new source for the cell")
     cell_type: Literal["code", "markdown"] | None = Field(
         default=None,
         description="The type of the cell (code or markdown). Required for insert mode. Defaults to the current cell type for replace.",
@@ -95,6 +95,11 @@ class NotebookEditTool(BaseTool):
 
         # 从 cell_id 解析单元格索引
         cell_index = _resolve_cell_index(cells, arguments.cell_id)
+        if cell_index is None:
+            return ToolResult(
+                output=f"Cell ID '{arguments.cell_id}' not found in notebook {path}",
+                is_error=True,
+            )
 
         # 确定单元格类型
         effective_cell_type = arguments.cell_type
@@ -109,11 +114,6 @@ class NotebookEditTool(BaseTool):
                 effective_cell_type = cells[cell_index].get("cell_type", "code")
             else:
                 effective_cell_type = "code"
-
-        # 处理边界情况：replace 在末尾 → 转换为 insert
-        if arguments.edit_mode == "replace" and cell_index >= len(cells):
-            arguments = arguments.model_copy(update={"edit_mode": "insert"})
-            cell_index = len(cells)
 
         # 执行编辑操作
         if arguments.edit_mode == "delete":
@@ -142,9 +142,10 @@ class NotebookEditTool(BaseTool):
 
         # Replace 模式
         if cell_index >= len(cells):
-            # 自动扩展空单元格
-            while len(cells) <= cell_index:
-                cells.append(_empty_cell(effective_cell_type))
+            return ToolResult(
+                output=f"Cell index {cell_index} out of range (notebook has {len(cells)} cells)",
+                is_error=True,
+            )
 
         cell = cells[cell_index]
         cell["cell_type"] = effective_cell_type
@@ -170,7 +171,7 @@ def _resolve_path(base: Path, candidate: str) -> Path:
     return path.resolve()
 
 
-def _resolve_cell_index(cells: list[dict], cell_id: str | None) -> int:
+def _resolve_cell_index(cells: list[dict], cell_id: str | None) -> int | None:
     """将 cell_id 解析为数字索引。
 
     支持：
@@ -200,8 +201,7 @@ def _resolve_cell_index(cells: list[dict], cell_id: str | None) -> int:
         if cell.get("id") == cell_id:
             return i
 
-    # 如果没有匹配，默认返回 0
-    return 0
+    return None
 
 
 def _load_notebook(path: Path) -> dict | None:
