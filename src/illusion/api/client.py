@@ -56,7 +56,13 @@ from illusion.auth.external import (
     get_claude_code_session_id,
 )
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, assistant_message_from_api
+from illusion.engine.messages import (
+    ConversationMessage,
+    MediaBlock,
+    TextBlock,
+    ToolResultBlock,
+    assistant_message_from_api,
+)
 
 # 模块级日志记录器
 log = logging.getLogger(__name__)
@@ -153,6 +159,87 @@ class SupportsStreamingMessages(Protocol):
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """为请求产生流式事件"""
+
+
+def _messages_have_media(messages: list[ConversationMessage]) -> bool:
+    """检查消息列表中是否包含 MediaBlock"""
+    for msg in messages:
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                return True
+            if isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                if any(isinstance(b, MediaBlock) for b in block.content):
+                    return True
+    return False
+
+
+def _strip_media_from_messages(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """将消息中的 MediaBlock 替换为文本描述，用于不支持图片的模型优雅降级"""
+    result: list[ConversationMessage] = []
+    for msg in messages:
+        new_blocks: list[Any] = []
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                size_str = f" ({block.metadata['size']} bytes)" if "size" in block.metadata else ""
+                new_blocks.append(TextBlock(
+                    text=f"[image file: {block.file_path}{size_str}, {block.media_type}] "
+                         "This model does not support image input",
+                ))
+            elif isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                stripped: list[Any] = []
+                for b in block.content:
+                    if isinstance(b, MediaBlock):
+                        size_str = f" ({b.metadata['size']} bytes)" if "size" in b.metadata else ""
+                        stripped.append(TextBlock(
+                            text=f"[image file: {b.file_path}{size_str}, {b.media_type}] "
+                                 "This model does not support image input",
+                        ))
+                    else:
+                        stripped.append(b)
+                new_blocks.append(ToolResultBlock(
+                    tool_use_id=block.tool_use_id,
+                    content=stripped,
+                    is_error=block.is_error,
+                ))
+            else:
+                new_blocks.append(block)
+        result.append(ConversationMessage(role=msg.role, content=new_blocks))
+    return result
+
+
+def _is_media_related_error(exc: Exception) -> bool:
+    """检查错误是否可能由图片内容导致
+
+    Anthropic API 在不支持图片时可能返回：
+    - 400 invalid_request_error
+    - 404 "No endpoints found that support image input"
+
+    注意：错误可能已被 _translate_api_error 转为 IllusionCodeApiError，
+    此时 status_code 属性丢失，需从消息字符串中判断。
+    """
+    error_msg = str(exc).lower()
+    status = getattr(exc, "status_code", None)
+
+    # 从错误消息字符串中提取状态码（适配已翻译的异常）
+    if status is None:
+        for code in (404, 400):
+            if f"error code: {code}" in error_msg:
+                status = code
+                break
+
+    # 明确的图片不支持错误（404 或 400）
+    if status in {400, 404} and any(
+        kw in error_msg for kw in ("image", "media", "unsupported")
+    ):
+        return True
+
+    # 某些提供商返回的通用错误
+    if "does not support" in error_msg and "image" in error_msg:
+        return True
+
+    return False
+
+    return False
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -272,14 +359,17 @@ class AnthropicApiClient:
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """流式生成文本增量并在 transient 错误时自动重试
-        
+
+        当消息中包含图片但模型不支持时，自动降级为文本描述并重试。
+
         Args:
             request: API 消息请求
-        
+
         Yields:
             ApiStreamEvent: 流式事件（文本增量或完整消息）
         """
         last_error: Exception | None = None
+        media_stripped = False
 
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -287,10 +377,49 @@ class AnthropicApiClient:
                 async for event in self._stream_once(request):
                     yield event
                 return  # 成功
-            except IllusionCodeApiError:
-                raise  # 认证错误不重试
+            except IllusionCodeApiError as exc:
+                # 如果消息包含图片且错误可能是模型不支持图片导致的，尝试降级
+                if (
+                    not media_stripped
+                    and _messages_have_media(request.messages)
+                    and _is_media_related_error(exc)
+                ):
+                    log.warning(
+                        "Request failed, possibly due to unsupported image content. "
+                        "Retrying with text descriptions instead of images.",
+                    )
+                    request = ApiMessageRequest(
+                        model=request.model,
+                        messages=_strip_media_from_messages(request.messages),
+                        system_prompt=request.system_prompt,
+                        tools=request.tools,
+                        max_tokens=request.max_tokens,
+                    )
+                    media_stripped = True
+                    continue
+                raise
             except Exception as exc:
                 last_error = exc
+                # 如果消息包含图片且错误可能是模型不支持图片导致的，尝试降级
+                if (
+                    not media_stripped
+                    and _messages_have_media(request.messages)
+                    and _is_media_related_error(exc)
+                ):
+                    log.warning(
+                        "Request failed, possibly due to unsupported image content. "
+                        "Retrying with text descriptions instead of images.",
+                    )
+                    request = ApiMessageRequest(
+                        model=request.model,
+                        messages=_strip_media_from_messages(request.messages),
+                        system_prompt=request.system_prompt,
+                        tools=request.tools,
+                        max_tokens=request.max_tokens,
+                    )
+                    media_stripped = True
+                    continue
+
                 # 超过最大重试次数或不可重试
                 if attempt >= MAX_RETRIES or not _is_retryable(exc):
                     if isinstance(exc, APIError):

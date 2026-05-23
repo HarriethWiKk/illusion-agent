@@ -75,6 +75,55 @@ def _serialize_media_for_openai(block: MediaBlock) -> dict[str, Any]:
     }
 
 
+def _messages_have_media(messages: list[ConversationMessage]) -> bool:
+    """检查消息列表中是否包含 MediaBlock"""
+    for msg in messages:
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                return True
+            if isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                if any(isinstance(b, MediaBlock) for b in block.content):
+                    return True
+    return False
+
+
+def _strip_media_from_messages(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """将消息中的 MediaBlock 替换为文本描述，用于不支持图片的模型优雅降级"""
+    result: list[ConversationMessage] = []
+    for msg in messages:
+        new_blocks: list[Any] = []
+        has_media = False
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                has_media = True
+                size_str = f" ({block.metadata['size']} bytes)" if "size" in block.metadata else ""
+                new_blocks.append(TextBlock(
+                    text=f"[image file: {block.file_path}{size_str}, {block.media_type}] "
+                         "This model does not support image input",
+                ))
+            elif isinstance(block, ToolResultBlock) and isinstance(block.content, list):
+                stripped: list[Any] = []
+                for b in block.content:
+                    if isinstance(b, MediaBlock):
+                        has_media = True
+                        size_str = f" ({b.metadata['size']} bytes)" if "size" in b.metadata else ""
+                        stripped.append(TextBlock(
+                            text=f"[image file: {b.file_path}{size_str}, {b.media_type}] "
+                                 "This model does not support image input",
+                        ))
+                    else:
+                        stripped.append(b)
+                new_blocks.append(ToolResultBlock(
+                    tool_use_id=block.tool_use_id,
+                    content=stripped,
+                    is_error=block.is_error,
+                ))
+            else:
+                new_blocks.append(block)
+        result.append(ConversationMessage(role=msg.role, content=new_blocks))
+    return result
+
+
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """将 Anthropic 工具模式转换为 OpenAI function-calling 格式
     
@@ -294,24 +343,64 @@ class OpenAICompatibleClient:
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """流式生成文本增量和最终消息，匹配 Anthropic 客户端接口
-        
+
+        当消息中包含图片但模型不支持时，自动降级为文本描述并重试。
+
         Args:
             request: API 消息请求
-        
+
         Yields:
             ApiStreamEvent: 流式事件
         """
         last_error: Exception | None = None
+        media_stripped = False
 
         for attempt in range(MAX_RETRIES + 1):
             try:
                 async for event in self._stream_once(request):
                     yield event
                 return
-            except IllusionCodeApiError:
+            except IllusionCodeApiError as exc:
+                if (
+                    not media_stripped
+                    and _messages_have_media(request.messages)
+                    and self._is_media_related_error(exc)
+                ):
+                    log.warning(
+                        "Request failed, possibly due to unsupported image content. "
+                        "Retrying with text descriptions instead of images.",
+                    )
+                    request = ApiMessageRequest(
+                        model=request.model,
+                        messages=_strip_media_from_messages(request.messages),
+                        system_prompt=request.system_prompt,
+                        tools=request.tools,
+                        max_tokens=request.max_tokens,
+                    )
+                    media_stripped = True
+                    continue
                 raise
             except Exception as exc:
                 last_error = exc
+                if (
+                    not media_stripped
+                    and _messages_have_media(request.messages)
+                    and self._is_media_related_error(exc)
+                ):
+                    log.warning(
+                        "Request failed, possibly due to unsupported image content. "
+                        "Retrying with text descriptions instead of images.",
+                    )
+                    request = ApiMessageRequest(
+                        model=request.model,
+                        messages=_strip_media_from_messages(request.messages),
+                        system_prompt=request.system_prompt,
+                        tools=request.tools,
+                        max_tokens=request.max_tokens,
+                    )
+                    media_stripped = True
+                    continue
+
                 if attempt >= MAX_RETRIES or not self._is_retryable(exc):
                     raise self._translate_error(exc) from exc
 
@@ -466,6 +555,37 @@ class OpenAICompatibleClient:
             and "chat/completions" in error_msg
             and "not accessible" in error_msg.lower()
         )
+
+    @staticmethod
+    def _is_media_related_error(exc: Exception) -> bool:
+        """检查错误是否可能由图片内容导致（用于优雅降级判断）
+
+        包括：JSON 解析错误、400/404 错误中与 content/image 相关的消息、
+        空响应（某些模型遇到 image_url 直接返回空内容）。
+
+        注意：错误可能已被 _translate_error 转为 IllusionCodeApiError，
+        此时 status_code 属性丢失，需从消息字符串中判断。
+        """
+        error_msg = str(exc).lower()
+        status = getattr(exc, "status_code", None)
+
+        # 从错误消息字符串中提取状态码（适配已翻译的异常）
+        if status is None:
+            for code in (404, 400):
+                if f"error code: {code}" in error_msg:
+                    status = code
+                    break
+
+        # JSON 解析错误：模型返回空响应（遇到不支持的 image_url）
+        if "expecting value" in error_msg:
+            return True
+
+        # 400/404 错误且包含图片/内容相关关键词
+        if status in {400, 404}:
+            if any(kw in error_msg for kw in ("image", "media", "content", "param", "unsupported")):
+                return True
+
+        return False
 
     def _convert_messages_to_responses(
         self,
