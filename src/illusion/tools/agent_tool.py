@@ -117,6 +117,7 @@ Usage notes:
 - The agent's outputs should generally be trusted
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
 - If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Agent tool use content blocks.
+- Use `isolation="worktree"` to run the agent in an isolated git worktree directory. This prevents the agent from affecting the main workspace. The worktree is automatically cleaned up when the agent completes.
 
 ## Writing the prompt
 
@@ -165,6 +166,44 @@ Terse command-style prompts produce shallow, generic work.
 
         # 确定工作目录
         cwd = arguments.cwd or str(context.cwd)
+
+        # ------------------------------------------------------------------
+        # 处理 worktree 隔离
+        # ------------------------------------------------------------------
+        worktree_manager = None
+        worktree_info = None
+        isolation = arguments.isolation
+
+        if isolation == "worktree":
+            from illusion.swarm.worktree import WorktreeManager, validate_worktree_slug
+
+            worktree_manager = WorktreeManager()
+
+            # 生成唯一的 worktree slug
+            slug_name = arguments.name or arguments.subagent_type or "agent"
+            slug_name = slug_name.replace(" ", "-").lower()
+            slug = f"{slug_name}-{uuid.uuid4().hex[:8]}"
+            try:
+                validate_worktree_slug(slug)
+            except ValueError:
+                # 降级：清理非兼容字符
+                import re as _re
+                slug = _re.sub(r"[^a-zA-Z0-9._-]", "-", slug).strip("-") or "agent-worktree"
+
+            try:
+                worktree_info = await worktree_manager.create_worktree(
+                    repo_path=Path(cwd),
+                    slug=slug,
+                )
+                cwd = str(worktree_info.path)
+                logger.info(
+                    "[AgentTool] Created worktree for agent at: %s", worktree_info.path
+                )
+            except Exception as exc:
+                return ToolResult(
+                    output=f"Failed to create isolated worktree: {exc}",
+                    is_error=True,
+                )
 
         # 构建生成配置
         config = AgentSpawnConfig(
@@ -215,11 +254,22 @@ Terse command-style prompts produce shallow, generic work.
 
         has_parent_queue = context.metadata.get("parent_message_queue") is not None
         effective_run_in_background = arguments.run_in_background
+
+        # 团队上下文中后台模式的通知链路可能不可用，仅记录日志提醒
         if effective_run_in_background and in_team_context and not has_parent_queue:
             logger.info(
-                "[AgentTool] Team lead call forces foreground mode to keep task chain continuous"
+                "[AgentTool] Background agent in team context without parent queue; "
+                "completion notification will not be delivered to caller"
             )
-            effective_run_in_background = False
+
+        # 辅助函数：清理 worktree
+        async def _cleanup_worktree():
+            if worktree_info is not None and worktree_manager is not None:
+                try:
+                    await worktree_manager.remove_worktree(worktree_info.slug)
+                    logger.info("[AgentTool] Cleaned up worktree: %s", worktree_info.slug)
+                except Exception:
+                    logger.exception("[AgentTool] Failed to cleanup worktree: %s", worktree_info.slug)
 
         if effective_run_in_background:
             # 异步模式：后台执行
@@ -262,6 +312,7 @@ Terse command-style prompts produce shallow, generic work.
                         logger.exception("[AgentTool] Background agent %s failed", agent_id)
                     finally:
                         _unregister_agent(agent_id)
+                        await _cleanup_worktree()
 
                 asyncio.create_task(_run_background(), name=f"agent-{agent_id}")
 
@@ -272,9 +323,16 @@ Terse command-style prompts produce shallow, generic work.
                     ),
                 )
             else:
-                # 子进程后台执行
+                # 子进程后台执行 - worktree 清理由 WorktreeManager.cleanup_stale 负责
+                if worktree_info is not None:
+                    logger.info(
+                        "[AgentTool] Worktree %s will persist for subprocess agent; "
+                        "cleanup deferred to stale worktree cleanup",
+                        worktree_info.slug,
+                    )
                 result = await run_agent_subprocess(config)
                 if not result.success:
+                    await _cleanup_worktree()
                     return ToolResult(output=result.error or "Failed to spawn agent", is_error=True)
                 return ToolResult(
                     output=(
@@ -284,19 +342,22 @@ Terse command-style prompts produce shallow, generic work.
                 )
         else:
             # 同步模式：前台执行
-            if query_context is not None:
-                # 进程内同步执行
-                result = await run_agent_in_process(config, query_context, parent_registry)
+            try:
+                if query_context is not None:
+                    # 进程内同步执行
+                    result = await run_agent_in_process(config, query_context, parent_registry)
 
-                if not result.success:
-                    return ToolResult(output=result.error or "Agent execution failed", is_error=True)
+                    if not result.success:
+                        return ToolResult(output=result.error or "Agent execution failed", is_error=True)
 
-                return ToolResult(output=result.result_text)
-            else:
-                # 子进程同步执行（不常见，但支持）
-                result = await run_agent_subprocess(config)
-                if not result.success:
-                    return ToolResult(output=result.error or "Failed to spawn agent", is_error=True)
-                return ToolResult(
-                    output=f"Agent '{config.name}' launched as subprocess (agent_id={result.agent_id}).",
-                )
+                    return ToolResult(output=result.result_text)
+                else:
+                    # 子进程同步执行（不常见，但支持）
+                    result = await run_agent_subprocess(config)
+                    if not result.success:
+                        return ToolResult(output=result.error or "Failed to spawn agent", is_error=True)
+                    return ToolResult(
+                        output=f"Agent '{config.name}' launched as subprocess (agent_id={result.agent_id}).",
+                    )
+            finally:
+                await _cleanup_worktree()
