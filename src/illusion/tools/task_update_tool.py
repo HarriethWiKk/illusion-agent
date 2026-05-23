@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from illusion.tasks.manager import get_task_manager
 from illusion.tasks.types import to_task_display_status
@@ -36,30 +36,44 @@ class TaskUpdateToolInput(BaseModel):
         metadata: 要合并到任务的元数据键
         add_blocks: 无法开始直到此任务完成的任务ID
         add_blocked_by: 必须先完成才能开始此任务的任务ID
+        comments: 要追加的评论文本
     """
 
-    task_id: str = Field(description="Task identifier")
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(description="Task identifier", alias="taskId")
     subject: str | None = Field(default=None, description="New subject for the task")
     description: str | None = Field(default=None, description="Updated task description")
     active_form: str | None = Field(
         default=None,
+        alias="activeForm",
         description="Present continuous form shown in spinner when in_progress (e.g., 'Running tests')",
     )
     status: str | None = Field(default=None, description="New task status (pending, in_progress, completed, deleted)")
     owner: str | None = Field(default=None, description="New owner for the task")
     progress: int | None = Field(default=None, ge=0, le=100, description="Progress percentage")
-    status_note: str | None = Field(default=None, description="Short human-readable task note")
+    status_note: str | None = Field(
+        default=None,
+        alias="statusNote",
+        description="Short human-readable task note",
+    )
     metadata: dict | None = Field(
         default=None,
         description="Metadata keys to merge into the task (set a key to null to delete it)",
     )
     add_blocks: list[str] | None = Field(
         default=None,
+        alias="addBlocks",
         description="Task IDs that cannot start until this one completes",
     )
     add_blocked_by: list[str] | None = Field(
         default=None,
+        alias="addBlockedBy",
         description="Task IDs that must complete before this one can start",
+    )
+    comments: str | None = Field(
+        default=None,
+        description="Comment text to append to the task",
     )
 
 
@@ -166,6 +180,7 @@ Set up task dependencies:
                 metadata=arguments.metadata,
                 add_blocks=arguments.add_blocks,
                 add_blocked_by=arguments.add_blocked_by,
+                comments=arguments.comments,
             )
         except ValueError as exc:
             message = str(exc)
@@ -204,4 +219,6 @@ Set up task dependencies:
             parts.append(f"blocks={task.blocks}")
         if arguments.add_blocked_by:
             parts.append(f"blockedBy={task.blocked_by}")
+        if arguments.comments:
+            parts.append(f"comments={task.comments}")
         return ToolResult(output=" ".join(parts))

@@ -170,6 +170,7 @@ class BackgroundTaskManager:
         metadata: dict | None = None,
         add_blocks: list[str] | None = None,
         add_blocked_by: list[str] | None = None,
+        comments: str | None = None,
     ) -> TaskRecord:
         """更新用于协调和 UI 显示的可变任务元数据。"""
         task = self._require_task(task_id)
@@ -211,6 +212,8 @@ class BackgroundTaskManager:
             for blocker_id in add_blocked_by:
                 if blocker_id not in task.blocked_by:
                     task.blocked_by.append(blocker_id)
+        if comments is not None:
+            task.comments.append(comments)
         return task
 
     async def stop_task(self, task_id: str) -> TaskRecord:

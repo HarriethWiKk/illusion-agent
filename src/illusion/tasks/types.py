@@ -85,3 +85,4 @@ class TaskRecord:
     ended_at: float | None = None
     return_code: int | None = None
     metadata: dict[str, str] = field(default_factory=dict)
+    comments: list[str] = field(default_factory=list)

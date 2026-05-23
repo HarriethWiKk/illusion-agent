@@ -88,5 +88,7 @@ Returns full task details:
             parts.append(f"blockedBy: {task.blocked_by}")
         if task.active_form:
             parts.append(f"activeForm: {task.active_form}")
+        if task.comments:
+            parts.append(f"comments: {task.comments}")
 
         return ToolResult(output="\n".join(parts))
