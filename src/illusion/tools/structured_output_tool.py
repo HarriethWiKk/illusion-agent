@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -52,4 +54,5 @@ class StructuredOutputTool(BaseTool):
         context: ToolExecutionContext,
     ) -> ToolResult:
         del context
-        return ToolResult(output="Structured output provided successfully", metadata=arguments.model_dump(mode="json"))
+        output = json.dumps(arguments.structured_output, ensure_ascii=False)
+        return ToolResult(output=output)
