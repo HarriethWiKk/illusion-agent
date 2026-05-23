@@ -39,27 +39,30 @@ class SkillTool(BaseTool):
     """
 
     name = "skill"
-    description = """Execute a skill within the main conversation
+    description = """Load a skill's instructions so you can then execute them yourself.
+
+This tool does NOT execute anything — it only returns the skill's content (instructions, workflows, examples). You must read the returned content and follow it step by step to complete the task.
 
 When users ask you to perform tasks, check if any of the available skills match. Skills provide specialized capabilities and domain knowledge.
 
-When users reference a "slash command" or "/<something>" (e.g., "/commit", "/review-pr"), they are referring to a skill. Use this tool to invoke it.
+When users reference a "slash command" or "/<something>" (e.g., "/commit", "/review-pr"), they are referring to a skill. Use this tool to load its instructions.
 
-How to invoke:
-- Use this tool with the skill name and optional arguments
+How to use:
+- Call this tool with the skill name and optional arguments
+- The tool returns the skill's instructions — you then execute them
 - Examples:
-  - `skill: "pdf"` - invoke the pdf skill
-  - `skill: "commit", args: "-m 'Fix bug'"` - invoke with arguments
-  - `skill: "review-pr", args: "123"` - invoke with arguments
-  - `skill: "ms-office-suite:pdf"` - invoke using fully qualified name
+  - `skill: "pdf"` — loads the pdf skill's instructions
+  - `skill: "commit", args: "-m 'Fix bug'"` — loads with arguments
+  - `skill: "review-pr", args: "123"` — loads with arguments
+  - `skill: "ms-office-suite:pdf"` — loads using fully qualified name
 
 Important:
-- Available skills are listed in system-reminder messages in the conversation
-- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke the relevant Skill tool BEFORE generating any other response about the task
+- Available skills are listed in <system-reminder> messages in the conversation
+- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: call this Skill tool to load its instructions BEFORE generating any other response about the task
 - NEVER mention a skill without actually calling this tool
-- Do not invoke a skill that is already running
+- Do not load a skill that is already active in the current context
 - Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
-- If you see a <command-name> tag in the current conversation turn, the skill has ALREADY been loaded - follow the instructions directly instead of calling this tool again"""
+- If you see a <command-name> tag in the current conversation turn, the skill's instructions have ALREADY been loaded — follow the instructions directly instead of calling this tool again"""
     input_model = SkillToolInput
 
     def is_read_only(self, arguments: SkillToolInput) -> bool:
