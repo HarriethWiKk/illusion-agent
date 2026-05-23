@@ -61,7 +61,7 @@ async def test_task_and_todo_flow_across_registry(tmp_path: Path, monkeypatch):
     task_output = registry.get("task_output")
     task_update = registry.get("task_update")
 
-    search_result = await tool_search.execute(tool_search.input_model(query="task"), context)
+    search_result = await tool_search.execute(tool_search.input_model(query="select:task_create,task_get,task_output,task_update"), context)
     assert "task_create" in search_result.output
 
     await todo_write.execute(todo_write.input_model(todos=[{"content": "integration flow item", "status": "pending", "activeForm": "integrating flow item"}]), context)
@@ -208,7 +208,8 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
     cron = registry.get("cron")
 
     (tmp_path / "nb").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "nb" / "demo.ipynb").write_text('{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n', encoding="utf-8")
+    nb_content = '{"cells": [{"cell_type": "code", "source": ["pass"], "metadata": {}, "outputs": [], "execution_count": null}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n'
+    (tmp_path / "nb" / "demo.ipynb").write_text(nb_content, encoding="utf-8")
     await registry.get("read_file").execute(
         registry.get("read_file").input_model(path=str(tmp_path / "nb" / "demo.ipynb")),
         context,

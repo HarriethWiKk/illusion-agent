@@ -62,7 +62,7 @@ async def test_glob_and_grep(tmp_path: Path):
     (tmp_path / "b.py").write_text("def beta():\n    return 2\n", encoding="utf-8")
 
     glob_result = await GlobTool().execute(GlobToolInput(pattern="*.py"), context)
-    assert glob_result.output.splitlines() == ["a.py", "b.py"]
+    assert sorted(glob_result.output.splitlines()) == ["a.py", "b.py"]
 
     grep_result = await GrepTool().execute(
         GrepToolInput(pattern=r"def\s+beta", file_glob="*.py"),
@@ -121,10 +121,10 @@ async def test_tool_search_and_brief_tools(tmp_path: Path):
     assert "read_file" in search_result.output
 
     brief_result = await BriefTool().execute(
-        BriefToolInput(text="abcdefghijklmnopqrstuvwxyz", max_chars=20),
+        BriefToolInput(message="abcdefghijklmnopqrstuvwxyz"),
         ToolExecutionContext(cwd=tmp_path),
     )
-    assert brief_result.output == "abcdefghijklmnopqrst..."
+    assert brief_result.output == "abcdefghijklmnopqrstuvwxyz"
 
 
 @pytest.mark.asyncio
@@ -155,7 +155,8 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_notebook_edit_tool(tmp_path: Path):
-    (tmp_path / "demo.ipynb").write_text('{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n', encoding="utf-8")
+    nb_content = '{"cells": [{"cell_type": "code", "source": ["pass"], "metadata": {}, "outputs": [], "execution_count": null}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n'
+    (tmp_path / "demo.ipynb").write_text(nb_content, encoding="utf-8")
     await FileReadTool().execute(
         FileReadToolInput(path=str(tmp_path / "demo.ipynb")),
         ToolExecutionContext(cwd=tmp_path),

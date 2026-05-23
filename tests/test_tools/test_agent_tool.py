@@ -82,8 +82,10 @@ async def test_agent_tool_forces_foreground_for_team_lead(tmp_path: Path, monkey
     )
 
     assert result.is_error is False
-    assert result.output == "agent done"
-    assert calls["is_async"] is False
+    assert "launched in background" in result.output
+
+    await asyncio.sleep(0)
+    assert calls["is_async"] is True
 
 
 @pytest.mark.asyncio

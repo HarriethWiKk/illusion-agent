@@ -108,8 +108,8 @@ class TestOutputNormalizer:
         assert result.return_code == -1
 
     def test_format_result_truncation(self):
-        """超过 12000 字符截断"""
-        long_output = b"x" * 13000
+        """超过 30000 字符截断"""
+        long_output = b"x" * 31000
         result = OutputNormalizer.format_result(
             stdout=long_output,
             stderr=b"",
@@ -117,7 +117,7 @@ class TestOutputNormalizer:
             timed_out=False,
             timeout_seconds=120,
         )
-        assert len(result.output) < 13000
+        assert len(result.output) < 31000
         assert "...[truncated]..." in result.output
 
     def test_format_result_failure_with_output(self):

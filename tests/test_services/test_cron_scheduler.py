@@ -208,7 +208,7 @@ class TestExecuteJob:
             job = {"name": "test", "id": "test1", "prompt": "echo hello", "cwd": str(tmp_path)}
             entry = await execute_job(job)
             assert entry["status"] == "success"
-            mock_exec.assert_called_once_with("echo hello", tmp_path)
+            mock_exec.assert_called_once_with("echo hello", tmp_path, timeout=300)
 
 
 class TestSchedulerClass:

@@ -80,11 +80,10 @@ async def test_backend_host_processes_command(tmp_path, monkeypatch):
     assert should_continue is True
     assert any(event.type == "transcript_item" and event.item and event.item.role == "user" for event in events)
     assert any(
-        event.type == "transcript_item"
-        and event.item
-        and event.item.role == "system"
-        and "IllusionCode" in event.item.text
+        event.type == "command_result"
+        and "IllusionCode" in event.command_result_data.get("message", "")
         for event in events
+        if event.command_result_data
     )
     assert any(event.type == "state_snapshot" for event in events)
 

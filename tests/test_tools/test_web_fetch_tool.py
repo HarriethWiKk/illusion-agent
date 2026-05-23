@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -38,22 +39,36 @@ class _Handler(BaseHTTPRequestHandler):
         del format, args
 
 
+def _make_mock_response(html: str) -> MagicMock:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "text/html; charset=utf-8"}
+    mock_resp.text = html
+    mock_resp.is_redirect = False
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.url = "https://example.com/"
+    return mock_resp
+
+
 @pytest.mark.asyncio
 async def test_web_fetch_tool_reads_html(tmp_path):
-    server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
+    from illusion.tools import web_fetch_tool
+    web_fetch_tool._cache.clear()
+
+    mock_resp = _make_mock_response(
+        "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
+    )
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("illusion.tools.web_fetch_tool.httpx.AsyncClient", return_value=mock_client):
         tool = WebFetchTool()
         result = await tool.execute(
-            WebFetchToolInput(url=f"http://127.0.0.1:{server.server_port}/"),
+            WebFetchToolInput(url="https://example.com/"),
             ToolExecutionContext(cwd=tmp_path),
         )
-    finally:
-        server.shutdown()
-        with contextlib.suppress(Exception):
-            server.server_close()
-        thread.join(timeout=1)
 
     assert result.is_error is False
     assert "IllusionCode Test" in result.output

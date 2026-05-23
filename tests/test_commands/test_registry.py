@@ -124,20 +124,20 @@ async def test_model_command_default_clears_profile_override(tmp_path: Path, mon
     save_settings(
         Settings().model_copy(
             update={
-                "model": "env_1:model_a",
+                "model": "env_1.model_a",
                 "env_1": {"api_format": "anthropic", "model_a": "claude-sonnet-4-6"},
                 "env_2": {"api_format": "openai", "model_a": "gpt-5.4"},
             }
         )
     )
     registry = create_default_command_registry()
-    command, args = registry.lookup("/model set env_2:model_a")
+    command, args = registry.lookup("/model set env_2.model_a")
     assert command is not None
 
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
-    assert "env_2:model_a" in result.message
-    assert load_settings().model == "env_2:model_a"
+    assert "env_2.model_a" in result.message
+    assert load_settings().model == "env_2.model_a"
 
 
 @pytest.mark.asyncio
