@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from illusion.config.settings import load_settings
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -79,34 +80,61 @@ class EnterWorktreeTool(BaseTool):
         arguments: EnterWorktreeToolInput,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        # 获取 git 仓库根目录
-        top_level = _git_output(context.cwd, "rev-parse", "--show-toplevel")
-        if top_level is None:
-            return ToolResult(output="enter_worktree requires a git repository", is_error=True)
-
-        repo_root = Path(top_level)
-        # 生成或使用指定的工作树名称
         name = arguments.name or f"wt-{uuid4().hex[:8]}"
+
+        # 检查是否已在 worktree 中
+        if _is_in_worktree(context.cwd):
+            return ToolResult(
+                output="Already in a worktree session. Use exit_worktree to leave first.",
+                is_error=True,
+            )
+
         branch_name = name
-        # 解析工作树路径
-        worktree_path = _resolve_worktree_path(repo_root, branch_name)
-        # 创建父目录
-        worktree_path.parent.mkdir(parents=True, exist_ok=True)
-        # 执行 git worktree add 命令
-        cmd = ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"]
-        result = subprocess.run(
-            cmd,
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
-        )
-        output = (result.stdout or result.stderr).strip() or f"Created worktree {worktree_path}"
-        if result.returncode != 0:
-            return ToolResult(output=output, is_error=True)
-        return ToolResult(output=f"{output}\nPath: {worktree_path}")
+
+        # 尝试 git 仓库路径
+        top_level = _git_output(context.cwd, "rev-parse", "--show-toplevel")
+        if top_level is not None:
+            # ---- Git 仓库模式 ----
+            repo_root = Path(top_level)
+            worktree_path = _resolve_worktree_path(repo_root, branch_name)
+            worktree_path.parent.mkdir(parents=True, exist_ok=True)
+            cmd = ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"]
+            result = subprocess.run(
+                cmd,
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
+            )
+            output = (result.stdout or result.stderr).strip() or f"Created worktree {worktree_path}"
+            if result.returncode != 0:
+                return ToolResult(output=output, is_error=True)
+            return ToolResult(
+                output=f"{output}\nPath: {worktree_path}",
+                metadata={"new_cwd": str(worktree_path)},
+            )
+        else:
+            # ---- 非 Git 仓库：检查 WorktreeCreate/WorktreeRemove hooks ----
+            settings = load_settings()
+            hooks = settings.hooks or {}
+            has_create = "WorktreeCreate" in hooks or "worktree_create" in hooks
+            has_remove = "WorktreeRemove" in hooks or "worktree_remove" in hooks
+            if has_create and has_remove:
+                worktree_path = _resolve_worktree_path(context.cwd.resolve(), branch_name)
+                worktree_path.mkdir(parents=True, exist_ok=True)
+                return ToolResult(
+                    output=f"Created isolated worktree at {worktree_path}",
+                    metadata={"new_cwd": str(worktree_path)},
+                )
+            return ToolResult(
+                output=(
+                    "enter_worktree requires a git repository "
+                    "or WorktreeCreate/WorktreeRemove hooks configured in settings.json"
+                ),
+                is_error=True,
+            )
 
 
 def _git_output(cwd: Path, *args: str) -> str | None:
@@ -145,3 +173,16 @@ def _resolve_worktree_path(repo_root: Path, name: str) -> Path:
     """
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "worktree"
     return (repo_root / ".illusion" / "worktrees" / slug).resolve()
+
+
+def _is_in_worktree(cwd: Path) -> bool:
+    """检查当前工作目录是否已在 worktree 中。
+
+    参数：
+        cwd: 当前工作目录
+
+    返回：
+        是否已在 worktree 中
+    """
+    cwd_str = str(cwd.resolve())
+    return "/.illusion/worktrees/" in cwd_str.replace("\\", "/")

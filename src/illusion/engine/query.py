@@ -347,6 +347,9 @@ async def _execute_tool_call(
             },
         ),
     )
+    # 处理工具请求的 CWD 切换（如 enter_worktree）
+    if result.metadata.get("new_cwd"):
+        context.cwd = Path(result.metadata["new_cwd"])
     tool_result = ToolResultBlock(
         tool_use_id=tool_use_id,
         content=_build_tool_result_content(result.output, result.metadata),

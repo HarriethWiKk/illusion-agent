@@ -229,6 +229,9 @@ class QueryEngine:
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
             yield event
+        # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
+        if context.cwd != self._cwd:
+            self._cwd = context.cwd
 
     async def continue_pending(self, *, max_turns: int | None = None) -> AsyncIterator[StreamEvent]:
         """继续被中断的工具循环，而不追加新的用户消息。
@@ -259,3 +262,6 @@ class QueryEngine:
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
             yield event
+        # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
+        if context.cwd != self._cwd:
+            self._cwd = context.cwd
