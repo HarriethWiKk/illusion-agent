@@ -14,12 +14,42 @@
 
 from __future__ import annotations
 
+import html as _html_module
 import re
+import time
+from urllib.parse import urlparse
 
 import httpx
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
+from illusion.config.settings import load_settings
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+# ---------------------------------------------------------------------------
+# 15-minute TTL cache
+# ---------------------------------------------------------------------------
+_cache: dict[str, tuple[float, str]] = {}
+_CACHE_TTL = 15 * 60  # 15 minutes in seconds
+
+
+def _cache_key(url: str, prompt: str, max_chars: int) -> str:
+    return f"{url}|{prompt}|{max_chars}"
+
+
+def _cache_get(key: str) -> str | None:
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.time() - ts > _CACHE_TTL:
+        del _cache[key]
+        return None
+    return value
+
+
+def _cache_set(key: str, value: str) -> None:
+    _cache[key] = (time.time(), value)
 
 
 class WebFetchToolInput(BaseModel):
@@ -27,15 +57,20 @@ class WebFetchToolInput(BaseModel):
 
     属性：
         url: 要抓取的 HTTP 或 HTTPS URL
+        prompt: 描述你想从页面中提取什么信息
         max_chars: 最大返回字符数（500-50000）
     """
 
     url: str = Field(description="HTTP or HTTPS URL to fetch")
+    prompt: str = Field(
+        default="Summarize the key content of this page.",
+        description="Describes what information you want to extract from the page",
+    )
     max_chars: int = Field(default=12000, ge=500, le=50000)
 
 
 class WebFetchTool(BaseTool):
-    """抓取一个网页并返回紧凑的文本摘要。
+    """抓取一个网页并使用 AI 模型处理内容。
 
     用于获取和分析网络内容。
     """
@@ -62,10 +97,42 @@ Usage notes:
 
     async def execute(self, arguments: WebFetchToolInput, context: ToolExecutionContext) -> ToolResult:
         del context
+        url = arguments.url
+
+        # 自动升级 HTTP 到 HTTPS
+        parsed = urlparse(url)
+        if parsed.scheme == "http":
+            url = url.replace("http://", "https://", 1)
+
+        # 检查缓存
+        ck = _cache_key(url, arguments.prompt, arguments.max_chars)
+        cached = _cache_get(ck)
+        if cached is not None:
+            return ToolResult(output=cached)
+
+        # 发起 HTTP 请求（手动处理重定向以检测跨主机跳转）
         try:
-            # 发起 HTTP 请求
-            async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
-                response = await client.get(arguments.url, headers={"User-Agent": "IllusionCode/0.1"})
+            async with httpx.AsyncClient(follow_redirects=False, timeout=20.0) as client:
+                response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
+                # 检测跨主机重定向
+                while response.is_redirect:
+                    location = response.headers.get("location", "")
+                    if not location:
+                        break
+                    redirect_parsed = urlparse(location)
+                    current_parsed = urlparse(url)
+                    # 如果是相对路径或同主机，跟随
+                    if not redirect_parsed.netloc or redirect_parsed.netloc == current_parsed.netloc:
+                        url = location if redirect_parsed.netloc else f"{current_parsed.scheme}://{current_parsed.netloc}{location}"
+                        response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
+                    else:
+                        return ToolResult(
+                            output=(
+                                f"Redirect detected to a different host. The URL {arguments.url} "
+                                f"redirects to:\n\n{location}\n\n"
+                                f"Please make a new WebFetch request with the redirect URL."
+                            )
+                        )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             return ToolResult(output=f"web_fetch failed: {exc}", is_error=True)
@@ -73,34 +140,125 @@ Usage notes:
         # 处理响应内容
         content_type = response.headers.get("content-type", "")
         body = response.text
-        # 如果是 HTML，转换为纯文本
+        # 如果是 HTML，转换为 Markdown
         if "html" in content_type:
-            body = _html_to_text(body)
+            body = _html_to_markdown(body)
         body = body.strip()
         # 截断过长的内容
         if len(body) > arguments.max_chars:
             body = body[: arguments.max_chars].rstrip() + "\n...[truncated]"
-        return ToolResult(
-            output=(
+
+        # 使用 AI 模型处理内容
+        try:
+            ai_response = await _process_with_model(body, arguments.prompt)
+        except Exception:
+            # 模型调用失败时回退到直接返回内容
+            result = (
                 f"URL: {response.url}\n"
                 f"Status: {response.status_code}\n"
                 f"Content-Type: {content_type or '(unknown)'}\n\n"
                 f"{body}"
             )
-        )
+            return ToolResult(output=result)
+
+        _cache_set(ck, ai_response)
+        return ToolResult(output=ai_response)
 
     def is_read_only(self, arguments: BaseModel) -> bool:
         del arguments
         return True
 
 
-def _html_to_text(html: str) -> str:
-    """将 HTML 转换为纯文本。"""
-    # 移除 script 和 style 标签
-    text = re.sub(r"(?is)<(script|style).*?>.*?</\\1>", " ", html)
-    # 移除所有 HTML 标签
+async def _process_with_model(content: str, prompt: str) -> str:
+    """使用 AI 模型处理内容。"""
+    settings = load_settings()
+    env = settings._active_env
+    api_key = env.api_key or None
+    base_url = env.base_url or None
+
+    if not api_key:
+        raise RuntimeError("No API key configured")
+
+    if env.api_format == "anthropic":
+        # Anthropic 需要固定 base_url
+        base_url = base_url or "https://api.anthropic.com"
+        client = AsyncOpenAI(api_key=api_key, base_url=f"{base_url}/v1")
+    else:
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+    model_name = settings._active_model_name
+
+    system_prompt = (
+        "You are a web content summarizer. Analyze the provided web page content and respond "
+        "to the user's prompt. Be concise and accurate. Only use information from the provided content."
+    )
+
+    resp = await client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Web page content:\n\n{content}\n\nUser prompt: {prompt}"},
+        ],
+        max_tokens=4096,
+        temperature=0.3,
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _html_to_markdown(html_text: str) -> str:
+    """将 HTML 转换为 Markdown。"""
+    text = html_text
+
+    # 移除 script、style、nav、footer、header 标签及其内容
+    text = re.sub(r"(?is)<(script|style|nav|footer|header|noscript).*?>.*?</\1>", " ", text)
+
+    # 标题 h1-h6
+    for i in range(6, 0, -1):
+        text = re.sub(
+            rf"(?is)<h{i}[^>]*>\s*(.*?)\s*</h{i}>",
+            lambda m, n=i: "#" * n + " " + _strip_html(m.group(1)).strip() + "\n\n",
+            text,
+        )
+
+    # 粗体 / 斜体
+    text = re.sub(r"(?is)<(?:b|strong)[^>]*>(.*?)</(?:b|strong)>", r"**\1**", text)
+    text = re.sub(r"(?is)<(?:i|em)[^>]*>(.*?)</(?:i|em)>", r"*\1*", text)
+
+    # 链接（优先处理有 href 的 <a>）
+    text = re.sub(r'(?is)<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', r"[\2](\1)", text)
+
+    # 图片
+    text = re.sub(r'(?is)<img[^>]*src=["\']([^"\']+)["\'][^>]*/?>', r"![](\1)", text)
+
+    # 段落
+    text = re.sub(r"(?is)<p[^>]*>\s*(.*?)\s*</p>", r"\1\n\n", text)
+
+    # 换行
+    text = re.sub(r"(?is)<br\s*/?>", "\n", text)
+
+    # 无序列表项
+    text = re.sub(r"(?is)<li[^>]*>\s*(.*?)\s*</li>", r"- \1\n", text)
+
+    # 代码块
+    text = re.sub(r"(?is)<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", text)
+    text = re.sub(r"(?is)<code[^>]*>(.*?)</code>", r"`\1`", text)
+
+    # 删除所有剩余 HTML 标签
     text = re.sub(r"(?s)<[^>]+>", " ", text)
-    # 替换 HTML 实体
-    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-    # 规范化空白
-    return re.sub(r"[ \t\r\f\v]+", " ", text).replace(" \n", "\n").strip()
+
+    # 解码 HTML 实体
+    text = _html_module.unescape(text)
+
+    # 规范化空白和多余空行
+    text = re.sub(r"[ \t\f\r]+", " ", text)
+    text = re.sub(r"\n[ \t]+\n", "\n\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+def _strip_html(fragment: str) -> str:
+    """移除 HTML 标签，保留纯文本。"""
+    text = re.sub(r"(?s)<[^>]+>", " ", fragment)
+    text = _html_module.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()

@@ -67,7 +67,6 @@ CRITICAL REQUIREMENT - You MUST follow this:
     - [Source Title 2](https://example.com/2)
 
 Usage notes:
-  - Domain filtering is supported to include or block specific websites
   - Web search is only available in the US
 
 IMPORTANT - Use the correct year in search queries:
@@ -104,11 +103,10 @@ IMPORTANT - Use the correct year in search queries:
         if not results:
             return ToolResult(output="No search results found.", is_error=True)
 
-        # 构建输出
+        # 构建输出 — 使用 Markdown 超链接格式
         lines = [f"Search results for: {arguments.query}"]
         for index, result in enumerate(results, start=1):
-            lines.append(f"{index}. {result['title']}")
-            lines.append(f"   URL: {result['url']}")
+            lines.append(f"{index}. [{result['title']}]({result['url']})")
             if result["snippet"]:
                 lines.append(f"   {result['snippet']}")
         return ToolResult(output="\n".join(lines))
