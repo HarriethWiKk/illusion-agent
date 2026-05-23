@@ -5,7 +5,7 @@
 本模块提供读取和更新 IllusionCode 配置设置的功能。
 
 主要组件：
-    - ConfigTool: 读取或更新配置的工，使用示例：
+    - ConfigTool: 读取或更新配置的工具，使用示例：
     >>> from illusion.tools import ConfigTool
     >>> tool = ConfigTool()
 """
@@ -22,9 +22,9 @@ class ConfigToolInput(BaseModel):
     """配置访问参数。
 
     属性：
-        action: 操作类型，show 或 set
-        key: 配置键名
-        value: 配置值
+        action: 操作类型，"show" 显示全部配置，"set" 设置指定键
+        key: 配置键名（仅 action="set" 时有效，仅支持顶层平坦字段）
+        value: 配置值（仅 action="set" 时有效，字符串类型）
     """
 
     action: str = Field(default="show", description="show or set")
@@ -41,39 +41,33 @@ class ConfigTool(BaseTool):
     name = "config"
     description = """Get or set Illusion Code configuration settings.
 
-View or change Illusion Code settings. Use when the user requests configuration changes, asks about current settings, or when adjusting a setting would benefit them.
+View or change Illusion Code settings (stored in ~/.illusion/settings.json). Use when the user requests configuration changes or asks about current settings.
 
 ## Usage
-- **Get current value:** Omit the "value" parameter
-- **Set new value:** Include the "value" parameter
+- **Show all settings:** action="show" — dumps the entire config as JSON
+- **Set a value:** action="set" with key and value
 
-## Configurable settings list
-The following settings are available for you to change:
+Only top-level flat fields can be set. Nested objects (permission, sandbox, memory, hooks, mcp_servers, etc.) must be edited directly in the config file.
 
-### Global Settings (stored in ~/.illusion.json)
-- theme: "dark", "light", "ansi" - Terminal color theme
-- verbose: true/false - Show detailed output
-- permissions.defaultMode: "accept-edits", "plan", "accept-all" - Default permission mode
-- model: Model override (sonnet, opus, haiku, best, or full model ID)
-
-### Project Settings (stored in settings.json)
-- outputStyle: Output style configuration
-- language: Language preference for responses
-
-## Model
-- model - Override the default model. Available options:
-  - null/"default": Use the default model
-  - "sonnet": Illusion Sonnet (fast, capable)
-  - "opus": Illusion Opus (most capable)
-  - "haiku": Illusion Haiku (fastest)
-  - "best": Automatically select the best model
+## Available flat settings
+- model: Active model reference in "env_N.model_N" format (e.g., "env_1.model_1")
+- verbose: true/false — Show detailed output
+- ui_language: UI language (e.g., "zh-CN")
+- output_style: Output style ("default" or custom)
+- show_thinking: true/false — Show thinking process
+- fast_mode: true/false — Fast mode
+- effort: Effort level ("low", "medium", "high")
+- passes: Number of passes (integer)
+- max_tokens: Maximum tokens per response (integer)
+- max_turns: Maximum conversation turns (integer)
+- context_window: Context window size (integer)
+- system_prompt: Custom system prompt or null
 
 ## Examples
-- Get theme: { "setting": "theme" }
-- Set dark theme: { "setting": "theme", "value": "dark" }
-- Enable verbose: { "setting": "verbose", "value": true }
-- Change model: { "setting": "model", "value": "opus" }
-- Change permission mode: { "setting": "permissions.defaultMode", "value": "plan" }"""
+- Show all settings: { "action": "show" }
+- Enable verbose: { "action": "set", "key": "verbose", "value": "true" }
+- Set UI language: { "action": "set", "key": "ui_language", "value": "zh-CN" }
+- Set effort level: { "action": "set", "key": "effort", "value": "high" }"""
     input_model = ConfigToolInput
 
     async def execute(self, arguments: ConfigToolInput, context: ToolExecutionContext) -> ToolResult:
