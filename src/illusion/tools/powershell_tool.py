@@ -25,7 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
-from illusion.tools.shell_common import CommandExecutor
+from illusion.tools.shell_common import MAX_OUTPUT_LENGTH, CommandExecutor
 
 
 # PowerShell 版本类型
@@ -67,7 +67,6 @@ def _get_powershell_edition(powershell_path: str | None) -> PowerShellEdition | 
 
 _DEFAULT_TIMEOUT_MS = 120_000  # 默认超时 2 分钟
 _MAX_TIMEOUT_MS = 600_000      # 最大超时 10 分钟
-_MAX_OUTPUT_LENGTH = 30_000    # 最大输出长度
 
 
 def _get_background_usage_note() -> str | None:
@@ -146,8 +145,8 @@ def _build_powershell_description() -> str:
     sleep_guidance = _get_sleep_guidance()
 
     sections = [
-        "Executes a given PowerShell command with optional timeout. Working directory persists "
-        "between commands; shell state (variables, functions) does not.",
+        "Executes a given PowerShell command with optional timeout. Each invocation starts a "
+        "fresh PowerShell process; shell state (variables, functions) does not persist between calls.",
         "",
         "IMPORTANT: This tool is for terminal operations via PowerShell: git, npm, docker, and PS "
         "cmdlets. DO NOT use it for file operations (reading, writing, editing, searching, finding files) "
@@ -207,7 +206,7 @@ def _build_powershell_description() -> str:
         f"{_MAX_TIMEOUT_MS // 60000} minutes). If not specified, commands will timeout after "
         f"{_DEFAULT_TIMEOUT_MS}ms ({_DEFAULT_TIMEOUT_MS // 60000} minutes).",
         "  - It is very helpful if you write a clear, concise description of what this command does.",
-        f"  - If the output exceeds {_MAX_OUTPUT_LENGTH} characters, output will be truncated before "
+        f"  - If the output exceeds {MAX_OUTPUT_LENGTH} characters, output will be truncated before "
         "being returned to you.",
     ]
 
@@ -286,8 +285,8 @@ class PowerShellTool(BaseTool):
             # pwsh 7+ 支持 -NoProfile -NonInteractive -Command
             args = ["-NoProfile", "-NonInteractive", "-Command", arguments.command]
         else:
-            # Windows PowerShell 5.1 使用 -NoLogo -NoProfile -Command
-            args = ["-NoLogo", "-NoProfile", "-Command", arguments.command]
+            # Windows PowerShell 5.1
+            args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", arguments.command]
 
         # 创建子进程
         kwargs: dict = {}

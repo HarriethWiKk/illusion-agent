@@ -46,6 +46,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# 输出截断阈值（描述中对外暴露此值，修改时需同步更新工具描述文本）
+MAX_OUTPUT_LENGTH = 30_000
+
+
 class ShellErrorCode:
     """标准化 shell 退出码常量。"""
 
@@ -134,8 +138,8 @@ class OutputNormalizer:
                     f"Exit code: {return_code}"
                 )
 
-        if len(text) > 12000:
-            text = f"{text[:12000]}\n...[truncated]..."
+        if len(text) > MAX_OUTPUT_LENGTH:
+            text = f"{text[:MAX_OUTPUT_LENGTH]}\n...[truncated]..."
 
         return NormalizedResult(
             output=text,
