@@ -64,7 +64,7 @@ AGENT_COLORS: frozenset[str] = frozenset(
 )
 
 #: 有效的 Effort 级别 (对应 TS 中的 EFFORT_LEVELS)
-EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high")
+EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 #: 有效的权限模式 (对应 TS 中的 PERMISSION_MODES)
 PERMISSION_MODES: tuple[str, ...] = (
