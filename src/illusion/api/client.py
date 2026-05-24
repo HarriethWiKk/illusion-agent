@@ -43,7 +43,7 @@ _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
 _sdk_sig_field.annotation = str | None
 _SDKThinkingBlock.model_rebuild()
 
-from illusion.api.effort import EffortLevel
+from illusion.api.effort import EffortLevel, EffortMapper
 from illusion.api.errors import (
     AuthenticationFailure,
     IllusionCodeApiError,
@@ -430,6 +430,9 @@ class AnthropicApiClient:
         # 添加工具定义
         if request.tools:
             params["tools"] = request.tools
+        # 添加 effort 字段
+        if request.effort is not None:
+            params["reasoning_effort"] = request.effort.value
         # OAuth 附加参数
         if self._claude_oauth:
             params["betas"] = claude_oauth_betas()
@@ -468,6 +471,29 @@ class AnthropicApiClient:
                 # 获取最终消息
                 final_message = await stream.get_final_message()
         except APIError as exc:
+            # 检查是否为 effort 不支持错误
+            if _is_effort_unsupported_error(exc) and request.effort is not None:
+                # 降级 effort 并重试
+                fallback_effort = EffortMapper.reverse_fallback(request.effort)
+                if fallback_effort != request.effort:
+                    log.warning(
+                        "Effort level %s not supported, falling back to %s",
+                        request.effort.value,
+                        fallback_effort.value,
+                    )
+                    # 创建降级后的请求
+                    fallback_request = ApiMessageRequest(
+                        model=request.model,
+                        messages=request.messages,
+                        system_prompt=request.system_prompt,
+                        max_tokens=request.max_tokens,
+                        tools=request.tools,
+                        effort=fallback_effort,
+                    )
+                    # 重试
+                    async for event in self._stream_once(fallback_request):
+                        yield event
+                    return
             # 可重试状态码直接抛出，让重试逻辑处理
             if isinstance(exc, APIStatusError) and exc.status_code in RETRYABLE_STATUS_CODES:
                 raise
@@ -485,12 +511,30 @@ class AnthropicApiClient:
         )
 
 
+def _is_effort_unsupported_error(exc: Exception) -> bool:
+    """检测是否为 effort 字段不支持导致的错误
+
+    Args:
+        exc: 异常对象
+
+    Returns:
+        bool: 是否为 effort 不支持错误
+    """
+    error_msg = str(exc).lower()
+    # 检测常见的 effort 不支持错误消息
+    effort_keywords = ["effort", "reasoning_effort", "reasoning effort"]
+    unsupported_keywords = ["not supported", "unsupported", "invalid", "unknown"]
+
+    return any(keyword in error_msg for keyword in effort_keywords) and \
+           any(keyword in error_msg for keyword in unsupported_keywords)
+
+
 def _translate_api_error(exc: APIError) -> IllusionCodeApiError:
     """转换 API 错误为统一异常类型
-    
+
     Args:
         exc: Anthropic API 错误
-    
+
     Returns:
         IllusionCodeApiError: 统一异常类型
     """
