@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from illusion.api.client import SupportsStreamingMessages
+from illusion.api.effort import EffortLevel
 from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
 from illusion.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, run_query
@@ -76,6 +77,7 @@ class QueryEngine:
         ask_user_prompt: AskUserPrompt | None = None,
         hook_executor: HookExecutor | None = None,
         tool_metadata: dict[str, object] | None = None,
+        effort: EffortLevel | None = None,
     ) -> None:
         self._api_client = api_client  # API客户端
         self._tool_registry = tool_registry  # 工具注册表
@@ -89,6 +91,7 @@ class QueryEngine:
         self._ask_user_prompt = ask_user_prompt  # 用户询问回调
         self._hook_executor = hook_executor  # 钩子执行器
         self._tool_metadata = tool_metadata or {}  # 工具元数据
+        self._effort = effort  # effort 级别
         self._messages: list[ConversationMessage] = []  # 对话消息历史
         self._cost_tracker = CostTracker()  # 成本跟踪器
 

@@ -33,6 +33,7 @@ from illusion.api.client import (
     ApiTextDeltaEvent,
     SupportsStreamingMessages,
 )
+from illusion.api.effort import EffortLevel
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, _build_tool_result_content
 from illusion.engine.stream_events import (
@@ -90,6 +91,7 @@ class QueryContext:
         max_turns: 最大轮次限制（可选）
         hook_executor: 钩子执行器（可选）
         tool_metadata: 工具元数据（可选）
+        effort: 推理强度级别（可选）
     """
 
     api_client: SupportsStreamingMessages
@@ -104,6 +106,7 @@ class QueryContext:
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
+    effort: EffortLevel | None = None
 
 
 async def run_query(
@@ -163,6 +166,7 @@ async def run_query(
                     system_prompt=context.system_prompt,
                     max_tokens=context.max_tokens,
                     tools=context.tool_registry.to_api_schema(),
+                    effort=context.effort,
                 )
             ):
                 if isinstance(event, ApiTextDeltaEvent):
