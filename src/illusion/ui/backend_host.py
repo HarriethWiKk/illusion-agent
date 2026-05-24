@@ -721,6 +721,8 @@ class ReactBackendHost:
                 {"value": "low", "label": "低" if zh else "Low", "description": "最快响应" if zh else "Fastest responses", "active": settings.effort == "low"},
                 {"value": "medium", "label": "中" if zh else "Medium", "description": "平衡推理" if zh else "Balanced reasoning", "active": settings.effort == "medium"},
                 {"value": "high", "label": "高" if zh else "High", "description": "最深推理" if zh else "Deepest reasoning", "active": settings.effort == "high"},
+                {"value": "xhigh", "label": "超高" if zh else "XHigh", "description": "超深推理" if zh else "Extra deep reasoning", "active": settings.effort == "xhigh"},
+                {"value": "max", "label": "最大" if zh else "Max", "description": "最大推理深度" if zh else "Maximum reasoning depth", "active": settings.effort == "max"},
             ]
             await self._emit(
                 BackendEvent(
