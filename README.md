@@ -451,7 +451,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 | `max_turns` | int | 200 | 最大对话轮数 | `500` |
 | `ui_language` | string | "zh-CN" | 界面语言 | `"en-US"` |
 | `fast_mode` | bool | false | 快速模式 | `true` |
-| `effort` | string | "medium" | 推理强度级别：low/medium/high | `"high"` |
+| `effort` | string | "medium" | 推理强度级别：low/medium/high/xhigh/max | `"high"` |
 | `passes` | int | 1 | 推理轮数（1-8），控制 AI 对同一问题的迭代推理次数，值越大推理越深入但耗时越长 | `2` |
 | `verbose` | bool | false | 详细输出模式 | `true` |
 
