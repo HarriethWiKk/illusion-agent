@@ -1150,6 +1150,7 @@ def main(
                 api_key=api_key,  # API 密钥
                 restore_messages=session_data.get("messages"),  # 恢复的消息
                 restore_session_id=session_data.get("session_id"),
+                effort=effort,  # 推理强度级别
             )
         )
         return
@@ -1174,6 +1175,7 @@ def main(
                 api_format=api_format,  # API 格式
                 permission_mode=permission_mode,  # 权限模式
                 max_turns=max_turns,  # 最大轮次
+                effort=effort,  # 推理强度级别
             )
         )
         return

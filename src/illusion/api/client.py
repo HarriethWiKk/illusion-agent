@@ -348,6 +348,7 @@ class AnthropicApiClient:
                         system_prompt=request.system_prompt,
                         tools=request.tools,
                         max_tokens=request.max_tokens,
+                        effort=request.effort,
                     )
                     media_stripped = True
                     continue
@@ -370,6 +371,7 @@ class AnthropicApiClient:
                         system_prompt=request.system_prompt,
                         tools=request.tools,
                         max_tokens=request.max_tokens,
+                        effort=request.effort,
                     )
                     media_stripped = True
                     continue

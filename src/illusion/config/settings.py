@@ -473,6 +473,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if max_turns:
         updates["max_turns"] = int(max_turns)
 
+    effort = os.environ.get("ILLUSION_EFFORT") or os.environ.get("illusion_EFFORT")
+    if effort:
+        updates["effort"] = effort
+
     sandbox_enabled = os.environ.get("ILLUSION_SANDBOX_ENABLED") or os.environ.get("illusion_SANDBOX_ENABLED")
     sandbox_fail = os.environ.get("ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE") or os.environ.get("illusion_SANDBOX_FAIL_IF_UNAVAILABLE")
     sandbox_updates: dict[str, Any] = {}

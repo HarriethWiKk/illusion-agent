@@ -96,6 +96,7 @@ async def run_repl(
         system_prompt=system_prompt,
         api_key=api_key,
         api_format=api_format,
+        effort=effort,
     )
     # 如果前端退出代码非零，抛出 SystemExit
     if exit_code != 0:
@@ -116,6 +117,7 @@ async def run_print_mode(
     api_client: SupportsStreamingMessages | None = None,
     permission_mode: str | None = None,
     max_turns: int | None = None,
+    effort: str | None = None,
 ) -> None:
     """非交互式模式：提交提示词，流式输出，然后退出。
 
@@ -132,6 +134,7 @@ async def run_print_mode(
         api_client: 流式 API 客户端实例
         permission_mode: 权限模式
         max_turns: 最大对话轮次
+        effort: 推理强度级别
     """
     from illusion.engine.stream_events import (
         AssistantTextDelta,
@@ -162,6 +165,7 @@ async def run_print_mode(
         api_client=api_client,
         permission_prompt=_noop_permission,
         ask_user_prompt=_noop_ask,
+        effort=effort,
     )
     await start_runtime(bundle)
 

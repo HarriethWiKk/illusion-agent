@@ -78,6 +78,7 @@ def build_backend_command(
     system_prompt: str | None = None,
     api_key: str | None = None,
     api_format: str | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     """返回 React 前端用于生成后端主机的命令。
 
@@ -89,6 +90,7 @@ def build_backend_command(
         system_prompt: 系统提示词
         api_key: API 密钥
         api_format: API 格式
+        effort: 推理强度级别
 
     Returns:
         list[str]: 后端启动命令列表
@@ -108,6 +110,8 @@ def build_backend_command(
         command.extend(["--api-key", api_key])
     if api_format:
         command.extend(["--api-format", api_format])
+    if effort:
+        command.extend(["--effort", effort])
     return command
 
 
@@ -121,6 +125,7 @@ async def launch_react_tui(
     system_prompt: str | None = None,
     api_key: str | None = None,
     api_format: str | None = None,
+    effort: str | None = None,
 ) -> int:
     """启动 React 终端前端作为默认 UI。
 
@@ -133,6 +138,7 @@ async def launch_react_tui(
         system_prompt: 系统提示词
         api_key: API 密钥
         api_format: API 格式
+        effort: 推理强度级别
 
     Returns:
         int: 退出代码
@@ -173,6 +179,7 @@ async def launch_react_tui(
                 system_prompt=system_prompt,
                 api_key=api_key,
                 api_format=api_format,
+                effort=effort,
             ),
             "initial_prompt": prompt,
         }

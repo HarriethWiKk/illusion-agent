@@ -174,6 +174,7 @@ async def build_runtime(
     ask_user_prompt: AskUserPrompt | None = None,
     restore_messages: list[dict] | None = None,
     restore_session_id: str | None = None,
+    effort: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -191,6 +192,7 @@ async def build_runtime(
         permission_prompt: 权限确认回调函数
         ask_user_prompt: 用户问答回调函数
         restore_messages: 恢复的会话消息列表
+        effort: 推理强度级别（low/medium/high/xhigh/max）
 
     Returns:
         RuntimeBundle: 运行时数据 bundle
@@ -203,6 +205,7 @@ async def build_runtime(
         "system_prompt": system_prompt,
         "api_key": api_key,
         "api_format": api_format,
+        "effort": effort,
     }
     settings = load_settings().merge_cli_overrides(**settings_overrides)
     session_id = restore_session_id or uuid4().hex[:12]
