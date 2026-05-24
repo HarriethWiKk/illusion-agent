@@ -43,7 +43,7 @@ _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
 _sdk_sig_field.annotation = str | None
 _SDKThinkingBlock.model_rebuild()
 
-from illusion.api.effort import EffortLevel, EffortMapper
+from illusion.api.effort import EffortLevel
 from illusion.api.errors import (
     AuthenticationFailure,
     IllusionCodeApiError,
@@ -475,35 +475,10 @@ class AnthropicApiClient:
         except APIError as exc:
             # 检查是否为 effort 不支持错误
             if _is_effort_unsupported_error(exc) and request.effort is not None:
-                # 降级 effort 并重试
-                fallback_effort = EffortMapper.reverse_fallback(request.effort)
-                # 如果降级目标与当前相同，或者已经是 HIGH，直接使用 HIGH
-                if fallback_effort == request.effort or request.effort == EffortLevel.HIGH:
-                    fallback_effort = EffortLevel.HIGH
-                if fallback_effort != request.effort:
-                    log.warning(
-                        "Effort level %s not supported, falling back to %s",
-                        request.effort.value,
-                        fallback_effort.value,
-                    )
-                    # 发送降级提示事件
-                    yield ApiTextDeltaEvent(
-                        text="",
-                        reasoning=f"[Effort level {request.effort.value} not supported, falling back to {fallback_effort.value}]",
-                    )
-                    # 创建降级后的请求
-                    fallback_request = ApiMessageRequest(
-                        model=request.model,
-                        messages=request.messages,
-                        system_prompt=request.system_prompt,
-                        max_tokens=request.max_tokens,
-                        tools=request.tools,
-                        effort=fallback_effort,
-                    )
-                    # 重试
-                    async for event in self._stream_once(fallback_request):
-                        yield event
-                    return
+                # 直接向用户反馈错误，不进行降级
+                raise RequestFailure(
+                    f"当前模型不支持推理强度 '{request.effort.value}'，请尝试使用其他推理强度级别（如 low/medium/high）"
+                ) from exc
             # 可重试状态码直接抛出，让重试逻辑处理
             if isinstance(exc, APIStatusError) and exc.status_code in RETRYABLE_STATUS_CODES:
                 raise
