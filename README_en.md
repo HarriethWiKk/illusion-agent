@@ -31,6 +31,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
 - 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
 - 🎨 **Modern Terminal Interface** - React + Ink component-based TUI
+- 🎯 **Reasoning Effort Control** - Supports low/medium/high/xhigh/max five reasoning effort levels with automatic fallback
 
 ### Interface Preview
 
