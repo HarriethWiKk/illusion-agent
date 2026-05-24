@@ -241,6 +241,7 @@ Terse command-style prompts produce shallow, generic work.
                 permission_prompt=query_engine._permission_prompt,
                 ask_user_prompt=query_engine._ask_user_prompt,
                 hook_executor=query_engine._hook_executor,
+                effort=query_engine._effort,
             )
         else:
             query_context = None

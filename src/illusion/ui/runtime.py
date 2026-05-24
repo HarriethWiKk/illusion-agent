@@ -49,6 +49,7 @@ from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from illusion.api.client import AnthropicApiClient, SupportsStreamingMessages
+from illusion.api.effort import EffortMapper
 from illusion.api.openai_client import OpenAICompatibleClient
 from illusion.api.provider import auth_status, detect_provider
 from illusion.bridge import get_bridge_manager
@@ -303,6 +304,7 @@ async def build_runtime(
             "app_state_store": app_state,
             "session_id": session_id,
         },
+        effort=EffortMapper.normalize(settings.effort),
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine

@@ -1190,5 +1190,6 @@ def main(
             system_prompt=system_prompt,  # 系统提示词
             api_key=api_key,  # API 密钥
             api_format=api_format,  # API 格式
+            effort=effort,  # 推理强度级别
         )
     )

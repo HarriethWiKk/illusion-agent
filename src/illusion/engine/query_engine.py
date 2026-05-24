@@ -227,6 +227,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            effort=self._effort,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
@@ -260,6 +261,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            effort=self._effort,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

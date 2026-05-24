@@ -88,6 +88,7 @@ class BackendHostConfig:
         api_client: 流式 API 客户端实例
         restore_messages: 恢复的会话消息列表
         enforce_max_turns: 是否强制限制最大轮次
+        effort: 推理强度级别（low/medium/high/xhigh/max）
     """
 
     model: str | None = None
@@ -100,6 +101,7 @@ class BackendHostConfig:
     restore_messages: list[dict] | None = None
     restore_session_id: str | None = None
     enforce_max_turns: bool = True
+    effort: str | None = None
 
 
 class ReactBackendHost:
@@ -1118,6 +1120,7 @@ async def run_backend_host(
     restore_messages: list[dict] | None = None,
     restore_session_id: str | None = None,
     enforce_max_turns: bool = True,
+    effort: str | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -1134,6 +1137,7 @@ async def run_backend_host(
             restore_messages=restore_messages,
             restore_session_id=restore_session_id,
             enforce_max_turns=enforce_max_turns,
+            effort=effort,
         )
     )
     return await host.run()

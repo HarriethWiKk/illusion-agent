@@ -49,6 +49,7 @@ async def run_repl(
     backend_only: bool = False,
     restore_messages: list[dict] | None = None,
     restore_session_id: str | None = None,
+    effort: str | None = None,
 ) -> None:
     """运行默认的 IllusionCode 交互式应用程序（React TUI）。
 
@@ -65,6 +66,7 @@ async def run_repl(
         backend_only: 是否仅运行后端
         restore_messages: 恢复的会话消息列表
         restore_session_id: 恢复的会话ID
+        effort: 推理强度级别（low/medium/high/xhigh/max）
     """
     # 后端单独运行模式
     if backend_only:
@@ -80,6 +82,7 @@ async def run_repl(
             restore_messages=restore_messages,
             restore_session_id=restore_session_id,
             enforce_max_turns=max_turns is not None,
+            effort=effort,
         )
         return
 

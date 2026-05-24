@@ -686,6 +686,9 @@ class OpenAICompatibleClient:
             params["max_output_tokens"] = request.max_tokens
         if resp_tools:
             params["tools"] = resp_tools
+        # 添加 effort 字段
+        if request.effort is not None:
+            params["reasoning"] = {"effort": request.effort.value}
 
         collected_content = ""
         collected_reasoning = ""

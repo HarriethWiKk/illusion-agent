@@ -28,6 +28,7 @@ def _query_engine(tmp_path: Path) -> SimpleNamespace:
         _permission_prompt=None,
         _ask_user_prompt=None,
         _hook_executor=None,
+        _effort=None,
     )
 
 

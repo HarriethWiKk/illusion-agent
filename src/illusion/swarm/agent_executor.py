@@ -600,6 +600,7 @@ async def run_agent_in_process(
         ask_user_prompt=_noop_ask_user,
         max_turns=agent_def.max_turns if agent_def and agent_def.max_turns else query_context.max_turns,
         hook_executor=None,  # agent 不执行 hooks
+        effort=query_context.effort,
     )
 
     # 初始化消息列表
