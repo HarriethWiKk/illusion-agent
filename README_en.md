@@ -451,7 +451,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
 | `max_turns` | int | 200 | Maximum conversation turns | `500` |
 | `ui_language` | string | "en-US" | UI language | `"zh-CN"` |
 | `fast_mode` | bool | false | Fast mode | `true` |
-| `effort` | string | "medium" | Reasoning effort level: low/medium/high | `"high"` |
+| `effort` | string | "medium" | Reasoning effort level: low/medium/high/xhigh/max | `"high"` |
 | `passes` | int | 1 | Reasoning pass count (1-8), controls how many times the AI iterates on the same problem; higher values = deeper reasoning but longer time | `2` |
 | `verbose` | bool | false | Verbose output mode | `true` |
 
