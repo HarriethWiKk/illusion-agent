@@ -36,6 +36,7 @@ from illusion.api.client import (
     ApiStreamEvent,
     ApiTextDeltaEvent,
 )
+from illusion.api.effort import EffortMapper
 from illusion.api.compat import (
     merge_reasoning_text,
     parse_tool_arguments,
@@ -393,6 +394,10 @@ class OpenAICompatibleClient:
             # 该模式要求每个 assistant 消息都有 reasoning_content
             params.pop("stream_options", None)
 
+        # 添加 effort 字段
+        if request.effort is not None:
+            params["reasoning_effort"] = request.effort.value
+
         # 流式文本增量时收集完整响应
         collected_content = ""
         collected_reasoning = ""
@@ -403,6 +408,29 @@ class OpenAICompatibleClient:
         try:
             stream = await self._client.chat.completions.create(**params)
         except Exception as exc:
+            # 检查是否为 effort 不支持错误
+            if self._is_effort_unsupported_error(exc) and request.effort is not None:
+                # 降级 effort 并重试
+                fallback_effort = EffortMapper.reverse_fallback(request.effort)
+                if fallback_effort != request.effort:
+                    log.warning(
+                        "Effort level %s not supported, falling back to %s",
+                        request.effort.value,
+                        fallback_effort.value,
+                    )
+                    # 创建降级后的请求
+                    fallback_request = ApiMessageRequest(
+                        model=request.model,
+                        messages=request.messages,
+                        system_prompt=request.system_prompt,
+                        max_tokens=request.max_tokens,
+                        tools=request.tools,
+                        effort=fallback_effort,
+                    )
+                    # 重试
+                    async for event in self._stream_once(fallback_request):
+                        yield event
+                    return
             # 某些模型（如 gpt-5.2-codex）不支持 /chat/completions，自动回退到 /responses
             if self._is_chat_endpoint_error(exc):
                 log.info("Model %s does not support chat/completions, falling back to responses API", request.model)
@@ -539,6 +567,24 @@ class OpenAICompatibleClient:
                 return True
 
         return False
+
+    @staticmethod
+    def _is_effort_unsupported_error(exc: Exception) -> bool:
+        """检测是否为 effort 字段不支持导致的错误
+
+        Args:
+            exc: 异常对象
+
+        Returns:
+            bool: 是否为 effort 不支持错误
+        """
+        error_msg = str(exc).lower()
+        # 检测常见的 effort 不支持错误消息
+        effort_keywords = ["effort", "reasoning_effort", "reasoning effort"]
+        unsupported_keywords = ["not supported", "unsupported", "invalid", "unknown"]
+
+        return any(keyword in error_msg for keyword in effort_keywords) and \
+               any(keyword in error_msg for keyword in unsupported_keywords)
 
     def _convert_messages_to_responses(
         self,
