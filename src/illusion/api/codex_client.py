@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import platform
 from typing import Any, AsyncIterator
 
@@ -37,6 +38,7 @@ from illusion.api.client import (
     ApiStreamEvent,
     ApiTextDeltaEvent,
 )
+from illusion.api.effort import EffortMapper
 from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
 from illusion.api.errors import AuthenticationFailure, IllusionCodeApiError, RateLimitFailure, RequestFailure
 from illusion.api.usage import UsageSnapshot
@@ -49,6 +51,9 @@ from illusion.engine.messages import (
     ToolResultBlock,
     ToolUseBlock,
 )
+
+# 模块级日志记录器
+log = logging.getLogger(__name__)
 
 # 常量定义
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api"  # 默认 Codex 基础 URL
@@ -279,11 +284,11 @@ def _format_error_message(status_code: int, payload: str) -> str:
 
 def _translate_status_error(status_code: int, message: str) -> IllusionCodeApiError:
     """转换状态码错误为统一异常类型
-    
+
     Args:
         status_code: HTTP 状态码
         message: 错误消息
-    
+
     Returns:
         IllusionCodeApiError: 统一异常类型
     """
@@ -292,6 +297,24 @@ def _translate_status_error(status_code: int, message: str) -> IllusionCodeApiEr
     if status_code == 429:
         return RateLimitFailure(message)
     return RequestFailure(message)
+
+
+def _is_effort_unsupported_error(exc: Exception) -> bool:
+    """检测是否为 effort 字段不支持导致的错误
+
+    Args:
+        exc: 异常对象
+
+    Returns:
+        bool: 是否为 effort 不支持错误
+    """
+    error_msg = str(exc).lower()
+    # 检测常见的 effort 不支持错误消息
+    effort_keywords = ["effort", "reasoning_effort", "reasoning effort"]
+    unsupported_keywords = ["not supported", "unsupported", "invalid", "unknown"]
+
+    return any(keyword in error_msg for keyword in effort_keywords) and \
+           any(keyword in error_msg for keyword in unsupported_keywords)
 
 
 class CodexApiClient:
@@ -355,83 +378,113 @@ class CodexApiClient:
         if request.tools:
             body["tools"] = _convert_tools_to_codex(request.tools)
 
+        # 添加 effort 字段
+        if request.effort is not None:
+            body["reasoning"] = {"effort": request.effort.value}
+
         content: list[ContentBlock] = []
         current_text_parts: list[str] = []
         collected_reasoning = ""
         completed_response: dict[str, Any] | None = None
 
         headers = _build_codex_headers(self._auth_token)
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            async with client.stream("POST", self._url, headers=headers, json=body) as response:
-                if response.status_code >= 400:
-                    payload = await response.aread()
-                    message = _format_error_message(response.status_code, payload.decode("utf-8", "replace"))
-                    raise httpx.HTTPStatusError(message, request=response.request, response=response)
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                async with client.stream("POST", self._url, headers=headers, json=body) as response:
+                    if response.status_code >= 400:
+                        payload = await response.aread()
+                        message = _format_error_message(response.status_code, payload.decode("utf-8", "replace"))
+                        raise httpx.HTTPStatusError(message, request=response.request, response=response)
 
-                async for event in self._iter_sse_events(response):
-                    event_type = event.get("type")
-                    if event_type == "response.output_text.delta":
-                        delta = event.get("delta")
-                        if isinstance(delta, str) and delta:
-                            current_text_parts.append(delta)
-                            yield ApiTextDeltaEvent(text=delta)
-                    elif event_type in {
-                        "response.reasoning_summary_text.delta",
-                        "response.reasoning_text.delta",
-                        "response.output_text.reasoning.delta",
-                    }:
-                        delta = event.get("delta")
-                        if isinstance(delta, str) and delta:
-                            collected_reasoning = merge_reasoning_text(collected_reasoning, delta)
-                            yield ApiTextDeltaEvent(text="", reasoning=delta)
-                    elif event_type == "response.output_item.done":
-                        item = event.get("item")
-                        if not isinstance(item, dict):
-                            continue
-                        item_type = item.get("type")
-                        if item_type == "message":
-                            text = ""
-                            raw_content = item.get("content")
-                            if isinstance(raw_content, list):
-                                parts = []
-                                for block in raw_content:
-                                    if isinstance(block, dict):
-                                        if block.get("type") == "output_text":
-                                            parts.append(str(block.get("text", "")))
-                                        elif block.get("type") == "refusal":
-                                            parts.append(str(block.get("refusal", "")))
-                                text = "".join(parts)
-                            if text:
-                                plain_text, tagged_reasoning = split_thinking_from_text(text)
-                                if plain_text:
-                                    content.append(TextBlock(text=plain_text))
-                                if tagged_reasoning:
-                                    collected_reasoning = merge_reasoning_text(
-                                        collected_reasoning,
-                                        tagged_reasoning,
-                                    )
-                        elif item_type == "function_call":
-                            arguments = item.get("arguments")
-                            parsed_arguments = parse_tool_arguments(arguments)
-                            call_id = item.get("call_id")
-                            name = item.get("name")
-                            if isinstance(call_id, str) and call_id and isinstance(name, str) and name:
-                                content.append(ToolUseBlock(id=call_id, name=name, input=parsed_arguments))
-                    elif event_type == "response.completed":
-                        response_payload = event.get("response")
-                        if isinstance(response_payload, dict):
-                            completed_response = response_payload
-                    elif event_type == "response.failed":
-                        response_payload = event.get("response")
-                        if isinstance(response_payload, dict):
-                            error = response_payload.get("error")
-                            if isinstance(error, dict):
-                                message = str(error.get("message") or error.get("code") or "Codex response failed")
-                                raise RequestFailure(message)
-                        raise RequestFailure("Codex response failed")
-                    elif event_type == "error":
-                        message = str(event.get("message") or event.get("code") or "Codex error")
-                        raise RequestFailure(message)
+                    async for event in self._iter_sse_events(response):
+                        event_type = event.get("type")
+                        if event_type == "response.output_text.delta":
+                            delta = event.get("delta")
+                            if isinstance(delta, str) and delta:
+                                current_text_parts.append(delta)
+                                yield ApiTextDeltaEvent(text=delta)
+                        elif event_type in {
+                            "response.reasoning_summary_text.delta",
+                            "response.reasoning_text.delta",
+                            "response.output_text.reasoning.delta",
+                        }:
+                            delta = event.get("delta")
+                            if isinstance(delta, str) and delta:
+                                collected_reasoning = merge_reasoning_text(collected_reasoning, delta)
+                                yield ApiTextDeltaEvent(text="", reasoning=delta)
+                        elif event_type == "response.output_item.done":
+                            item = event.get("item")
+                            if not isinstance(item, dict):
+                                continue
+                            item_type = item.get("type")
+                            if item_type == "message":
+                                text = ""
+                                raw_content = item.get("content")
+                                if isinstance(raw_content, list):
+                                    parts = []
+                                    for block in raw_content:
+                                        if isinstance(block, dict):
+                                            if block.get("type") == "output_text":
+                                                parts.append(str(block.get("text", "")))
+                                            elif block.get("type") == "refusal":
+                                                parts.append(str(block.get("refusal", "")))
+                                    text = "".join(parts)
+                                if text:
+                                    plain_text, tagged_reasoning = split_thinking_from_text(text)
+                                    if plain_text:
+                                        content.append(TextBlock(text=plain_text))
+                                    if tagged_reasoning:
+                                        collected_reasoning = merge_reasoning_text(
+                                            collected_reasoning,
+                                            tagged_reasoning,
+                                        )
+                            elif item_type == "function_call":
+                                arguments = item.get("arguments")
+                                parsed_arguments = parse_tool_arguments(arguments)
+                                call_id = item.get("call_id")
+                                name = item.get("name")
+                                if isinstance(call_id, str) and call_id and isinstance(name, str) and name:
+                                    content.append(ToolUseBlock(id=call_id, name=name, input=parsed_arguments))
+                        elif event_type == "response.completed":
+                            response_payload = event.get("response")
+                            if isinstance(response_payload, dict):
+                                completed_response = response_payload
+                        elif event_type == "response.failed":
+                            response_payload = event.get("response")
+                            if isinstance(response_payload, dict):
+                                error = response_payload.get("error")
+                                if isinstance(error, dict):
+                                    message = str(error.get("message") or error.get("code") or "Codex response failed")
+                                    raise RequestFailure(message)
+                            raise RequestFailure("Codex response failed")
+                        elif event_type == "error":
+                            message = str(event.get("message") or event.get("code") or "Codex error")
+                            raise RequestFailure(message)
+        except httpx.HTTPStatusError as exc:
+            # 检查是否为 effort 不支持错误
+            if _is_effort_unsupported_error(exc) and request.effort is not None:
+                # 降级 effort 并重试
+                fallback_effort = EffortMapper.reverse_fallback(request.effort)
+                if fallback_effort != request.effort:
+                    log.warning(
+                        "Effort level %s not supported, falling back to %s",
+                        request.effort.value,
+                        fallback_effort.value,
+                    )
+                    # 创建降级后的请求
+                    fallback_request = ApiMessageRequest(
+                        model=request.model,
+                        messages=request.messages,
+                        system_prompt=request.system_prompt,
+                        max_tokens=request.max_tokens,
+                        tools=request.tools,
+                        effort=fallback_effort,
+                    )
+                    # 重试
+                    async for event in self._stream_once(fallback_request):
+                        yield event
+                    return
+            raise
 
         if current_text_parts and not any(isinstance(block, TextBlock) for block in content):
             plain_text, tagged_reasoning = split_thinking_from_text("".join(current_text_parts))
