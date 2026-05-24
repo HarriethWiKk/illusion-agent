@@ -432,9 +432,7 @@ class AnthropicApiClient:
         # 添加工具定义
         if request.tools:
             params["tools"] = request.tools
-        # 添加 effort 字段
-        if request.effort is not None:
-            params["reasoning_effort"] = request.effort.value
+        # Anthropic API 不支持 reasoning_effort 参数，effort 通过系统提示词传递
         # OAuth 附加参数
         if self._claude_oauth:
             params["betas"] = claude_oauth_betas()
