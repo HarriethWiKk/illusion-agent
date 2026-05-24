@@ -980,8 +980,14 @@ def create_default_command_registry() -> CommandRegistry:
         value = args.strip() or "show"
         if value == "show":
             return CommandResult(message=f"Reasoning effort: {current}")
-        if value not in {"low", "medium", "high"}:
-            return CommandResult(message="Usage: /effort [show|low|medium|high]")
+        if value not in {"low", "medium", "high", "xhigh", "max"}:
+            return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
+        # 验证 effort 级别
+        try:
+            from illusion.api.effort import EffortMapper
+            EffortMapper.normalize(value)
+        except ValueError:
+            return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
         settings.effort = value
         save_settings(settings)
         context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd))
