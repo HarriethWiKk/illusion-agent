@@ -96,6 +96,24 @@ class QueryEngine:
         self._cost_tracker = CostTracker()  # 成本跟踪器
 
     @property
+    def effort(self) -> EffortLevel | None:
+        """返回当前的 effort 级别。
+
+        Returns:
+            EffortLevel | None: 当前的 effort 级别
+        """
+        return self._effort
+
+    @effort.setter
+    def effort(self, value: EffortLevel | None) -> None:
+        """设置 effort 级别。
+
+        Args:
+            value: 新的 effort 级别
+        """
+        self._effort = value
+
+    @property
     def messages(self) -> list[ConversationMessage]:
         """返回当前对话历史。
 

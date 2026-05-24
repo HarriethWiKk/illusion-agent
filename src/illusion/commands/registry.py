@@ -984,12 +984,14 @@ def create_default_command_registry() -> CommandRegistry:
             return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
         # 验证 effort 级别
         try:
-            from illusion.api.effort import EffortMapper
-            EffortMapper.normalize(value)
+            from illusion.api.effort import EffortMapper, EffortLevel
+            effort_level = EffortMapper.normalize(value)
         except ValueError:
             return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
         settings.effort = value
         save_settings(settings)
+        # 更新 QueryEngine 的 effort 值
+        context.engine.effort = effort_level
         context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd))
         if context.app_state is not None:
             context.app_state.set(effort=value)
