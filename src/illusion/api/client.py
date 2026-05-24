@@ -481,6 +481,11 @@ class AnthropicApiClient:
                         request.effort.value,
                         fallback_effort.value,
                     )
+                    # 发送降级提示事件
+                    yield ApiTextDeltaEvent(
+                        text="",
+                        reasoning=f"[Effort level {request.effort.value} not supported, falling back to {fallback_effort.value}]",
+                    )
                     # 创建降级后的请求
                     fallback_request = ApiMessageRequest(
                         model=request.model,
