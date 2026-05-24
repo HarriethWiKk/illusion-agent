@@ -90,14 +90,14 @@ def build_runtime_system_prompt(
     latest_user_prompt: str | None = None,
 ) -> str:
     """构建运行时系统提示词
-    
+
     组装完整的运行时提示词，包含项目指令和记忆。
-    
+
     Args:
         settings: 设置对象
         cwd: 工作目录
         latest_user_prompt: 最新的用户提示词（用于相关记忆搜索）
-    
+
     Returns:
         str: 完整的运行时系统提示词
     """
@@ -110,12 +110,23 @@ def build_runtime_system_prompt(
         )
 
     # 推理设置
-    sections.append(
-        "# Reasoning Settings\n"
-        f"- Effort: {settings.effort}\n"
-        f"- Passes: {settings.passes}\n"
-        "Adjust depth and iteration count to match these settings while still completing the task."
-    )
+    # 对于 Anthropic 格式，effort 通过系统提示词传递
+    # 对于 OpenAI 格式，effort 通过 API 参数传递，不在系统提示词中包含
+    api_format = settings.api_format
+    if api_format == "anthropic":
+        sections.append(
+            "# Reasoning Settings\n"
+            f"- Effort: {settings.effort}\n"
+            f"- Passes: {settings.passes}\n"
+            "Adjust depth and iteration count to match these settings while still completing the task."
+        )
+    else:
+        # OpenAI 格式只传递 passes，effort 通过 API 参数传递
+        sections.append(
+            "# Reasoning Settings\n"
+            f"- Passes: {settings.passes}\n"
+            "Adjust iteration count to match these settings while still completing the task."
+        )
 
     # 技能章节
     skills_section = _build_skills_section(cwd)
