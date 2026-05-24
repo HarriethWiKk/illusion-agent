@@ -43,6 +43,7 @@ _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
 _sdk_sig_field.annotation = str | None
 _SDKThinkingBlock.model_rebuild()
 
+from illusion.api.effort import EffortLevel
 from illusion.api.errors import (
     AuthenticationFailure,
     IllusionCodeApiError,
@@ -77,15 +78,16 @@ OAUTH_BETA_HEADER = "oauth-2025-04-20"  # OAuth beta 版本头
 @dataclass(frozen=True)
 class ApiMessageRequest:
     """模型调用输入参数
-    
+
     包含调用模型所需的所有参数。
-    
+
     Attributes:
         model: 模型名称
         messages: 对话消息列表
         system_prompt: 系统提示词（可选）
         max_tokens: 最大令牌数（默认 4096）
         tools: 工具定义列表（默认空列表）
+        effort: 推理强度级别（可选，支持 low/medium/high/xhigh/max）
     """
 
     model: str
@@ -93,6 +95,7 @@ class ApiMessageRequest:
     system_prompt: str | None = None
     max_tokens: int = 4096
     tools: list[dict[str, Any]] = field(default_factory=list)
+    effort: EffortLevel | None = None
 
 
 @dataclass(frozen=True)
