@@ -270,7 +270,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /config [show|set KEY VALUE]": "用法：/config [show|set 键 值]",
     "Usage: /fast [show|on|off|toggle]": "用法：/fast [show|on|off|toggle]",
     "Usage: /thinking [show|on|off|toggle]": "用法：/thinking [show|on|off|toggle]",
-    "Usage: /effort [show|low|medium|high]": "用法：/effort [show|low|medium|high]",
+    "Usage: /effort [show|low|medium|high|xhigh|max]": "用法：/effort [show|low|medium|high|xhigh|max]",
     "Usage: /passes [show|COUNT]": "用法：/passes [数量]",
     "Usage: /turns [show|COUNT]": "用法：/turns [数量]",
     "Usage: /continue [COUNT]": "用法：/continue [数量]",
