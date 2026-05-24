@@ -57,19 +57,13 @@ class EffortMapper:
         EffortLevel.HIGH,
     }
 
-    # 降级映射表：当模型不支持当前级别时，映射到的级别
-    FALLBACK_MAP: dict[EffortLevel, EffortLevel] = {
-        EffortLevel.LOW: EffortLevel.HIGH,
-        EffortLevel.MEDIUM: EffortLevel.HIGH,
-        EffortLevel.HIGH: EffortLevel.HIGH,
-        EffortLevel.XHIGH: EffortLevel.MAX,
-        EffortLevel.MAX: EffortLevel.MAX,
-    }
-
-    # 反向映射表：当模型不支持高级别时，反向映射到的级别
-    REVERSE_MAP: dict[EffortLevel, EffortLevel] = {
-        EffortLevel.MAX: EffortLevel.XHIGH,
-        EffortLevel.XHIGH: EffortLevel.HIGH,
+    # 降级映射表：当模型不支持当前级别时，按优先级尝试的级别列表
+    FALLBACK_CHAIN: dict[EffortLevel, list[EffortLevel]] = {
+        EffortLevel.LOW: [EffortLevel.HIGH],
+        EffortLevel.MEDIUM: [EffortLevel.HIGH],
+        EffortLevel.HIGH: [EffortLevel.HIGH],
+        EffortLevel.XHIGH: [EffortLevel.MAX, EffortLevel.HIGH],
+        EffortLevel.MAX: [EffortLevel.XHIGH, EffortLevel.HIGH],
     }
 
     @classmethod
@@ -95,6 +89,8 @@ class EffortMapper:
     def fallback(cls, effort: EffortLevel, supported_levels: set[EffortLevel]) -> EffortLevel:
         """当模型不支持当前 effort 级别时，返回降级后的级别
 
+        支持链式降级：如果第一个降级目标也不支持，继续尝试下一个。
+
         Args:
             effort: 当前 effort 级别
             supported_levels: 模型支持的 effort 级别集合
@@ -104,13 +100,19 @@ class EffortMapper:
         """
         if effort in supported_levels:
             return effort
-        return cls.FALLBACK_MAP.get(effort, EffortLevel.HIGH)
+        # 按优先级尝试降级
+        for fallback_effort in cls.FALLBACK_CHAIN.get(effort, [EffortLevel.HIGH]):
+            if fallback_effort in supported_levels:
+                return fallback_effort
+        # 所有降级都失败，返回 high 作为最终兜底
+        return EffortLevel.HIGH
 
     @classmethod
     def reverse_fallback(cls, effort: EffortLevel) -> EffortLevel:
         """反向降级：将高级别映射到低级别
 
         当模型不支持高级别时，反向映射到低级别。
+        对于 LOW/MEDIUM/HIGH 等基础级别，返回原值不做降级。
 
         Args:
             effort: 当前 effort 级别
@@ -118,4 +120,9 @@ class EffortMapper:
         Returns:
             EffortLevel: 反向降级后的 effort 级别
         """
-        return cls.REVERSE_MAP.get(effort, effort)
+        # LOW/MEDIUM/HIGH 不需要降级
+        if effort in cls.SUPPORTED_LEVELS:
+            return effort
+        # XHIGH/MAX 按链式降级
+        chain = cls.FALLBACK_CHAIN.get(effort, [])
+        return chain[0] if chain else EffortLevel.HIGH

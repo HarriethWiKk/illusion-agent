@@ -87,9 +87,9 @@ class TestEffortMapper:
         """测试 max 反向降级到 xhigh"""
         assert EffortMapper.reverse_fallback(EffortLevel.MAX) == EffortLevel.XHIGH
 
-    def test_reverse_fallback_xhigh_to_high(self):
-        """测试 xhigh 反向降级到 high"""
-        assert EffortMapper.reverse_fallback(EffortLevel.XHIGH) == EffortLevel.HIGH
+    def test_reverse_fallback_xhigh_to_max(self):
+        """测试 xhigh 反向降级到 max（链式降级的第一步）"""
+        assert EffortMapper.reverse_fallback(EffortLevel.XHIGH) == EffortLevel.MAX
 
     def test_reverse_fallback_high_unchanged(self):
         """测试 high 反向降级保持不变"""
@@ -102,3 +102,23 @@ class TestEffortMapper:
     def test_reverse_fallback_medium_unchanged(self):
         """测试 medium 反向降级保持不变"""
         assert EffortMapper.reverse_fallback(EffortLevel.MEDIUM) == EffortLevel.MEDIUM
+
+    def test_fallback_xhigh_to_high_when_max_not_supported(self):
+        """测试 xhigh 降级到 high（当 max 不支持时）"""
+        supported = {EffortLevel.HIGH}
+        assert EffortMapper.fallback(EffortLevel.XHIGH, supported) == EffortLevel.HIGH
+
+    def test_fallback_max_to_high_when_xhigh_not_supported(self):
+        """测试 max 降级到 high（当 xhigh 不支持时）"""
+        supported = {EffortLevel.HIGH}
+        assert EffortMapper.fallback(EffortLevel.MAX, supported) == EffortLevel.HIGH
+
+    def test_fallback_xhigh_to_max_when_supported(self):
+        """测试 xhigh 降级到 max（当 max 支持时）"""
+        supported = {EffortLevel.HIGH, EffortLevel.MAX}
+        assert EffortMapper.fallback(EffortLevel.XHIGH, supported) == EffortLevel.MAX
+
+    def test_fallback_max_to_xhigh_when_supported(self):
+        """测试 max 降级到 xhigh（当 xhigh 支持时）"""
+        supported = {EffortLevel.HIGH, EffortLevel.XHIGH}
+        assert EffortMapper.fallback(EffortLevel.MAX, supported) == EffortLevel.XHIGH

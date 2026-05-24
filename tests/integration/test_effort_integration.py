@@ -24,15 +24,18 @@ class TestEffortIntegration:
         assert EffortMapper.normalize("xhigh") == EffortLevel.XHIGH
         assert EffortMapper.normalize("max") == EffortLevel.MAX
 
-        # 测试降级
+        # 测试降级 - 只有 HIGH 支持时
         supported = {EffortLevel.HIGH}
         assert EffortMapper.fallback(EffortLevel.LOW, supported) == EffortLevel.HIGH
         assert EffortMapper.fallback(EffortLevel.MEDIUM, supported) == EffortLevel.HIGH
         assert EffortMapper.fallback(EffortLevel.HIGH, supported) == EffortLevel.HIGH
+        # XHIGH 和 MAX 链式降级到 HIGH
+        assert EffortMapper.fallback(EffortLevel.XHIGH, supported) == EffortLevel.HIGH
+        assert EffortMapper.fallback(EffortLevel.MAX, supported) == EffortLevel.HIGH
 
         # 测试反向降级
         assert EffortMapper.reverse_fallback(EffortLevel.MAX) == EffortLevel.XHIGH
-        assert EffortMapper.reverse_fallback(EffortLevel.XHIGH) == EffortLevel.HIGH
+        assert EffortMapper.reverse_fallback(EffortLevel.XHIGH) == EffortLevel.MAX
         assert EffortMapper.reverse_fallback(EffortLevel.HIGH) == EffortLevel.HIGH
 
     def test_api_message_request_with_effort(self):
@@ -49,9 +52,11 @@ class TestEffortIntegration:
         # 模拟模型不支持 effort 的情况
         original_effort = EffortLevel.XHIGH
         fallback_effort = EffortMapper.reverse_fallback(original_effort)
-        assert fallback_effort == EffortLevel.HIGH
+        # XHIGH 反向降级到 MAX（链式降级的第一步）
+        assert fallback_effort == EffortLevel.MAX
 
-        # 模拟模型支持 effort 的情况
+        # 模拟模型只支持基础级别的情况
         supported_levels = {EffortLevel.LOW, EffortLevel.MEDIUM, EffortLevel.HIGH}
         normalized_effort = EffortMapper.fallback(original_effort, supported_levels)
-        assert normalized_effort == EffortLevel.MAX
+        # XHIGH 链式降级：MAX 不支持 -> HIGH
+        assert normalized_effort == EffortLevel.HIGH

@@ -36,7 +36,7 @@ from illusion.api.client import (
     ApiStreamEvent,
     ApiTextDeltaEvent,
 )
-from illusion.api.effort import EffortMapper
+from illusion.api.effort import EffortLevel, EffortMapper
 from illusion.api.compat import (
     merge_reasoning_text,
     parse_tool_arguments,
@@ -412,6 +412,9 @@ class OpenAICompatibleClient:
             if self._is_effort_unsupported_error(exc) and request.effort is not None:
                 # 降级 effort 并重试
                 fallback_effort = EffortMapper.reverse_fallback(request.effort)
+                # 如果降级目标与当前相同，或者已经是 HIGH，直接使用 HIGH
+                if fallback_effort == request.effort or request.effort == EffortLevel.HIGH:
+                    fallback_effort = EffortLevel.HIGH
                 if fallback_effort != request.effort:
                     log.warning(
                         "Effort level %s not supported, falling back to %s",
