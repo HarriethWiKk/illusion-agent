@@ -153,6 +153,7 @@ class ReactBackendHost:
             restore_session_id=self._config.restore_session_id,
             permission_prompt=self._ask_permission,
             ask_user_prompt=self._ask_question,
+            effort=self._config.effort,
         )
         await start_runtime(self._bundle)
         # 加载总是允许的工具列表
