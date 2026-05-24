@@ -313,8 +313,17 @@ def _is_effort_unsupported_error(exc: Exception) -> bool:
     effort_keywords = ["effort", "reasoning_effort", "reasoning effort"]
     unsupported_keywords = ["not supported", "unsupported", "invalid", "unknown"]
 
-    return any(keyword in error_msg for keyword in effort_keywords) and \
-           any(keyword in error_msg for keyword in unsupported_keywords)
+    # 检查是否包含 effort 相关关键词
+    has_effort_keyword = any(keyword in error_msg for keyword in effort_keywords)
+    # 检查是否包含不支持相关关键词
+    has_unsupported_keyword = any(keyword in error_msg for keyword in unsupported_keywords)
+
+    # 检查特定的错误模式：unknown variant `max`/`xhigh` 等
+    has_variant_error = "unknown variant" in error_msg and any(
+        level in error_msg for level in ["max", "xhigh", "low", "medium", "high"]
+    )
+
+    return (has_effort_keyword and has_unsupported_keyword) or has_variant_error
 
 
 class CodexApiClient:
