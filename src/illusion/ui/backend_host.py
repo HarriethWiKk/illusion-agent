@@ -139,6 +139,8 @@ class ReactBackendHost:
         self._last_tool_inputs: dict[str, dict] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # 跟踪已作为 assistant 消息发出的 brief 文本，用于去重
+        self._brief_assistant_text: str | None = None
 
     async def run(self) -> int:
         """运行后端主机主循环。"""
@@ -332,8 +334,9 @@ class ReactBackendHost:
     async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
         """处理用户输入的行内容。"""
         assert self._bundle is not None
-        # 清除上一轮的工具调用去重记录
+        # 清除上一轮的工具调用去重记录和 brief 去重标记
         self._emitted_tool_started_ids.clear()
+        self._brief_assistant_text = None
         # 更新会话阶段为思考中
         await self._update_phase("thinking")
         # 发送用户消息
@@ -362,18 +365,35 @@ class ReactBackendHost:
             if isinstance(event, AssistantTurnComplete):
                 reasoning = event.message.thinking_text
                 cleaned = _strip_tool_previews(event.message.text.strip(), event.message.tool_uses)
-                await self._emit(
-                    BackendEvent(
-                        type="assistant_complete",
-                        message=cleaned,
-                        reasoning=reasoning if reasoning else None,
-                        item=TranscriptItem(
-                            role="assistant",
-                            text=cleaned,
-                            reasoning=reasoning if reasoning else None,
-                        ),
-                    )
+                # 如果 assistant 文本与已发出的 brief 内容一致（模型无文本时由
+                # query.py 注入），跳过以避免重复显示。但仍发送 reasoning。
+                is_brief_duplicate = (
+                    self._brief_assistant_text is not None
+                    and cleaned == self._brief_assistant_text
+                    and not event.message.tool_uses
                 )
+                if is_brief_duplicate:
+                    if reasoning:
+                        await self._emit(
+                            BackendEvent(
+                                type="transcript_item",
+                                item=TranscriptItem(role="system", text=f"[thinking] {reasoning}"),
+                            )
+                        )
+                else:
+                    await self._emit(
+                        BackendEvent(
+                            type="assistant_complete",
+                            message=cleaned,
+                            reasoning=reasoning if reasoning else None,
+                            item=TranscriptItem(
+                                role="assistant",
+                                text=cleaned,
+                                reasoning=reasoning if reasoning else None,
+                            ),
+                        )
+                    )
+                self._brief_assistant_text = None
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 return
             # 工具链开始
@@ -448,6 +468,16 @@ class ReactBackendHost:
                         ),
                     )
                 )
+                # brief 工具：将消息内容额外作为 assistant 消息发出，确保用户可见
+                if event.tool_name == "brief" and not event.is_error and event.output.strip():
+                    brief_text = event.output.strip()
+                    self._brief_assistant_text = brief_text
+                    await self._emit(
+                        BackendEvent(
+                            type="transcript_item",
+                            item=TranscriptItem(role="assistant", text=brief_text),
+                        )
+                    )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 await self._emit(self._status_snapshot())
                 # TodoWrite 工具执行时发送 todo_update 事件
