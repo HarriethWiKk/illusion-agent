@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Static, Text} from 'ink';
 
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
@@ -88,15 +88,57 @@ export function ConversationView({
 
 			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme, terminalWidth) : null}
 
-			{/* Pending tool call indicator - shown while tool input is being generated */}
+			{/* Pending tool call indicator — ● 闪烁表示工具正在执行中 */}
 			{pendingToolCall ? (
-				<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1}>
-					<Text color={theme.colors.info}>{theme.icons.tool} </Text>
-					<Text bold>{pendingToolCall.tool_name}</Text>
-					<Text dimColor>{' (...)'}</Text>
-				</Box>
+				<BlinkingToolIndicator
+					pending={pendingToolCall}
+					theme={theme}
+					displayedBuffer={displayedBuffer}
+					isSuppressedByStatic={isSuppressedByStatic}
+				/>
 			) : null}
 		</>
+	);
+}
+
+function BlinkingToolIndicator({
+	pending,
+	theme,
+	displayedBuffer,
+	isSuppressedByStatic,
+}: {
+	pending: PendingToolCall;
+	theme: ThemeConfig;
+	displayedBuffer: string;
+	isSuppressedByStatic: boolean;
+}): React.JSX.Element {
+	const [visible, setVisible] = useState(true);
+	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+	useEffect(() => {
+		intervalRef.current = setInterval(() => {
+			setVisible((v) => !v);
+		}, 500);
+		return () => {
+			if (intervalRef.current) {
+				clearInterval(intervalRef.current);
+			}
+		};
+	}, []);
+
+	const summary = pending.tool_input
+		? summarizeInput(pending.tool_name, pending.tool_input, pending.tool_name)
+		: null;
+	const content = summary ? `${pending.tool_name} (${summary})` : pending.tool_name;
+
+	return (
+		<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1}>
+			<Text color={theme.colors.info}>
+				{visible ? theme.icons.tool : ' '}
+				{' '}
+			</Text>
+			<Text bold>{content}</Text>
+		</Box>
 	);
 }
 

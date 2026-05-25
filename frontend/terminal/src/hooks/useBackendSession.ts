@@ -302,61 +302,55 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					assistantFlushedForToolRef.current = true;
 				}
 				setBusy(true);
-				// 如果 tool_input 为空（提前通知），暂不加入 staticItems，
-				// 而是存入 pendingToolCall 等待完整参数到达后再加入
+				// 工具调用全过程保持在 pendingToolCall 状态（非 Static），
+				// 以便对 ● 做闪烁动画，直到 tool_completed 才推入 staticItems
 				const toolInput = event.item.tool_input ?? event.tool_input;
 				const toolUseId = event.item.tool_use_id ?? event.tool_use_id ?? '';
-				if (!toolInput || Object.keys(toolInput).length === 0) {
-					const pendingCall: PendingToolCall = {
-						tool_name: event.item.tool_name ?? event.tool_name ?? 'tool',
-						tool_use_id: toolUseId,
-					};
-					pendingToolCallRef.current = pendingCall;
-					setPendingToolCall(pendingCall);
-					return;
-				}
-				// 完整参数直接加入 staticItems
-				pendingToolCallRef.current = null;
-				setPendingToolCall(null);
+				const pendingCall: PendingToolCall = {
+					tool_name: event.item.tool_name ?? event.tool_name ?? 'tool',
+					tool_use_id: toolUseId,
+					tool_input: (toolInput && Object.keys(toolInput).length > 0) ? toolInput : undefined,
+				};
+				pendingToolCallRef.current = pendingCall;
+				setPendingToolCall(pendingCall);
+				return;
 			}
-			if (event.type === 'tool_completed' && pendingToolCallRef.current) {
-				// 兜底：如果 pendingToolCall 仍存在（tool_input_updated 未到达），
-				// 先将基本工具项加入 staticItems
+			// tool_completed: 将工具项和结果一并推入 staticItems
+			if (event.type === 'tool_completed') {
 				const pending = pendingToolCallRef.current;
-				pendingToolCallRef.current = null;
-				setPendingToolCall(null);
-				pushStatic({
-					role: 'tool',
-					text: pending.tool_name,
-					tool_name: pending.tool_name,
-					tool_use_id: pending.tool_use_id || undefined,
-				});
+				if (pending) {
+					pendingToolCallRef.current = null;
+					setPendingToolCall(null);
+					pushStatic({
+						role: 'tool',
+						text: pending.tool_name,
+						tool_name: pending.tool_name,
+						tool_input: pending.tool_input,
+						tool_use_id: pending.tool_use_id || undefined,
+					});
+				}
+				const enrichedItem: TranscriptItem = {
+					...event.item,
+					tool_name: event.item.tool_name ?? event.tool_name ?? undefined,
+					tool_input: event.item.tool_input ?? undefined,
+					tool_use_id: event.item.tool_use_id ?? event.tool_use_id ?? undefined,
+					is_error: event.item.is_error ?? event.is_error ?? undefined,
+				};
+				pushStatic(enrichedItem);
 			}
-			const enrichedItem: TranscriptItem = {
-				...event.item,
-				tool_name: event.item.tool_name ?? event.tool_name ?? undefined,
-				tool_input: event.item.tool_input ?? undefined,
-				tool_use_id: event.item.tool_use_id ?? event.tool_use_id ?? undefined,
-				is_error: event.item.is_error ?? event.is_error ?? undefined,
-			};
-			pushStatic(enrichedItem);
 			return;
 		}
 		if (event.type === 'tool_input_updated') {
-			// 后端发送了完整的工具参数，将工具项正式加入 staticItems
-			const toolUseId = event.tool_use_id;
-			const toolInput = event.tool_input;
-			const toolName = event.tool_name ?? 'tool';
-			pendingToolCallRef.current = null;
-			setPendingToolCall(null);
-			if (toolInput) {
-				pushStatic({
-					role: 'tool',
-					text: `${toolName} ${JSON.stringify(toolInput)}`,
-					tool_name: toolName,
-					tool_input: toolInput,
-					tool_use_id: toolUseId ?? undefined,
-				});
+			// 后端发送了完整的工具参数，更新 pendingToolCall 但不推入 staticItems
+			// —— 保持在 pending 状态以便 ● 持续闪烁
+			const pending = pendingToolCallRef.current;
+			if (pending) {
+				const updatedPending: PendingToolCall = {
+					...pending,
+					tool_input: event.tool_input ?? undefined,
+				};
+				pendingToolCallRef.current = updatedPending;
+				setPendingToolCall(updatedPending);
 			}
 			return;
 		}
