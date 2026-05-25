@@ -5,6 +5,8 @@ import type {UiLanguage} from '../i18n.js';
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
+import {useTerminalSize} from '../hooks/useTerminalSize.js';
+import {stringWidth} from '../utils/markdown.js';
 
 const MAX_OUTPUT_LINES = 8;
 const MAX_COMMAND_LINES = 2;
@@ -56,6 +58,7 @@ function ToolResultMessage({
 	item: TranscriptItem;
 	theme: ThemeConfig;
 }): React.JSX.Element {
+	const {columns: terminalWidth} = useTerminalSize();
 	const lines = item.text.split('\n');
 	const truncated = lines.length > MAX_OUTPUT_LINES;
 	const display = truncated
@@ -65,6 +68,9 @@ function ToolResultMessage({
 	const isError = item.is_error;
 	const icon = isError ? theme.icons.cross : theme.icons.check;
 	const iconColor = isError ? theme.colors.error : theme.colors.success;
+	// 可用宽度 = 终端宽度 - 前缀(2空格+图标) - 图标 - 安全边距
+	const prefixWidth = stringWidth(`  ${theme.icons.resultPrefix} `) + stringWidth(`${icon} `);
+	const availableWidth = Math.max(20, terminalWidth - prefixWidth - 2);
 
 	return (
 		<Box flexDirection="column">
@@ -76,7 +82,7 @@ function ToolResultMessage({
 					) : null}
 					{i !== 0 ? <Text>{' '}</Text> : null}
 					<Text color={isError ? theme.colors.error : undefined} dimColor={!isError}>
-						{line}
+						{truncateToDisplayWidth(line, availableWidth)}
 					</Text>
 				</Box>
 			))}
@@ -176,4 +182,21 @@ function truncateCommand(str: string): string {
 	}
 
 	return result;
+}
+
+function truncateToDisplayWidth(text: string, maxWidth: number): string {
+	if (stringWidth(text) <= maxWidth) {
+		return text;
+	}
+	let result = '';
+	let width = 0;
+	for (const ch of text) {
+		const charWidth = stringWidth(ch);
+		if (width + charWidth > Math.max(1, maxWidth - 1)) {
+			break;
+		}
+		result += ch;
+		width += charWidth;
+	}
+	return result + '…';
 }

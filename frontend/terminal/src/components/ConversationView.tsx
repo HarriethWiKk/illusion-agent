@@ -298,26 +298,22 @@ function ToolResultBlock({
 					lineColor = theme.colors.info;
 					lineDim = false;
 				}
-				const wrapped = wrapText(line, i === 0 ? firstWidth : continuationWidth, {hard: true});
+				// 逐行截断到终端宽度加省略号，避免长行换行破坏预览截断效果
+					const width = i === 0 ? firstWidth : continuationWidth;
+					const displayLine = truncateToDisplayWidth(line, width);
+					const showLeadingIcon = i === 0;
 
-				return (
-					<React.Fragment key={i}>
-						{wrapped.map((segment, segIndex) => {
-							const showLeadingIcon = i === 0 && segIndex === 0;
-							return (
-								<Box key={`${i}-${segIndex}`}>
-									<Text dimColor>{showLeadingIcon ? firstPrefixText : continuationPrefix}</Text>
-									{showLeadingIcon ? (
-										<Text color={iconColor}>{icon} </Text>
-									) : null}
-									<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
-										{segment}
-									</Text>
-								</Box>
-							);
-						})}
-					</React.Fragment>
-				);
+					return (
+						<Box key={i}>
+							<Text dimColor>{showLeadingIcon ? firstPrefixText : continuationPrefix}</Text>
+							{showLeadingIcon ? (
+								<Text color={iconColor}>{icon} </Text>
+							) : null}
+							<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
+								{displayLine}
+							</Text>
+						</Box>
+					);
 			})}
 		</Box>
 	);
