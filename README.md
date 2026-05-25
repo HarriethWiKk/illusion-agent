@@ -2,85 +2,85 @@
 
 <div align="center">
 
-**AI 驱动的命令行编程助手**
+**AI-Powered Command-Line Programming Assistant**
 
-*集百家之所长，融会贯通的智能编程工具*
+*The best of many worlds, unified into one intelligent coding tool*
 
-中文 | [English](README_en.md)
+[中文版](README.zh-CN.md) | English
 
 </div>
 
 ---
 
-## 📖 项目简介
+## 📖 Introduction
 
-IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，并实现了比同类项目更全面的 Markdown 终端渲染能力。
+IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, and more comprehensive Markdown terminal rendering than comparable projects.
 
-### 核心特性
+### Core Features
 
-- 🪟 **Windows 系统深度优化** - 自动查找 Git、PowerShell 支持、路径兼容性优化
-- 🖥️ **终端渲染零闪烁** - 基于 Ink Static 组件的稳定渲染，抑制 resize 事件干扰
-- 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
-- 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
-- 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
-- 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
-- 🛠️ **丰富的工具集** - 36 内置工具 + MCP 动态工具扩展
-- ⌨️ **52 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
-- 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
-- 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
-- 🔐 **完善权限控制** - 三种模式 + 细粒度规则 + Always Allow 一键放行
-- 💾 **记忆与上下文** - 项目知识持久化与动态检索
-- 🎨 **现代终端界面** - React + Ink 组件化 TUI
-- 🎯 **推理强度控制** - 支持 low/medium/high/xhigh/max 五种推理强度级别，自动降级处理
+- 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support, path compatibility optimization
+- 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component, suppressing resize event interference
+- 🌍 **Bilingual Interface** - All CLI output automatically switches between Chinese and English based on `ui_language` setting
+- 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
+- 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
+- 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
+- 🛠️ **Rich Toolset** - 36 built-in tools + MCP dynamic tool extension
+- ⌨️ **52 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
+- 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
+- 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
+- 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
+- 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
+- 🎨 **Modern Terminal Interface** - React + Ink component-based TUI
+- 🎯 **Reasoning Effort Control** - Supports low/medium/high/xhigh/max five reasoning effort levels with automatic fallback
 
-### 界面展示
+### Interface Preview
 
 <div align="center">
-  <p>欢迎界面 & 富文本渲染</p>
-  <img src="docs/images/image1.png" alt="IllusionCode 欢迎界面" width="48%" />
-  <img src="docs/images/image2.png" alt="IllusionCode 富文本渲染" width="48%" />
+  <p>Welcome screen & rich text rendering</p>
+  <img src="docs/images/image1.png" alt="IllusionCode welcome screen" width="48%" />
+  <img src="docs/images/image2.png" alt="IllusionCode rich text rendering" width="48%" />
 </div>
 
 <div align="center">
-  <p>演示视频</p>
-  <a href="https://www.bilibili.com/video/BV1f7LJ64ELi">
-    <img src="docs/images/image1.png" alt="点击观看演示视频" width="720" />
+  <p>Demo video</p>
+  <a href="https://www.youtube.com/watch?v=Hongxz0vhrg">
+    <img src="docs/images/image1.png" alt="Click to watch demo video" width="720" />
   </a>
-  <p><a href="https://www.bilibili.com/video/BV1f7LJ64ELi">📺 B站观看演示视频</a></p>
+  <p><a href="https://www.youtube.com/watch?v=Hongxz0vhrg">📺 Watch demo on YouTube</a></p>
 </div>
 
-### 设计来源与创新
+### Design Origins & Innovations
 
-**继承自 Claude Code**：完整注入 Claude Code 的系统提示词、工具定义、权限模型和多智能体协调架构，确保行为一致性。
+**Inherited from Claude Code**: Complete injection of Claude Code's system prompts, tool definitions, permission model, and multi-agent coordination architecture, ensuring behavioral consistency.
 
-**灵感源自 OpenHarness**：Python 架构层面的设计参考了 OpenHarness 的理念。
+**Inspired by OpenHarness**: Python architecture design references OpenHarness's ideas.
 
-**Cron 架构对齐 OpenClaw**：定时任务系统采用与 OpenClaw 相同的调度器架构，支持独立会话执行、执行历史记录和连续错误追踪。
+**Cron Architecture Aligned with OpenClaw**: The scheduled task system uses the same scheduler architecture as OpenClaw, supporting independent session execution, execution history tracking, and consecutive error monitoring.
 
-**cc-switch 代理路由**：通过 cc-switch 反代工具实现本地代理路由，支持将请求转发到不同的 AI 提供商。
+**cc-switch Proxy Routing**: Local proxy routing through the cc-switch reverse proxy tool, supporting request forwarding to different AI providers.
 
-**Windows 深度优化**：自动查找 Git 安装路径，PowerShell 与 Bash 工具统一处理，路径分隔符自动兼容，Windows 用户开箱即用。
+**Deep Windows Optimization**: Auto-detect Git installation path, unified PowerShell and Bash tool processing, automatic path separator compatibility, out-of-the-box experience for Windows users.
 
-**终端零闪烁**：采用 Ink `<Static>` 组件架构，已完成消息静态渲染，流式消息动态渲染，彻底解决终端闪烁问题。
+**Zero Terminal Flicker**: Uses Ink `<Static>` component architecture, static rendering for completed messages, dynamic rendering for streaming messages, completely solving terminal flicker issues.
 
-**中英双语界面**：所有 CLI 输出（auth、mcp、plugin、cron、session 等）均通过 i18n 系统根据 `ui_language` 字段自动切换语言，首次运行时可选择语言偏好。
+**Bilingual Interface**: All CLI output (auth, mcp, plugin, cron, session, etc.) automatically switches language via the i18n system based on the `ui_language` field. Language preference can be selected on first run.
 
-**全面 Markdown 渲染**：终端内完整渲染直角边框表格、圆角卡片式代码块、多色富文本（加粗、斜体、行内代码、链接等），AI 回复可读性大幅提升。
+**Comprehensive Markdown Rendering**: Full rendering of box-drawing tables, rounded card-style code blocks, multi-color rich text (bold, italic, inline code, links), significantly improving AI response readability.
 
-**项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<project>/.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
+**Project-Level Config Automation**: Auto-generate `<project>/.illusion/rules/` and `<project>/.illusion/skills/` directories, project-level configuration takes precedence over global configuration, facilitating team collaboration.
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 环境要求
+### Requirements
 
 - Python >= 3.10
-- Node.js (用于前端 TUI)
-- 支持 Windows、macOS、Linux
-- Windows 用户：自动查找 Git，无需手动配置 PATH
+- Node.js (for frontend TUI)
+- Supports Windows, macOS, Linux
+- Windows users: Auto-detect Git, no manual PATH configuration needed
 
-### 安装
+### Installation
 
 ```bash
 git clone https://github.com/your-repo/illusion-code.git
@@ -88,230 +88,230 @@ cd illusion-code
 uv sync
 ```
 
-> **注意**：`uv sync` 仅在项目目录下创建虚拟环境，不会将 `illusion` 命令注册到系统 PATH。若需在任意目录使用 `illusion` 命令，有以下方式：
+> **Note**: `uv sync` only creates a virtual environment within the project directory and does NOT register the `illusion` command globally in your PATH. To use `illusion` from any directory, use one of:
 >
 > ```bash
-> # 方式一：在项目目录下使用 uv run
+> # Option 1: Use uv run from the project directory
 > cd illusion-code
 > uv run illusion
 >
-> # 方式二：激活虚拟环境后使用
+> # Option 2: Activate the virtual environment first
 > # Windows
 > .venv\Scripts\activate
 > # macOS / Linux
 > source .venv/bin/activate
 > illusion
 >
-> # 方式三：使用 pip 全局安装
+> # Option 3: Install globally with pip
 > pip install -e .
 > ```
 
-### 基本使用
+### Basic Usage
 
-> **首次使用建议**：先执行 `uv run illusion auth login` 配置 API 认证，否则可能因未登录或模型不可用而报错退出。
+> **First-time setup**: Run `uv run illusion auth login` first to configure your API credentials. Without authentication (or if the model is unavailable), the program may exit with an error code.
 
 ```bash
-# 首次使用：配置认证
+# First-time: configure authentication
 uv run illusion auth login
 
-# 启动交互式会话（推荐）
+# Start interactive session (recommended)
 illusion
 
-# 非交互式打印模式
-illusion -p "帮我分析这个项目的结构"
+# Non-interactive print mode
+illusion -p "Analyze the structure of this project"
 
-# 指定模型
+# Specify model
 illusion -m env_1.model_2
 
-# 继续最近会话
+# Continue most recent session
 illusion --continue
 
-# 恢复指定会话
+# Restore specific session
 illusion --resume <session-id>
 
-# 设置权限模式
+# Set permission mode
 illusion --permission-mode full_auto
 
-# 指定 API 格式
+# Specify API format
 illusion --api-format openai
 ```
 
 ---
 
-## 📚 命令系统
+## 📚 Command System
 
-### 子命令
+### Subcommands
 
 ```bash
-# 认证管理
-illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI/Copilot/Codex）
-illusion auth status             # 查看所有环境的认证状态
-illusion auth logout [env_N]     # 清除环境凭据
-illusion auth switch [env_N]     # 切换活动环境
-illusion auth add-model <env_N> <model_name>  # 向已有环境添加模型
+# Authentication management
+illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI/Copilot/Codex)
+illusion auth status             # View credential status for all environments
+illusion auth logout [env_N]     # Clear environment credentials
+illusion auth switch [env_N]     # Switch active environment
+illusion auth add-model <env_N> <model_name>  # Add a model to an existing environment
 
-# MCP 管理
-illusion mcp list                # 列出 MCP 服务器
-illusion mcp add <name> <config> # 添加服务器
-illusion mcp remove <name>       # 移除服务器
+# MCP management
+illusion mcp list                # List MCP servers
+illusion mcp add <name> <config> # Add server
+illusion mcp remove <name>       # Remove server
 
-# 插件管理
-illusion plugin list             # 列出插件
-illusion plugin install <source> # 安装插件
-illusion plugin uninstall <name> # 卸载插件
+# Plugin management
+illusion plugin list             # List plugins
+illusion plugin install <source> # Install plugin
+illusion plugin uninstall <name> # Uninstall plugin
 
-# 定时任务
-illusion cron start              # 启动调度器
-illusion cron stop               # 停止调度器
-illusion cron status             # 查看状态
-illusion cron list               # 列出任务
-illusion cron toggle <name> <true|false>  # 启用/禁用任务
-illusion cron run <name>         # 手动触发执行任务
-illusion cron history            # 查看执行历史
-illusion cron logs               # 查看调度器日志
+# Scheduled tasks
+illusion cron start              # Start scheduler
+illusion cron stop               # Stop scheduler
+illusion cron status             # View status
+illusion cron list               # List tasks
+illusion cron toggle <name> <true|false>  # Enable/disable task
+illusion cron run <name>         # Manually trigger task
+illusion cron history            # View execution history
+illusion cron logs               # View scheduler logs
 ```
 
-### 交互式斜杠命令
+### Interactive Slash Commands
 
-在交互式会话中，可使用以下命令：
+In interactive sessions, you can use the following commands:
 
-| 类别 | 命令示例 | 说明 |
-|------|----------|------|
-| 会话管理 | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | 管理会话状态 |
-| 记忆快照 | `/memory`, `/resume`, `/export`, `/rules` | 记忆与会话管理 |
-| 配置设置 | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | 调整运行配置 |
-| 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
-| 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
-| 多智能体 | `/agents`, `/tasks`, `/continue` | Agent 协作 |
+| Category | Command Examples | Description |
+|----------|------------------|-------------|
+| Session Management | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | Manage session state |
+| Memory Snapshots | `/memory`, `/resume`, `/export`, `/rules` | Memory and session management |
+| Configuration | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | Adjust runtime configuration |
+| Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
+| Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
+| Multi-Agent | `/agents`, `/tasks`, `/continue` | Agent collaboration |
 
 ---
 
-## 🏗️ 项目架构
+## 🏗️ Project Architecture
 
 ```
 illusion-code/
-├── src/illusion/           # 主要源代码
-│   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
-│   ├── auth/               # 认证管理
-│   ├── commands/           # 斜杠命令系统 (52 个命令)
-│   ├── config/             # 配置系统
-│   ├── coordinator/        # 多智能体协调器
-│   ├── engine/             # 核心对话引擎
-│   ├── hooks/              # 钩子系统
-│   ├── mcp/                # MCP 客户端
-│   ├── memory/             # 记忆系统
-│   ├── permissions/        # 权限系统
-│   ├── plugins/            # 插件系统
-│   ├── prompts/            # 提示词系统
-│   ├── skills/             # 技能系统
-│   ├── tasks/              # 任务管理
-│   ├── tools/              # 工具集 (36 个工具)
-│   ├── ui/                 # 用户界面
-│   └── cli.py              # CLI 入口
-├── frontend/terminal/      # React TUI 前端
-├── tests/                  # 测试套件
-└── pyproject.toml          # 项目配置
+├── src/illusion/           # Main source code
+│   ├── api/                # API clients (Anthropic, OpenAI, etc.)
+│   ├── auth/               # Authentication management
+│   ├── commands/           # Slash command system (52 commands)
+│   ├── config/             # Configuration system
+│   ├── coordinator/        # Multi-agent coordinator
+│   ├── engine/             # Core conversation engine
+│   ├── hooks/              # Hook system
+│   ├── mcp/                # MCP client
+│   ├── memory/             # Memory system
+│   ├── permissions/        # Permission system
+│   ├── plugins/            # Plugin system
+│   ├── prompts/            # Prompt system
+│   ├── skills/             # Skill system
+│   ├── tasks/              # Task management
+│   ├── tools/              # Toolset (36 base tools)
+│   ├── ui/                 # User interface
+│   └── cli.py              # CLI entry point
+├── frontend/terminal/      # React TUI frontend
+├── tests/                  # Test suite
+└── pyproject.toml          # Project configuration
 ```
 
 ---
 
-## 🔧 核心模块
+## 🔧 Core Modules
 
-### API 客户端层
+### API Client Layer
 
-支持多种 AI 提供商：
+Supports multiple AI providers:
 
-| 提供商 | API 格式 | 认证方式 |
-|--------|----------|----------|
+| Provider | API Format | Authentication |
+|----------|------------|----------------|
 | Anthropic Claude | anthropic | API Key |
-| OpenAI / 兼容接口 | openai | API Key |
-| GitHub Copilot | openai | OAuth 设备码 |
-| OpenAI Codex | openai | 外部 CLI (Codex CLI) |
-| 自定义提供商 | anthropic / openai | API Key |
+| OpenAI / Compatible | openai | API Key |
+| GitHub Copilot | openai | OAuth Device Flow |
+| OpenAI Codex | openai | External CLI (Codex CLI) |
+| Custom Provider | anthropic / openai | API Key |
 
-### 工具系统
+### Tool System
 
-提供 36 个核心工具，涵盖：
+Provides 36 core tools, covering:
 
-- **文件操作**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
-- **命令执行**: `bash`, `powershell`, `repl`
-- **搜索**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
-- **任务管理**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
-- **Agent 协作**: `agent`, `send_message`, `team_create`, `team_delete`
-- **模式切换**: `enter_plan_mode`, `exit_plan_mode`
-- **会话控制**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
-- **配置与调试**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
-- **交互**: `ask_user_question`
-- **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
+- **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
+- **Command Execution**: `bash`, `powershell`, `repl`
+- **Search**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
+- **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
+- **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
+- **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
+- **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
+- **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
+- **Interaction**: `ask_user_question`
+- **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
 
-### 权限系统
+### Permission System
 
-三种权限模式：
+Three permission modes:
 
-| 模式 | 说明 |
-|------|------|
-| `default` | 修改类工具需要用户确认 |
-| `plan` | 阻止所有修改类工具 |
-| `full_auto` | 允许一切操作 |
+| Mode | Description |
+|------|-------------|
+| `default` | Modification tools require user confirmation |
+| `plan` | Block all modification tools |
+| `full_auto` | Allow all operations |
 
-### 多智能体协调器
+### Multi-Agent Coordinator
 
-内置 7 种专业 Agent：
+Built-in 7 specialized Agents:
 
-| Agent | 用途 |
-|-------|------|
-| `general-purpose` | 通用研究和多步任务 |
-| `Explore` | 文件搜索和代码探索专家 |
-| `Plan` | 架构设计和实施规划专家 |
-| `verification` | 对抗性验证专家 |
-| `worker` | 实现导向的 Worker |
-| `statusline-setup` | Shell PS1 转换器 |
-| `illusion-guide` | Illusion Code / SDK / API 文档专家 |
-
----
-
-## 🎨 前端技术栈
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| React | 18.3.1 | UI 框架 |
-| Ink | 5.1.0 | 终端 UI 组件库 |
-| TypeScript | 5.7.3 | 类型安全 |
+| Agent | Purpose |
+|-------|---------|
+| `general-purpose` | General research and multi-step tasks |
+| `Explore` | File search and code exploration expert |
+| `Plan` | Architecture design and implementation planning expert |
+| `verification` | Adversarial verification expert |
+| `worker` | Implementation-oriented Worker |
+| `statusline-setup` | Shell PS1 converter |
+| `illusion-guide` | Illusion Code / SDK / API documentation expert |
 
 ---
 
-## 📦 主要依赖
+## 🎨 Frontend Tech Stack
 
-| 依赖 | 用途 |
-|------|------|
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| React | 18.3.1 | UI framework |
+| Ink | 5.1.0 | Terminal UI component library |
+| TypeScript | 5.7.3 | Type safety |
+
+---
+
+## 📦 Main Dependencies
+
+| Dependency | Purpose |
+|------------|---------|
 | anthropic | Anthropic SDK |
 | openai | OpenAI SDK |
-| rich | 富文本输出 |
-| prompt-toolkit | 高级输入处理 |
-| textual | TUI 框架 |
-| typer | CLI 框架 |
-| pydantic | 数据验证 |
-| httpx | HTTP 客户端 |
-| mcp | MCP 协议 |
+| rich | Rich text output |
+| prompt-toolkit | Advanced input processing |
+| textual | TUI framework |
+| typer | CLI framework |
+| pydantic | Data validation |
+| httpx | HTTP client |
+| mcp | MCP protocol |
 
 ---
 
-## ⚙️ 配置文件
+## ⚙️ Configuration Files
 
-### 配置文件概览
+### Configuration Overview
 
-| 文件 | 位置 | 作用域 | 用途 |
-|------|------|--------|------|
-| `settings.json` | `~/.illusion/settings.json` | 全局 | 主设置文件，API配置、权限、钩子等 |
-| `credentials.json` | `~/.illusion/credentials.json` | 全局 | 安全凭据存储（API密钥等） |
-| `CLAUDE.md` | 项目根目录 | 项目级 | 项目指令和上下文 |
-| `MEMORY.md` | 项目根目录 | 项目级 | 记忆入口文件 |
-| `.illusion/mcp/*.json` | 项目根目录 | 项目级 | MCP 服务器配置 |
-| `.illusion/rules/*.md` | 项目根目录 | 项目级 | 项目规则文件 |
+| File | Location | Scope | Purpose |
+|------|----------|-------|---------|
+| `settings.json` | `~/.illusion/settings.json` | Global | Main settings file, API config, permissions, hooks, etc. |
+| `credentials.json` | `~/.illusion/credentials.json` | Global | Secure credential storage (API keys, etc.) |
+| `CLAUDE.md` | Project root | Project-level | Project instructions and context |
+| `MEMORY.md` | Project root | Project-level | Memory entry file |
+| `.illusion/mcp/*.json` | Project root | Project-level | MCP server configuration |
+| `.illusion/rules/*.md` | Project root | Project-level | Project rule files |
 
-#### 凭据文件 (credentials.json)
+#### Credentials File (credentials.json)
 
-凭据文件位于 `~/.illusion/credentials.json`，用于安全存储 API 密钥。由 `illusion auth login` 命令自动管理，也可手动编辑。凭据按 `env_N` 分组存储，与 `settings.json` 中的环境配置对应。
+The credentials file is located at `~/.illusion/credentials.json` for secure API key storage. It is automatically managed by the `illusion auth login` command, but can also be edited manually. Credentials are stored by `env_N` groups, corresponding to the environment configurations in `settings.json`.
 
 ```json
 {
@@ -324,40 +324,40 @@ illusion-code/
 }
 ```
 
-**字段说明：**
-- 顶级键为环境标识符（env_1, env_2 等），与 settings.json 中的 env_N 对应
-- 每个环境下存储 `api_key` 等凭据
-- 文件权限自动设置为 600（见下方说明）
+**Field description:**
+- Top-level keys are environment identifiers (env_1, env_2, etc.), matching env_N in settings.json
+- Each environment stores credentials like `api_key`
+- File permissions are automatically set to 600 (see explanation below)
 
-**API 密钥存储方式**：API 密钥有两种存储方式，可根据需求选择：
+**API Key Storage Options**: API keys can be stored in two ways, choose based on your needs:
 
-| 方式 | 配置位置 | 优势 | 劣势 |
-|------|----------|------|------|
-| **安全模式** | `credentials.json`（由 `illusion auth login` 自动管理） | 密钥与配置分离，便于管理，文件权限受保护 | 需要额外文件 |
-| **便捷模式** | `settings.json` 的 `env_N.api_key` 字段 | 配置集中在一个文件，简单直观 | 密钥明文存储，共享配置时需注意脱敏 |
+| Method | Location | Advantage | Disadvantage |
+|--------|----------|-----------|--------------|
+| **Secure mode** | `credentials.json` (managed by `illusion auth login`) | Keys separated from config, easier management, file permissions protected | Requires extra file |
+| **Convenient mode** | `env_N.api_key` field in `settings.json` | All config in one file, simple and direct | Keys in plaintext, be careful when sharing config |
 
-两种方式可混用，运行时读取优先级：`env_N.api_key` > 环境变量 > `credentials.json`。
+Both methods can be mixed. Runtime read priority: `env_N.api_key` > environment variables > `credentials.json`.
 
-> **文件权限 600 说明**：`600` 是 Unix/Linux 文件权限码，表示「仅文件所有者可读写，其他用户无任何访问权限」。用数字表示为 `rw-------`，其中 `6`（读+写）对应所有者，`0` 对应同组用户，`0` 对应其他用户。在 Windows 系统上，此设置会被静默跳过（Windows 使用 ACL 权限模型，行为不同）。此限制保护 API 密钥不被同一系统上的其他用户读取。
+> **File Permission 600 Explained**: `600` is a Unix/Linux file permission code meaning "only the file owner can read and write, all other users have no access." In numeric notation: `rw-------`, where `6` (read+write) applies to the owner, `0` to the group, and `0` to others. On Windows systems, this setting is silently skipped (Windows uses a different ACL permission model). This restriction protects API keys from being read by other users on the same system.
 
-### 配置优先级
+### Configuration Priority
 
-配置解析优先级（从高到低）：
+Configuration resolution priority (from high to low):
 
-1. **CLI 参数** - 命令行传入的参数优先级最高
-2. **环境变量** - 如 `ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL` 等
-3. **配置文件** - `~/.illusion/settings.json`
-4. **默认值** - 代码内置的默认配置
+1. **CLI Arguments** - Command-line arguments have the highest priority
+2. **Environment Variables** - Such as `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, etc.
+3. **Configuration Files** - `~/.illusion/settings.json`
+4. **Default Values** - Built-in default configurations
 
 ---
 
-### 全局配置 (settings.json)
+### Global Configuration (settings.json)
 
-全局配置文件位于 `~/.illusion/settings.json`，对所有项目生效。
+Global configuration file is located at `~/.illusion/settings.json` and applies to all projects.
 
-#### 配置方式
+#### Configuration Methods
 
-settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。每个 `env_N` 是一个独立的环境配置（EnvConfig），包含 API 格式、端点、密钥和模型列表。通过 `model` 字段引用 `env_N.model_N` 来选择当前活跃模型。
+settings.json uses the `env_N` grouped format to manage multiple environment/provider configurations. Each `env_N` is an independent environment configuration (EnvConfig) containing API format, endpoint, API key, and model list. The `model` field references `env_N.model_N` to select the currently active model.
 
 ```json
 {
@@ -378,9 +378,9 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 }
 ```
 
-> **提示**：`model` 字段格式为 `env_N.model_N`，用于指定当前使用哪个环境的哪个模型。可通过 `/model` 命令交互式切换。API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+> **Tip**: The `model` field format is `env_N.model_N`, used to specify which model of which environment to use. You can switch interactively via the `/model` command. API keys can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
 
-#### 完整配置结构
+#### Complete Configuration Structure
 
 ```json
 {
@@ -430,7 +430,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
   },
   "enabled_plugins": {},
   "mcp_servers": {},
-  "ui_language": "zh-CN",
+  "ui_language": "en-US",
   "output_style": "default",
   "fast_mode": false,
   "effort": "medium",
@@ -439,41 +439,41 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 }
 ```
 
-#### 配置字段说明
+#### Configuration Field Description
 
-| 字段 | 类型 | 默认值 | 说明 | 示例 |
-|------|------|--------|------|------|
-| `env_N` | object | - | 环境配置组（EnvConfig），支持动态添加 env_1, env_2... | 见下方 EnvConfig 字段说明 |
-| `model` | string | "env_1.model_1" | 当前活跃模型引用，格式为 `env_N.model_N` | `"env_2.model_1"` |
-| `context_window` | int | 200000 | 上下文窗口大小 | `128000` |
-| `system_prompt` | string\|null | null | 自定义系统提示词（全局覆盖） | `"你是一个专业的Python开发者"` |
-| `max_tokens` | int | 16384 | 最大输出 token 数 | `32768` |
-| `max_turns` | int | 200 | 最大对话轮数 | `500` |
-| `ui_language` | string | "zh-CN" | 界面语言 | `"en-US"` |
-| `fast_mode` | bool | false | 快速模式 | `true` |
-| `effort` | string | "medium" | 推理强度级别：low/medium/high/xhigh/max | `"high"` |
-| `passes` | int | 1 | 推理轮数（1-8），控制 AI 对同一问题的迭代推理次数，值越大推理越深入但耗时越长 | `2` |
-| `verbose` | bool | false | 详细输出模式 | `true` |
+| Field | Type | Default | Description | Example |
+|-------|------|---------|-------------|---------|
+| `env_N` | object | - | Environment config group (EnvConfig), supports dynamic env_1, env_2... | See EnvConfig field description below |
+| `model` | string | "env_1.model_1" | Active model reference, format: `env_N.model_N` | `"env_2.model_1"` |
+| `context_window` | int | 200000 | Context window size | `128000` |
+| `system_prompt` | string\|null | null | Custom system prompt (global override) | `"You are a professional Python developer"` |
+| `max_tokens` | int | 16384 | Maximum output token count | `32768` |
+| `max_turns` | int | 200 | Maximum conversation turns | `500` |
+| `ui_language` | string | "en-US" | UI language | `"zh-CN"` |
+| `fast_mode` | bool | false | Fast mode | `true` |
+| `effort` | string | "medium" | Reasoning effort level: low/medium/high/xhigh/max | `"high"` |
+| `passes` | int | 1 | Reasoning pass count (1-8), controls how many times the AI iterates on the same problem; higher values = deeper reasoning but longer time | `2` |
+| `verbose` | bool | false | Verbose output mode | `true` |
 
 ---
 
-### 环境配置 (EnvConfig)
+### Environment Configuration (EnvConfig)
 
-IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每个环境配置（EnvConfig）对应一个独立的 API 提供商设置。
+IllusionCode supports managing multiple environment/provider configurations through `env_N` groups. Each environment configuration (EnvConfig) corresponds to an independent API provider setup.
 
-#### EnvConfig 字段说明
+#### EnvConfig Field Description
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `api_format` | string | 是 | API 格式：anthropic / openai |
-| `base_url` | string\|null | 否 | 自定义 API 端点，null 表示使用默认端点 |
-| `api_key` | string | 否 | API 密钥（可直接填写，也可留空由 `illusion auth login` 存储到 credentials.json） |
-| `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
-| `model_N` | string | 否 | 模型名称，支持多个 model_1, model_2, model_3... |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `api_format` | string | Yes | API format: anthropic / openai |
+| `base_url` | string\|null | No | Custom API endpoint, null uses default endpoint |
+| `api_key` | string | No | API key (can be filled directly, or left empty for `illusion auth login` to store in credentials.json) |
+| `system_prompt` | string\|null | No | System prompt for this environment (overrides global) |
+| `model_N` | string | No | Model name, supports multiple: model_1, model_2, model_3... |
 
-#### 多模型配置示例
+#### Multi-Model Configuration Example
 
-在同一个环境下配置多个模型，通过 `env_N.model_N` 引用切换：
+Configure multiple models under the same environment, switch via `env_N.model_N`:
 
 ```json
 {
@@ -488,22 +488,22 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 }
 ```
 
-**切换模型的方式**：
+**Ways to switch models**:
 
 ```bash
-# 方式一：使用 /model 命令交互式切换
+# Method 1: Use /model command to switch interactively
 /model
 
-# 方式二：使用 -m 参数指定模型
+# Method 2: Use -m parameter to specify model
 illusion -m env_1.model_2
 
-# 方式三：修改 settings.json 中的 model 字段
-# 将 "model" 改为 "env_1.model_2"
+# Method 3: Modify the model field in settings.json
+# Change "model" to "env_1.model_2"
 ```
 
 ---
 
-### 各提供商配置示例
+### Provider Configuration Examples
 
 #### 1. Anthropic Claude API
 
@@ -519,11 +519,11 @@ illusion -m env_1.model_2
 }
 ```
 
-> API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+> API key can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
 
-**认证方式**：
-- 交互式配置：`illusion auth login` → 选择 Anthropic
-- 环境变量：`ANTHROPIC_API_KEY`
+**Authentication**:
+- Interactive setup: `illusion auth login` → select Anthropic
+- Environment variable: `ANTHROPIC_API_KEY`
 
 ---
 
@@ -540,22 +540,22 @@ illusion -m env_1.model_2
 }
 ```
 
-> API 密钥可直接填在 `env_N.api_key` 中，也可通过 `illusion auth login` 存储到 credentials.json（更安全）。
+> API key can be placed directly in `env_N.api_key`, or stored in credentials.json via `illusion auth login` (more secure).
 
-**认证方式**：
-- 交互式配置：`illusion auth login` → 选择 OpenAI
-- 环境变量：`OPENAI_API_KEY`
+**Authentication**:
+- Interactive setup: `illusion auth login` → select OpenAI
+- Environment variable: `OPENAI_API_KEY`
 
 ---
 
-#### 3. 自定义提供商
+#### 3. Custom Provider
 
-`illusion auth login` 选择"自定义提供商"后，依次输入：
+After selecting "Custom provider" in `illusion auth login`, enter:
 
-1. API 格式（openai / anthropic）
-2. API 端点
-3. API 密钥
-4. 模型名称
+1. API format (openai / anthropic)
+2. API endpoint
+3. API key
+4. Model name
 
 ```json
 {
@@ -573,11 +573,11 @@ illusion -m env_1.model_2
 #### 4. GitHub Copilot
 
 ```bash
-# 交互式配置
-illusion auth login  # 选择 GitHub Copilot
+# Interactive setup
+illusion auth login  # Select GitHub Copilot
 ```
 
-在浏览器中完成 GitHub 授权后自动配置。认证数据存储在 `~/.illusion/copilot_auth.json`。
+After completing GitHub authorization in the browser, it configures automatically. Auth data is stored in `~/.illusion/copilot_auth.json`.
 
 ```json
 {
@@ -591,25 +591,25 @@ illusion auth login  # 选择 GitHub Copilot
 }
 ```
 
-**认证方式**：GitHub OAuth 设备码流程（由 `illusion auth login` 自动完成）
+**Authentication**: GitHub OAuth device code flow (handled automatically by `illusion auth login`)
 
-**要求**：需要有效的 GitHub Copilot 订阅。
+**Requirement**: An active GitHub Copilot subscription.
 
-**支持的模型**：gpt-5.5、gpt-5.3-codex、claude-opus-4.6、gemini-3.1-pro-preview 等（取决于订阅计划）
+**Supported models**: gpt-5.5, gpt-5.3-codex, claude-opus-4.6, gemini-3.1-pro-preview, etc. (depends on subscription plan)
 
 ---
 
-#### 5. OpenAI Codex (ChatGPT 订阅)
+#### 5. OpenAI Codex (ChatGPT Subscription)
 
 ```bash
-# 先安装并认证 Codex CLI
+# First install and authenticate Codex CLI
 codex auth login
 
-# 然后在 IllusionCode 中配置
-illusion auth login  # 选择 OpenAI Codex
+# Then configure in IllusionCode
+illusion auth login  # Select OpenAI Codex
 ```
 
-Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文件 (`~/.codex/auth.json`) 实现。
+Codex mode uses ChatGPT subscription authentication, reading credentials from the Codex CLI's auth file (`~/.codex/auth.json`).
 
 ```json
 {
@@ -623,15 +623,15 @@ Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文
 }
 ```
 
-**认证方式**：外部 CLI 凭据绑定（需要先通过 Codex CLI 完成认证）
+**Authentication**: External CLI credential binding (requires Codex CLI authentication first)
 
-**要求**：需要安装 [Codex CLI](https://github.com/openai/codex) 并拥有 ChatGPT Plus/Pro/Team 订阅。
+**Requirement**: [Codex CLI](https://github.com/openai/codex) installed with a ChatGPT Plus/Pro/Team subscription.
 
 ---
 
-#### 6. 多提供商混合配置
+#### 6. Multi-Provider Mixed Configuration
 
-通过 `illusion auth login` 配置多个环境，使用 `illusion auth switch` 或 `/model` 命令切换：
+Configure multiple environments via `illusion auth login`, switch using `illusion auth switch` or `/model`:
 
 ```json
 {
@@ -656,62 +656,62 @@ Codex 模式使用 ChatGPT 订阅的认证，通过读取 Codex CLI 的凭据文
 }
 ```
 
-> API 密钥可直接填在 `env_N.api_key` 中，也可存储到 credentials.json（更安全，由 `illusion auth login` 管理）。Copilot/Codex 的认证由各自的 OAuth 流程管理，不需要手动填写 API 密钥。
+> API keys can be placed directly in `env_N.api_key`, or stored in credentials.json (more secure, managed by `illusion auth login`). Copilot/Codex authentication is managed by their respective OAuth flows and does not require manual API key entry.
 
-**切换方式**：
+**Switching methods**:
 ```bash
-# 交互式切换环境
+# Interactive environment switch
 illusion auth switch
 
-# 直接指定环境
+# Directly specify environment
 illusion auth switch env_2
 
-# 使用 /model 命令交互式切换模型
+# Use /model command to switch interactively
 /model
 
-# 使用 -m 参数直接指定
+# Use -m parameter to specify directly
 illusion -m env_2.model_1
 ```
 
 ---
 
-### 项目级配置
+### Project-Level Configuration
 
-项目级配置仅对当前项目生效，放置在项目根目录。
+Project-level configuration only applies to the current project and is placed in the project root directory.
 
-#### CLAUDE.md - 项目指令
+#### CLAUDE.md - Project Instructions
 
-在项目根目录创建 `CLAUDE.md` 文件，为 AI 提供项目特定的上下文和指令：
+Create a `CLAUDE.md` file in the project root to provide project-specific context and instructions for AI:
 
 ```markdown
-# 项目说明
+# Project Description
 
-这是一个 Python Web 项目，使用 FastAPI 框架。
+This is a Python Web project using the FastAPI framework.
 
-## 代码规范
+## Code Standards
 
-- 使用 Python 3.10+ 特性
-- 遵循 PEP 8 代码风格
-- 使用 type hints
+- Use Python 3.10+ features
+- Follow PEP 8 code style
+- Use type hints
 
-## 目录结构
+## Directory Structure
 
-- src/api: API 路由
-- src/models: 数据模型
-- src/services: 业务逻辑
+- src/api: API routes
+- src/models: Data models
+- src/services: Business logic
 
-## 注意事项
+## Notes
 
-- 不要修改 tests/ 目录下的文件
-- 提交前运行 pytest
+- Do not modify files in the tests/ directory
+- Run pytest before committing
 ```
 
-#### .illusion/rules/ - 规则文件（目录自动生成）
+#### .illusion/rules/ - Rule Files
 
-在 `.illusion/rules/` 目录下创建 `.md` 文件，每个文件是一条独立规则：
+Create `.md` files in the `.illusion/rules/` directory, each file is an independent rule:
 
 ```
-项目根目录/
+Project Root/
 ├── .illusion/
 │   └── rules/
 │       ├── python-style.md
@@ -719,13 +719,13 @@ illusion -m env_2.model_1
 │       └── testing.md
 ```
 
-#### MCP 服务器配置
+#### MCP Server Configuration
 
-MCP 服务器支持三种配置方式，优先级从高到低：**插件 > 项目级 > 全局设置**
+MCP servers support three configuration methods, with priority from high to low: **Plugin > Project-level > Global settings**
 
-##### 1. 全局配置（settings.json）
+##### 1. Global Configuration (settings.json)
 
-在 `~/.illusion/settings.json` 的 `mcp_servers` 字段中配置，对所有项目生效。支持 `mcp_servers`（snake_case）和 `mcpServers`（camelCase）两种键名：
+Configure in the `mcp_servers` field of `~/.illusion/settings.json`, applies to all projects. Both `mcp_servers` (snake_case) and `mcpServers` (camelCase) key names are supported:
 
 ```json
 {
@@ -740,18 +740,18 @@ MCP 服务器支持三种配置方式，优先级从高到低：**插件 > 项�
 }
 ```
 
-也可以通过命令行管理：
+You can also manage via command line:
 ```bash
-illusion mcp list                # 列出 MCP 服务器
-illusion mcp add <name> <config> # 添加服务器
-illusion mcp remove <name>       # 移除服务器
+illusion mcp list                # List MCP servers
+illusion mcp add <name> <config> # Add server
+illusion mcp remove <name>       # Remove server
 ```
 
-##### 2. 项目级配置（.illusion/mcp/）
+##### 2. Project-level Configuration (.illusion/mcp/)
 
-在项目根目录的 `.illusion/mcp/` 目录下创建 `.json` 文件，仅对当前项目生效（目录自动生成）：
+Create `.json` files in the `.illusion/mcp/` directory under the project root, only applies to the current project (directory auto-generated):
 
-**方式一：单服务器配置（文件名作为服务器名）**
+**Method 1: Single Server Configuration (filename as server name)**
 
 ```json
 // .illusion/mcp/solidworks.json
@@ -763,7 +763,7 @@ illusion mcp remove <name>       # 移除服务器
 }
 ```
 
-**方式二：多服务器配置（使用 mcpServers 键）**
+**Method 2: Multiple Server Configuration (using mcpServers key)**
 
 ```json
 // .illusion/mcp/servers.json
@@ -801,42 +801,42 @@ illusion mcp remove <name>       # 移除服务器
 }
 ```
 
-##### 3. 插件配置
+##### 3. Plugin Configuration
 
-在插件目录中放置 `.mcp.json` 或 `mcp.json` 文件，随插件自动加载：
+Place `.mcp.json` or `mcp.json` files in the plugin directory, loaded automatically with the plugin:
 
 ```
 ~/.illusion/plugins/my-plugin/
-├── plugin.json      # 插件清单
-├── .mcp.json        # MCP 配置（或 mcp.json）
+├── plugin.json      # Plugin manifest
+├── .mcp.json        # MCP config (or mcp.json)
 └── ...
 ```
 
-插件中的 MCP 服务器会以 `插件名:服务器名` 的格式注册，避免与其他配置冲突。
+MCP servers from plugins are registered with the format `plugin_name:server_name` to avoid conflicts with other configurations.
 
-##### MCP 服务器配置类型
+##### MCP Server Configuration Types
 
-| 类型 | 字段 | 说明 |
-|------|------|------|
-| `stdio` | command, args, env, cwd, log_file, enabled | 通过标准输入输出通信 |
-| `http` | url, headers, enabled | 通过 HTTP 协议通信 |
-| `ws` | url, headers, enabled | 通过 WebSocket 协议通信 |
+| Type | Fields | Description |
+|------|--------|-------------|
+| `stdio` | command, args, env, cwd, log_file, enabled | Communication via standard input/output |
+| `http` | url, headers, enabled | Communication via HTTP protocol |
+| `ws` | url, headers, enabled | Communication via WebSocket protocol |
 
-> **`enabled` 字段**：所有类型的 MCP 服务器均支持 `enabled` 字段（默认 `true`）。设置为 `false` 可禁用单个服务器而不删除其配置。项目级配置文件中的 `mcpServers` 和 `mcp_servers` 两种键名均可使用。
+> **`enabled` field**: All MCP server types support the `enabled` field (defaults to `true`). Set to `false` to disable a single server without removing its configuration. Both `mcpServers` and `mcp_servers` key names are supported in project-level config files.
 
 ---
 
-### 权限配置
+### Permission Configuration
 
-#### 权限模式
+#### Permission Modes
 
-| 模式 | 值 | 说明 |
-|------|-----|------|
-| 默认模式 | `default` | 修改类工具需要用户确认 |
-| 计划模式 | `plan` | 阻止所有修改类工具 |
-| 全自动模式 | `full_auto` | 允许一切操作 |
+| Mode | Value | Description |
+|------|-------|-------------|
+| Default Mode | `default` | Modification tools require user confirmation |
+| Plan Mode | `plan` | Block all modification tools |
+| Full Auto Mode | `full_auto` | Allow all operations |
 
-#### 权限配置示例
+#### Permission Configuration Example
 
 ```json
 {
@@ -855,19 +855,19 @@ illusion mcp remove <name>       # 移除服务器
 
 ---
 
-### 钩子配置
+### Hook Configuration
 
-钩子允许在特定事件发生时执行自定义操作。
+Hooks allow executing custom operations when specific events occur.
 
-#### 支持的钩子类型
+#### Supported Hook Types
 
-| 钩子事件 | 说明 |
-|----------|------|
-| `PRE_TOOL_USE` | 工具执行前 |
-| `POST_TOOL_USE` | 工具执行后 |
-| `USER_PROMPT_SUBMIT` | 用户提交提示词后 |
+| Hook Event | Description |
+|------------|-------------|
+| `PRE_TOOL_USE` | Before tool execution |
+| `POST_TOOL_USE` | After tool execution |
+| `USER_PROMPT_SUBMIT` | After user prompt submission |
 
-#### 钩子配置示例
+#### Hook Configuration Example
 
 ```json
 {
@@ -891,7 +891,7 @@ illusion mcp remove <name>       # 移除服务器
     "USER_PROMPT_SUBMIT": [
       {
         "type": "prompt",
-        "prompt": "检查用户输入是否包含敏感信息",
+        "prompt": "Check if user input contains sensitive information",
         "block_on_failure": true
       }
     ]
@@ -899,37 +899,37 @@ illusion mcp remove <name>       # 移除服务器
 }
 ```
 
-#### 钩子类型详解
+#### Hook Type Details
 
-| 类型 | 必填字段 | 可选字段 | 说明 |
-|------|----------|----------|------|
-| `command` | command | timeout_seconds, matcher, block_on_failure | 执行 Shell 命令 |
-| `prompt` | prompt | model, timeout_seconds, matcher, block_on_failure | 使用 LLM 验证 |
-| `http` | url | headers, timeout_seconds, matcher, block_on_failure | 发送 HTTP 请求 |
-| `agent` | prompt | model, timeout_seconds, matcher, block_on_failure | 使用 Agent 验证 |
-
----
-
-### 环境变量
-
-支持的环境变量：
-
-| 变量名 | 说明 |
-|--------|------|
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `ANTHROPIC_MODEL` | 默认模型 |
-| `ANTHROPIC_BASE_URL` | API 端点 |
-| `ILLUSION_MAX_TOKENS` | 最大 token 数 |
-| `ILLUSION_MAX_TURNS` | 最大对话轮数 |
-| `ILLUSION_SANDBOX_ENABLED` | 是否启用沙箱 |
-| `ILLUSION_CONFIG_DIR` | 配置目录路径 |
-| `ILLUSION_DATA_DIR` | 数据目录路径 |
-| `ILLUSION_LOGS_DIR` | 日志目录路径 |
+| Type | Required Fields | Optional Fields | Description |
+|------|-----------------|-----------------|-------------|
+| `command` | command | timeout_seconds, matcher, block_on_failure | Execute Shell command |
+| `prompt` | prompt | model, timeout_seconds, matcher, block_on_failure | Use LLM for verification |
+| `http` | url | headers, timeout_seconds, matcher, block_on_failure | Send HTTP request |
+| `agent` | prompt | model, timeout_seconds, matcher, block_on_failure | Use Agent for verification |
 
 ---
 
-### 记忆系统配置
+### Environment Variables
+
+Supported environment variables:
+
+| Variable Name | Description |
+|---------------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_MODEL` | Default model |
+| `ANTHROPIC_BASE_URL` | API endpoint |
+| `ILLUSION_MAX_TOKENS` | Maximum token count |
+| `ILLUSION_MAX_TURNS` | Maximum conversation turns |
+| `ILLUSION_SANDBOX_ENABLED` | Whether to enable sandbox |
+| `ILLUSION_CONFIG_DIR` | Configuration directory path |
+| `ILLUSION_DATA_DIR` | Data directory path |
+| `ILLUSION_LOGS_DIR` | Logs directory path |
+
+---
+
+### Memory System Configuration
 
 ```json
 {
@@ -941,15 +941,15 @@ illusion mcp remove <name>       # 移除服务器
 }
 ```
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `enabled` | true | 是否启用记忆功能 |
-| `max_files` | 5 | 最大记忆文件数 |
-| `max_entrypoint_lines` | 200 | 入口文件最大行数 |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | true | Whether to enable memory function |
+| `max_files` | 5 | Maximum number of memory files |
+| `max_entrypoint_lines` | 200 | Maximum lines for entry file |
 
 ---
 
-### 沙箱配置
+### Sandbox Configuration
 
 ```json
 {
@@ -973,49 +973,47 @@ illusion mcp remove <name>       # 移除服务器
 
 ---
 
-## 🔌 扩展开发
+## 🔌 Extension Development
 
-### 钩子系统
+### Hook System
 
-支持多种钩子类型：
+Supports multiple hook types:
 
-- `PRE_TOOL_USE` - 工具执行前
-- `POST_TOOL_USE` - 工具执行后
-- `USER_PROMPT_SUBMIT` - 用户提交提示词后
+- `PRE_TOOL_USE` - Before tool execution
+- `POST_TOOL_USE` - After tool execution
+- `USER_PROMPT_SUBMIT` - After user prompt submission
 
-### 插件系统
+### Plugin System
 
-通过 `plugin.json` 清单定义：
+Defined through `plugin.json` manifest:
 
-- 技能 (Skills)
-- 命令 (Commands)
-- 钩子 (Hooks)
-- MCP 服务器
+- Skills
+- Commands
+- Hooks
+- MCP Servers
 
----
-
-## 🧪 开发与测试
+## 🧪 Development & Testing
 
 ```bash
-# 安装开发依赖
+# Install development dependencies
 uv sync --dev
 
-# 运行测试
+# Run tests
 pytest
 
 ```
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-本项目采用 [MIT](LICENSE) 许可证开源。
+This project is open-sourced under the [MIT](LICENSE) license.
 
 ---
 
-## 🤝 贡献
+## 🤝 Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Welcome to submit Issues and Pull Requests!
 
 ---
 
