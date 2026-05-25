@@ -35,6 +35,7 @@ from illusion.api.client import (
     ApiMessageRequest,
     ApiStreamEvent,
     ApiTextDeltaEvent,
+    ApiToolCallStartedEvent,
 )
 from illusion.api.effort import EffortLevel
 from illusion.api.compat import (
@@ -463,6 +464,12 @@ class OpenAICompatibleClient:
                         entry["id"] = tc_delta.id
                     if tc_delta.function:
                         if tc_delta.function.name:
+                            # 工具调用开始：模型刚开始生成工具调用时立即通知
+                            if not entry["name"]:
+                                yield ApiToolCallStartedEvent(
+                                    tool_name=tc_delta.function.name,
+                                    tool_use_id=tc_delta.id or "",
+                                )
                             entry["name"] = tc_delta.function.name
                         if tc_delta.function.arguments:
                             entry["arguments"] += tc_delta.function.arguments
@@ -710,11 +717,19 @@ class OpenAICompatibleClient:
                     item = event.item
                     if getattr(item, "type", None) == "function_call":
                         idx = event.output_index
+                        tool_name = getattr(item, "name", "")
+                        tool_use_id = getattr(item, "call_id", "") or getattr(item, "id", "")
                         collected_tool_calls[idx] = {
-                            "id": getattr(item, "call_id", "") or getattr(item, "id", ""),
-                            "name": getattr(item, "name", ""),
+                            "id": tool_use_id,
+                            "name": tool_name,
                             "arguments": "",
                         }
+                        # 工具调用开始：模型刚开始生成工具调用时立即通知
+                        if tool_name:
+                            yield ApiToolCallStartedEvent(
+                                tool_name=tool_name,
+                                tool_use_id=tool_use_id,
+                            )
 
                 elif isinstance(event, ResponseFunctionCallArgumentsDeltaEvent):
                     idx = event.output_index

@@ -149,8 +149,25 @@ class ApiRetryEvent:
     delay_seconds: float
 
 
+@dataclass(frozen=True)
+class ApiToolCallStartedEvent:
+    """工具调用开始生成事件
+
+    当模型开始生成工具调用时产生，包含工具名称和调用ID。
+    此事件在模型开始输出工具参数之前发出，使前端能够
+    立即显示工具调用指示器，而不必等待整个工具参数生成完毕。
+
+    Attributes:
+        tool_name: 工具名称
+        tool_use_id: 工具调用ID（可选）
+    """
+
+    tool_name: str
+    tool_use_id: str = ""
+
+
 # 流事件联合类型
-ApiStreamEvent = ApiTextDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
+ApiStreamEvent = ApiTextDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent | ApiToolCallStartedEvent
 
 
 class SupportsStreamingMessages(Protocol):
@@ -453,8 +470,18 @@ class AnthropicApiClient:
             stream_api = self._client.beta.messages if self._claude_oauth else self._client.messages
             async with stream_api.stream(**params) as stream:
                 async for event in stream:
+                    event_type = getattr(event, "type", None)
+                    # 处理工具调用开始事件：模型开始生成工具调用时立即通知
+                    if event_type == "content_block_start":
+                        block = getattr(event, "content_block", None)
+                        if getattr(block, "type", None) == "tool_use":
+                            yield ApiToolCallStartedEvent(
+                                tool_name=getattr(block, "name", ""),
+                                tool_use_id=getattr(block, "id", ""),
+                            )
+                        continue
                     # 处理文本/思考增量事件
-                    if getattr(event, "type", None) != "content_block_delta":
+                    if event_type != "content_block_delta":
                         continue
                     delta = getattr(event, "delta", None)
                     delta_type = getattr(delta, "type", None)

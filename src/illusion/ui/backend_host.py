@@ -137,6 +137,8 @@ class ReactBackendHost:
         self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
         # 跟踪每个工具名称的最后输入，用于富事件发射
         self._last_tool_inputs: dict[str, dict] = {}
+        # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
+        self._emitted_tool_started_ids: set[str] = set()
 
     async def run(self) -> int:
         """运行后端主机主循环。"""
@@ -330,6 +332,8 @@ class ReactBackendHost:
     async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
         """处理用户输入的行内容。"""
         assert self._bundle is not None
+        # 清除上一轮的工具调用去重记录
+        self._emitted_tool_started_ids.clear()
         # 更新会话阶段为思考中
         await self._update_phase("thinking")
         # 发送用户消息
@@ -394,7 +398,15 @@ class ReactBackendHost:
                 return
             # 工具开始执行
             if isinstance(event, ToolExecutionStarted):
-                self._last_tool_inputs[event.tool_name] = event.tool_input or {}
+                tool_use_id = getattr(event, "tool_use_id", "") or ""
+                # 始终更新 _last_tool_inputs（即使已提前通知，也需要完整参数用于后续逻辑）
+                if event.tool_input:
+                    self._last_tool_inputs[event.tool_name] = event.tool_input
+                # 通过 tool_use_id 去重：如果已发送过 tool_started 事件，则跳过重复发送
+                if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
+                    return
+                if tool_use_id:
+                    self._emitted_tool_started_ids.add(tool_use_id)
                 await self._emit(
                     BackendEvent(
                         type="tool_started",
@@ -402,9 +414,9 @@ class ReactBackendHost:
                         tool_input=event.tool_input,
                         item=TranscriptItem(
                             role="tool",
-                            text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}",
+                            text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
                             tool_name=event.tool_name,
-                            tool_input=event.tool_input,
+                            tool_input=event.tool_input if event.tool_input else None,
                         ),
                     )
                 )

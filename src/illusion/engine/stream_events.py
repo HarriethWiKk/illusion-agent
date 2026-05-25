@@ -79,10 +79,12 @@ class ToolExecutionStarted:
     Attributes:
         tool_name: 工具名称
         tool_input: 工具输入参数字典
+        tool_use_id: 工具调用ID（可选，用于去重提前通知的工具调用）
     """
 
     tool_name: str
     tool_input: dict[str, Any]
+    tool_use_id: str = ""
 
 
 @dataclass(frozen=True)

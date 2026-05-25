@@ -30,7 +30,9 @@ from illusion.api.client import (
     ApiMessageCompleteEvent,
     ApiMessageRequest,
     ApiRetryEvent,
+    ApiStreamEvent,
     ApiTextDeltaEvent,
+    ApiToolCallStartedEvent,
     SupportsStreamingMessages,
 )
 from illusion.api.effort import EffortLevel
@@ -185,6 +187,14 @@ async def run_query(
                         )
                     ), None
                     continue
+                if isinstance(event, ApiToolCallStartedEvent):
+                    # 模型开始生成工具调用时立即通知前端，无需等待完整参数
+                    yield ToolExecutionStarted(
+                        tool_name=event.tool_name,
+                        tool_input={},
+                        tool_use_id=event.tool_use_id,
+                    ), None
+                    continue
 
                 if isinstance(event, ApiMessageCompleteEvent):
                     final_message = event.message
@@ -215,9 +225,11 @@ async def run_query(
         yield ToolChainStarted(tool_count=len(tool_calls)), None
 
         if len(tool_calls) == 1:
-            # 单个工具：顺序执行（立即流式输出事件）
+            # 单个工具：顺序执行
             tc = tool_calls[0]
-            yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
+            # 始终发送带完整 tool_input 的 ToolExecutionStarted，
+            # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
+            yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
             result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
             yield ToolExecutionCompleted(
                 tool_name=tc.name,
@@ -226,9 +238,11 @@ async def run_query(
             ), None
             tool_results = [result]
         else:
-            # 多个工具：并发执行，之后再输出事件
+            # 多个工具：并发执行
             for tc in tool_calls:
-                yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
+                # 始终发送带完整 tool_input 的 ToolExecutionStarted，
+                # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
+                yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
 
             async def _run(tc):
                 return await _execute_tool_call(context, tc.name, tc.id, tc.input)

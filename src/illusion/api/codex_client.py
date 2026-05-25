@@ -37,6 +37,7 @@ from illusion.api.client import (
     ApiRetryEvent,
     ApiStreamEvent,
     ApiTextDeltaEvent,
+    ApiToolCallStartedEvent,
 )
 from illusion.api.effort import EffortLevel
 from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
@@ -421,6 +422,17 @@ class CodexApiClient:
                             if isinstance(delta, str) and delta:
                                 collected_reasoning = merge_reasoning_text(collected_reasoning, delta)
                                 yield ApiTextDeltaEvent(text="", reasoning=delta)
+                        elif event_type == "response.output_item.added":
+                            # 工具调用开始：模型刚开始生成工具调用时立即通知
+                            item = event.get("item")
+                            if isinstance(item, dict) and item.get("type") == "function_call":
+                                tool_name = item.get("name", "")
+                                tool_use_id = item.get("call_id", "") or item.get("id", "")
+                                if tool_name:
+                                    yield ApiToolCallStartedEvent(
+                                        tool_name=tool_name,
+                                        tool_use_id=tool_use_id,
+                                    )
                         elif event_type == "response.output_item.done":
                             item = event.get("item")
                             if not isinstance(item, dict):
