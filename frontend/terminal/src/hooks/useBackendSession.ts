@@ -7,6 +7,7 @@ import type {
 	BridgeSessionSnapshot,
 	FrontendConfig,
 	McpServerSnapshot,
+	PendingToolCall,
 	SelectRequestPayload,
 	SwarmNotificationSnapshot,
 	SwarmTeammateSnapshot,
@@ -49,6 +50,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [ready, setReady] = useState(false);
 	const [showThinking, setShowThinking] = useState(true);
 	const [todoItems, setTodoItems] = useState<TodoItemSnapshot[]>([]);
+	const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
 	const [commandResult, setCommandResult] = useState<{
@@ -69,6 +71,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	// Flag to prevent double-committing assistant text when tool_started
 	// flushes it before assistant_complete arrives
 	const assistantFlushedForToolRef = useRef(false);
+	// Ref for pendingToolCall to avoid stale closure in handleEvent
+	const pendingToolCallRef = useRef<PendingToolCall | null>(null);
 
 	const flushAssistantDelta = (): void => {
 		const pending = pendingAssistantDeltaRef.current;
@@ -271,6 +275,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			// If the line ended without an assistant_complete (e.g. errors), make sure we
 			// don't leave stale streaming text on screen.
 			clearAssistantDelta();
+			pendingToolCallRef.current = null;
+			setPendingToolCall(null);
 			setBusy(false);
 			return;
 		}
@@ -296,14 +302,62 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					assistantFlushedForToolRef.current = true;
 				}
 				setBusy(true);
+				// 如果 tool_input 为空（提前通知），暂不加入 staticItems，
+				// 而是存入 pendingToolCall 等待完整参数到达后再加入
+				const toolInput = event.item.tool_input ?? event.tool_input;
+				const toolUseId = event.item.tool_use_id ?? event.tool_use_id ?? '';
+				if (!toolInput || Object.keys(toolInput).length === 0) {
+					const pendingCall: PendingToolCall = {
+						tool_name: event.item.tool_name ?? event.tool_name ?? 'tool',
+						tool_use_id: toolUseId,
+					};
+					pendingToolCallRef.current = pendingCall;
+					setPendingToolCall(pendingCall);
+					return;
+				}
+				// 完整参数直接加入 staticItems
+				pendingToolCallRef.current = null;
+				setPendingToolCall(null);
+			}
+			if (event.type === 'tool_completed' && pendingToolCallRef.current) {
+				// 兜底：如果 pendingToolCall 仍存在（tool_input_updated 未到达），
+				// 先将基本工具项加入 staticItems
+				const pending = pendingToolCallRef.current;
+				pendingToolCallRef.current = null;
+				setPendingToolCall(null);
+				pushStatic({
+					role: 'tool',
+					text: pending.tool_name,
+					tool_name: pending.tool_name,
+					tool_use_id: pending.tool_use_id || undefined,
+				});
 			}
 			const enrichedItem: TranscriptItem = {
 				...event.item,
 				tool_name: event.item.tool_name ?? event.tool_name ?? undefined,
 				tool_input: event.item.tool_input ?? undefined,
+				tool_use_id: event.item.tool_use_id ?? event.tool_use_id ?? undefined,
 				is_error: event.item.is_error ?? event.is_error ?? undefined,
 			};
 			pushStatic(enrichedItem);
+			return;
+		}
+		if (event.type === 'tool_input_updated') {
+			// 后端发送了完整的工具参数，将工具项正式加入 staticItems
+			const toolUseId = event.tool_use_id;
+			const toolInput = event.tool_input;
+			const toolName = event.tool_name ?? 'tool';
+			pendingToolCallRef.current = null;
+			setPendingToolCall(null);
+			if (toolInput) {
+				pushStatic({
+					role: 'tool',
+					text: `${toolName} ${JSON.stringify(toolInput)}`,
+					tool_name: toolName,
+					tool_input: toolInput,
+					tool_use_id: toolUseId ?? undefined,
+				});
+			}
 			return;
 		}
 		if (event.type === 'clear_transcript') {
@@ -393,6 +447,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			busy,
 			ready,
 			todoItems,
+			pendingToolCall,
 			swarmTeammates,
 			swarmNotifications,
 			commandResult,
@@ -404,6 +459,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearStaticItems,
 			pushStatic,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
+		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCall, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
 	);
 }

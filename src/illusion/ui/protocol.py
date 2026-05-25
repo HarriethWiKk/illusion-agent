@@ -95,6 +95,7 @@ class TranscriptItem(BaseModel):
     tool_input: dict[str, Any] | None = None
     is_error: bool | None = None
     reasoning: str | None = None
+    tool_use_id: str | None = None
 
 
 class TaskSnapshot(BaseModel):
@@ -175,6 +176,7 @@ class BackendEvent(BaseModel):
         "assistant_complete",
         "line_complete",
         "tool_started",
+        "tool_input_updated",
         "tool_completed",
         "tool_chain_started",
         "tool_chain_completed",

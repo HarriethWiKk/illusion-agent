@@ -4,6 +4,7 @@ import {Box, Static, Text} from 'ink';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
+import type {PendingToolCall} from '../types.js';
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
@@ -26,6 +27,7 @@ export function ConversationView({
 	showWelcome,
 	showThinking,
 	language,
+	pendingToolCall,
 }: {
 	staticItems: TranscriptItem[];
 	clearCount: number;
@@ -33,6 +35,7 @@ export function ConversationView({
 	showWelcome: boolean;
 	showThinking: boolean;
 	language: UiLanguage;
+	pendingToolCall?: PendingToolCall | null;
 	commandPickerOpen?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
@@ -84,6 +87,15 @@ export function ConversationView({
 			</Static>
 
 			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme, terminalWidth) : null}
+
+			{/* Pending tool call indicator - shown while tool input is being generated */}
+			{pendingToolCall ? (
+				<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1}>
+					<Text color={theme.colors.info}>{theme.icons.tool} </Text>
+					<Text bold>{pendingToolCall.tool_name}</Text>
+					<Text dimColor>{' (...)'}</Text>
+				</Box>
+			) : null}
 		</>
 	);
 }

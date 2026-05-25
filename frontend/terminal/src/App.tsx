@@ -85,6 +85,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 	// Current tool name for spinner
 	const currentToolName = useMemo(() => {
+		// 优先检查 pendingToolCall（工具调用刚开始，参数尚未到达）
+		if (session.pendingToolCall) {
+			return session.pendingToolCall.tool_name;
+		}
 		for (let i = session.staticItems.length - 1; i >= 0; i--) {
 			const item = session.staticItems[i];
 			if (item.role === 'tool') {
@@ -95,7 +99,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 		}
 		return undefined;
-	}, [session.staticItems]);
+	}, [session.staticItems, session.pendingToolCall]);
 
 	// Command hints
 	const commandHints = useMemo(() => {
@@ -495,6 +499,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					showWelcome={session.ready}
 					showThinking={session.showThinking}
 					language={language}
+					pendingToolCall={session.pendingToolCall}
 					commandPickerOpen={showPicker}
 				/>
 			</Box>

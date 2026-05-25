@@ -1,3 +1,8 @@
+export type PendingToolCall = {
+	tool_name: string;
+	tool_use_id: string;
+};
+
 export type FrontendConfig = {
 	backend_command: string[];
 	initial_prompt?: string | null;
@@ -10,6 +15,7 @@ export type TranscriptItem = {
 	tool_input?: Record<string, unknown>;
 	is_error?: boolean;
 	reasoning?: string;
+	tool_use_id?: string;
 };
 
 export type TaskSnapshot = {
@@ -84,6 +90,8 @@ export type BackendEvent = {
 	modal?: Record<string, unknown> | null;
 	select_options?: SelectOptionPayload[] | null;
 	tool_name?: string | null;
+	tool_input?: Record<string, unknown> | null;
+	tool_use_id?: string | null;
 	output?: string | null;
 	is_error?: boolean | null;
 	// New event payloads

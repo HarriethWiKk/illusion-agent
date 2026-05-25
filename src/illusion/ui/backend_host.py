@@ -402,8 +402,18 @@ class ReactBackendHost:
                 # 始终更新 _last_tool_inputs（即使已提前通知，也需要完整参数用于后续逻辑）
                 if event.tool_input:
                     self._last_tool_inputs[event.tool_name] = event.tool_input
-                # 通过 tool_use_id 去重：如果已发送过 tool_started 事件，则跳过重复发送
+                # 通过 tool_use_id 去重：如果已发送过 tool_started 事件，则发送 tool_input_updated 更新参数
                 if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
+                    # 已提前通知过，发送参数更新事件让前端显示实际操作
+                    if event.tool_input:
+                        await self._emit(
+                            BackendEvent(
+                                type="tool_input_updated",
+                                tool_name=event.tool_name,
+                                tool_input=event.tool_input,
+                                tool_use_id=tool_use_id,
+                            )
+                        )
                     return
                 if tool_use_id:
                     self._emitted_tool_started_ids.add(tool_use_id)
@@ -417,6 +427,7 @@ class ReactBackendHost:
                             text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
                             tool_name=event.tool_name,
                             tool_input=event.tool_input if event.tool_input else None,
+                            tool_use_id=tool_use_id or None,
                         ),
                     )
                 )
