@@ -53,6 +53,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
+	const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
 	const [commandResult, setCommandResult] = useState<{
 		text: string;
 		type: 'success' | 'error' | 'info';
@@ -277,6 +278,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearAssistantDelta();
 			pendingToolCallsRef.current = [];
 			setPendingToolCalls([]);
+			setBgAgentLabel(null);
 			setBusy(false);
 			return;
 		}
@@ -423,6 +425,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			});
 			return;
 		}
+		if (event.type === 'bg_agent_status') {
+			setBgAgentLabel(event.message ?? null);
+			return;
+		}
 		if (event.type === 'shutdown') {
 			onExit(0);
 		}
@@ -447,6 +453,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			pendingToolCalls,
 			swarmTeammates,
 			swarmNotifications,
+			bgAgentLabel,
 			commandResult,
 			setCommandResult,
 			setModal,
@@ -456,6 +463,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearStaticItems,
 			pushStatic,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
+		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems, bgAgentLabel]
 	);
 }

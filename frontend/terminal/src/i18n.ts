@@ -29,6 +29,8 @@ const ZH: Dict = {
 	taskStopped: '当前任务已停止。',
 	reasoning: '思考过程',
 	assistantReply: '助手回复',
+	bgAgentWaiting: '等待后台代理完成',
+	bgAgentResuming: '后台代理已完成，继续执行',
 };
 
 const EN: Dict = {
@@ -58,6 +60,8 @@ const EN: Dict = {
 	taskStopped: 'Current task stopped.',
 	reasoning: 'Thinking',
 	assistantReply: 'Response',
+	bgAgentWaiting: 'Waiting for background agent',
+	bgAgentResuming: 'Background agent completed, resuming',
 };
 
 const ALL: Record<UiLanguage, Dict> = {

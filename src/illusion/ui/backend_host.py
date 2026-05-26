@@ -514,9 +514,15 @@ class ReactBackendHost:
                 return
             # 状态事件
             if isinstance(event, StatusEvent):
-                await self._emit(
-                    BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
-                )
+                if event.bg_agent:
+                    # 后台代理状态事件：发送到前端 shimmer 区域，不注入 UI
+                    await self._emit(
+                        BackendEvent(type="bg_agent_status", message=event.message)
+                    )
+                else:
+                    await self._emit(
+                        BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
+                    )
                 return
 
         async def _replay_transcript_item(item: dict) -> None:

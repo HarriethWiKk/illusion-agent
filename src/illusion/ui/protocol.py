@@ -188,6 +188,7 @@ class BackendEvent(BaseModel):
         "plan_mode_change",
         "swarm_status",
         "command_result",
+        "bg_agent_status",
         "error",
         "shutdown",
     ]

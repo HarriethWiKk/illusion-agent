@@ -66,6 +66,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     # --- 后端事件 ---
     "task_stopped": {"zh-CN": "当前任务已停止。", "en-US": "Current task stopped."},
     "no_active_task": {"zh-CN": "没有正在执行的任务", "en-US": "No active task to stop"},
+    "bg_agent_waiting": {"zh-CN": "等待后台代理完成", "en-US": "Waiting for background agent"},
+    "bg_agent_resuming": {"zh-CN": "后台代理已完成，继续执行", "en-US": "Background agent completed, resuming"},
     "default_endpoint": {"zh-CN": "默认", "en-US": "default"},
     # --- mcp ---
     "mcp_none": {"zh-CN": "未配置 MCP 服务器", "en-US": "No MCP servers configured"},

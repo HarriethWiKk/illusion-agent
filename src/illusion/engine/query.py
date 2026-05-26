@@ -316,8 +316,9 @@ async def run_query(
         if not final_message.tool_uses:
             tracker = context.bg_agent_tracker
             if tracker is not None and tracker.has_pending():
-                # 发出等待状态事件
-                yield StatusEvent(message="Waiting for background agent to complete..."), None
+                # 发出等待状态事件（显示在 shimmer 区域）
+                from illusion.config.i18n import t as _t
+                yield StatusEvent(message=_t("bg_agent_waiting"), bg_agent=True), None
                 # 等待任意后台代理完成（不消耗 token）
                 completed = await tracker.wait_for_completion()
                 if completed:
@@ -325,7 +326,7 @@ async def run_query(
                     notification_parts = [c.notification_xml for c in completed]
                     notification_text = "\n\n".join(notification_parts)
                     messages.append(ConversationMessage.from_user_text(notification_text))
-                    yield StatusEvent(message="Background agent completed, resuming..."), None
+                    yield StatusEvent(message=_t("bg_agent_resuming"), bg_agent=True), None
                     continue
             return
 

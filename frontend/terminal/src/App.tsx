@@ -571,6 +571,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : session.modal || selectModal || pendingPermissionAck ? null : session.busy ? (
 				<Box marginTop={1}>
 					<Spinner
+						label={session.bgAgentLabel ?? undefined}
 						todoItems={session.todoItems}
 						language={language}
 						toolName={currentToolName}

@@ -127,9 +127,11 @@ class StatusEvent:
 
     Attributes:
         message: 状态消息内容
+        bg_agent: 是否为后台代理相关状态（用于前端 shimmer 区域显示）
     """
 
     message: str
+    bg_agent: bool = False
 
 
 @dataclass(frozen=True)
