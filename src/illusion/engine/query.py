@@ -73,6 +73,92 @@ class MaxTurnsExceeded(RuntimeError):
         self.max_turns = max_turns
 
 
+# ---------------------------------------------------------------------------
+# 后台代理完成通知
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BgAgentCompletion:
+    """后台代理完成通知。
+
+    当后台代理完成执行时，通过 BackgroundAgentTracker 传递给主查询循环。
+
+    Attributes:
+        agent_id: 代理 ID
+        notification_xml: 格式化的任务通知 XML
+    """
+
+    agent_id: str
+    notification_xml: str
+
+
+class BackgroundAgentTracker:
+    """追踪后台代理的完成状态，实现事件驱动的唤醒机制。
+
+    当主 agent 派发后台代理后，无需轮询检查状态，而是通过
+    asyncio.Event 等待后台代理完成通知，避免浪费 token。
+
+    使用示例：
+        >>> tracker = BackgroundAgentTracker()
+        >>> tracker.register("agent_abc123")
+        >>> # 后台代理完成时：
+        >>> tracker.notify_completed("agent_abc123", "<task-notification>...</task-notification>")
+        >>> # 主查询循环中：
+        >>> completed = await tracker.wait_for_completion()
+    """
+
+    def __init__(self) -> None:
+        self._wake_event: asyncio.Event = asyncio.Event()
+        self._completions: list[BgAgentCompletion] = []
+        self._pending_count: int = 0
+
+    def register(self, agent_id: str) -> None:
+        """注册一个待处理的后台代理。
+
+        Args:
+            agent_id: 代理 ID
+        """
+        self._pending_count += 1
+
+    def notify_completed(self, agent_id: str, notification_xml: str) -> None:
+        """通知后台代理已完成。
+
+        Args:
+            agent_id: 代理 ID
+            notification_xml: 格式化的任务通知 XML
+        """
+        self._completions.append(BgAgentCompletion(agent_id=agent_id, notification_xml=notification_xml))
+        self._pending_count -= 1
+        self._wake_event.set()
+
+    def has_pending(self) -> bool:
+        """是否有待处理或已完成但未消费的后台代理。"""
+        return self._pending_count > 0 or bool(self._completions)
+
+    def _drain_completions(self) -> list[BgAgentCompletion]:
+        """取出所有已完成的通知并重置唤醒事件。"""
+        completions = list(self._completions)
+        self._completions.clear()
+        self._wake_event.clear()
+        return completions
+
+    async def wait_for_completion(self) -> list[BgAgentCompletion]:
+        """等待任意后台代理完成，返回所有已完成的通知。
+
+        如果已有完成的通知则立即返回，否则阻塞等待。
+
+        Returns:
+            list[BgAgentCompletion]: 已完成的后台代理通知列表
+        """
+        if self._completions:
+            return self._drain_completions()
+        if self._pending_count <= 0:
+            return []
+        await self._wake_event.wait()
+        return self._drain_completions()
+
+
 @dataclass
 class QueryContext:
     """跨查询运行的共享上下文。
@@ -109,6 +195,7 @@ class QueryContext:
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
     effort: EffortLevel | None = None
+    bg_agent_tracker: BackgroundAgentTracker | None = None
 
 
 async def run_query(
@@ -225,8 +312,21 @@ async def run_query(
 
         yield AssistantTurnComplete(message=final_message, usage=usage), usage
 
-        # 如果没有工具调用，则对话结束
+        # 如果没有工具调用，检查是否有待处理的后台代理
         if not final_message.tool_uses:
+            tracker = context.bg_agent_tracker
+            if tracker is not None and tracker.has_pending():
+                # 发出等待状态事件
+                yield StatusEvent(message="Waiting for background agent to complete..."), None
+                # 等待任意后台代理完成（不消耗 token）
+                completed = await tracker.wait_for_completion()
+                if completed:
+                    # 将完成通知注入为用户消息，触发模型继续处理
+                    notification_parts = [c.notification_xml for c in completed]
+                    notification_text = "\n\n".join(notification_parts)
+                    messages.append(ConversationMessage.from_user_text(notification_text))
+                    yield StatusEvent(message="Background agent completed, resuming..."), None
+                    continue
             return
 
         tool_calls = final_message.tool_uses

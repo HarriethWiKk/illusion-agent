@@ -34,7 +34,7 @@ from illusion.api.client import SupportsStreamingMessages
 from illusion.api.effort import EffortLevel
 from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
-from illusion.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, run_query
+from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, PermissionPrompt, QueryContext, run_query
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookExecutor
 from illusion.permissions.checker import PermissionChecker
@@ -94,6 +94,7 @@ class QueryEngine:
         self._effort = effort  # effort 级别
         self._messages: list[ConversationMessage] = []  # 对话消息历史
         self._cost_tracker = CostTracker()  # 成本跟踪器
+        self._bg_agent_tracker = BackgroundAgentTracker()  # 后台代理追踪器
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -246,6 +247,7 @@ class QueryEngine:
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,
+            bg_agent_tracker=self._bg_agent_tracker,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
@@ -280,6 +282,7 @@ class QueryEngine:
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,
+            bg_agent_tracker=self._bg_agent_tracker,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

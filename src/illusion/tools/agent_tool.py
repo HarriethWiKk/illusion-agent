@@ -274,9 +274,16 @@ Terse command-style prompts produce shallow, generic work.
 
         if effective_run_in_background:
             # 异步模式：后台执行
+            # 获取后台代理追踪器
+            bg_tracker = context.metadata.get("bg_agent_tracker")
+
             if query_context is not None:
                 # 进程内后台执行
                 agent_id = f"agent_{uuid.uuid4().hex[:12]}"
+
+                # 注册到追踪器
+                if bg_tracker is not None:
+                    bg_tracker.register(agent_id)
 
                 async def _run_background():
                     from illusion.swarm.agent_executor import (
@@ -300,17 +307,35 @@ Terse command-style prompts produce shallow, generic work.
 
                     try:
                         result = await run_agent_in_process(config, query_context, parent_registry, is_async=True, existing_context=bg_ctx)
-                        # 通知父代理
+                        # 构建通知 XML
                         if result.notification:
                             notification_xml = format_task_notification(result.notification)
-                            parent_queue = context.metadata.get("parent_message_queue")
-                            if parent_queue:
-                                await parent_queue.put(TeammateMessage(
-                                    text=notification_xml,
-                                    from_agent="system",
-                                ))
+                        else:
+                            status = "completed" if result.success else "failed"
+                            summary = result.result_text or result.error or "Agent completed"
+                            notification_xml = (
+                                f"<task-notification><task-id>{agent_id}</task-id>"
+                                f"<status>{status}</status><summary>{summary}</summary></task-notification>"
+                            )
+                        # 通知后台代理追踪器（唤醒主 agent）
+                        if bg_tracker is not None:
+                            bg_tracker.notify_completed(agent_id, notification_xml)
+                        # 通知父代理（团队上下文）
+                        parent_queue = context.metadata.get("parent_message_queue")
+                        if parent_queue:
+                            await parent_queue.put(TeammateMessage(
+                                text=notification_xml,
+                                from_agent="system",
+                            ))
                     except Exception:
                         logger.exception("[AgentTool] Background agent %s failed", agent_id)
+                        # 即使异常也通知追踪器，避免主 agent 永远等待
+                        if bg_tracker is not None:
+                            bg_tracker.notify_completed(
+                                agent_id,
+                                f"<task-notification><task-id>{agent_id}</task-id>"
+                                f"<status>failed</status><summary>Agent crashed with unhandled exception</summary></task-notification>",
+                            )
                     finally:
                         _unregister_agent(agent_id)
                         await _cleanup_worktree()

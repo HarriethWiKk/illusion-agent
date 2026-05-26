@@ -311,6 +311,8 @@ async def build_runtime(
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine
+    # 将后台代理追踪器添加到工具元数据中，供 AgentTool 使用
+    engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
     # 从保存的会话恢复消息（如果提供）
     if restore_messages:
         restored = [
