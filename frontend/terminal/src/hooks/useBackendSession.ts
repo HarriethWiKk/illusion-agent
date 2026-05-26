@@ -50,7 +50,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [ready, setReady] = useState(false);
 	const [showThinking, setShowThinking] = useState(true);
 	const [todoItems, setTodoItems] = useState<TodoItemSnapshot[]>([]);
-	const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
+	const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
 	const [commandResult, setCommandResult] = useState<{
@@ -71,8 +71,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	// Flag to prevent double-committing assistant text when tool_started
 	// flushes it before assistant_complete arrives
 	const assistantFlushedForToolRef = useRef(false);
-	// Ref for pendingToolCall to avoid stale closure in handleEvent
-	const pendingToolCallRef = useRef<PendingToolCall | null>(null);
+	// Ref for pendingToolCalls to avoid stale closure in handleEvent
+	const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
 
 	const flushAssistantDelta = (): void => {
 		const pending = pendingAssistantDeltaRef.current;
@@ -275,8 +275,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			// If the line ended without an assistant_complete (e.g. errors), make sure we
 			// don't leave stale streaming text on screen.
 			clearAssistantDelta();
-			pendingToolCallRef.current = null;
-			setPendingToolCall(null);
+			pendingToolCallsRef.current = [];
+			setPendingToolCalls([]);
 			setBusy(false);
 			return;
 		}
@@ -302,7 +302,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					assistantFlushedForToolRef.current = true;
 				}
 				setBusy(true);
-				// 工具调用全过程保持在 pendingToolCall 状态（非 Static），
+				// 工具调用全过程保持在 pendingToolCalls 状态（非 Static），
 				// 以便对 ● 做闪烁动画，直到 tool_completed 才推入 staticItems
 				const toolInput = event.item.tool_input ?? event.tool_input;
 				const toolUseId = event.item.tool_use_id ?? event.tool_use_id ?? '';
@@ -311,16 +311,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					tool_use_id: toolUseId,
 					tool_input: (toolInput && Object.keys(toolInput).length > 0) ? toolInput : undefined,
 				};
-				pendingToolCallRef.current = pendingCall;
-				setPendingToolCall(pendingCall);
+				pendingToolCallsRef.current = [...pendingToolCallsRef.current, pendingCall];
+				setPendingToolCalls(pendingToolCallsRef.current);
 				return;
 			}
 			// tool_completed: 将工具项和结果一并推入 staticItems
 			if (event.type === 'tool_completed') {
-				const pending = pendingToolCallRef.current;
-				if (pending) {
-					pendingToolCallRef.current = null;
-					setPendingToolCall(null);
+				const toolUseId = event.item.tool_use_id ?? event.tool_use_id ?? '';
+				const pendingIdx = pendingToolCallsRef.current.findIndex(p => p.tool_use_id === toolUseId);
+				if (pendingIdx !== -1) {
+					const pending = pendingToolCallsRef.current[pendingIdx];
+					pendingToolCallsRef.current = pendingToolCallsRef.current.filter(p => p.tool_use_id !== toolUseId);
+					setPendingToolCalls(pendingToolCallsRef.current);
 					pushStatic({
 						role: 'tool',
 						text: pending.tool_name,
@@ -341,23 +343,22 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'tool_input_updated') {
-			// 后端发送了完整的工具参数，更新 pendingToolCall 但不推入 staticItems
-			// —— 保持在 pending 状态以便 ● 持续闪烁
-			const pending = pendingToolCallRef.current;
-			if (pending) {
-				const updatedPending: PendingToolCall = {
-					...pending,
-					tool_input: event.tool_input ?? undefined,
-				};
-				pendingToolCallRef.current = updatedPending;
-				setPendingToolCall(updatedPending);
-			}
+			// 后端发送了完整的工具参数，更新 pendingToolCalls 中对应项的 tool_input
+			const toolUseId = event.tool_use_id;
+			pendingToolCallsRef.current = pendingToolCallsRef.current.map(p =>
+				p.tool_use_id === toolUseId
+					? {...p, tool_input: event.tool_input ?? undefined}
+					: p,
+			);
+			setPendingToolCalls(pendingToolCallsRef.current);
 			return;
 		}
 		if (event.type === 'clear_transcript') {
 			setStaticItems([]);
 			setClearCount((c) => c + 1);
 			clearAssistantDelta();
+			pendingToolCallsRef.current = [];
+			setPendingToolCalls([]);
 			return;
 		}
 		if (event.type === 'replace_transcript' && event.items) {
@@ -370,6 +371,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setStaticItems(newItems);
 			setClearCount((c) => c + 1);
 			clearAssistantDelta();
+			pendingToolCallsRef.current = [];
+			setPendingToolCalls([]);
 			return;
 		}
 		if (event.type === 'select_request') {
@@ -441,7 +444,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			busy,
 			ready,
 			todoItems,
-			pendingToolCall,
+			pendingToolCalls,
 			swarmTeammates,
 			swarmNotifications,
 			commandResult,
@@ -453,6 +456,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearStaticItems,
 			pushStatic,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCall, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
+		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems]
 	);
 }

@@ -245,6 +245,7 @@ async def run_query(
                 tool_name=tc.name,
                 output=result.text_content,
                 is_error=result.is_error,
+                tool_use_id=tc.id,
             ), None
             tool_results = [result]
         else:
@@ -266,6 +267,7 @@ async def run_query(
                     tool_name=tc.name,
                     output=result.text_content,
                     is_error=result.is_error,
+                    tool_use_id=tc.id,
                 ), None
 
         # 输出工具链完成事件

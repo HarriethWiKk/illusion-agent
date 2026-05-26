@@ -97,11 +97,13 @@ class ToolExecutionCompleted:
         tool_name: 工具名称
         output: 工具执行输出
         is_error: 是否为错误结果
+        tool_use_id: 工具调用ID（可选，用于匹配并发工具调用的结果）
     """
 
     tool_name: str
     output: str
     is_error: bool = False
+    tool_use_id: str = ""
 
 
 @dataclass(frozen=True)

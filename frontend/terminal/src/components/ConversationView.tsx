@@ -27,7 +27,7 @@ export function ConversationView({
 	showWelcome,
 	showThinking,
 	language,
-	pendingToolCall,
+	pendingToolCalls,
 }: {
 	staticItems: TranscriptItem[];
 	clearCount: number;
@@ -35,7 +35,7 @@ export function ConversationView({
 	showWelcome: boolean;
 	showThinking: boolean;
 	language: UiLanguage;
-	pendingToolCall?: PendingToolCall | null;
+	pendingToolCalls?: PendingToolCall[];
 	commandPickerOpen?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
@@ -88,14 +88,17 @@ export function ConversationView({
 
 			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme, terminalWidth) : null}
 
-			{/* Pending tool call indicator — ● 闪烁表示工具正在执行中 */}
-			{pendingToolCall ? (
-				<BlinkingToolIndicator
-					pending={pendingToolCall}
-					theme={theme}
-					displayedBuffer={displayedBuffer}
-					isSuppressedByStatic={isSuppressedByStatic}
-				/>
+			{/* Pending tool call indicators — ● 闪烁表示工具正在执行中 */}
+			{pendingToolCalls && pendingToolCalls.length > 0 ? (
+				<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1} flexDirection="column">
+					{pendingToolCalls.map((pc) => (
+						<BlinkingToolIndicator
+							key={pc.tool_use_id}
+							pending={pc}
+							theme={theme}
+						/>
+					))}
+				</Box>
 			) : null}
 		</>
 	);
@@ -104,13 +107,9 @@ export function ConversationView({
 function BlinkingToolIndicator({
 	pending,
 	theme,
-	displayedBuffer,
-	isSuppressedByStatic,
 }: {
 	pending: PendingToolCall;
 	theme: ThemeConfig;
-	displayedBuffer: string;
-	isSuppressedByStatic: boolean;
 }): React.JSX.Element {
 	const [visible, setVisible] = useState(true);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -132,7 +131,7 @@ function BlinkingToolIndicator({
 	const content = summary ? `${pending.tool_name} (${summary})` : pending.tool_name;
 
 	return (
-		<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1}>
+		<Box>
 			<Text color={theme.colors.info}>
 				{visible ? theme.icons.tool : ' '}
 				{' '}
@@ -175,12 +174,26 @@ function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 		const item = items[i];
 		if (item.role === 'tool') {
 			let resultItem: TranscriptItem | null = null;
-			for (let j = i + 1; j < items.length; j++) {
-				if (items[j].role === 'tool_result' && items[j].tool_name === item.tool_name && !usedResults.has(j)) {
-					resultItem = items[j];
-					usedResults.add(j);
-					resultToTool.set(j, i);
-					break;
+			// 优先通过 tool_use_id 匹配（并发工具调用时更准确）
+			if (item.tool_use_id) {
+				for (let j = i + 1; j < items.length; j++) {
+					if (items[j].role === 'tool_result' && items[j].tool_use_id === item.tool_use_id && !usedResults.has(j)) {
+						resultItem = items[j];
+						usedResults.add(j);
+						resultToTool.set(j, i);
+						break;
+					}
+				}
+			}
+			// 回退到 tool_name 匹配（兼容无 tool_use_id 的情况）
+			if (!resultItem) {
+				for (let j = i + 1; j < items.length; j++) {
+					if (items[j].role === 'tool_result' && items[j].tool_name === item.tool_name && !usedResults.has(j)) {
+						resultItem = items[j];
+						usedResults.add(j);
+						resultToTool.set(j, i);
+						break;
+					}
 				}
 			}
 			result.push({type: 'tool_group', toolItem: item, resultItem, role: 'tool'});

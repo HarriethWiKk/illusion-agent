@@ -454,17 +454,20 @@ class ReactBackendHost:
                 return
             # 工具执行完成
             if isinstance(event, ToolExecutionCompleted):
+                tool_use_id = getattr(event, "tool_use_id", "") or ""
                 await self._emit(
                     BackendEvent(
                         type="tool_completed",
                         tool_name=event.tool_name,
                         output=event.output,
                         is_error=event.is_error,
+                        tool_use_id=tool_use_id or None,
                         item=TranscriptItem(
                             role="tool_result",
                             text=event.output,
                             tool_name=event.tool_name,
                             is_error=event.is_error,
+                            tool_use_id=tool_use_id or None,
                         ),
                     )
                 )
