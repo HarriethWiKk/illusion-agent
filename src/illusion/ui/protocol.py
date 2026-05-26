@@ -202,6 +202,7 @@ class BackendEvent(BaseModel):
     modal: dict[str, Any] | None = None
     tool_name: str | None = None
     tool_input: dict[str, Any] | None = None
+    tool_use_id: str | None = None
     output: str | None = None
     is_error: bool | None = None
     phase: str | None = None          # 当前会话阶段
