@@ -248,13 +248,13 @@ function tokensToElements(
 					);
 				} else if (ht.depth === 2) {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.highlight} italic={style?.italic}>
+						<Text key={`t-${ki++}`} bold color={theme.colors.info} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
 				} else {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.subtle} italic={style?.italic}>
+						<Text key={`t-${ki++}`} bold color={theme.colors.illusionShimmer} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
