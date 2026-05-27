@@ -25,7 +25,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
 - 🛠️ **丰富的工具集** - 36 内置工具 + MCP 动态工具扩展
-- ⌨️ **52 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
+- ⌨️ **47 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
 - 🔐 **完善权限控制** - 三种模式 + 细粒度规则 + Always Allow 一键放行
@@ -182,7 +182,7 @@ illusion cron logs               # 查看调度器日志
 | 配置设置 | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | 调整运行配置 |
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
-| 多智能体 | `/agents`, `/tasks`, `/continue` | Agent 协作 |
+| 多智能体 | `/continue` | Agent 协作 |
 
 ---
 
@@ -193,7 +193,7 @@ illusion-code/
 ├── src/illusion/           # 主要源代码
 │   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
 │   ├── auth/               # 认证管理
-│   ├── commands/           # 斜杠命令系统 (52 个命令)
+│   ├── commands/           # 斜杠命令系统 (47 个命令)
 │   ├── config/             # 配置系统
 │   ├── coordinator/        # 多智能体协调器
 │   ├── engine/             # 核心对话引擎

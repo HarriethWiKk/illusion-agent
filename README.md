@@ -25,7 +25,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
 - 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
 - 🛠️ **Rich Toolset** - 36 built-in tools + MCP dynamic tool extension
-- ⌨️ **52 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
+- ⌨️ **47 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
@@ -182,7 +182,7 @@ In interactive sessions, you can use the following commands:
 | Configuration | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | Adjust runtime configuration |
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
-| Multi-Agent | `/agents`, `/tasks`, `/continue` | Agent collaboration |
+| Multi-Agent | `/continue` | Agent collaboration |
 
 ---
 
@@ -193,7 +193,7 @@ illusion-code/
 ├── src/illusion/           # Main source code
 │   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
-│   ├── commands/           # Slash command system (52 commands)
+│   ├── commands/           # Slash command system (47 commands)
 │   ├── config/             # Configuration system
 │   ├── coordinator/        # Multi-agent coordinator
 │   ├── engine/             # Core conversation engine
