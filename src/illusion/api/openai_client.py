@@ -206,7 +206,11 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     openai_msg: dict[str, Any] = {"role": "assistant"}
 
     content, tagged_reasoning = split_thinking_from_text("".join(text_parts))
+    # 确保 content 不为 None，否则 DeepSeek 等 API 会报错
+    # "Invalid assistant message: content or tool_calls must be set"
     openai_msg["content"] = content if content else None
+    if openai_msg["content"] is None and not tool_uses:
+        openai_msg["content"] = content or ""
 
     # 为思维模型回放 reasoning_content（统一来源：ThinkingBlock）
     reasoning = merge_reasoning_text(

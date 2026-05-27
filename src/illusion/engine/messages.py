@@ -247,9 +247,22 @@ class ConversationMessage(BaseModel):
         Returns:
             dict[str, Any]: API 参数格式的字典
         """
+        content_blocks = list(self.content)
+        
+        # MiMo 等 API 要求 Text block 的 text 字段最小长度为 1
+        # 过滤掉空文本块，避免 "content or tool_calls must be set" 错误
+        if self.role == "assistant":
+            content_blocks = [
+                b for b in content_blocks
+                if not (isinstance(b, TextBlock) and not b.text.strip())
+            ]
+            # 如果过滤后没有内容，添加占位符
+            if not content_blocks:
+                content_blocks = [TextBlock(text="...")]
+        
         return {
             "role": self.role,
-            "content": [serialize_content_block(block, provider_type=provider_type) for block in self.content],
+            "content": [serialize_content_block(block, provider_type=provider_type) for block in content_blocks],
         }
 
 
