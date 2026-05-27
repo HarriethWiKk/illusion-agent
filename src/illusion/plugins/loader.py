@@ -173,29 +173,38 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
 
 
 def _load_plugin_skills(path: Path) -> list[SkillDefinition]:
-    """从目录中的 markdown 文件加载技能定义
+    """从目录中的 markdown 和 yaml 文件加载技能定义
     
     Args:
-        path: 包含 .md 技能文件的目录
+        path: 包含 .md/.yaml/.yml 技能文件的目录
     
     Returns:
         list[SkillDefinition]: 解析后的技能定义列表，如果路径不存在则返回空列表
     """
     if not path.exists():
         return []
+    from illusion.skills.loader import _load_yaml_skill
+
     skills: list[SkillDefinition] = []
-    for skill_path in sorted(path.glob("*.md")):
-        content = skill_path.read_text(encoding="utf-8")
-        name, description = _parse_skill_markdown(skill_path.stem, content)
-        skills.append(
-            SkillDefinition(
-                name=name,
-                description=description,
-                content=content,
-                source="plugin",
-                path=str(skill_path),
+    for skill_path in sorted(path.iterdir()):
+        if not skill_path.is_file():
+            continue
+        if skill_path.suffix in (".yaml", ".yml"):
+            skill = _load_yaml_skill(skill_path, source="plugin")
+            if skill:
+                skills.append(skill)
+        elif skill_path.suffix == ".md":
+            content = skill_path.read_text(encoding="utf-8")
+            name, description = _parse_skill_markdown(skill_path.stem, content)
+            skills.append(
+                SkillDefinition(
+                    name=name,
+                    description=description,
+                    content=content,
+                    source="plugin",
+                    path=str(skill_path),
+                )
             )
-        )
     return skills
 
 

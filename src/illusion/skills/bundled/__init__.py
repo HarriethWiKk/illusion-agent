@@ -28,22 +28,31 @@ _CONTENT_DIR = Path(__file__).parent / "content"
 
 
 def get_bundled_skills() -> list[SkillDefinition]:
-    """从 content 目录加载所有内置 skills。"""
+    """从 content 目录加载所有内置 skills（支持 .md、.yaml、.yml）。"""
     skills: list[SkillDefinition] = []
     if not _CONTENT_DIR.exists():
         return skills
-    for path in sorted(_CONTENT_DIR.glob("*.md")):
-        content = path.read_text(encoding="utf-8")
-        name, description = _parse_frontmatter(path.stem, content)
-        skills.append(
-            SkillDefinition(
-                name=name,
-                description=description,
-                content=content,
-                source="bundled",
-                path=str(path),
+    from illusion.skills.loader import _load_yaml_skill
+
+    for path in sorted(_CONTENT_DIR.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix in (".yaml", ".yml"):
+            skill = _load_yaml_skill(path, source="bundled")
+            if skill:
+                skills.append(skill)
+        elif path.suffix == ".md":
+            content = path.read_text(encoding="utf-8")
+            name, description = _parse_frontmatter(path.stem, content)
+            skills.append(
+                SkillDefinition(
+                    name=name,
+                    description=description,
+                    content=content,
+                    source="bundled",
+                    path=str(path),
+                )
             )
-        )
     return skills
 
 

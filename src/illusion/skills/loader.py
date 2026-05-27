@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from illusion.config.paths import get_config_dir, get_project_config_dir
 from illusion.config.settings import load_settings
 from illusion.skills.bundled import get_bundled_skills
@@ -81,34 +83,14 @@ def load_skill_registry(cwd: str | Path | None = None) -> SkillRegistry:
 
 
 def load_user_skills() -> list[SkillDefinition]:
-    """从用户配置目录加载 markdown skills。"""
+    """从用户配置目录加载 skills（支持 .md、.yaml、.yml）。"""
     skills: list[SkillDefinition] = []
-    for path in sorted(get_user_skills_dir().glob("*.md")):
-        content = path.read_text(encoding="utf-8")
-        name, description = _parse_skill_markdown(path.stem, content)
-        skills.append(
-            SkillDefinition(
-                name=name,
-                description=description,
-                content=content,
-                source="user",
-                path=str(path),
-            )
-        )
-    return skills
-
-
-def load_project_skills(cwd: str | Path) -> list[SkillDefinition]:
-    """从项目目录加载 markdown skills。
-
-    目录结构: <project>/.illusion/skills/<skill_name>/<skill_name>.md
-    """
-    skills: list[SkillDefinition] = []
-    skills_dir = get_project_skills_dir(cwd)
-    for sub in sorted(skills_dir.iterdir()):
-        if not sub.is_dir():
-            continue
-        for path in sorted(sub.glob("*.md")):
+    for path in sorted(get_user_skills_dir().iterdir()):
+        if path.suffix in (".yaml", ".yml"):
+            skill = _load_yaml_skill(path, source="user")
+            if skill:
+                skills.append(skill)
+        elif path.suffix == ".md":
             content = path.read_text(encoding="utf-8")
             name, description = _parse_skill_markdown(path.stem, content)
             skills.append(
@@ -116,10 +98,40 @@ def load_project_skills(cwd: str | Path) -> list[SkillDefinition]:
                     name=name,
                     description=description,
                     content=content,
-                    source="project",
+                    source="user",
                     path=str(path),
                 )
             )
+    return skills
+
+
+def load_project_skills(cwd: str | Path) -> list[SkillDefinition]:
+    """从项目目录加载 skills（支持 .md、.yaml、.yml）。
+
+    目录结构: <project>/.illusion/skills/<skill_name>/<skill_name>.md 或 .yaml/.yml
+    """
+    skills: list[SkillDefinition] = []
+    skills_dir = get_project_skills_dir(cwd)
+    for sub in sorted(skills_dir.iterdir()):
+        if not sub.is_dir():
+            continue
+        for path in sorted(sub.iterdir()):
+            if path.suffix in (".yaml", ".yml"):
+                skill = _load_yaml_skill(path, source="project")
+                if skill:
+                    skills.append(skill)
+            elif path.suffix == ".md":
+                content = path.read_text(encoding="utf-8")
+                name, description = _parse_skill_markdown(path.stem, content)
+                skills.append(
+                    SkillDefinition(
+                        name=name,
+                        description=description,
+                        content=content,
+                        source="project",
+                        path=str(path),
+                    )
+                )
     return skills
 
 
@@ -162,3 +174,34 @@ def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
     if not description:
         description = f"Skill: {name}"
     return name, description
+
+
+def _load_yaml_skill(path: Path, source: str) -> SkillDefinition | None:
+    """从 YAML 文件加载 skill 定义。
+
+    YAML skill 文件格式:
+        name: my-skill
+        description: "A skill defined in YAML"
+        content: |
+          # Instructions here
+          ...
+    """
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    name = data.get("name", path.stem)
+    description = data.get("description", "")
+    content = data.get("content", "")
+    if not content:
+        # 如果没有 content 字段，将整个 yaml 序列化作为 content
+        content = yaml.dump(data, allow_unicode=True, default_flow_style=False)
+    return SkillDefinition(
+        name=name,
+        description=description or f"Skill: {name}",
+        content=content,
+        source=source,
+        path=str(path),
+    )
