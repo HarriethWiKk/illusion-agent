@@ -489,17 +489,49 @@ def create_default_command_registry() -> CommandRegistry:
         return CommandResult(message=summary or "No conversation content to summarize.")
 
     async def _compact_handler(args: str, context: CommandContext) -> CommandResult:
+        from illusion.services.compact import compact_conversation, compact_messages
+
+        # 解析参数：/compact [PRESERVE_RECENT] 或 /compact [custom instructions text]
         preserve_recent = 6
+        custom_instructions: str | None = None
+
         if args:
+            stripped = args.strip()
+            # 尝试解析为数字（preserve_recent）
             try:
-                preserve_recent = max(1, int(args))
+                preserve_recent = max(1, int(stripped))
             except ValueError:
-                return CommandResult(message="Usage: /compact [PRESERVE_RECENT]")
+                # 非数字则视为自定义指令
+                custom_instructions = stripped
+
         before = len(context.engine.messages)
-        compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)
+        before_tokens = estimate_conversation_tokens(context.engine.messages)
+
+        # 优先尝试 LLM 摘要；如果 API 客户端不可用则回退到传统方法
+        try:
+            settings = load_settings()
+            system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
+            compacted = await compact_conversation(
+                context.engine.messages,
+                api_client=context.engine._api_client,
+                model=context.engine._model,
+                system_prompt=system_prompt,
+                preserve_recent=preserve_recent,
+                custom_instructions=custom_instructions,
+                suppress_follow_up=False,
+            )
+        except Exception as exc:
+            # LLM 摘要失败，回退到传统方法
+            import logging
+            logging.getLogger(__name__).warning("LLM compact failed, falling back to simple compact: %s", exc)
+            compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)
+
         context.engine.load_messages(compacted)
+        after_tokens = estimate_conversation_tokens(compacted)
+        saved = max(0, before_tokens - after_tokens)
+        from illusion.config.i18n import t
         return CommandResult(
-            message=f"Compacted conversation from {before} messages to {len(compacted)}."
+            message=t("compact_result", before=before, after=len(compacted), saved=f"{saved:,}")
         )
 
     async def _usage_handler(_: str, context: CommandContext) -> CommandResult:

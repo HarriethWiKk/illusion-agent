@@ -38,6 +38,7 @@ from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, Permiss
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookExecutor
 from illusion.permissions.checker import PermissionChecker
+from illusion.services.compact import AutoCompactState
 from illusion.tools.base import ToolRegistry
 
 
@@ -95,6 +96,7 @@ class QueryEngine:
         self._messages: list[ConversationMessage] = []  # 对话消息历史
         self._cost_tracker = CostTracker()  # 成本跟踪器
         self._bg_agent_tracker = BackgroundAgentTracker()  # 后台代理追踪器
+        self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -248,6 +250,7 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
+            compact_state=self._compact_state,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
@@ -283,6 +286,7 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
+            compact_state=self._compact_state,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

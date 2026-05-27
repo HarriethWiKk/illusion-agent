@@ -1,43 +1,35 @@
 """
-会话压缩模块 — 微压缩和基于 LLM 的完整摘要
-==============================================
+会话压缩模块 — 微压缩、LLM 摘要和自动压缩
+=============================================
 
-本模块实现会话压缩功能，忠实翻译自 Claude Code 的压缩系统：
+本模块实现会话压缩功能，参考 Claude Code 的压缩系统：
 - 微压缩（Microcompact）：清除旧工具结果内容以廉价方式减少 Token 数量
 - 完整压缩（Full Compact）：调用 LLM 生成早期消息的结构化摘要
 - 自动压缩（Auto-compact）：当 Token 数量超过阈值时自动触发压缩
+- 响应式压缩（Reactive Compact）：API 返回 prompt-too-long 时触发压缩
+- 上下文警告：接近阈值时通知用户
 
-主要功能：
-    - 估算会话 Token 数量
-    - 微压缩：清除旧工具结果
-    - 完整压缩：LLM 生成摘要
-    - 自动压缩：自动触发压缩
-
-类说明：
-    - AutoCompactState: 自动压缩状态数据类
-    - estimate_message_tokens: 估算消息 Token 数
-    - microcompact_messages: 执行微压缩
-    - compact_conversation: 执行完整压缩
-    - auto_compact_if_needed: 检查并执行自动压缩
-
-使用示例：
-    >>> from illusion.services.compact import microcompact_messages, estimate_message_tokens
-    >>> # 估算 Token 数量
-    >>> token_count = estimate_message_tokens(messages)
-    >>> # 执行微压缩
-    >>> messages, tokens_saved = microcompact_messages(messages, keep_recent=5)
+主要修复：
+    - 修复压缩后消息结构混乱（连续 user 消息导致 API 报错）
+    - 修复日志格式 bug（~d → ~%d）
+    - 添加压缩边界标记（Compact Boundary Marker）
+    - 添加图片剥离（压缩前移除图片数据）
+    - 添加 PTL 重试（prompt-too-long 时截断重试）
+    - 添加响应式压缩
+    - 添加上下文警告系统
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from illusion.engine.messages import (
     ConversationMessage,
     ContentBlock,
+    MediaBlock,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -69,18 +61,27 @@ TIME_BASED_MC_CLEARED_MESSAGE = "[Old tool result content cleared]"
 
 # 自动压缩阈值
 AUTOCOMPACT_BUFFER_TOKENS = 13_000  # 缓冲区 Token 数
+WARNING_THRESHOLD_BUFFER_TOKENS = 20_000  # 警告阈值缓冲区
 MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000  # 摘要最大输出 Token 数
 MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3  # 最大连续失败次数
+MANUAL_COMPACT_BUFFER_TOKENS = 3_000  # 手动压缩缓冲区
 
 # 微压缩默认值
 DEFAULT_KEEP_RECENT = 5  # 保留最近工具结果数量
 DEFAULT_GAP_THRESHOLD_MINUTES = 60  # 时间间隔阈值（分钟）
+DEFAULT_PRESERVE_RECENT = 6  # 默认保留最近消息数量
 
 # Token 估算 padding（保守估计）
 TOKEN_ESTIMATION_PADDING = 4 / 3
 
 # 默认上下文窗口大小（按模型系列）
 _DEFAULT_CONTEXT_WINDOW = 200_000
+
+# PTL 重试最大次数
+MAX_PTL_RETRIES = 3
+
+# 压缩边界标记前缀
+COMPACT_BOUNDARY_PREFIX = "[COMPACT_BOUNDARY]"
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +96,14 @@ def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
             if isinstance(block, TextBlock):
                 total += estimate_tokens(block.text)
             elif isinstance(block, ToolResultBlock):
-                total += estimate_tokens(block.content)
+                if isinstance(block.content, str):
+                    total += estimate_tokens(block.content)
+                elif isinstance(block.content, list):
+                    for inner in block.content:
+                        if isinstance(inner, TextBlock):
+                            total += estimate_tokens(inner.text)
+                        elif isinstance(inner, MediaBlock):
+                            total += 2000  # 图片统一估算为 2000 tokens
             elif isinstance(block, ToolUseBlock):
                 total += estimate_tokens(block.name)
                 total += estimate_tokens(str(block.input))
@@ -103,12 +111,62 @@ def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
                 total += estimate_tokens(block.thinking)
                 if block.signature:
                     total += estimate_tokens(block.signature)
+            elif isinstance(block, MediaBlock):
+                total += 2000  # 图片统一估算为 2000 tokens
     return int(total * TOKEN_ESTIMATION_PADDING)
 
 
 def estimate_conversation_tokens(messages: list[ConversationMessage]) -> int:
     """保持向后兼容性的别名。"""
     return estimate_message_tokens(messages)
+
+
+# ---------------------------------------------------------------------------
+# 图片剥离 — 压缩前移除图片数据以减少 Token
+# ---------------------------------------------------------------------------
+
+def strip_images_from_messages(
+    messages: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """将消息中的图片和文档替换为文本占位符。
+
+    在发送给摘要 LLM 之前调用，避免浪费 Token 在 base64 图片数据上。
+
+    Args:
+        messages: 原始消息列表
+
+    Returns:
+        剥离图片后的新消息列表（不修改原始消息）
+    """
+    result: list[ConversationMessage] = []
+    for msg in messages:
+        new_blocks: list[ContentBlock] = []
+        for block in msg.content:
+            if isinstance(block, MediaBlock):
+                new_blocks.append(TextBlock(
+                    text=f"[image: {block.file_path}, {block.media_type}]"
+                ))
+            elif isinstance(block, ToolResultBlock):
+                if isinstance(block.content, list):
+                    stripped: list[ContentBlock] = []
+                    for inner in block.content:
+                        if isinstance(inner, MediaBlock):
+                            stripped.append(TextBlock(
+                                text=f"[image: {inner.file_path}, {inner.media_type}]"
+                            ))
+                        else:
+                            stripped.append(inner)
+                    new_blocks.append(ToolResultBlock(
+                        tool_use_id=block.tool_use_id,
+                        content=stripped,
+                        is_error=block.is_error,
+                    ))
+                else:
+                    new_blocks.append(block)
+            else:
+                new_blocks.append(block)
+        result.append(ConversationMessage(role=msg.role, content=new_blocks))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +217,20 @@ def microcompact_messages(
             if (
                 isinstance(block, ToolResultBlock)
                 and block.tool_use_id in clear_set
-                and block.content != TIME_BASED_MC_CLEARED_MESSAGE
             ):
+                old_content = block.content
+                if isinstance(old_content, str) and old_content == TIME_BASED_MC_CLEARED_MESSAGE:
+                    new_content.append(block)
+                    continue
                 # 计算节省的 Token 数
-                tokens_saved += estimate_tokens(block.content)
+                if isinstance(old_content, str):
+                    tokens_saved += estimate_tokens(old_content)
+                elif isinstance(old_content, list):
+                    for inner in old_content:
+                        if isinstance(inner, TextBlock):
+                            tokens_saved += estimate_tokens(inner.text)
+                        elif isinstance(inner, MediaBlock):
+                            tokens_saved += 2000
                 new_content.append(
                     ToolResultBlock(
                         tool_use_id=block.tool_use_id,
@@ -175,10 +243,160 @@ def microcompact_messages(
         msg.content = new_content
 
     if tokens_saved > 0:
-        # 记录微压缩结果
         log.info("Microcompact cleared %d tool results, saved ~%d tokens", len(clear_set), tokens_saved)
 
     return messages, tokens_saved
+
+
+# ---------------------------------------------------------------------------
+# 消息分组 — 按 API 轮次分组（assistant + 对应的 user tool_result）
+# ---------------------------------------------------------------------------
+
+def _group_messages_by_turn(
+    messages: list[ConversationMessage],
+) -> list[list[ConversationMessage]]:
+    """将消息按 API 轮次分组。
+
+    每组包含一条 assistant 消息和紧随其后的 user 消息（工具结果）。
+    开头的 user 消息（无前置 assistant）单独成组。
+
+    Returns:
+        消息组的列表
+    """
+    groups: list[list[ConversationMessage]] = []
+    current_group: list[ConversationMessage] = []
+
+    for msg in messages:
+        if msg.role == "assistant" and current_group:
+            # 新的 assistant 消息开始新的一组
+            groups.append(current_group)
+            current_group = [msg]
+        else:
+            current_group.append(msg)
+
+    if current_group:
+        groups.append(current_group)
+
+    return groups
+
+
+# ---------------------------------------------------------------------------
+# 安全分割 — 确保 tool_use/tool_result 对不被切断
+# ---------------------------------------------------------------------------
+
+def _find_safe_split_index(
+    messages: list[ConversationMessage],
+    preserve_recent: int,
+) -> int:
+    """找到安全的分割索引，确保 tool_use/tool_result 对不被切断。
+
+    从 preserve_recent 位置向前搜索，找到一个不切断工具调用对的分割点。
+    如果 newer 部分的 user 消息包含 tool_result，则其对应的 assistant
+    消息（含 tool_use）也必须包含在 newer 部分。
+
+    Args:
+        messages: 完整消息列表
+        preserve_recent: 期望保留的最近消息数量
+
+    Returns:
+        安全的分割索引（older = messages[:split], newer = messages[split:]）
+    """
+    n = len(messages)
+    if n <= preserve_recent:
+        return 0
+
+    split = n - preserve_recent
+
+    # 收集 newer 部分中所有 tool_result 的 tool_use_id
+    newer_tool_result_ids: set[str] = set()
+    for msg in messages[split:]:
+        if msg.role == "user":
+            for block in msg.content:
+                if isinstance(block, ToolResultBlock):
+                    newer_tool_result_ids.add(block.tool_use_id)
+
+    if not newer_tool_result_ids:
+        # newer 中没有 tool_result，直接分割即可
+        return split
+
+    # 向前搜索，找到所有对应的 tool_use 所在的 assistant 消息
+    # 确保这些 assistant 消息也在 newer 部分
+    for i in range(split - 1, -1, -1):
+        msg = messages[i]
+        if msg.role == "assistant":
+            for block in msg.content:
+                if isinstance(block, ToolUseBlock) and block.id in newer_tool_result_ids:
+                    # 这个 tool_use 在 older 部分，需要将其纳入 newer
+                    newer_tool_result_ids.discard(block.id)
+                    if not newer_tool_result_ids:
+                        # 所有 tool_use 都已找到
+                        # split 应该包含这条 assistant 消息
+                        return i
+
+    # 如果还有未找到的 tool_use_id（不应该发生），保守返回 0
+    return 0
+
+
+def _remove_orphaned_tool_results(
+    messages: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """移除没有对应 tool_use 的孤立 tool_result 块。
+
+    压缩后可能存在 tool_result 但其对应的 tool_use 已被摘要移除，
+    这会导致 API 报错 "Message has tool role, but there was no previous
+    assistant message with a tool call!"。
+
+    Args:
+        messages: 消息列表
+
+    Returns:
+        清理后的消息列表
+    """
+    # 收集所有 tool_use 的 ID
+    tool_use_ids: set[str] = set()
+    for msg in messages:
+        if msg.role == "assistant":
+            for block in msg.content:
+                if isinstance(block, ToolUseBlock):
+                    tool_use_ids.add(block.id)
+
+    # 检查每个 tool_result 是否有对应的 tool_use
+    result: list[ConversationMessage] = []
+    for msg in messages:
+        if msg.role != "user":
+            result.append(msg)
+            continue
+
+        # 检查 user 消息中的 tool_result
+        has_orphan = False
+        for block in msg.content:
+            if isinstance(block, ToolResultBlock) and block.tool_use_id not in tool_use_ids:
+                has_orphan = True
+                break
+
+        if not has_orphan:
+            result.append(msg)
+            continue
+
+        # 过滤掉孤立的 tool_result
+        new_blocks: list[ContentBlock] = []
+        for block in msg.content:
+            if isinstance(block, ToolResultBlock) and block.tool_use_id not in tool_use_ids:
+                log.warning(
+                    "Removing orphaned tool_result (tool_use_id=%s) — "
+                    "corresponding tool_use was compacted away",
+                    block.tool_use_id,
+                )
+                continue
+            new_blocks.append(block)
+
+        if new_blocks:
+            result.append(ConversationMessage(role=msg.role, content=new_blocks))
+        else:
+            # 整条消息都是孤立的 tool_result，跳过
+            log.warning("Dropping user message that contained only orphaned tool_results")
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -252,24 +470,121 @@ def build_compact_summary_message(
     recent_preserved: bool = False,
 ) -> str:
     """创建替换压缩历史的消息。"""
+    from illusion.config.i18n import t
+
     formatted = format_compact_summary(summary)
-    text = (
-        "This session is being continued from a previous conversation that ran "
-        "out of context. The summary below covers the earlier portion of the "
-        "conversation.\n\n"
-        f"{formatted}"
-    )
+    text = f"{t('compact_summary_prefix')}\n\n{formatted}"
     if recent_preserved:
-        text += "\n\nRecent messages are preserved verbatim."
+        text += f"\n\n{t('compact_recent_preserved')}"
     if suppress_follow_up:
-        text += (
-            "\nContinue the conversation from where it left off without asking "
-            "the user any further questions. Resume directly — do not acknowledge "
-            "the summary, do not recap what was happening, do not preface with "
-            '"I\'ll continue" or similar. Pick up the last task as if the break '
-            "never happened."
-        )
+        text += t("compact_suppress_followup")
     return text
+
+
+# ---------------------------------------------------------------------------
+# 压缩边界标记
+# ---------------------------------------------------------------------------
+
+def create_compact_boundary_marker() -> ConversationMessage:
+    """创建压缩边界标记消息。
+
+    边界标记是一条特殊的 assistant 消息，用于标识压缩发生的位置。
+    这确保了压缩后的消息列表不会以两条连续的 user 消息开头。
+
+    Returns:
+        边界标记的 ConversationMessage
+    """
+    return ConversationMessage(
+        role="assistant",
+        content=[TextBlock(text=COMPACT_BOUNDARY_PREFIX)],
+    )
+
+
+def is_compact_boundary_marker(msg: ConversationMessage) -> bool:
+    """检查消息是否为压缩边界标记。"""
+    return (
+        msg.role == "assistant"
+        and len(msg.content) == 1
+        and isinstance(msg.content[0], TextBlock)
+        and msg.content[0].text.strip() == COMPACT_BOUNDARY_PREFIX
+    )
+
+
+def get_messages_after_compact_boundary(
+    messages: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """获取最后一个压缩边界标记之后的消息。
+
+    如果没有边界标记，返回所有消息。
+
+    Returns:
+        边界标记之后的消息列表
+    """
+    last_boundary = -1
+    for i, msg in enumerate(messages):
+        if is_compact_boundary_marker(msg):
+            last_boundary = i
+    if last_boundary >= 0:
+        return messages[last_boundary + 1:]
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# 消息结构修复 — 确保压缩后消息角色交替正确
+# ---------------------------------------------------------------------------
+
+def _ensure_message_alternation(
+    messages: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """确保消息列表中 user/assistant 角色正确交替。
+
+    修复以下问题：
+    - 连续两条 user 消息之间插入空的 assistant 消息
+    - 连续两条 assistant 消息之间插入空的 user 消息
+    - 开头不是 user 消息时插入空的 user 消息
+
+    Args:
+        messages: 原始消息列表
+
+    Returns:
+        修复后的消息列表
+    """
+    if not messages:
+        return messages
+
+    result: list[ConversationMessage] = []
+
+    # 确保第一条消息是 user 角色
+    if messages[0].role != "user":
+        from illusion.config.i18n import t
+        result.append(ConversationMessage.from_user_text(t("compact_conversation_start")))
+
+    for i, msg in enumerate(messages):
+        if not result:
+            result.append(msg)
+            continue
+
+        last_role = result[-1].role
+        current_role = msg.role
+
+        if last_role == current_role:
+            # 连续相同角色，需要插入间隔消息
+            if current_role == "user":
+                # 两条连续 user 消息之间插入空 assistant
+                result.append(ConversationMessage(
+                    role="assistant",
+                    content=[TextBlock(text="")],
+                ))
+            else:
+                # 两条连续 assistant 消息之间插入空 user
+                result.append(ConversationMessage.from_user_text(""))
+        elif last_role == "assistant" and current_role == "user":
+            # 正常交替，无需修复
+            pass
+
+        result.append(msg)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +598,62 @@ class AutoCompactState:
     compacted: bool = False
     turn_counter: int = 0
     consecutive_failures: int = 0
+    last_compacted_at_turn: int = 0  # 上次压缩时的轮次
+    warning_suppressed: bool = False  # 压缩后暂时抑制警告
+
+
+# ---------------------------------------------------------------------------
+# 上下文警告系统
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TokenWarningState:
+    """上下文使用量的警告状态。"""
+
+    is_above_warning_threshold: bool = False  # 接近阈值
+    is_above_autocompact_threshold: bool = False  # 超过自动压缩阈值
+    is_at_blocking_limit: bool = False  # 达到阻塞限制
+    estimated_tokens: int = 0  # 当前估算的 Token 数
+    threshold: int = 0  # 自动压缩阈值
+    context_window: int = 0  # 上下文窗口大小
+
+
+def calculate_token_warning_state(
+    messages: list[ConversationMessage],
+    model: str,
+    *,
+    auto_compact_enabled: bool = True,
+) -> TokenWarningState:
+    """计算当前上下文使用量的警告状态。
+
+    Args:
+        messages: 当前消息列表
+        model: 模型名称
+        auto_compact_enabled: 是否启用了自动压缩
+
+    Returns:
+        TokenWarningState 警告状态
+    """
+    estimated = estimate_message_tokens(messages)
+    context_window = get_context_window(model)
+    threshold = get_autocompact_threshold(model)
+
+    is_above_autocompact = estimated >= threshold
+    is_above_warning = estimated >= (threshold - WARNING_THRESHOLD_BUFFER_TOKENS)
+    # 仅当自动压缩关闭时才检查阻塞限制
+    is_at_blocking = (
+        not auto_compact_enabled
+        and estimated >= (context_window - MANUAL_COMPACT_BUFFER_TOKENS)
+    )
+
+    return TokenWarningState(
+        is_above_warning_threshold=is_above_warning,
+        is_above_autocompact_threshold=is_above_autocompact,
+        is_at_blocking_limit=is_at_blocking,
+        estimated_tokens=estimated,
+        threshold=threshold,
+        context_window=context_window,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -333,16 +704,19 @@ async def compact_conversation(
     api_client: Any,
     model: str,
     system_prompt: str = "",
-    preserve_recent: int = 6,
+    preserve_recent: int = DEFAULT_PRESERVE_RECENT,
     custom_instructions: str | None = None,
     suppress_follow_up: bool = True,
 ) -> list[ConversationMessage]:
     """通过调用 LLM 生成摘要来压缩消息。
 
-    1. 先执行微压缩（廉价 Token 减少）。
-    2. 分割为待摘要的旧消息和待保留的新消息。
-    3. 调用 LLM 获取结构化摘要。
-    4. 用摘要 + 保留的新消息替换旧消息。
+    流程：
+    1. 先执行微压缩（廉价 Token 减少）
+    2. 剥离图片数据
+    3. 分割为待摘要的旧消息和待保留的新消息
+    4. 调用 LLM 获取结构化摘要（含 PTL 重试）
+    5. 用摘要消息 + 边界标记 + 保留的新消息替换旧消息
+    6. 确保消息角色交替正确
 
     Args:
         messages: 完整的会话历史。
@@ -364,52 +738,142 @@ async def compact_conversation(
     # 步骤 1：微压缩以廉价方式减少 Token
     messages, tokens_freed = microcompact_messages(messages, keep_recent=DEFAULT_KEEP_RECENT)
 
+    # 步骤 2：剥离图片数据
+    messages = strip_images_from_messages(messages)
+
     pre_compact_tokens = estimate_message_tokens(messages)
     log.info("Compacting conversation: %d messages, ~%d tokens", len(messages), pre_compact_tokens)
 
-    # 步骤 2：分割为待摘要和待保留部分
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+    # 步骤 3：安全分割为待摘要和待保留部分（不切断 tool_use/tool_result 对）
+    split_index = _find_safe_split_index(messages, preserve_recent)
+    older = messages[:split_index]
+    newer = messages[split_index:]
 
-    # 步骤 3：构建压缩请求 — 发送旧消息 + 压缩提示词
+    # 步骤 4：构建压缩请求 — 发送旧消息 + 压缩提示词
     compact_prompt = get_compact_prompt(custom_instructions)
-    compact_messages = list(older) + [ConversationMessage.from_user_text(compact_prompt)]
+    compact_messages_list = list(older) + [ConversationMessage.from_user_text(compact_prompt)]
 
     summary_text = ""
-    async for event in api_client.stream_message(
-        ApiMessageRequest(
-            model=model,
-            messages=compact_messages,
-            system_prompt=system_prompt or "You are a conversation summarizer.",
-            max_tokens=MAX_OUTPUT_TOKENS_FOR_SUMMARY,
-            tools=[],  # 压缩调用不使用工具
-        )
-    ):
-        if isinstance(event, ApiMessageCompleteEvent):
-            summary_text = event.message.text
+    ptl_retries = 0
+
+    while ptl_retries <= MAX_PTL_RETRIES:
+        try:
+            async for event in api_client.stream_message(
+                ApiMessageRequest(
+                    model=model,
+                    messages=compact_messages_list,
+                    system_prompt=system_prompt or "You are a conversation summarizer.",
+                    max_tokens=MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+                    tools=[],  # 压缩调用不使用工具
+                )
+            ):
+                if isinstance(event, ApiMessageCompleteEvent):
+                    summary_text = event.message.text
+            break  # 成功，退出重试循环
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            is_ptl = "prompt" in error_msg and "long" in error_msg
+            if is_ptl and ptl_retries < MAX_PTL_RETRIES:
+                ptl_retries += 1
+                log.warning(
+                    "Compact summary hit prompt-too-long, truncating head (retry %d/%d)",
+                    ptl_retries, MAX_PTL_RETRIES,
+                )
+                # 截断最老的一组消息以减少 Token
+                groups = _group_messages_by_turn(compact_messages_list)
+                if len(groups) > 2:
+                    # 移除最老的一组（保留最后的 compact_prompt）
+                    compact_messages_list = []
+                    for g in groups[1:]:
+                        compact_messages_list.extend(g)
+                else:
+                    # 无法再截断，放弃
+                    log.error("Cannot truncate further for PTL retry")
+                    break
+            else:
+                # 非 PTL 错误或重试次数用尽，重新抛出
+                raise
 
     if not summary_text:
         # 空摘要则返回原始消息
         log.warning("Compact summary was empty — returning original messages")
         return messages
 
-    # 步骤 4：构建新消息列表
+    # 步骤 5：构建新消息列表
     summary_content = build_compact_summary_message(
         summary_text,
         suppress_follow_up=suppress_follow_up,
         recent_preserved=len(newer) > 0,
     )
     summary_msg = ConversationMessage.from_user_text(summary_content)
+    boundary_marker = create_compact_boundary_marker()
 
-    result = [summary_msg, *newer]
+    result = [summary_msg, boundary_marker, *newer]
+
+    # 步骤 6：清理孤立的 tool_result（没有对应 tool_use 的）
+    result = _remove_orphaned_tool_results(result)
+
+    # 步骤 7：确保消息角色交替正确
+    result = _ensure_message_alternation(result)
+
     post_compact_tokens = estimate_message_tokens(result)
     log.info(
         "Compaction done: %d -> %d messages, ~%d -> ~%d tokens (saved ~%d)",
         len(messages), len(result),
         pre_compact_tokens, post_compact_tokens,
-        pre_compact_tokens - post_compact_tokens,
+        max(0, pre_compact_tokens - post_compact_tokens),
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# 响应式压缩 — API 返回 prompt-too-long 时触发
+# ---------------------------------------------------------------------------
+
+async def reactive_compact(
+    messages: list[ConversationMessage],
+    *,
+    api_client: Any,
+    model: str,
+    system_prompt: str = "",
+    preserve_recent: int = DEFAULT_PRESERVE_RECENT,
+) -> tuple[list[ConversationMessage], bool]:
+    """当 API 返回 prompt-too-long 错误时，尝试压缩并重试。
+
+    这是最后的防线 — 在自动压缩未能阻止溢出时触发。
+
+    Args:
+        messages: 当前消息列表
+        api_client: API 客户端
+        model: 模型名称
+        system_prompt: 系统提示词
+        preserve_recent: 保留最近消息数量
+
+    Returns:
+        (messages, was_compacted) — 压缩后的消息和是否执行了压缩
+    """
+    log.info("Reactive compact triggered due to prompt-too-long error")
+
+    # 先尝试微压缩
+    messages, tokens_freed = microcompact_messages(messages, keep_recent=DEFAULT_KEEP_RECENT)
+    if tokens_freed > 0:
+        log.info("Reactive microcompact freed ~%d tokens", tokens_freed)
+        return messages, True
+
+    # 微压缩不够，执行完整压缩
+    try:
+        result = await compact_conversation(
+            messages,
+            api_client=api_client,
+            model=model,
+            system_prompt=system_prompt,
+            preserve_recent=preserve_recent,
+            suppress_follow_up=True,
+        )
+        return result, True
+    except Exception as exc:
+        log.error("Reactive compact failed: %s", exc)
+        return messages, False
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +887,7 @@ async def auto_compact_if_needed(
     model: str,
     system_prompt: str = "",
     state: AutoCompactState,
-    preserve_recent: int = 6,
+    preserve_recent: int = DEFAULT_PRESERVE_RECENT,
 ) -> tuple[list[ConversationMessage], bool]:
     """检查是否应该自动压缩，如果是则执行压缩。
 
@@ -440,7 +904,8 @@ async def auto_compact_if_needed(
     # 先尝试微压缩 — 可能已经足够
     messages, tokens_freed = microcompact_messages(messages)
     if tokens_freed > 0 and not should_autocompact(messages, model, state):
-        log.info("Microcompact freed ~d tokens, auto-compact no longer needed", tokens_freed)
+        log.info("Microcompact freed ~%d tokens, auto-compact no longer needed", tokens_freed)
+        state.warning_suppressed = True
         return messages, True
 
     # 需要完整压缩
@@ -455,7 +920,9 @@ async def auto_compact_if_needed(
         )
         state.compacted = True
         state.turn_counter += 1
+        state.last_compacted_at_turn = state.turn_counter
         state.consecutive_failures = 0
+        state.warning_suppressed = True
         return result, True
     except Exception as exc:
         state.consecutive_failures += 1
@@ -477,7 +944,7 @@ def summarize_messages(
     *,
     max_messages: int = 8,
 ) -> str:
-    """生成最近消息的紧凑文本摘要（传统方法）。"""
+    """生成最近消息的紧凑文本摘要（传统方法，仅用于 /summary 命令）。"""
     selected = messages[-max_messages:]
     lines: list[str] = []
     for message in selected:
@@ -491,40 +958,58 @@ def summarize_messages(
 def compact_messages(
     messages: list[ConversationMessage],
     *,
-    preserve_recent: int = 6,
+    preserve_recent: int = DEFAULT_PRESERVE_RECENT,
 ) -> list[ConversationMessage]:
-    """用合成摘要替换旧的会话历史（传统方法）。"""
+    """用合成摘要替换旧的会话历史（传统方法，仅作为后备）。
+
+    注意：此方法不调用 LLM，摘要质量较低。
+    推荐使用 compact_conversation() 获取高质量摘要。
+    """
     if len(messages) <= preserve_recent:
         return list(messages)
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+    # 安全分割，不切断 tool_use/tool_result 对
+    split_index = _find_safe_split_index(messages, preserve_recent)
+    older = messages[:split_index]
+    newer = messages[split_index:]
     summary = summarize_messages(older)
     if not summary:
         return list(newer)
-    return [
+    result = [
         ConversationMessage(
             role="user",
             content=[TextBlock(text=f"[conversation summary]\n{summary}")],
         ),
+        create_compact_boundary_marker(),
         *newer,
     ]
+    result = _remove_orphaned_tool_results(result)
+    return _ensure_message_alternation(result)
 
 
 __all__ = [
-    "AUTO_COMPACT_BUFFER_TOKENS",
+    "AUTOCOMPACT_BUFFER_TOKENS",
     "AutoCompactState",
     "COMPACTABLE_TOOLS",
+    "COMPACT_BOUNDARY_PREFIX",
     "TIME_BASED_MC_CLEARED_MESSAGE",
+    "TokenWarningState",
     "auto_compact_if_needed",
     "build_compact_summary_message",
+    "calculate_token_warning_state",
     "compact_conversation",
     "compact_messages",
+    "create_compact_boundary_marker",
     "estimate_conversation_tokens",
     "estimate_message_tokens",
     "format_compact_summary",
     "get_autocompact_threshold",
     "get_compact_prompt",
+    "get_context_window",
+    "get_messages_after_compact_boundary",
+    "is_compact_boundary_marker",
     "microcompact_messages",
+    "reactive_compact",
     "should_autocompact",
+    "strip_images_from_messages",
     "summarize_messages",
 ]

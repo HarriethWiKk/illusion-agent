@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from illusion.api.client import (
     ApiMessageCompleteEvent,
@@ -196,6 +196,7 @@ class QueryContext:
     tool_metadata: dict[str, object] | None = None
     effort: EffortLevel | None = None
     bg_agent_tracker: BackgroundAgentTracker | None = None
+    compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
 
 
 async def run_query(
@@ -222,18 +223,34 @@ async def run_query(
         >>> async for event, usage in run_query(context, messages):
         ...     print(event)
     """
+    from illusion.config.i18n import t
     from illusion.services.compact import (
         AutoCompactState,
         auto_compact_if_needed,
+        calculate_token_warning_state,
+        reactive_compact,
     )
 
-    # 初始化自动压缩状态
-    compact_state = AutoCompactState()
+    # 使用从 QueryEngine 传入的持久化压缩状态
+    compact_state: AutoCompactState = context.compact_state or AutoCompactState()
 
     turn_count = 0  # 轮次计数器
     pending_brief_text = ""  # 暂存的 brief 消息内容，用于注入到下一轮 assistant 消息
     while context.max_turns is None or turn_count < context.max_turns:
         turn_count += 1
+
+        # --- 上下文警告检查 ---------------
+        if not compact_state.warning_suppressed:
+            warning = calculate_token_warning_state(messages, context.model)
+            if warning.is_above_warning_threshold and not warning.is_above_autocompact_threshold:
+                pct = int(warning.estimated_tokens * 100 / warning.context_window) if warning.context_window > 0 else 0
+                yield StatusEvent(
+                    message=t("compact_warning_approaching", pct=pct)
+                ), None
+        # 压缩后重置警告抑制（下次微压缩时清除）
+        if compact_state.warning_suppressed:
+            compact_state.warning_suppressed = False
+
         # --- 调用模型前检查自动压缩 ---------------
         messages, was_compacted = await auto_compact_if_needed(
             messages,
@@ -242,6 +259,8 @@ async def run_query(
             system_prompt=context.system_prompt,
             state=compact_state,
         )
+        if was_compacted:
+            yield StatusEvent(message=t("compact_compacted")), None
         # ---------------------------------------------------------------
 
         final_message: ConversationMessage | None = None
@@ -289,11 +308,31 @@ async def run_query(
                     usage = event.usage
         except Exception as exc:
             error_msg = str(exc)
+            error_lower = error_msg.lower()
+
+            # --- 响应式压缩：prompt-too-long 时尝试压缩重试 ---
+            if "prompt" in error_lower and "long" in error_lower:
+                yield StatusEvent(message=t("compact_overflow_detected")), None
+                messages, was_compacted = await reactive_compact(
+                    messages,
+                    api_client=context.api_client,
+                    model=context.model,
+                    system_prompt=context.system_prompt,
+                )
+                if was_compacted:
+                    yield StatusEvent(message=t("compact_reactive_success")), None
+                    # 重试当前轮次（不增加 turn_count）
+                    turn_count -= 1
+                    continue
+                # 压缩也失败，报错
+                yield ErrorEvent(message=t("compact_overflow_failed", error=error_msg)), None
+                return
+
             # 检查是否为网络相关错误
-            if "connect" in error_msg.lower() or "timeout" in error_msg.lower() or "network" in error_msg.lower():
-                yield ErrorEvent(message=f"Network error: {error_msg}. Check your internet connection and try again."), None
+            if "connect" in error_lower or "timeout" in error_lower or "network" in error_lower:
+                yield ErrorEvent(message=t("compact_network_error", error=error_msg)), None
             else:
-                yield ErrorEvent(message=f"API error: {error_msg}"), None
+                yield ErrorEvent(message=t("compact_api_error", error=error_msg)), None
             return
 
         if final_message is None:

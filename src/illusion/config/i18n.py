@@ -135,6 +135,19 @@ MESSAGES: dict[str, dict[str, str]] = {
     "model_api_format": {"zh-CN": "API 格式：{fmt}", "en-US": "api_format: {fmt}"},
     "model_base_url": {"zh-CN": "基础 URL：{url}", "en-US": "base_url: {url}"},
     "model_default_url": {"zh-CN": "（默认）", "en-US": "(default)"},
+    # --- compact ---
+    "compact_warning_approaching": {"zh-CN": "上下文使用量：~{pct}% — 接近自动压缩阈值", "en-US": "Context usage: ~{pct}% — approaching auto-compact threshold"},
+    "compact_compacted": {"zh-CN": "已压缩上下文以释放空间", "en-US": "Context compacted to free up space"},
+    "compact_overflow_detected": {"zh-CN": "检测到上下文溢出，尝试响应式压缩…", "en-US": "Context overflow detected, attempting reactive compact..."},
+    "compact_reactive_success": {"zh-CN": "响应式压缩成功，正在重试请求…", "en-US": "Reactive compact succeeded, retrying request..."},
+    "compact_overflow_failed": {"zh-CN": "上下文溢出且响应式压缩失败：{error}", "en-US": "Context overflow and reactive compact failed: {error}"},
+    "compact_network_error": {"zh-CN": "网络错误：{error}。请检查网络连接后重试。", "en-US": "Network error: {error}. Check your internet connection and try again."},
+    "compact_api_error": {"zh-CN": "API 错误：{error}", "en-US": "API error: {error}"},
+    "compact_result": {"zh-CN": "已压缩对话：{before} → {after} 条消息（节省 ~{saved} tokens）。", "en-US": "Compacted conversation from {before} to {after} messages (saved ~{saved} tokens)."},
+    "compact_summary_prefix": {"zh-CN": "本会话从之前超出上下文限制的对话继续。以下摘要涵盖对话的早期部分。", "en-US": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation."},
+    "compact_recent_preserved": {"zh-CN": "最近的消息已原样保留。", "en-US": "Recent messages are preserved verbatim."},
+    "compact_suppress_followup": {"zh-CN": "\n从上次中断处继续对话，不要向用户提问。直接继续 — 不要确认摘要，不要复述进展，不要以「我继续」等开头。像中断从未发生一样继续上次的任务。", "en-US": "\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."},
+    "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
 }
 
 # --- 命令描述翻译 ---
@@ -417,6 +430,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Memory directory: (.+)$", r"记忆目录：\1"),
     (r"^Entrypoint: (.+)$", r"入口文件：\1"),
     (r"^Compacted conversation from (\d+) messages to (\d+)\.$", r"已压缩对话：\1 条 → \2 条。"),
+    (r"^Compacted conversation from (\d+) to (\d+) messages \(saved ~(\d[\d,]*) tokens\)\.$", r"已压缩对话：\1 → \2 条消息（节省 ~\3 tokens）。"),
     (r"^Current branch: (.+)$", r"当前分支：\1"),
     (r"^Feedback log: (.+)$", r"反馈日志：\1"),
     (r"^Auth status:$", r"认证状态："),
