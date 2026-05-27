@@ -84,24 +84,10 @@ async def test_command_flow_for_memory_modes_and_tasks(tmp_path: Path, monkeypat
         "/fast on",
         "/output-style set minimal",
         "/language set en",
-        "/tasks run printf 'command-flow-task'",
     ]:
         command, args = registry.lookup(raw)
         result = await command.handler(args, context)
         assert result is not None
-
-    output_command, output_args = registry.lookup("/tasks list")
-    output_result = await output_command.handler(output_args, context)
-    assert "command-flow-task" in output_result.message
-    task_id = output_result.message.split()[0]
-
-    update_command, update_args = registry.lookup(f"/tasks update {task_id} progress 40")
-    update_result = await update_command.handler(update_args, context)
-    assert "40%" in update_result.message
-
-    note_command, note_args = registry.lookup(f"/tasks update {task_id} note waiting on review")
-    note_result = await note_command.handler(note_args, context)
-    assert "note" in note_result.message
 
     issue_command, issue_args = registry.lookup("/issue set Command Flow :: Needs review")
     issue_result = await issue_command.handler(issue_args, context)

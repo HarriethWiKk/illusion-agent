@@ -267,14 +267,6 @@ async def test_compact_summary_and_usage_commands(tmp_path: Path, monkeypatch):
     # 传统方法会添加 boundary marker，所以消息数 >= 3
     assert len(context.engine.messages) >= 3
 
-    usage_command, usage_args = registry.lookup("/usage")
-    usage_result = await usage_command.handler(usage_args, context)
-    assert "Estimated conversation tokens" in usage_result.message
-
-    stats_command, stats_args = registry.lookup("/stats")
-    stats_result = await stats_command.handler(stats_args, context)
-    assert "Session stats:" in stats_result.message
-
 
 @pytest.mark.asyncio
 async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeypatch):
@@ -448,21 +440,6 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
     reload_command, reload_args = registry.lookup("/reload-plugins")
     reload_result = await reload_command.handler(reload_args, context)
     assert "fixture-plugin" in reload_result.message
-
-    manager = get_task_manager()
-    task = await manager.create_agent_task(
-        prompt="ready",
-        description="test agent",
-        cwd=tmp_path,
-        command="python -u -c \"import sys; print(sys.stdin.readline().strip())\"",
-    )
-    agents_command, agents_args = registry.lookup("/agents")
-    agents_result = await agents_command.handler(agents_args, context)
-    assert task.id in agents_result.message
-
-    agent_show_command, agent_show_args = registry.lookup(f"/agents show {task.id}")
-    agent_show_result = await agent_show_command.handler(agent_show_args, context)
-    assert "test agent" in agent_show_result.message
 
 
 @pytest.mark.asyncio
@@ -671,3 +648,33 @@ async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkey
 
     assert result.replay_messages is not None
     assert result.restored_session_id == "resume-abc123"
+
+
+def test_cost_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    lookup = registry.lookup("/cost")
+    assert lookup is None
+
+
+def test_usage_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    lookup = registry.lookup("/usage")
+    assert lookup is None
+
+
+def test_stats_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    lookup = registry.lookup("/stats")
+    assert lookup is None
+
+
+def test_agents_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    lookup = registry.lookup("/agents")
+    assert lookup is None
+
+
+def test_tasks_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    lookup = registry.lookup("/tasks")
+    assert lookup is None

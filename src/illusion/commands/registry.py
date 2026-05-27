@@ -20,7 +20,7 @@
 
 内置命令列表：
     - /exit, /clear, /version, /status, /context, /summary
-    - /compact, /cost, /usage, /stats, /memory, /hooks, /resume
+    - /compact, /memory, /hooks, /resume
     - /export, /share, /copy, /rewind, /files
     - /init, /bridge, /login, /logout, /feedback
     - /skills, /config, /mcp, /plugin, /reload-plugins
@@ -28,7 +28,7 @@
     - /continue, /model, /language, /output-style
     - /doctor, /diff, /branch, /commit
     - /issue, /pr_comments, /privacy-settings
-    - /agents, /tasks, /delete, /rules
+    - /delete, /rules
 
 使用示例：
     >>> from illusion.commands import create_default_command_registry
@@ -534,61 +534,6 @@ def create_default_command_registry() -> CommandRegistry:
             message=t("compact_result", before=before, after=len(compacted), saved=f"{saved:,}")
         )
 
-    async def _usage_handler(_: str, context: CommandContext) -> CommandResult:
-        usage = context.engine.total_usage
-        estimated = estimate_conversation_tokens(context.engine.messages)
-        return CommandResult(
-            message=(
-                f"Actual usage: input={usage.input_tokens} output={usage.output_tokens}\n"
-                f"Estimated conversation tokens: {estimated}\n"
-                f"Messages: {len(context.engine.messages)}"
-            )
-        )
-
-    async def _cost_handler(_: str, context: CommandContext) -> CommandResult:
-        usage = context.engine.total_usage
-        model = context.app_state.get().model if context.app_state is not None else load_settings().active_model_name
-        estimated_cost = "unavailable"
-        if model.startswith("claude-3-5-sonnet"):
-            estimated = (usage.input_tokens * 3.0 + usage.output_tokens * 15.0) / 1_000_000
-            estimated_cost = f"${estimated:.4f} (estimated)"
-        elif model.startswith("claude-3-7-sonnet"):
-            estimated = (usage.input_tokens * 3.0 + usage.output_tokens * 15.0) / 1_000_000
-            estimated_cost = f"${estimated:.4f} (estimated)"
-        elif model.startswith("claude-3-opus"):
-            estimated = (usage.input_tokens * 15.0 + usage.output_tokens * 75.0) / 1_000_000
-            estimated_cost = f"${estimated:.4f} (estimated)"
-        return CommandResult(
-            message=(
-                f"Model: {model}\n"
-                f"Input tokens: {usage.input_tokens}\n"
-                f"Output tokens: {usage.output_tokens}\n"
-                f"Total tokens: {usage.total_tokens}\n"
-                f"Estimated cost: {estimated_cost}"
-            )
-        )
-
-    async def _stats_handler(_: str, context: CommandContext) -> CommandResult:
-        settings = load_settings()
-        memory_count = len(list_memory_files(context.cwd))
-        task_count = len(get_task_manager().list_tasks())
-        tool_count = len(context.tool_registry.list_tools()) if context.tool_registry is not None else 0
-        style = settings.output_style
-        if context.app_state is not None:
-            state = context.app_state.get()
-            style = state.output_style
-        return CommandResult(
-            message=(
-                "Session stats:\n"
-                f"- messages: {len(context.engine.messages)}\n"
-                f"- estimated_tokens: {estimate_conversation_tokens(context.engine.messages)}\n"
-                f"- tools: {tool_count}\n"
-                f"- memory_files: {memory_count}\n"
-                f"- background_tasks: {task_count}\n"
-                f"- output_style: {style}"
-            )
-        )
-
     async def _memory_handler(args: str, context: CommandContext) -> CommandResult:
         tokens = args.split(maxsplit=1)
         if not tokens:
@@ -746,33 +691,6 @@ def create_default_command_registry() -> CommandRegistry:
         return CommandResult(
             message="\n".join(lines) if lines else "(no matching files)"
         )
-
-    async def _agents_handler(args: str, context: CommandContext) -> CommandResult:
-        tokens = args.split(maxsplit=1)
-        if tokens and tokens[0] == "show" and len(tokens) == 2:
-            task = get_task_manager().get_task(tokens[1])
-            if task is None or task.type not in {"local_agent", "remote_agent", "in_process_teammate"}:
-                return CommandResult(message=f"No agent found with ID: {tokens[1]}")
-            output = get_task_manager().read_task_output(task.id)
-            return CommandResult(
-                message=(
-                    f"{task.id} {task.type} {task.status} {task.description}\n"
-                    f"metadata={task.metadata}\n"
-                    f"output:\n{output or '(no output)'}"
-                )
-            )
-        tasks = [
-            task
-            for task in get_task_manager().list_tasks()
-            if task.type in {"local_agent", "remote_agent", "in_process_teammate"}
-        ]
-        if not tasks:
-            return CommandResult(message="No active or recorded agents.")
-        lines = [
-            f"{task.id} {task.type} {task.status} {task.description}"
-            for task in tasks
-        ]
-        return CommandResult(message="\n".join(lines))
 
     async def _init_handler(args: str, context: CommandContext) -> CommandResult:
         del args
@@ -1425,68 +1343,6 @@ def create_default_command_registry() -> CommandRegistry:
         ok, output = _run_git_command(context.cwd, "commit", "-m", message)
         return CommandResult(message=output if ok else output)
 
-    async def _tasks_handler(args: str, context: CommandContext) -> CommandResult:
-        manager = get_task_manager()
-        tokens = args.split(maxsplit=2)
-        if not tokens or tokens[0] == "list":
-            tasks = manager.list_tasks()
-            if not tasks:
-                return CommandResult(message="No background tasks.")
-            return CommandResult(
-                message="\n".join(f"{task.id} {task.type} {task.status} {task.description}" for task in tasks)
-            )
-        if tokens[0] == "run" and len(tokens) >= 2:
-            command = args[len("run ") :]
-            task = await manager.create_shell_task(
-                command=command,
-                description=command[:80],
-                cwd=context.cwd,
-            )
-            return CommandResult(message=f"Started task {task.id}")
-        if tokens[0] == "stop" and len(tokens) == 2:
-            task = await manager.stop_task(tokens[1])
-            return CommandResult(message=f"Stopped task {task.id}")
-        if tokens[0] == "show" and len(tokens) == 2:
-            task = manager.get_task(tokens[1])
-            if task is None:
-                return CommandResult(message=f"No task found with ID: {tokens[1]}")
-            return CommandResult(message=str(task))
-        if tokens[0] == "update" and len(tokens) == 3:
-            task_id = tokens[1]
-            rest = tokens[2]
-            field, _, value = rest.partition(" ")
-            if not value.strip():
-                return CommandResult(
-                    message="Usage: /tasks update ID [description TEXT|progress NUMBER|note TEXT]"
-                )
-            try:
-                if field == "description":
-                    task = manager.update_task(task_id, description=value)
-                    return CommandResult(message=f"Updated task {task.id} description")
-                if field == "progress":
-                    try:
-                        progress = int(value)
-                    except ValueError:
-                        return CommandResult(message="Progress must be an integer between 0 and 100.")
-                    task = manager.update_task(task_id, progress=progress)
-                    return CommandResult(message=f"Updated task {task.id} progress to {progress}%")
-                if field == "note":
-                    task = manager.update_task(task_id, status_note=value)
-                    return CommandResult(message=f"Updated task {task.id} note")
-            except ValueError as exc:
-                return CommandResult(message=str(exc))
-            return CommandResult(
-                message="Usage: /tasks update ID [description TEXT|progress NUMBER|note TEXT]"
-            )
-        if tokens[0] == "output" and len(tokens) == 2:
-            return CommandResult(message=manager.read_task_output(tokens[1]) or "(no output)")
-        return CommandResult(
-            message=(
-                "Usage: /tasks "
-                "[list|run CMD|stop ID|show ID|update ID description TEXT|update ID progress NUMBER|update ID note TEXT|output ID]"
-            )
-        )
-
     async def _delete_handler(args: str, context: CommandContext) -> CommandResult:
         from illusion.services.session_storage import (
             delete_all_sessions,
@@ -1591,9 +1447,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("context", "Show active system prompt or manage context window", _context_handler))
     registry.register(SlashCommand("summary", "Summarize conversation history", _summary_handler))
     registry.register(SlashCommand("compact", "Compact older conversation history", _compact_handler))
-    registry.register(SlashCommand("cost", "Show token usage and estimated cost", _cost_handler))
-    registry.register(SlashCommand("usage", "Show usage and token estimates", _usage_handler))
-    registry.register(SlashCommand("stats", "Show session statistics", _stats_handler))
     registry.register(SlashCommand("memory", "Inspect and manage project memory", _memory_handler))
     registry.register(SlashCommand("hooks", "Show configured hooks", _hooks_handler))
     registry.register(SlashCommand("resume", "Restore the latest saved session", _resume_handler))
@@ -1631,8 +1484,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("issue", "Show or update project issue context", _issue_handler))
     registry.register(SlashCommand("pr_comments", "Show or update project PR comments context", _pr_comments_handler))
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", _privacy_settings_handler))
-    registry.register(SlashCommand("agents", "List or inspect agent and teammate tasks", _agents_handler))
-    registry.register(SlashCommand("tasks", "Manage background tasks", _tasks_handler))
     registry.register(SlashCommand("delete", "Delete saved sessions", _delete_handler))
     registry.register(SlashCommand("rules", "View project rules", _rules_handler))
     return registry

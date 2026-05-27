@@ -161,9 +161,6 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "context": "显示系统提示词或管理上下文窗口",
     "summary": "总结对话历史",
     "compact": "压缩较早对话历史",
-    "cost": "显示 token 用量和预估费用",
-    "usage": "显示用量与 token 估算",
-    "stats": "显示会话统计",
     "memory": "查看和管理项目记忆",
     "hooks": "显示已配置 hooks",
     "resume": "恢复最近保存的会话",
@@ -200,8 +197,6 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "issue": "显示或更新项目 issue 上下文",
     "pr_comments": "显示或更新项目 PR 评论上下文",
     "privacy-settings": "显示本地隐私与存储设置",
-    "agents": "列出或查看 agent 与 teammate 任务",
-    "tasks": "管理后台任务",
     "delete": "清理选定的会话",
     "rules": "查看选定的规则",
 }
@@ -230,8 +225,6 @@ _COMMAND_EXACT: dict[str, str] = {
     # 插件与技能
     "No plugins discovered.": "未发现插件。",
     "No skills available.": "没有可用技能。",
-    # Agent
-    "No active or recorded agents.": "没有活跃或历史 agent。",
     # 项目初始化
     "Project already initialized for IllusionCode.": "项目已完成 IllusionCode 初始化。",
     # Bridge
@@ -258,8 +251,6 @@ _COMMAND_EXACT: dict[str, str] = {
     # Git
     "Usage: /branch [show|list]": "用法：/branch [show|list]",
     "Nothing to commit.": "没有可提交的改动。",
-    # 后台任务
-    "No background tasks.": "没有后台任务。",
     "Progress must be an integer between 0 and 100.": "进度必须是 0 到 100 之间的整数。",
     "Nothing to continue (no pending tool results).": "没有待继续的内容（无待处理工具结果）。",
     "Continuing pending tool loop...": "正在继续待处理的工具循环…",
@@ -299,10 +290,6 @@ _COMMAND_EXACT: dict[str, str] = {
         "用法：/plugin [list|enable 名称|disable 名称|install 路径|uninstall 名称]",
     "Usage: /bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]":
         "用法：/bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]",
-    "Usage: /tasks update ID [description TEXT|progress NUMBER|note TEXT]":
-        "用法：/tasks update ID [description 文本|progress 数字|note 文本]",
-    "Usage: /tasks [list|run CMD|stop ID|show ID|update ID description TEXT|update ID progress NUMBER|update ID note TEXT|output ID]":
-        "用法：/tasks [list|run CMD|stop ID|show ID|update ID description 文本|update ID progress 数字|update ID note 文本|output ID]",
     # 快速模式
     "No conversation content to summarize.": "没有可总结的对话内容。",
     # 删除与规则
