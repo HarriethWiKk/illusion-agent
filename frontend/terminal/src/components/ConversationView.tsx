@@ -96,6 +96,7 @@ export function ConversationView({
 							key={pc.tool_use_id}
 							pending={pc}
 							theme={theme}
+							terminalWidth={terminalWidth}
 						/>
 					))}
 				</Box>
@@ -107,9 +108,11 @@ export function ConversationView({
 function BlinkingToolIndicator({
 	pending,
 	theme,
+	terminalWidth,
 }: {
 	pending: PendingToolCall;
 	theme: ThemeConfig;
+	terminalWidth: number;
 }): React.JSX.Element {
 	const [visible, setVisible] = useState(true);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,14 +132,27 @@ function BlinkingToolIndicator({
 		? summarizeInput(pending.tool_name, pending.tool_input, pending.tool_name)
 		: null;
 	const content = summary ? `${pending.tool_name} (${summary})` : pending.tool_name;
+	const prefix = `${theme.icons.tool} `;
+	const continuationPrefix = ' '.repeat(stringWidth(prefix));
+	const wrapped = wrapForPrefix(content, terminalWidth, prefix);
 
 	return (
-		<Box>
-			<Text color={theme.colors.info}>
-				{visible ? theme.icons.tool : ' '}
-				{' '}
-			</Text>
-			<Text bold>{content}</Text>
+		<Box flexDirection="column">
+			{wrapped.map((line, i) => (
+				<Box key={i}>
+					{i === 0 ? (
+						<Text>
+							<Text color={theme.colors.info}>
+								{visible ? theme.icons.tool : ' '}
+								{' '}
+							</Text>
+							<Text bold>{line}</Text>
+						</Text>
+					) : (
+						<Text bold>{continuationPrefix}{line}</Text>
+					)}
+				</Box>
+			))}
 		</Box>
 	);
 }
