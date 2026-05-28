@@ -48,9 +48,7 @@ export default function ChatArea({
           </div>
         ))}
         {busy && (assistantBuffer || streamingReasoning) && (
-          <div className="animate-fade-in">
-            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
-          </div>
+          <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
         )}
       </div>
       <div ref={bottomRef} />
