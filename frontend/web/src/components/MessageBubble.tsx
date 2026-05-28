@@ -151,26 +151,31 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
 }
 
 export function StreamingBuffer({ text, reasoning, lang }: { text: string; reasoning?: string; lang?: UiLanguage }) {
+  const hasReasoning = reasoning && reasoning.trim();
+  const hasText = text && text.trim();
+
   return (
     <div className="py-2">
       <div className="bg-white/90 backdrop-blur-sm rounded-2xl px-6 py-5 shadow-soft border border-sand-200/60">
-        {reasoning && reasoning.trim() && (
-          <div className="mb-4">
+        {hasReasoning && (
+          <div className={hasText ? 'mb-4' : ''}>
             <div className="flex items-center gap-2 text-sm text-khaki-500 mb-2">
               <span className="inline-block w-2 h-2 rounded-full bg-khaki-400 animate-pulse" />
               <span className="font-medium text-xs">{lang ? t(lang, 'thinking_process') : '思考过程'}</span>
             </div>
             <div className="p-3 bg-cream-100/60 rounded-lg text-xs text-khaki-600 whitespace-pre-wrap border border-sand-200/40 max-h-48 overflow-y-auto leading-relaxed">
               {reasoning}
-              <span className="inline-block w-1 h-3 bg-khaki-300 animate-pulse ml-0.5 align-middle" />
+              {!hasText && <span className="inline-block w-1 h-3 bg-khaki-300 animate-pulse ml-0.5 align-middle" />}
             </div>
           </div>
         )}
-        <div className="text-khaki-800 text-base prose prose-stone max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-            {text || '▍'}
-          </ReactMarkdown>
-        </div>
+        {hasText && (
+          <div className="text-khaki-800 text-base prose prose-stone max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              {text}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );

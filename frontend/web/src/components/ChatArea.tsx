@@ -21,9 +21,9 @@ export default function ChatArea({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [staticItems, assistantBuffer, pendingToolCalls]);
+  }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls]);
 
-  const hasContent = staticItems.length > 0 || assistantBuffer || pendingToolCalls.length > 0;
+  const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0;
 
   return (
     <div className="flex-1 overflow-y-auto bg-gradient-to-b from-cream-50/30 via-transparent to-sand-50/30">
@@ -47,7 +47,7 @@ export default function ChatArea({
             <PendingToolBubble call={call} />
           </div>
         ))}
-        {busy && assistantBuffer && (
+        {busy && (assistantBuffer || streamingReasoning) && (
           <div className="animate-fade-in">
             <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
           </div>

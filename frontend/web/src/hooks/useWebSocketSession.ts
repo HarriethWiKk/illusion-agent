@@ -12,8 +12,8 @@ import type {
   TranscriptItem,
 } from '../types/protocol';
 
-const ASSISTANT_DELTA_FLUSH_MS = 16;
-const ASSISTANT_DELTA_FLUSH_CHARS = 32;
+const ASSISTANT_DELTA_FLUSH_MS = 8;
+const ASSISTANT_DELTA_FLUSH_CHARS = 16;
 
 const TOOL_CALL_LINE_RE = /^\s{2,}\w[\w-]*\s*\(.*\)\s*$/;
 
@@ -44,6 +44,8 @@ export interface WebSocketSessionState {
   commandResult: { text: string; type: 'success' | 'error' | 'info' } | null;
   connected: boolean;
   sessions: { value: string; label: string }[];
+  deleteSessions: { value: string; label: string }[];
+  clearDeleteSessions: () => void;
   sendRequest: (payload: Record<string, unknown>) => void;
   clearStaticItems: () => void;
 }
@@ -72,6 +74,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [connected, setConnected] = useState(false);
   const [streamingReasoning, setStreamingReasoning] = useState('');
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
+  const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -101,9 +104,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       .replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
     assistantBufferRef.current = displayText;
     setAssistantBuffer(displayText);
-    if (showThinkingRef.current) {
-      setStreamingReasoning(reasoningBufferRef.current);
-    }
   }, []);
 
   const clearAssistantDelta = useCallback((): void => {
@@ -129,6 +129,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setStaticItems([]);
     clearAssistantDelta();
   }, [clearAssistantDelta]);
+
+  const clearDeleteSessions = useCallback((): void => {
+    setDeleteSessions([]);
+  }, []);
 
   useEffect(() => {
     const ws = new WebSocket(url);
@@ -181,11 +185,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       }
       if (evt.type === 'assistant_delta') {
         assistantFlushedForToolRef.current = false;
+        setBusy(true);
         if (evt.reasoning) {
           reasoningBufferRef.current += evt.reasoning;
-          if (showThinkingRef.current) {
-            setStreamingReasoning(reasoningBufferRef.current);
-          }
+          setStreamingReasoning(reasoningBufferRef.current);
         }
         const delta = evt.message ?? '';
         if (!delta) {
@@ -323,6 +326,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           setBusy(false);
           return;
         }
+        if (cmd === 'delete') {
+          setDeleteSessions(opts);
+          setBusy(false);
+          return;
+        }
         setSelectRequest({
           title: String(m.title ?? 'Select'),
           command: cmd,
@@ -396,14 +404,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       commandResult,
       connected,
       sessions,
+      deleteSessions,
+      clearDeleteSessions,
       sendRequest,
       clearStaticItems,
     }),
     [
-      assistantBuffer, bgAgentLabel, busy, commandResult, commands, connected, streamingReasoning, sessions,
+      assistantBuffer, bgAgentLabel, busy, commandResult, commands, connected, streamingReasoning, sessions, deleteSessions,
       mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking,
       staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems,
-      sendRequest, clearStaticItems,
+      sendRequest, clearDeleteSessions, clearStaticItems,
     ],
   );
 }

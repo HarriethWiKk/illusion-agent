@@ -8,13 +8,13 @@ interface SidebarProps {
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onListSessions: () => void;
-  onCommand: (line: string) => void;
+  onDeleteSessions: () => void;
   collapsed: boolean;
   onToggle: () => void;
 }
 
 export default function Sidebar({
-  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onCommand, collapsed, onToggle,
+  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -55,22 +55,7 @@ export default function Sidebar({
               <div className="fixed inset-0 z-10 animate-fade-in" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full mt-2 bg-white/95 backdrop-blur-md border border-sand-200/80 rounded-2xl shadow-warm z-20 min-w-[180px] py-2 animate-scale-in">
                 <button
-                  onClick={() => { onCommand('/provider'); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-khaki-700 hover:bg-cream-100/80 transition-colors cursor-pointer rounded-lg mx-1"
-                  style={{ width: 'calc(100% - 8px)' }}
-                >
-                  {t(lang, 'settings')} / Provider
-                </button>
-                <button
-                  onClick={() => { onCommand('/permissions'); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-khaki-700 hover:bg-cream-100/80 transition-colors cursor-pointer rounded-lg mx-1"
-                  style={{ width: 'calc(100% - 8px)' }}
-                >
-                  {t(lang, 'mode')}
-                </button>
-                <div className="border-t border-sand-200/60 my-1.5" />
-                <button
-                  onClick={() => { onCommand('/delete'); setMenuOpen(false); }}
+                  onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50/80 transition-colors cursor-pointer rounded-lg mx-1"
                   style={{ width: 'calc(100% - 8px)' }}
                 >
