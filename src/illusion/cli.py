@@ -79,12 +79,14 @@ mcp_app = typer.Typer(name="mcp", help="MCP 服务器管理 / Manage MCP servers
 plugin_app = typer.Typer(name="plugin", help="插件管理 / Manage plugins")
 auth_app = typer.Typer(name="auth", help="认证管理 / Manage authentication")
 cron_app = typer.Typer(name="cron", help="定时任务管理 / Manage cron scheduler and jobs")
+web_app = typer.Typer(name="web", help="启动 Web 界面 / Launch Web UI")
 
 # 注册子命令到主应用
 app.add_typer(mcp_app)
 app.add_typer(plugin_app)
 app.add_typer(auth_app)
 app.add_typer(cron_app)
+app.add_typer(web_app)
 
 
 # ---- mcp 子命令 ----
@@ -875,6 +877,42 @@ def auth_add_model(
     manager.save_settings()
 
     print(_t("model_added", env_key=env_key, model_key=model_key, model_name=model_name))
+
+
+# ---- web 子命令 ----
+
+
+@web_app.callback(invoke_without_command=True)
+def web_start(
+    port: int = typer.Option(3000, "--port", "-p", help="Web 服务端口"),
+    host: str = typer.Option("127.0.0.1", "--host", help="监听地址"),
+    dev: bool = typer.Option(False, "--dev", help="开发模式（启用 CORS，不 serve 静态文件）"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="指定模型"),
+    prompt: Optional[str] = typer.Option(None, "--prompt", help="初始提示词"),
+) -> None:
+    """启动 Illusion Code Web 界面 / Launch Illusion Code Web UI"""
+    import uvicorn
+    from illusion.config.settings import load_settings
+    from illusion.ui.web.server import create_app
+    from illusion.ui.web.ws_host import WebHostConfig
+
+    settings = load_settings()
+    resolved_model = model or settings.model
+
+    config = WebHostConfig(
+        model=resolved_model,
+        effort=getattr(settings, "effort", None),
+    )
+
+    app = create_app(dev=dev, host_config=config)
+
+    url = f"http://{host}:{port}"
+    typer.echo(f"Illusion Code Web UI: {url}")
+    if not dev:
+        import webbrowser
+        webbrowser.open(url)
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 # ---------------------------------------------------------------------------
