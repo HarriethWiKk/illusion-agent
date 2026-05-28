@@ -52,6 +52,15 @@ const ZH: Record<string, string> = {
   connecting: '正在连接...',
   disconnected: '连接已断开',
   reconnecting: '正在重连...',
+  thinking_process: '思考过程',
+  status_panel: '状态',
+  session_info: '会话',
+  context_usage: '上下文',
+  cwd: '工作目录',
+  connected_status: '连接状态',
+  permission: '权限',
+  thinking_level: '思考强度',
+  tokens: 'tokens',
 };
 
 const EN: Record<string, string> = {
@@ -95,6 +104,15 @@ const EN: Record<string, string> = {
   connecting: 'Connecting...',
   disconnected: 'Disconnected',
   reconnecting: 'Reconnecting...',
+  thinking_process: 'Thinking',
+  status_panel: 'Status',
+  session_info: 'Session',
+  context_usage: 'Context',
+  cwd: 'Working Dir',
+  connected_status: 'Connection',
+  permission: 'Permission',
+  thinking_level: 'Thinking',
+  tokens: 'tokens',
 };
 
 export function t(lang: UiLanguage, key: string): string {

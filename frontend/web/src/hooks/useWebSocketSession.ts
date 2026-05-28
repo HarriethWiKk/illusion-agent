@@ -26,6 +26,7 @@ function stripToolCallLines(text: string): string {
 export interface WebSocketSessionState {
   staticItems: TranscriptItem[];
   assistantBuffer: string;
+  streamingReasoning: string;
   status: Record<string, unknown>;
   tasks: TaskSnapshot[];
   commands: string[];
@@ -42,6 +43,7 @@ export interface WebSocketSessionState {
   bgAgentLabel: string | null;
   commandResult: { text: string; type: 'success' | 'error' | 'info' } | null;
   connected: boolean;
+  sessions: { value: string; label: string }[];
   sendRequest: (payload: Record<string, unknown>) => void;
   clearStaticItems: () => void;
 }
@@ -68,6 +70,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     type: 'success' | 'error' | 'info';
   } | null>(null);
   const [connected, setConnected] = useState(false);
+  const [streamingReasoning, setStreamingReasoning] = useState('');
+  const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -90,26 +94,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     rawBufferRef.current += pending;
 
     let displayText = rawBufferRef.current;
-    const think = showThinkingRef.current;
-    if (!think) {
-      displayText = displayText
-        .replace(/<think\b[^>]*>[\s\S]*?<\/think\b[^>]*>/gi, '')
-        .replace(/<\/think\b[^>]*>/gi, '')
-        .replace(/<think\b[^>]*>/gi, '')
-        .replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
-    } else {
-      displayText = displayText
-        .replace(/<think\b[^>]*>/gi, '')
-        .replace(/<\/think\b[^>]*>/gi, '')
-        .replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
-    }
-    if (think && reasoningBufferRef.current.trim()) {
-      const reasoning = reasoningBufferRef.current.trim();
-      const text = displayText.trim();
-      displayText = text ? `${reasoning}\n\n${text}` : reasoning;
-    }
+    displayText = displayText
+      .replace(/<think\b[^>]*>[\s\S]*?<\/think\b[^>]*>/gi, '')
+      .replace(/<\/think\b[^>]*>/gi, '')
+      .replace(/<think\b[^>]*>/gi, '')
+      .replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
     assistantBufferRef.current = displayText;
     setAssistantBuffer(displayText);
+    if (showThinkingRef.current) {
+      setStreamingReasoning(reasoningBufferRef.current);
+    }
   }, []);
 
   const clearAssistantDelta = useCallback((): void => {
@@ -122,6 +116,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     }
     setAssistantBuffer('');
     reasoningBufferRef.current = '';
+    setStreamingReasoning('');
   }, []);
 
   const sendRequest = useCallback((payload: Record<string, unknown>): void => {
@@ -184,22 +179,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         return;
       }
-      if (evt.type === 'transcript_item' && evt.item) {
-        pushStatic(evt.item as TranscriptItem);
-        return;
-      }
       if (evt.type === 'assistant_delta') {
         assistantFlushedForToolRef.current = false;
         if (evt.reasoning) {
           reasoningBufferRef.current += evt.reasoning;
+          if (showThinkingRef.current) {
+            setStreamingReasoning(reasoningBufferRef.current);
+          }
         }
         const delta = evt.message ?? '';
         if (!delta) {
-          if (showThinkingRef.current && reasoningBufferRef.current.trim()) {
-            const display = reasoningBufferRef.current.trim();
-            assistantBufferRef.current = display;
-            setAssistantBuffer(display);
-          }
           return;
         }
         pendingAssistantDeltaRef.current += delta;
@@ -240,6 +229,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setBusy(false);
         return;
       }
+      // 过滤客户端指令（/new, /model 等），不在会话中渲染
+      if (evt.type === 'transcript_item' && evt.item) {
+        if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
+        pushStatic(evt.item as TranscriptItem);
+        return;
+      }
       if ((evt.type === 'tool_started' || evt.type === 'tool_completed') && evt.item) {
         if (evt.type === 'tool_started') {
           if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current || reasoningBufferRef.current.trim()) {
@@ -268,26 +263,24 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           setPendingToolCalls(pendingToolCallsRef.current);
           return;
         }
-        // tool_completed
+        // tool_completed — 合并为单个 tool_result 项，避免重复显示
         const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
         const pendingIdx = pendingToolCallsRef.current.findIndex((p) => p.tool_use_id === toolUseId);
+        let toolName = evt.item.tool_name ?? evt.tool_name ?? 'tool';
+        let toolInput = (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined;
         if (pendingIdx !== -1) {
           const pending = pendingToolCallsRef.current[pendingIdx]!;
+          toolName = pending.tool_name || toolName;
+          toolInput = pending.tool_input || toolInput;
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
-          pushStatic({
-            role: 'tool',
-            text: pending.tool_name,
-            tool_name: pending.tool_name,
-            tool_input: pending.tool_input,
-            tool_use_id: pending.tool_use_id || undefined,
-          });
         }
         const enrichedItem: TranscriptItem = {
           ...evt.item,
-          tool_name: evt.item.tool_name ?? evt.tool_name ?? undefined,
-          tool_input: (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined,
-          tool_use_id: (evt.item.tool_use_id ?? evt.tool_use_id ?? undefined) as string | undefined,
+          role: 'tool_result',
+          tool_name: toolName,
+          tool_input: toolInput,
+          tool_use_id: toolUseId || undefined,
           is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined,
         };
         pushStatic(enrichedItem);
@@ -320,9 +313,19 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       }
       if (evt.type === 'select_request') {
         const m = evt.modal ?? {};
+        const cmd = String(m.command ?? '');
+        const opts = (evt.select_options ?? []).map((o) => ({
+          value: String(o.value ?? ''),
+          label: String(o.label ?? ''),
+        }));
+        if (cmd === 'resume') {
+          setSessions(opts);
+          setBusy(false);
+          return;
+        }
         setSelectRequest({
           title: String(m.title ?? 'Select'),
-          command: String(m.command ?? ''),
+          command: cmd,
           options: evt.select_options ?? [],
         });
         setBusy(false);
@@ -375,6 +378,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     () => ({
       staticItems,
       assistantBuffer,
+      streamingReasoning,
       status,
       tasks,
       commands,
@@ -391,11 +395,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       bgAgentLabel,
       commandResult,
       connected,
+      sessions,
       sendRequest,
       clearStaticItems,
     }),
     [
-      assistantBuffer, bgAgentLabel, busy, commandResult, commands, connected,
+      assistantBuffer, bgAgentLabel, busy, commandResult, commands, connected, streamingReasoning, sessions,
       mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking,
       staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems,
       sendRequest, clearStaticItems,

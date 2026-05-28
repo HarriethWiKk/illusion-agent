@@ -32,14 +32,14 @@ function Dropdown({
           if (!open && onOpen) onOpen();
           setOpen(!open);
         }}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 px-3.5 py-2 text-sm text-khaki-600 hover:bg-cream-200/80 hover:text-khaki-700 rounded-xl transition-all duration-200 cursor-pointer hover:shadow-soft active:scale-[0.98]"
       >
-        {value} <span className="text-gray-400">▾</span>
+        {value} <span className="text-khaki-400 text-[10px]">▾</span>
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-md shadow-lg z-20 min-w-[160px] py-1">
+          <div className="fixed inset-0 z-10 animate-fade-in" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full left-0 mb-2 bg-white/95 backdrop-blur-md border border-sand-200/80 rounded-2xl shadow-warm z-20 min-w-[180px] py-2 animate-scale-in">
             {options.map((opt) => (
               <button
                 key={opt.value}
@@ -47,9 +47,10 @@ function Dropdown({
                   onChange(opt.value);
                   setOpen(false);
                 }}
-                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors cursor-pointer ${
-                  opt.active ? 'text-blue-600 font-medium' : 'text-gray-700'
+                className={`w-full text-left px-4 py-2.5 text-sm hover:bg-cream-100/80 transition-all duration-200 cursor-pointer rounded-lg mx-1 ${
+                  opt.active ? 'text-khaki-700 font-medium bg-gradient-to-r from-cream-200/80 to-sand-200/80' : 'text-khaki-600'
                 }`}
+                style={{ width: 'calc(100% - 8px)' }}
               >
                 {opt.label}
               </button>
@@ -98,7 +99,7 @@ export default function Toolbar({ lang, status, selectRequest, onModeChange, onM
   }, [selectRequest, currentModel]);
 
   return (
-    <div className="flex items-center gap-1 px-4 py-1.5 border-t border-gray-100 bg-gray-50/50">
+    <div className="flex items-center gap-2 px-6 py-2.5 border-t border-sand-200/60 bg-gradient-to-t from-cream-100/80 to-sand-100/50 backdrop-blur-sm">
       <Dropdown value={currentMode} options={modeOptions} onChange={onModeChange} />
       <Dropdown value={currentModel} options={modelOptions} onChange={onModelChange} onOpen={onRequestModelList} />
       <Dropdown value={currentEffort} options={effortOptions} onChange={onEffortChange} />
