@@ -125,13 +125,13 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
 
   const setEffortValue = useCallback((value: string): void => {
-    // 与 terminal 端一致：用 submit_line 发送 /effort 命令
-    sendRequest({ type: 'submit_line', line: `/effort ${value}` });
+    // 与 terminal 端一致：用 apply_select_command 发送选择结果
+    sendRequest({ type: 'apply_select_command', command: 'effort', value });
   }, [sendRequest]);
 
   const setModelValue = useCallback((value: string): void => {
-    // 与 terminal 端一致：用 submit_line 发送 /model 命令
-    sendRequest({ type: 'submit_line', line: `/model set ${value}` });
+    // 与 terminal 端一致：用 apply_select_command 发送选择结果
+    sendRequest({ type: 'apply_select_command', command: 'model', value });
   }, [sendRequest]);
 
   useEffect(() => {
@@ -160,8 +160,22 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'state_snapshot') {
-        setStatus(evt.state ?? {});
-        const st = evt.state?.show_thinking;
+        const newState = evt.state ?? {};
+        // 检测 model/effort 变化，重新请求选项以同步 active 标记
+        const oldModel = typeof status.model === 'string' ? status.model : '';
+        const newModel = typeof newState.model === 'string' ? newState.model : '';
+        if (newModel && newModel !== oldModel) {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'select_command', command: 'model' }));
+        }
+        const oldEffort = typeof status.effort === 'string' ? status.effort : '';
+        const newEffort = typeof newState.effort === 'string' ? newState.effort : '';
+        if (newEffort && newEffort !== oldEffort) {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'select_command', command: 'effort' }));
+        }
+        setStatus(newState);
+        const st = newState.show_thinking;
         if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
         return;
@@ -270,17 +284,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         if (cmd === 'effort') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
           setEffortOptions(opts);
-          // 用 active 选项覆盖 status.effort（来自 JSON 文件的正确值）
-          const activeEffort = opts.find((o) => o.active)?.value;
-          if (activeEffort) setStatus((s) => ({ ...s, effort: activeEffort }));
           setBusy(false); return;
         }
         if (cmd === 'model') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
           setModelOptions(opts);
-          // 用 active 选项的 label 覆盖 status.model（显示名而非 provider key）
-          const activeModel = opts.find((o) => o.active);
-          if (activeModel) setStatus((s) => ({ ...s, model: activeModel.label }));
           setBusy(false); return;
         }
         if (cmd === 'permissions') {

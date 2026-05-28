@@ -1055,11 +1055,11 @@ class WebBackendHost:
         seen: set[str] = set()
         options: list[dict[str, object]] = []
 
-        # 当前模型排第一位
-        if current_model:
-            seen.add(current_model)
+        # 当前模型排第一位（value 用 model 引用，label 用显示名）
+        if settings.model:
+            seen.add(settings.model)
             options.append({
-                "value": current_model,
+                "value": settings.model,
                 "label": current_model,
                 "description": "Current",
                 "active": True,

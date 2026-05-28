@@ -56,6 +56,8 @@ export default function Toolbar({ lang, status, effortOptions, modelOptions, onM
   const currentMode = String(status?.permission_mode ?? 'Default');
   const currentEffort = String(status?.effort ?? '');
   const currentModel = String(status?.model ?? '');
+  // model 显示名：优先从 modelOptions 的 active 选项取 label，回退到 status.model
+  const currentModelLabel = modelOptions.find((o) => o.active)?.label || currentModel;
 
   const effortOpts = effortOptions.length > 0 ? effortOptions : [
     { value: 'low', label: t(lang, 'effort_low') }, { value: 'medium', label: t(lang, 'effort_medium') },
@@ -67,7 +69,7 @@ export default function Toolbar({ lang, status, effortOptions, modelOptions, onM
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-t border-border-light bg-surface-card-alt">
       <Dropdown value={currentMode} options={modeOptions} onChange={onModeChange} />
-      <Dropdown value={currentModel} placeholder="Model" options={modelOpts} onChange={onModelChange} onOpen={onRequestModelList} />
+      <Dropdown value={currentModelLabel} placeholder="Model" options={modelOpts} onChange={onModelChange} onOpen={onRequestModelList} />
       <Dropdown value={currentEffort} placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={onEffortChange} />
     </div>
   );

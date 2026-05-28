@@ -893,16 +893,11 @@ def web_start(
     """启动 Illusion Code Web 界面 / Launch Illusion Code Web UI"""
     import threading
     import uvicorn
-    from illusion.config.settings import load_settings
     from illusion.ui.web.server import create_app
     from illusion.ui.web.ws_host import WebHostConfig
 
-    settings = load_settings()
-    resolved_model = model or settings.model
-
     config = WebHostConfig(
-        model=resolved_model,
-        effort=getattr(settings, "effort", None),
+        model=model,
     )
 
     app = create_app(dev=dev, host_config=config)

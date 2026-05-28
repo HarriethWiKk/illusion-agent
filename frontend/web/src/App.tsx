@@ -18,11 +18,12 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
 
-  // 连接后自动请求 effort 和 model 列表
+  // 连接后自动请求 effort、model 和 permissions 列表
   useEffect(() => {
     if (session.connected && session.ready) {
       session.sendRequest({ type: 'select_command', command: 'effort' });
       session.sendRequest({ type: 'select_command', command: 'model' });
+      session.sendRequest({ type: 'select_command', command: 'permissions' });
     }
   }, [session.connected, session.ready]);
 
@@ -32,8 +33,8 @@ export default function App() {
   const handleSelectSession = (id: string) => session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
   const handleDeleteSessions = () => session.sendRequest({ type: 'select_command', command: 'delete' });
   const handleModeChange = (v: string) => {
-    // 与 terminal 端一致：用 submit_line 发送 /permissions 命令
-    session.sendRequest({ type: 'submit_line', line: `/permissions ${v}` });
+    // 与 terminal 端一致：用 submit_line 发送 /permissions set 命令
+    session.sendRequest({ type: 'submit_line', line: `/permissions set ${v}` });
   };
   const handleRequestModelList = () => session.sendRequest({ type: 'select_command', command: 'model' });
 
