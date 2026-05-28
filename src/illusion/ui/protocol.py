@@ -347,6 +347,8 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "show_thinking": state.show_thinking,
         "phase": state.phase,
         "session_id": state.session_id,
+        "context_window": state.context_window,
+        "context_tokens": state.context_tokens,
         "agent_count": len(list_active_agents()),
     }
 

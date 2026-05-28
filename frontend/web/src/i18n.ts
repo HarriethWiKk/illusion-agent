@@ -66,6 +66,9 @@ const ZH: Record<string, string> = {
   permission: '权限',
   thinking_level: '思考强度',
   tokens: 'tokens',
+  collapse_panel: '收起侧栏',
+  expand_panel: '展开侧栏',
+  context_window: '上下文窗口',
 };
 
 const EN: Record<string, string> = {
@@ -123,6 +126,9 @@ const EN: Record<string, string> = {
   permission: 'Permission',
   thinking_level: 'Thinking',
   tokens: 'tokens',
+  collapse_panel: 'Collapse',
+  expand_panel: 'Expand',
+  context_window: 'Context Window',
 };
 
 export function t(lang: UiLanguage, key: string): string {

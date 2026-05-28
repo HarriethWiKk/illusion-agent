@@ -16,6 +16,7 @@ export default function App() {
     [session.status?.ui_language],
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
 
   // 连接后自动请求 effort、model 和 permissions 列表
@@ -72,7 +73,8 @@ export default function App() {
           onEffortChange={session.setEffortValue} onRequestModelList={handleRequestModelList} />
       </div>
       <RightPanel lang={lang} status={session.status}
-        connected={session.connected} busy={session.busy} />
+        connected={session.connected} busy={session.busy}
+        collapsed={rightPanelCollapsed} onToggle={() => setRightPanelCollapsed(!rightPanelCollapsed)} />
 
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">

@@ -465,6 +465,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     Args:
         bundle: 运行时数据 bundle
     """
+    from illusion.services.compact import estimate_conversation_tokens
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
     provider = detect_provider(settings)
@@ -486,6 +487,8 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         show_thinking=settings.show_thinking,
         phase=bundle.app_state.get().phase,
         session_id=bundle.session_id,
+        context_window=settings.context_window,
+        context_tokens=estimate_conversation_tokens(bundle.engine.messages),
     )
 
 

@@ -62,4 +62,6 @@ class AppState:
     show_thinking: bool = True  # 是否显示思考过程
     phase: str = "idle"  # 会话阶段: idle / thinking / tool_executing
     session_id: str = ""  # 当前会话 ID
+    context_window: int = 0  # 上下文窗口大小（tokens）
+    context_tokens: int = 0  # 当前已用 tokens（估算）
     team_context: dict[str, object] | None = None  # 团队上下文
