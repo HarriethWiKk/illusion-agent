@@ -9,24 +9,30 @@ interface ToolbarProps {
   onModeChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onEffortChange: (value: string) => void;
+  onRequestModelList: () => void;
 }
 
 function Dropdown({
   value,
   options,
   onChange,
+  onOpen,
 }: {
   value: string;
   options: { value: string; label: string; active?: boolean }[];
   onChange: (v: string) => void;
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
+        onClick={() => {
+          if (!open && onOpen) onOpen();
+          setOpen(!open);
+        }}
+        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors cursor-pointer"
       >
         {value} <span className="text-gray-400">▾</span>
       </button>
@@ -41,7 +47,7 @@ function Dropdown({
                   onChange(opt.value);
                   setOpen(false);
                 }}
-                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors ${
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors cursor-pointer ${
                   opt.active ? 'text-blue-600 font-medium' : 'text-gray-700'
                 }`}
               >
@@ -55,7 +61,7 @@ function Dropdown({
   );
 }
 
-export default function Toolbar({ lang, status, selectRequest, onModeChange, onModelChange, onEffortChange }: ToolbarProps) {
+export default function Toolbar({ lang, status, selectRequest, onModeChange, onModelChange, onEffortChange, onRequestModelList }: ToolbarProps) {
   const modeOptions = useMemo(
     () => [
       { value: 'default', label: t(lang, 'mode_default') },
@@ -94,7 +100,7 @@ export default function Toolbar({ lang, status, selectRequest, onModeChange, onM
   return (
     <div className="flex items-center gap-1 px-4 py-1.5 border-t border-gray-100 bg-gray-50/50">
       <Dropdown value={currentMode} options={modeOptions} onChange={onModeChange} />
-      <Dropdown value={currentModel} options={modelOptions} onChange={onModelChange} />
+      <Dropdown value={currentModel} options={modelOptions} onChange={onModelChange} onOpen={onRequestModelList} />
       <Dropdown value={currentEffort} options={effortOptions} onChange={onEffortChange} />
     </div>
   );

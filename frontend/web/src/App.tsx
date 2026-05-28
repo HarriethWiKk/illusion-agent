@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { normalizeLanguage, type UiLanguage } from './i18n';
+import { normalizeLanguage, t, type UiLanguage } from './i18n';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -44,15 +44,26 @@ export default function App() {
     session.sendRequest({ type: 'apply_select_command', command: 'effort', value });
   };
 
+  // 请求模型列表（用于工具栏模型下拉）
+  const handleRequestModelList = () => {
+    session.sendRequest({ type: 'select_command', command: 'model' });
+  };
+
   return (
     <div className="flex h-screen bg-white">
       <Sidebar
         lang={lang}
+        connected={session.connected}
         onNewSession={handleNewSession}
         onSelectSession={handleSelectSession}
         onListSessions={() => session.sendRequest({ type: 'list_sessions' })}
       />
       <div className="flex flex-col flex-1 min-w-0">
+        {!session.connected && (
+          <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-xs text-yellow-700 text-center">
+            {t(lang, 'connecting')}
+          </div>
+        )}
         <ChatArea
           lang={lang}
           staticItems={session.staticItems}
@@ -65,6 +76,7 @@ export default function App() {
         <PromptInput
           lang={lang}
           busy={session.busy}
+          connected={session.connected}
           onSubmit={handleSubmit}
           onStop={handleStop}
         />
@@ -75,6 +87,7 @@ export default function App() {
           onModeChange={handleModeChange}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
+          onRequestModelList={handleRequestModelList}
         />
       </div>
     </div>

@@ -148,20 +148,25 @@ class WebBackendHost:
     async def run(self) -> int:
         """运行后端主机主循环。"""
         # 构建运行时环境
-        self._bundle = await build_runtime(
-            model=self._config.model,
-            max_turns=self._config.max_turns,
-            base_url=self._config.base_url,
-            system_prompt=self._config.system_prompt,
-            api_key=self._config.api_key,
-            api_format=self._config.api_format,
-            api_client=self._config.api_client,
-            restore_messages=self._config.restore_messages,
-            restore_session_id=self._config.restore_session_id,
-            permission_prompt=self._ask_permission,
-            ask_user_prompt=self._ask_question,
-            effort=self._config.effort,
-        )
+        try:
+            self._bundle = await build_runtime(
+                model=self._config.model,
+                max_turns=self._config.max_turns,
+                base_url=self._config.base_url,
+                system_prompt=self._config.system_prompt,
+                api_key=self._config.api_key,
+                api_format=self._config.api_format,
+                api_client=self._config.api_client,
+                restore_messages=self._config.restore_messages,
+                restore_session_id=self._config.restore_session_id,
+                permission_prompt=self._ask_permission,
+                ask_user_prompt=self._ask_question,
+                effort=self._config.effort,
+            )
+        except Exception as exc:
+            log.exception("Failed to build runtime")
+            await self._emit(BackendEvent(type="error", message=f"Runtime init failed: {exc}"))
+            return 1
         await start_runtime(self._bundle)
         # 加载总是允许的工具列表
         self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)

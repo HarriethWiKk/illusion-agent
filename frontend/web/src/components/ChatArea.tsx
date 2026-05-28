@@ -23,27 +23,21 @@ export default function ChatArea({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [staticItems, assistantBuffer, pendingToolCalls]);
 
-  if (!connected) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-gray-400">
-        {t(lang, 'connecting')}
-      </div>
-    );
-  }
-
-  if (!ready && staticItems.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-gray-400">
-        {t(lang, 'connecting')}
-      </div>
-    );
-  }
-
   const hasContent = staticItems.length > 0 || assistantBuffer || pendingToolCalls.length > 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {!hasContent && <WelcomeScreen lang={lang} />}
+      {!connected && !hasContent && (
+        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+          {t(lang, 'connecting')}
+        </div>
+      )}
+      {connected && !ready && !hasContent && (
+        <WelcomeScreen lang={lang} />
+      )}
+      {ready && !hasContent && (
+        <WelcomeScreen lang={lang} />
+      )}
       {staticItems.map((item, idx) => (
         <MessageBubble key={idx} item={item} />
       ))}

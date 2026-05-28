@@ -63,8 +63,17 @@ def create_app(
             await host.run()
         except WebSocketDisconnect:
             log.info("WebSocket client disconnected")
-        except Exception:
+        except Exception as exc:
             log.exception("WebSocket error")
+            # 向前端发送错误事件后再关闭
+            try:
+                import json
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Backend error: {exc}",
+                }))
+            except Exception:
+                pass
 
     if not dev:
         dist_dir = _find_frontend_dist()
