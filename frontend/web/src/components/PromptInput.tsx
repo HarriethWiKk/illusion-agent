@@ -97,18 +97,18 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   };
 
   return (
-    <div className="px-6 py-4 border-t border-sand-200/60 bg-gradient-to-t from-cream-100/50 to-transparent relative">
+    <div className="px-6 py-4 border-t border-border-light bg-surface-card-alt relative">
       {showCommands && filteredCommands.length > 0 && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-6 right-6 mb-2 bg-white/95 backdrop-blur-md border border-sand-200/80 rounded-2xl shadow-warm max-h-56 overflow-y-auto py-2 z-20 animate-slide-up"
+          className="absolute bottom-full left-6 right-6 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 z-20"
         >
           {filteredCommands.map((cmd, idx) => (
             <button
               key={cmd}
               onClick={() => selectCommand(cmd)}
-              className={`w-full text-left px-4 py-2.5 text-sm transition-all duration-200 cursor-pointer ${
-                idx === selectedIndex ? 'bg-gradient-to-r from-cream-200/80 to-sand-200/80 text-khaki-800' : 'text-khaki-600 hover:bg-cream-100/80'
+              className={`w-full text-left px-4 py-2 text-sm transition-colors cursor-pointer ${
+                idx === selectedIndex ? 'bg-primary-light text-primary' : 'text-content-secondary hover:bg-surface-hover'
               }`}
             >
               <span className="font-mono">/{cmd}</span>
@@ -116,7 +116,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           ))}
         </div>
       )}
-      <div className="flex items-end gap-3 bg-white/90 backdrop-blur-sm rounded-2xl border border-sand-300/60 px-4 py-3 shadow-soft hover:shadow-warm transition-shadow duration-300 focus-within:shadow-warm focus-within:border-khaki-400/60">
+      <div className="flex items-center gap-3 bg-white rounded-xl border border-border-medium px-4 py-2.5 shadow-soft focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
         <textarea
           value={value}
           onChange={handleChange}
@@ -124,7 +124,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           placeholder={connected ? t(lang, 'input_placeholder') : t(lang, 'disconnected')}
           rows={1}
           disabled={!connected}
-          className="flex-1 resize-none bg-transparent outline-none text-base text-khaki-800 placeholder-khaki-400 min-h-[28px] max-h-[140px] disabled:opacity-50 leading-relaxed font-body"
+          className="flex-1 resize-none bg-transparent outline-none text-base text-content-primary placeholder-content-disabled min-h-[24px] max-h-[140px] disabled:opacity-50 leading-normal py-0.5"
           style={{ height: 'auto', overflow: 'hidden' }}
           onInput={(e) => {
             const el = e.currentTarget;
@@ -135,10 +135,10 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         <button
           onClick={handleSend}
           disabled={!connected && !busy}
-          className={`shrink-0 w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95 ${
+          className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             busy
-              ? 'bg-gradient-to-br from-red-100 to-red-200 text-red-500 hover:from-red-200 hover:to-red-300 shadow-[0_0_12px_rgba(239,68,68,0.2)]'
-              : 'bg-gradient-to-br from-cream-300 to-khaki-400 text-white hover:from-cream-400 hover:to-khaki-500 shadow-warm'
+              ? 'bg-red-100 text-danger hover:bg-red-200'
+              : 'bg-primary text-white hover:bg-primary-hover'
           }`}
           title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}
         >

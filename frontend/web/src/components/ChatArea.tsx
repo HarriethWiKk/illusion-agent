@@ -26,9 +26,9 @@ export default function ChatArea({
   const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-cream-50/30 via-transparent to-sand-50/30">
+    <div className="flex-1 overflow-y-auto bg-surface-main">
       {!connected && !hasContent && (
-        <div className="flex items-center justify-center h-full text-khaki-400 text-base font-medium animate-pulse">
+        <div className="flex items-center justify-center h-full text-content-disabled text-base font-medium">
           {t(lang, 'connecting')}
         </div>
       )}

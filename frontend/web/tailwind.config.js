@@ -4,41 +4,46 @@ export default {
   theme: {
     extend: {
       colors: {
-        cream: {
-          50: '#fefdfb',
-          100: '#fdf9f3',
-          200: '#faf2e4',
-          300: '#f5e6ce',
-          400: '#eed5b0',
-          500: '#e4c08e',
-          600: '#d4a66a',
-          700: '#b8864e',
-          800: '#96693a',
-          900: '#7a5530',
+        primary: {
+          DEFAULT: '#6366F1',
+          hover: '#4F46E5',
+          light: 'rgba(99, 102, 241, 0.1)',
         },
-        khaki: {
-          50: '#faf8f5',
-          100: '#f5f0e8',
-          200: '#ebe0d0',
-          300: '#dccbb0',
-          400: '#c9b08a',
-          500: '#b89668',
-          600: '#a67d50',
-          700: '#8a6540',
-          800: '#705034',
-          900: '#5c422c',
+        secondary: {
+          DEFAULT: '#8B5CF6',
+          hover: '#7C3AED',
         },
-        sand: {
-          50: '#fdfcfa',
-          100: '#faf7f2',
-          200: '#f4ede3',
-          300: '#ece0d0',
-          400: '#e0ccb4',
-          500: '#d1b696',
-          600: '#be9d78',
-          700: '#a3835e',
-          800: '#876b4c',
-          900: '#6e573e',
+        accent: {
+          DEFAULT: '#F59E0B',
+          hover: '#D97706',
+        },
+        success: {
+          DEFAULT: '#10B981',
+          hover: '#059669',
+        },
+        warning: {
+          DEFAULT: '#F59E0B',
+          hover: '#D97706',
+        },
+        danger: {
+          DEFAULT: '#EF4444',
+          hover: '#DC2626',
+        },
+        surface: {
+          main: '#F8FAFC',
+          card: '#FFFFFF',
+          'card-alt': '#F1F5F9',
+          hover: '#E2E8F0',
+          input: '#FFFFFF',
+        },
+        content: {
+          primary: '#1E293B',
+          secondary: '#64748B',
+          disabled: '#94A3B8',
+        },
+        border: {
+          light: 'rgba(148, 163, 184, 0.2)',
+          medium: 'rgba(148, 163, 184, 0.4)',
         },
       },
       fontFamily: {
@@ -47,43 +52,14 @@ export default {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       boxShadow: {
-        'soft': '0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04)',
-        'warm': '0 4px 20px -2px rgba(184, 134, 11, 0.08)',
-        'glow': '0 0 20px rgba(184, 134, 11, 0.15)',
+        'soft': '0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06)',
+        'card': '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
+        'glow': '0 0 20px rgba(99, 102, 241, 0.15)',
       },
-      animation: {
-        'fade-in': 'fadeIn 0.5s ease-out',
-        'slide-up': 'slideUp 0.4s ease-out',
-        'slide-down': 'slideDown 0.3s ease-out',
-        'scale-in': 'scaleIn 0.3s ease-out',
-        'pulse-warm': 'pulseWarm 2s ease-in-out infinite',
-        'float': 'float 3s ease-in-out infinite',
-      },
-      keyframes: {
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(10px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        slideDown: {
-          '0%': { opacity: '0', transform: 'translateY(-10px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        scaleIn: {
-          '0%': { opacity: '0', transform: 'scale(0.95)' },
-          '100%': { opacity: '1', transform: 'scale(1)' },
-        },
-        pulseWarm: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.7' },
-        },
-        float: {
-          '0%, 100%': { transform: 'translateY(0)' },
-          '50%': { transform: 'translateY(-5px)' },
-        },
+      borderRadius: {
+        'sm': '10px',
+        'md': '14px',
+        'lg': '20px',
       },
     },
   },

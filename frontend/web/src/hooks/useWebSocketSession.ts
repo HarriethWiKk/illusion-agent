@@ -4,7 +4,6 @@ import type {
   BackendEvent,
   McpServerSnapshot,
   PendingToolCall,
-  SelectRequestPayload,
   SwarmNotificationSnapshot,
   SwarmTeammateSnapshot,
   TaskSnapshot,
@@ -14,7 +13,6 @@ import type {
 
 const ASSISTANT_DELTA_FLUSH_MS = 8;
 const ASSISTANT_DELTA_FLUSH_CHARS = 16;
-
 const TOOL_CALL_LINE_RE = /^\s{2,}\w[\w-]*\s*\(.*\)\s*$/;
 
 function stripToolCallLines(text: string): string {
@@ -22,6 +20,8 @@ function stripToolCallLines(text: string): string {
   const filtered = lines.filter((line) => !TOOL_CALL_LINE_RE.test(line));
   return filtered.length > 0 ? filtered.join('\n') : text;
 }
+
+type Option = { value: string; label: string; active?: boolean };
 
 export interface WebSocketSessionState {
   staticItems: TranscriptItem[];
@@ -32,7 +32,8 @@ export interface WebSocketSessionState {
   commands: string[];
   mcpServers: McpServerSnapshot[];
   modal: Record<string, unknown> | null;
-  selectRequest: SelectRequestPayload | null;
+  effortOptions: Option[];
+  modelOptions: Option[];
   busy: boolean;
   ready: boolean;
   showThinking: boolean;
@@ -46,6 +47,8 @@ export interface WebSocketSessionState {
   sessions: { value: string; label: string }[];
   deleteSessions: { value: string; label: string }[];
   clearDeleteSessions: () => void;
+  setEffortValue: (value: string) => void;
+  setModelValue: (value: string) => void;
   sendRequest: (payload: Record<string, unknown>) => void;
   clearStaticItems: () => void;
 }
@@ -53,12 +56,14 @@ export interface WebSocketSessionState {
 export function useWebSocketSession(url: string): WebSocketSessionState {
   const [staticItems, setStaticItems] = useState<TranscriptItem[]>([]);
   const [assistantBuffer, setAssistantBuffer] = useState('');
+  const [streamingReasoning, setStreamingReasoning] = useState('');
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
   const [commands, setCommands] = useState<string[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServerSnapshot[]>([]);
   const [modal, setModal] = useState<Record<string, unknown> | null>(null);
-  const [selectRequest, setSelectRequest] = useState<SelectRequestPayload | null>(null);
+  const [effortOptions, setEffortOptions] = useState<Option[]>([]);
+  const [modelOptions, setModelOptions] = useState<Option[]>([]);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [showThinking, setShowThinking] = useState(true);
@@ -67,12 +72,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
   const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
-  const [commandResult, setCommandResult] = useState<{
-    text: string;
-    type: 'success' | 'error' | 'info';
-  } | null>(null);
+  const [commandResult, setCommandResult] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [connected, setConnected] = useState(false);
-  const [streamingReasoning, setStreamingReasoning] = useState('');
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
   const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
 
@@ -95,9 +96,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     if (!pending) return;
     pendingAssistantDeltaRef.current = '';
     rawBufferRef.current += pending;
-
-    let displayText = rawBufferRef.current;
-    displayText = displayText
+    let displayText = rawBufferRef.current
       .replace(/<think\b[^>]*>[\s\S]*?<\/think\b[^>]*>/gi, '')
       .replace(/<\/think\b[^>]*>/gi, '')
       .replace(/<think\b[^>]*>/gi, '')
@@ -110,10 +109,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     pendingAssistantDeltaRef.current = '';
     assistantBufferRef.current = '';
     rawBufferRef.current = '';
-    if (assistantFlushTimerRef.current) {
-      clearTimeout(assistantFlushTimerRef.current);
-      assistantFlushTimerRef.current = null;
-    }
+    if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
     setAssistantBuffer('');
     reasoningBufferRef.current = '';
     setStreamingReasoning('');
@@ -125,45 +121,39 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     ws.send(JSON.stringify(payload));
   }, []);
 
-  const clearStaticItems = useCallback((): void => {
-    setStaticItems([]);
-    clearAssistantDelta();
-  }, [clearAssistantDelta]);
+  const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
+  const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
 
-  const clearDeleteSessions = useCallback((): void => {
-    setDeleteSessions([]);
-  }, []);
+  const setEffortValue = useCallback((value: string): void => {
+    // 与 terminal 端一致：用 submit_line 发送 /effort 命令
+    sendRequest({ type: 'submit_line', line: `/effort ${value}` });
+  }, [sendRequest]);
+
+  const setModelValue = useCallback((value: string): void => {
+    // 与 terminal 端一致：用 submit_line 发送 /model 命令
+    sendRequest({ type: 'submit_line', line: `/model set ${value}` });
+  }, [sendRequest]);
 
   useEffect(() => {
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
-    ws.onclose = () => {
-      setConnected(false);
-      setReady(false);
-    };
+    ws.onclose = () => { setConnected(false); setReady(false); };
     ws.onerror = () => setConnected(false);
-
     ws.onmessage = (event) => {
       let parsed: BackendEvent;
-      try {
-        parsed = JSON.parse(event.data as string) as BackendEvent;
-      } catch {
-        return;
-      }
+      try { parsed = JSON.parse(event.data as string) as BackendEvent; } catch { return; }
       handleEvent(parsed);
     };
 
     function handleEvent(evt: BackendEvent): void {
+      // === 状态 ===
       if (evt.type === 'ready') {
         setReady(true);
         setStatus(evt.state ?? {});
         const st = evt.state?.show_thinking;
-        if (typeof st === 'boolean') {
-          setShowThinking(st);
-          showThinkingRef.current = st;
-        }
+        if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
@@ -172,53 +162,33 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       if (evt.type === 'state_snapshot') {
         setStatus(evt.state ?? {});
         const st = evt.state?.show_thinking;
-        if (typeof st === 'boolean') {
-          setShowThinking(st);
-          showThinkingRef.current = st;
-        }
+        if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
         return;
       }
-      if (evt.type === 'tasks_snapshot') {
-        setTasks(evt.tasks ?? []);
-        return;
-      }
+      if (evt.type === 'tasks_snapshot') { setTasks(evt.tasks ?? []); return; }
+
+      // === 流式 ===
       if (evt.type === 'assistant_delta') {
         assistantFlushedForToolRef.current = false;
         setBusy(true);
-        if (evt.reasoning) {
-          reasoningBufferRef.current += evt.reasoning;
-          setStreamingReasoning(reasoningBufferRef.current);
-        }
+        if (evt.reasoning) { reasoningBufferRef.current += evt.reasoning; setStreamingReasoning(reasoningBufferRef.current); }
         const delta = evt.message ?? '';
-        if (!delta) {
-          return;
-        }
+        if (!delta) return;
         pendingAssistantDeltaRef.current += delta;
-        if (pendingAssistantDeltaRef.current.length >= ASSISTANT_DELTA_FLUSH_CHARS) {
-          flushAssistantDelta();
-          return;
-        }
+        if (pendingAssistantDeltaRef.current.length >= ASSISTANT_DELTA_FLUSH_CHARS) { flushAssistantDelta(); return; }
         if (!assistantFlushTimerRef.current) {
-          assistantFlushTimerRef.current = setTimeout(() => {
-            assistantFlushTimerRef.current = null;
-            flushAssistantDelta();
-          }, ASSISTANT_DELTA_FLUSH_MS);
+          assistantFlushTimerRef.current = setTimeout(() => { assistantFlushTimerRef.current = null; flushAssistantDelta(); }, ASSISTANT_DELTA_FLUSH_MS);
         }
         return;
       }
       if (evt.type === 'assistant_complete') {
-        if (assistantFlushTimerRef.current) {
-          clearTimeout(assistantFlushTimerRef.current);
-          assistantFlushTimerRef.current = null;
-        }
+        if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
         flushAssistantDelta();
         if (!assistantFlushedForToolRef.current) {
           const text = evt.message ?? rawBufferRef.current;
           const reasoning = (evt.reasoning ?? reasoningBufferRef.current) || undefined;
-          if (text.trim() || (reasoning ?? '').trim()) {
-            pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
-          }
+          if (text.trim() || (reasoning ?? '').trim()) pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
         }
         assistantFlushedForToolRef.current = false;
         clearAssistantDelta();
@@ -232,188 +202,121 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setBusy(false);
         return;
       }
-      // 过滤客户端指令（/new, /model 等），不在会话中渲染
+
+      // === 转录 ===
       if (evt.type === 'transcript_item' && evt.item) {
         if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
         pushStatic(evt.item as TranscriptItem);
         return;
       }
+
+      // === 工具 ===
       if ((evt.type === 'tool_started' || evt.type === 'tool_completed') && evt.item) {
         if (evt.type === 'tool_started') {
           if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current || reasoningBufferRef.current.trim()) {
-            if (assistantFlushTimerRef.current) {
-              clearTimeout(assistantFlushTimerRef.current);
-              assistantFlushTimerRef.current = null;
-            }
+            if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
             flushAssistantDelta();
             const text = rawBufferRef.current;
             const reasoning = reasoningBufferRef.current || undefined;
-            if (text.trim() || (reasoning ?? '').trim()) {
-              pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
-            }
+            if (text.trim() || (reasoning ?? '').trim()) pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
             clearAssistantDelta();
             assistantFlushedForToolRef.current = true;
           }
           setBusy(true);
           const toolInput = evt.item.tool_input ?? evt.tool_input;
           const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
-          const pendingCall: PendingToolCall = {
-            tool_name: evt.item.tool_name ?? evt.tool_name ?? 'tool',
-            tool_use_id: toolUseId,
+          pendingToolCallsRef.current = [...pendingToolCallsRef.current, {
+            tool_name: evt.item.tool_name ?? evt.tool_name ?? 'tool', tool_use_id: toolUseId,
             tool_input: (toolInput && Object.keys(toolInput as Record<string, unknown>).length > 0) ? toolInput as Record<string, unknown> : undefined,
-          };
-          pendingToolCallsRef.current = [...pendingToolCallsRef.current, pendingCall];
+          }];
           setPendingToolCalls(pendingToolCallsRef.current);
           return;
         }
-        // tool_completed — 合并为单个 tool_result 项，避免重复显示
         const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
         const pendingIdx = pendingToolCallsRef.current.findIndex((p) => p.tool_use_id === toolUseId);
         let toolName = evt.item.tool_name ?? evt.tool_name ?? 'tool';
         let toolInput = (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined;
         if (pendingIdx !== -1) {
           const pending = pendingToolCallsRef.current[pendingIdx]!;
-          toolName = pending.tool_name || toolName;
-          toolInput = pending.tool_input || toolInput;
+          toolName = pending.tool_name || toolName; toolInput = pending.tool_input || toolInput;
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
         }
-        const enrichedItem: TranscriptItem = {
-          ...evt.item,
-          role: 'tool_result',
-          tool_name: toolName,
-          tool_input: toolInput,
-          tool_use_id: toolUseId || undefined,
-          is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined,
-        };
-        pushStatic(enrichedItem);
+        pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName, tool_input: toolInput,
+          tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined });
         return;
       }
       if (evt.type === 'tool_input_updated') {
         const uid = evt.tool_use_id;
-        pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) =>
-          p.tool_use_id === uid ? { ...p, tool_input: evt.tool_input ?? undefined } : p,
-        );
+        pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) => p.tool_use_id === uid ? { ...p, tool_input: evt.tool_input ?? undefined } : p);
         setPendingToolCalls(pendingToolCallsRef.current);
         return;
       }
-      if (evt.type === 'clear_transcript') {
-        setStaticItems([]);
-        clearAssistantDelta();
-        pendingToolCallsRef.current = [];
-        setPendingToolCalls([]);
-        return;
-      }
+
+      // === 转录管理 ===
+      if (evt.type === 'clear_transcript') { setStaticItems([]); clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return; }
       if (evt.type === 'replace_transcript' && evt.items) {
-        const newItems = (evt.items as TranscriptItem[]).filter((item: TranscriptItem) => {
-          return !(item.role === 'user' && item.text.startsWith('/'));
-        });
-        setStaticItems(newItems);
-        clearAssistantDelta();
-        pendingToolCallsRef.current = [];
-        setPendingToolCalls([]);
-        return;
+        setStaticItems((evt.items as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+        clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
       }
+
+      // === 选择请求 ===
       if (evt.type === 'select_request') {
         const m = evt.modal ?? {};
         const cmd = String(m.command ?? '');
-        const opts = (evt.select_options ?? []).map((o) => ({
-          value: String(o.value ?? ''),
-          label: String(o.label ?? ''),
-        }));
-        if (cmd === 'resume') {
-          setSessions(opts);
-          setBusy(false);
-          return;
+        const rawOpts = evt.select_options ?? [];
+        if (cmd === 'resume') { setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
+        if (cmd === 'delete') { setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
+        if (cmd === 'effort') {
+          const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
+          setEffortOptions(opts);
+          // 用 active 选项覆盖 status.effort（来自 JSON 文件的正确值）
+          const activeEffort = opts.find((o) => o.active)?.value;
+          if (activeEffort) setStatus((s) => ({ ...s, effort: activeEffort }));
+          setBusy(false); return;
         }
-        if (cmd === 'delete') {
-          setDeleteSessions(opts);
-          setBusy(false);
-          return;
+        if (cmd === 'model') {
+          const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
+          setModelOptions(opts);
+          // 用 active 选项的 label 覆盖 status.model（显示名而非 provider key）
+          const activeModel = opts.find((o) => o.active);
+          if (activeModel) setStatus((s) => ({ ...s, model: activeModel.label }));
+          setBusy(false); return;
         }
-        setSelectRequest({
-          title: String(m.title ?? 'Select'),
-          command: cmd,
-          options: evt.select_options ?? [],
-        });
-        setBusy(false);
-        return;
+        if (cmd === 'permissions') {
+          // 用 active 选项覆盖 status.permission_mode
+          const activeMode = rawOpts.find((o) => o.active)?.value;
+          if (activeMode) setStatus((s) => ({ ...s, permission_mode: activeMode }));
+          setBusy(false); return;
+        }
+        setBusy(false); return;
       }
-      if (evt.type === 'modal_request') {
-        setModal(evt.modal ?? null);
-        return;
-      }
-      if (evt.type === 'error') {
-        pushStatic({ role: 'system', text: `error: ${evt.message ?? 'unknown error'}` });
-        clearAssistantDelta();
-        setBusy(false);
-        return;
-      }
-      if (evt.type === 'todo_update' && evt.todo_items != null) {
-        setTodoItems(evt.todo_items);
-        return;
-      }
-      if (evt.type === 'swarm_status') {
-        if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates);
-        if (evt.swarm_notifications != null)
-          setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20));
-        return;
-      }
-      if (evt.type === 'plan_mode_change' && evt.plan_mode != null) {
-        setStatus((s) => ({ ...s, permission_mode: evt.plan_mode }));
-        return;
-      }
-      if (evt.type === 'command_result' && evt.command_result_data) {
-        setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' });
-        return;
-      }
-      if (evt.type === 'bg_agent_status') {
-        setBgAgentLabel(evt.message ?? null);
-        return;
-      }
-      if (evt.type === 'shutdown') {
-        ws.close();
-      }
+
+      // === 其他 ===
+      if (evt.type === 'modal_request') { setModal(evt.modal ?? null); return; }
+      if (evt.type === 'error') { pushStatic({ role: 'system', text: `error: ${evt.message ?? 'unknown error'}` }); clearAssistantDelta(); setBusy(false); return; }
+      if (evt.type === 'todo_update' && evt.todo_items != null) { setTodoItems(evt.todo_items); return; }
+      if (evt.type === 'swarm_status') { if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates); if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20)); return; }
+      if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
+      if (evt.type === 'command_result' && evt.command_result_data) { setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' }); return; }
+      if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
+      if (evt.type === 'shutdown') { ws.close(); }
     }
 
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
+    return () => { ws.close(); wsRef.current = null; };
   }, [url, pushStatic, flushAssistantDelta, clearAssistantDelta]);
 
-  return useMemo(
-    () => ({
-      staticItems,
-      assistantBuffer,
-      streamingReasoning,
-      status,
-      tasks,
-      commands,
-      mcpServers,
-      modal,
-      selectRequest,
-      busy,
-      ready,
-      showThinking,
-      todoItems,
-      pendingToolCalls,
-      swarmTeammates,
-      swarmNotifications,
-      bgAgentLabel,
-      commandResult,
-      connected,
-      sessions,
-      deleteSessions,
-      clearDeleteSessions,
-      sendRequest,
-      clearStaticItems,
-    }),
-    [
-      assistantBuffer, bgAgentLabel, busy, commandResult, commands, connected, streamingReasoning, sessions, deleteSessions,
-      mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking,
-      staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems,
-      sendRequest, clearDeleteSessions, clearStaticItems,
-    ],
-  );
+  return useMemo(() => ({
+    staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
+    mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
+    bgAgentLabel, commandResult, connected, sessions, deleteSessions,
+    clearDeleteSessions, setEffortValue, setModelValue, sendRequest, clearStaticItems,
+  }), [
+    staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
+    mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
+    bgAgentLabel, commandResult, connected, sessions, deleteSessions,
+    clearDeleteSessions, setEffortValue, setModelValue, sendRequest, clearStaticItems,
+  ]);
 }
