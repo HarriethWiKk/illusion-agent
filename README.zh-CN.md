@@ -14,10 +14,11 @@
 
 ## 📖 项目简介
 
-IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，并实现了比同类项目更全面的 Markdown 终端渲染能力。
+IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，实现了比同类项目更全面的 Markdown 终端渲染能力，并提供了浏览器端的 Web UI 界面。
 
 ### 核心特性
 
+- 🌐 **Web UI 界面** - 通过 `illusion web` 启动浏览器聊天界面，暖色设计、会话管理、实时流式响应（终端界面的补充方案）
 - 🪟 **Windows 系统深度优化** - 自动查找 Git、PowerShell 支持、路径兼容性优化
 - 🖥️ **终端渲染零闪烁** - 基于 Ink Static 组件的稳定渲染，抑制 resize 事件干扰
 - 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
@@ -30,7 +31,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
 - 🔐 **完善权限控制** - 三种模式 + 细粒度规则 + Always Allow 一键放行
 - 💾 **记忆与上下文** - 项目知识持久化与动态检索
-- 🎨 **现代终端界面** - React + Ink 组件化 TUI
+- 🎨 **双界面模式** - React + Ink 终端 TUI + 浏览器 Web UI
 - 🎯 **推理强度控制** - 支持 low/medium/high/xhigh/max 五种推理强度级别，自动降级处理
 
 ### 界面展示
@@ -68,6 +69,8 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 **全面 Markdown 渲染**：终端内完整渲染直角边框表格、圆角卡片式代码块、多色富文本（加粗、斜体、行内代码、链接等），AI 回复可读性大幅提升。
 
 **项目级配置自动化**：自动生成 `<project>/.illusion/rules/` 和 `<project>/.illusion/skills/` 目录，项目级配置优先于全局配置，便于团队协作。
+
+**Web UI 界面**：基于 React + Vite + Tailwind CSS 前端和 FastAPI + WebSocket 后端的浏览器聊天界面。暖色设计风格，支持会话管理、侧边栏导航、实时流式响应、右侧面板显示上下文使用量，以及完整的国际化支持。通过 `illusion web` 启动。注意：终端界面为推荐的首选模式，功能更完整、性能更优；Web UI 仅作为终端不可用时的补充方案。
 
 ---
 
@@ -117,6 +120,12 @@ uv run illusion auth login
 # 启动交互式会话（推荐）
 illusion
 
+# 启动 Web UI 浏览器界面
+illusion web
+
+# 自定义端口启动 Web UI
+illusion web --port 8080
+
 # 非交互式打印模式
 illusion -p "帮我分析这个项目的结构"
 
@@ -136,6 +145,8 @@ illusion --permission-mode full_auto
 illusion --api-format openai
 ```
 
+> **注意**：终端界面（`illusion`）为推荐的首选模式。Web UI（`illusion web`）仅作为终端不可用时的补充方案。
+
 ---
 
 ## 📚 命令系统
@@ -143,6 +154,10 @@ illusion --api-format openai
 ### 子命令
 
 ```bash
+# Web UI
+illusion web                     # 启动 Web UI 浏览器界面（默认端口 3000）
+illusion web --port 8080         # 自定义端口启动
+
 # 认证管理
 illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI/Copilot/Codex）
 illusion auth status             # 查看所有环境的认证状态
@@ -207,8 +222,12 @@ illusion-code/
 │   ├── tasks/              # 任务管理
 │   ├── tools/              # 工具集 (36 个工具)
 │   ├── ui/                 # 用户界面
+│   │   ├── web/            # Web 后端 (FastAPI + WebSocket)
+│   │   └── ...
 │   └── cli.py              # CLI 入口
-├── frontend/terminal/      # React TUI 前端
+├── frontend/
+│   ├── terminal/           # React Ink 终端前端
+│   └── web/                # React Web 前端 (Vite + Tailwind)
 ├── tests/                  # 测试套件
 └── pyproject.toml          # 项目配置
 ```
@@ -272,11 +291,24 @@ illusion-code/
 
 ## 🎨 前端技术栈
 
+### 终端 TUI（Ink）
+
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | React | 18.3.1 | UI 框架 |
 | Ink | 5.1.0 | 终端 UI 组件库 |
 | TypeScript | 5.7.3 | 类型安全 |
+
+### Web UI
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| React | 18.x | UI 框架 |
+| Vite | 6.x | 构建工具和开发服务器 |
+| Tailwind CSS | 3.x | 实用优先的 CSS 框架 |
+| TypeScript | 5.x | 类型安全 |
+| FastAPI | - | 后端 API 框架 |
+| WebSocket | - | 实时双向通信 |
 
 ---
 
@@ -293,6 +325,8 @@ illusion-code/
 | pydantic | 数据验证 |
 | httpx | HTTP 客户端 |
 | mcp | MCP 协议 |
+| fastapi | Web 后端 API 框架 |
+| uvicorn | Web 后端 ASGI 服务器 |
 
 ---
 

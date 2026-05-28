@@ -14,10 +14,11 @@
 
 ## 📖 Introduction
 
-IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, and more comprehensive Markdown terminal rendering than comparable projects.
+IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
 
 ### Core Features
 
+- 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, featuring warm color design, session management, and real-time streaming (supplementary to the recommended terminal interface)
 - 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support, path compatibility optimization
 - 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component, suppressing resize event interference
 - 🌍 **Bilingual Interface** - All CLI output automatically switches between Chinese and English based on `ui_language` setting
@@ -30,7 +31,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
 - 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
-- 🎨 **Modern Terminal Interface** - React + Ink component-based TUI
+- 🎨 **Dual Interface** - Modern React + Ink terminal TUI + browser-based Web UI
 - 🎯 **Reasoning Effort Control** - Supports low/medium/high/xhigh/max five reasoning effort levels with automatic fallback
 
 ### Interface Preview
@@ -68,6 +69,8 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 **Comprehensive Markdown Rendering**: Full rendering of box-drawing tables, rounded card-style code blocks, multi-color rich text (bold, italic, inline code, links), significantly improving AI response readability.
 
 **Project-Level Config Automation**: Auto-generate `<project>/.illusion/rules/` and `<project>/.illusion/skills/` directories, project-level configuration takes precedence over global configuration, facilitating team collaboration.
+
+**Web UI Interface**: Browser-based chat interface powered by React + Vite + Tailwind CSS frontend and FastAPI + WebSocket backend. Features warm color design, session management, sidebar navigation, real-time streaming responses, right panel with context usage display, and full i18n support. Launch with `illusion web`. Note: The terminal interface is recommended as the primary mode for full feature support and better performance; the Web UI is intended as a supplementary option for scenarios where a terminal is unavailable.
 
 ---
 
@@ -117,6 +120,12 @@ uv run illusion auth login
 # Start interactive session (recommended)
 illusion
 
+# Launch Web UI in browser
+illusion web
+
+# Web UI with custom port
+illusion web --port 8080
+
 # Non-interactive print mode
 illusion -p "Analyze the structure of this project"
 
@@ -136,6 +145,8 @@ illusion --permission-mode full_auto
 illusion --api-format openai
 ```
 
+> **Note**: The terminal interface (`illusion`) is the recommended primary mode. The Web UI (`illusion web`) is a supplementary option for scenarios where a terminal is unavailable.
+
 ---
 
 ## 📚 Command System
@@ -143,6 +154,10 @@ illusion --api-format openai
 ### Subcommands
 
 ```bash
+# Web UI
+illusion web                     # Launch Web UI in browser (default port 3000)
+illusion web --port 8080         # Launch with custom port
+
 # Authentication management
 illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI/Copilot/Codex)
 illusion auth status             # View credential status for all environments
@@ -207,8 +222,12 @@ illusion-code/
 │   ├── tasks/              # Task management
 │   ├── tools/              # Toolset (36 base tools)
 │   ├── ui/                 # User interface
+│   │   ├── web/            # Web backend (FastAPI + WebSocket)
+│   │   └── ...
 │   └── cli.py              # CLI entry point
-├── frontend/terminal/      # React TUI frontend
+├── frontend/
+│   ├── terminal/           # React Ink TUI frontend
+│   └── web/                # React Web frontend (Vite + Tailwind)
 ├── tests/                  # Test suite
 └── pyproject.toml          # Project configuration
 ```
@@ -272,11 +291,24 @@ Built-in 7 specialized Agents:
 
 ## 🎨 Frontend Tech Stack
 
+### Terminal TUI (Ink)
+
 | Technology | Version | Purpose |
 |------------|---------|---------|
 | React | 18.3.1 | UI framework |
 | Ink | 5.1.0 | Terminal UI component library |
 | TypeScript | 5.7.3 | Type safety |
+
+### Web UI
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| React | 18.x | UI framework |
+| Vite | 6.x | Build tool and dev server |
+| Tailwind CSS | 3.x | Utility-first CSS framework |
+| TypeScript | 5.x | Type safety |
+| FastAPI | - | Backend API framework |
+| WebSocket | - | Real-time bidirectional communication |
 
 ---
 
@@ -293,6 +325,8 @@ Built-in 7 specialized Agents:
 | pydantic | Data validation |
 | httpx | HTTP client |
 | mcp | MCP protocol |
+| fastapi | Web backend API framework |
+| uvicorn | ASGI server for Web backend |
 
 ---
 
