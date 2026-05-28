@@ -137,6 +137,7 @@ class WebBackendHost:
         self._always_allowed_tools: set[str] = set()                # 总是允许的工具
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
+        self._ws_closed = False        # WebSocket 是否已关闭
         self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
         # 跟踪每个工具名称的最后输入，用于富事件发射
         self._last_tool_inputs: dict[str, dict] = {}
@@ -186,9 +187,9 @@ class WebBackendHost:
 
         # 创建定期状态更新任务（每秒刷新一次，用于 agent 计数等实时状态）
         async def _periodic_status_update():
-            while self._running:
+            while self._running and not self._ws_closed:
                 await asyncio.sleep(1.0)
-                if self._running and self._bundle is not None:
+                if self._running and not self._ws_closed and self._bundle is not None:
                     await self._emit(self._status_snapshot())
 
         status_updater = asyncio.create_task(_periodic_status_update())
@@ -305,10 +306,14 @@ class WebBackendHost:
             try:
                 payload = await self._websocket.receive_text()
             except WebSocketDisconnect:
+                self._ws_closed = True
+                self._running = False
                 await self._request_queue.put(FrontendRequest(type="shutdown"))
                 return
             except Exception:
-                log.warning("WebSocket read error, shutting down", exc_info=True)
+                self._ws_closed = True
+                self._running = False
+                log.warning("WebSocket read error, shutting down")
                 await self._request_queue.put(FrontendRequest(type="shutdown"))
                 return
             payload = payload.strip()
@@ -1204,12 +1209,18 @@ class WebBackendHost:
         Args:
             event: 要发送的后端事件
         """
+        if self._ws_closed:
+            return
         async with self._write_lock:
+            if self._ws_closed:
+                return
             try:
                 await self._websocket.send_text(event.model_dump_json())
             except Exception:
-                log.warning("WebSocket write error, marking host as stopped", exc_info=True)
-                self._running = False
+                if not self._ws_closed:
+                    log.warning("WebSocket write error, marking host as stopped")
+                    self._ws_closed = True
+                    self._running = False
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]

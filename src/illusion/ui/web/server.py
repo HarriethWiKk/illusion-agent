@@ -64,14 +64,16 @@ def create_app(
         except WebSocketDisconnect:
             log.info("WebSocket client disconnected")
         except Exception as exc:
-            log.exception("WebSocket error")
-            # 向前端发送错误事件后再关闭
+            log.warning("WebSocket endpoint error: %s", exc)
+            # 尝试向前端发送错误事件
             try:
-                import json
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": f"Backend error: {exc}",
-                }))
+                from starlette.websockets import WebSocketState
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    import json
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Backend error: {exc}",
+                    }))
             except Exception:
                 pass
 
