@@ -891,6 +891,7 @@ def web_start(
     prompt: Optional[str] = typer.Option(None, "--prompt", help="初始提示词"),
 ) -> None:
     """启动 Illusion Code Web 界面 / Launch Illusion Code Web UI"""
+    import threading
     import uvicorn
     from illusion.config.settings import load_settings
     from illusion.ui.web.server import create_app
@@ -910,7 +911,7 @@ def web_start(
     typer.echo(f"Illusion Code Web UI: {url}")
     if not dev:
         import webbrowser
-        webbrowser.open(url)
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
 

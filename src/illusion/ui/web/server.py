@@ -21,9 +21,15 @@ log = logging.getLogger(__name__)
 
 def _find_frontend_dist() -> Path | None:
     """查找前端打包产物目录。"""
+    # server.py 位于 src/illusion/ui/web/server.py，需要向上 5 级到项目根目录
+    project_root = Path(__file__).parent.parent.parent.parent.parent
     candidates = [
-        Path(__file__).parent.parent.parent.parent / "frontend" / "web" / "dist",
+        # 开发模式：项目根目录下的 frontend/web/dist
+        project_root / "frontend" / "web" / "dist",
+        # pip 安装：包内打包的前端产物
         Path(__file__).parent / "_web_dist",
+        # 当前工作目录（可能从项目根目录运行）
+        Path.cwd() / "frontend" / "web" / "dist",
     ]
     for p in candidates:
         if p.is_dir() and (p / "index.html").exists():
