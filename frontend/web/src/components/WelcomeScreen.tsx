@@ -1,4 +1,3 @@
-import React from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 interface WelcomeScreenProps {

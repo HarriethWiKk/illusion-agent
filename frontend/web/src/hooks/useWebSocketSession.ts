@@ -272,7 +272,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
         const pendingIdx = pendingToolCallsRef.current.findIndex((p) => p.tool_use_id === toolUseId);
         if (pendingIdx !== -1) {
-          const pending = pendingToolCallsRef.current[pendingIdx];
+          const pending = pendingToolCallsRef.current[pendingIdx]!;
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
           pushStatic({

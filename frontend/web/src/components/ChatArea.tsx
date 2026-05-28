@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import MessageBubble, { PendingToolBubble, StreamingBuffer } from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';

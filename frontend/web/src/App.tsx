@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { normalizeLanguage, type UiLanguage } from './i18n';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';

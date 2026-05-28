@@ -1,4 +1,3 @@
-import React from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 interface SidebarProps {
@@ -8,7 +7,7 @@ interface SidebarProps {
   onListSessions: () => void;
 }
 
-export default function Sidebar({ lang, onNewSession, onSelectSession, onListSessions }: SidebarProps) {
+export default function Sidebar({ lang, onNewSession, onListSessions }: SidebarProps) {
   return (
     <aside className="w-[280px] bg-gray-50 border-r border-gray-200 flex flex-col h-full shrink-0">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
