@@ -172,6 +172,11 @@ pre code.hljs {
 .prose ol {
   padding-left: 1.5em;
   margin: 0.5em 0;
+  list-style-type: disc;
+}
+
+.prose ol {
+  list-style-type: decimal;
 }
 
 .prose li {
@@ -181,6 +186,16 @@ pre code.hljs {
 
 .prose li::marker {
   color: #6366F1;
+  font-size: 0.85em;
+}
+
+/* 嵌套列表用圆圈 */
+.prose ul ul {
+  list-style-type: circle;
+}
+
+.prose ul ul ul {
+  list-style-type: square;
 }
 
 /* ========== 链接样式 ========== */
