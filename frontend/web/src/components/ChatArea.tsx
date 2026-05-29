@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import MessageBubble, { PendingToolBubble, StreamingBuffer } from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';
@@ -25,10 +25,23 @@ export default function ChatArea({
 
   const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0;
 
+  // 按用户消息分组为轮次(turn)，每轮以用户消息开头
+  const turns = useMemo(() => {
+    const result: TranscriptItem[][] = [];
+    for (const item of staticItems) {
+      if (item.role === 'user' || result.length === 0) {
+        result.push([item]);
+      } else {
+        result[result.length - 1].push(item);
+      }
+    }
+    return result;
+  }, [staticItems]);
+
   return (
     <div className="flex-1 overflow-y-auto bg-surface-main">
       {!connected && !hasContent && (
-        <div className="flex items-center justify-center h-full text-content-disabled text-base font-medium">
+        <div className="flex items-center justify-center h-full text-content-disabled text-sm font-medium">
           {t(lang, 'connecting')}
         </div>
       )}
@@ -36,19 +49,25 @@ export default function ChatArea({
         <WelcomeScreen lang={lang} />
       )}
 
-      <div className="max-w-[900px] mx-auto py-6 px-4">
-        {staticItems.map((item, idx) => (
-          <div key={idx} className="animate-slide-up" style={{ animationDelay: `${idx * 50}ms` }}>
-            <MessageBubble item={item} lang={lang} />
+      <div className="max-w-[800px] mx-auto px-4 md:px-5 py-6">
+        {turns.map((turn, turnIdx) => (
+          <div key={turnIdx} className={turnIdx > 0 ? 'mt-12' : ''}>
+            {turn.map((item, msgIdx) => (
+              <MessageBubble key={`${turnIdx}-${msgIdx}`} item={item} lang={lang} />
+            ))}
           </div>
         ))}
-        {pendingToolCalls.map((call) => (
-          <div key={call.tool_use_id} className="animate-slide-up">
-            <PendingToolBubble call={call} />
+        {pendingToolCalls.length > 0 && (
+          <div className={turns.length > 0 ? 'mt-4' : ''}>
+            {pendingToolCalls.map((call) => (
+              <PendingToolBubble key={call.tool_use_id} call={call} />
+            ))}
           </div>
-        ))}
+        )}
         {busy && (assistantBuffer || streamingReasoning) && (
-          <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
+          <div className={turns.length > 0 ? 'mt-4' : ''}>
+            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
+          </div>
         )}
       </div>
       <div ref={bottomRef} />
