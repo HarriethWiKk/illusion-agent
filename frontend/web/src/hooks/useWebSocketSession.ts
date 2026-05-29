@@ -4,6 +4,9 @@ import type {
   BackendEvent,
   McpServerSnapshot,
   PendingToolCall,
+  PluginSnapshot,
+  RuleSnapshot,
+  SkillSnapshot,
   SwarmNotificationSnapshot,
   SwarmTeammateSnapshot,
   TaskSnapshot,
@@ -31,6 +34,9 @@ export interface WebSocketSessionState {
   tasks: TaskSnapshot[];
   commands: string[];
   mcpServers: McpServerSnapshot[];
+  skills: SkillSnapshot[];
+  plugins: PluginSnapshot[];
+  rules: RuleSnapshot[];
   modal: Record<string, unknown> | null;
   effortOptions: Option[];
   modelOptions: Option[];
@@ -68,6 +74,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
   const [commands, setCommands] = useState<string[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServerSnapshot[]>([]);
+  const [skills, setSkills] = useState<SkillSnapshot[]>([]);
+  const [plugins, setPlugins] = useState<PluginSnapshot[]>([]);
+  const [rules, setRules] = useState<RuleSnapshot[]>([]);
   const [modal, setModal] = useState<Record<string, unknown> | null>(null);
   const [effortOptions, setEffortOptions] = useState<Option[]>([]);
   const [modelOptions, setModelOptions] = useState<Option[]>([]);
@@ -97,6 +106,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
   const showThinkingRef = useRef(true);
   const suppressNextCommandResultRef = useRef(false);
+  const pendingInfoCommandRef = useRef<string | null>(null);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -176,6 +186,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
+        // 连接后自动获取 skills/plugins/rules 信息
+        setTimeout(() => {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            pendingInfoCommandRef.current = 'skills';
+            ws.send(JSON.stringify({ type: 'submit_line', line: '/skills' }));
+          }
+        }, 300);
         return;
       }
       if (evt.type === 'state_snapshot') {
@@ -335,6 +353,38 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
       if (evt.type === 'command_result' && evt.command_result_data) {
         if (suppressNextCommandResultRef.current) { suppressNextCommandResultRef.current = false; return; }
+        const msg = evt.command_result_data.message ?? '';
+        const pending = pendingInfoCommandRef.current;
+        if (pending) {
+          pendingInfoCommandRef.current = null;
+          if (pending === 'skills') {
+            setSkills(_parseSkillsResult(msg));
+            // 链式获取下一个
+            setTimeout(() => {
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                pendingInfoCommandRef.current = 'plugins';
+                ws.send(JSON.stringify({ type: 'submit_line', line: '/plugin list' }));
+              }
+            }, 100);
+            return;
+          }
+          if (pending === 'plugins') {
+            setPlugins(_parsePluginsResult(msg));
+            setTimeout(() => {
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                pendingInfoCommandRef.current = 'rules';
+                ws.send(JSON.stringify({ type: 'submit_line', line: '/rules' }));
+              }
+            }, 100);
+            return;
+          }
+          if (pending === 'rules') {
+            setRules(_parseRulesResult(msg));
+            return;
+          }
+        }
         setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' }); return;
       }
       if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
@@ -346,7 +396,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
   return useMemo(() => ({
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
     clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
@@ -354,11 +404,54 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setEffortValue, setModelValue, sendRequest, clearStaticItems,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
     clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
     selectModalCommand, selectModalOptions, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems,
   ]);
+}
+
+// ---- 命令结果解析器 ----
+
+function _parseSkillsResult(text: string): SkillSnapshot[] {
+  const skills: SkillSnapshot[] = [];
+  for (const line of text.split('\n')) {
+    // "- name [source]: description"
+    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]:?\s*(.*)$/);
+    if (m) {
+      skills.push({ name: m[1]!.trim(), description: m[3]!.trim(), source: m[2]!.trim() });
+    }
+  }
+  return skills;
+}
+
+function _parsePluginsResult(text: string): PluginSnapshot[] {
+  const plugins: PluginSnapshot[] = [];
+  for (const line of text.split('\n')) {
+    // "- name [enabled/disabled]"
+    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
+    if (m) {
+      plugins.push({
+        name: m[1]!.trim(),
+        description: '',
+        enabled: m[2] === 'enabled',
+        skill_count: 0, mcp_count: 0, command_count: 0,
+      });
+    }
+  }
+  return plugins;
+}
+
+function _parseRulesResult(text: string): RuleSnapshot[] {
+  const rules: RuleSnapshot[] = [];
+  for (const line of text.split('\n')) {
+    // "  1. name  —  preview"
+    const m = line.match(/^\s*\d+\.\s*(.+?)\s*[—-]/);
+    if (m) {
+      rules.push({ name: m[1]!.trim(), source: 'project' });
+    }
+  }
+  return rules;
 }

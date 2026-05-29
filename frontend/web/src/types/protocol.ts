@@ -84,6 +84,26 @@ export interface SwarmNotificationSnapshot {
   timestamp?: number;
 }
 
+export interface SkillSnapshot {
+  name: string;
+  description: string;
+  source: string;
+}
+
+export interface PluginSnapshot {
+  name: string;
+  description: string;
+  enabled: boolean;
+  skill_count: number;
+  mcp_count: number;
+  command_count: number;
+}
+
+export interface RuleSnapshot {
+  name: string;
+  source: string;
+}
+
 // ---- Frontend Request ----
 
 export type FrontendRequest =

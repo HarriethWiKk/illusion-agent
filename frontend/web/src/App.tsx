@@ -144,7 +144,8 @@ export default function App() {
       <RightPanel lang={lang} status={session.status}
         connected={session.connected} busy={session.busy}
         collapsed={rightPanelCollapsed} onToggle={() => setRightPanelCollapsed(!rightPanelCollapsed)}
-        todoItems={session.todoItems} />
+        todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
+        rules={session.rules} mcpServers={session.mcpServers} />
 
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
