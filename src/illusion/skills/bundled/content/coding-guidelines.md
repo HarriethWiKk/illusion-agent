@@ -1,6 +1,6 @@
 ---
 name: coding-guidelines
-description: Behavioral guidelines to reduce common LLM coding mistakes. Use when starting any coding task to ensure high-quality, maintainable code.
+description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
 ---
 
 # Coding Guidelines
