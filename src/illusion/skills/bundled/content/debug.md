@@ -1,20 +1,33 @@
-# debug
+---
+name: debug
+description: Enable debug logging for this session and help diagnose issues
+---
 
-Diagnose and fix bugs systematically.
+# Debug Skill
 
-## When to use
+Help the user debug an issue they're encountering in this current Illusion Code session.
 
-Use when the user reports a bug, error, or unexpected behavior.
+## Session Debug Log
 
-## Workflow
+The debug log for the current session is located at the path shown in the session startup output.
 
-1. Reproduce: understand the exact steps that trigger the issue
-2. Read the error: stack traces, log messages, error codes
-3. Locate: use Grep/Read to find the relevant code path
-4. Hypothesize: form a theory about the root cause
-5. Verify: add logging or read surrounding code to confirm
-6. Fix: make the minimal change that addresses the root cause
-7. Test: verify the fix works and doesn't break other things
+## Issue Description
+
+The user's issue description will be provided as arguments. If no description is given, read the debug log and summarize any errors, warnings, or notable issues.
+
+## Settings
+
+Remember that settings are in:
+* user - ~/.illusion/settings.json
+* project - .illusion/settings.json
+
+## Instructions
+
+1. Review the user's issue description
+2. Look for [ERROR] and [WARN] entries, stack traces, and failure patterns in the debug log
+3. Consider launching a subagent to understand the relevant Illusion Code features
+4. Explain what you found in plain language
+5. Suggest concrete fixes or next steps
 
 ## Rules
 
