@@ -2,6 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
@@ -27,7 +28,7 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
       <div className="py-1.5">
         {item.reasoning && <ThinkingBlock text={item.reasoning} defaultOpen={true} label={lang ? t(lang, 'thinking_process') : undefined} />}
         <div className="text-content-primary text-sm prose max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {item.text}
           </ReactMarkdown>
         </div>
@@ -144,7 +145,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
       )}
       {hasText && (
         <div className="text-content-primary text-sm prose max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {text}
           </ReactMarkdown>
           <span className="inline-block w-0.5 h-4 bg-primary animate-pulse align-middle" />

@@ -108,13 +108,11 @@ pre code.hljs {
 
 /* ========== 表格样式 ========== */
 .prose table {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: 0.875rem;
   margin: 1em 0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 6px;
-  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 .prose thead {
@@ -122,18 +120,28 @@ pre code.hljs {
 }
 
 .prose th {
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
   font-weight: 600;
   color: #1E293B;
-  border-bottom: 2px solid rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+  border-right: 1px solid rgba(148, 163, 184, 0.3);
   font-size: 0.8125rem;
 }
 
+.prose th:last-child {
+  border-right: none;
+}
+
 .prose td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  border-right: 1px solid rgba(148, 163, 184, 0.15);
   color: #64748B;
+}
+
+.prose td:last-child {
+  border-right: none;
 }
 
 .prose tbody tr:hover {
