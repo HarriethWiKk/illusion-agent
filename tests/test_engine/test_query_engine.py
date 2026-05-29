@@ -413,10 +413,11 @@ async def test_query_engine_applies_path_rules_to_relative_read_file_targets(tmp
 
     events = [event async for event in engine.submit_message("read blocked file")]
 
-    tool_results = [event for event in events if isinstance(event, ToolExecutionCompleted)]
-    assert tool_results
-    assert tool_results[0].is_error is True
-    assert "matches deny rule" in tool_results[0].output
+    # 权限拒绝现在直接终止查询循环，发出 ErrorEvent 而非 ToolExecutionCompleted
+    from illusion.engine.stream_events import ErrorEvent
+    error_events = [event for event in events if isinstance(event, ErrorEvent)]
+    assert error_events
+    assert "read_file" in error_events[0].message
 
 
 @pytest.mark.asyncio
@@ -464,10 +465,11 @@ async def test_query_engine_applies_path_rules_to_write_file_targets_in_full_aut
 
     events = [event async for event in engine.submit_message("write blocked file")]
 
-    tool_results = [event for event in events if isinstance(event, ToolExecutionCompleted)]
-    assert tool_results
-    assert tool_results[0].is_error is True
-    assert "matches deny rule" in tool_results[0].output
+    # 权限拒绝现在直接终止查询循环，发出 ErrorEvent 而非 ToolExecutionCompleted
+    from illusion.engine.stream_events import ErrorEvent
+    error_events = [event for event in events if isinstance(event, ErrorEvent)]
+    assert error_events
+    assert "write_file" in error_events[0].message
     assert target.exists() is False
 
 
