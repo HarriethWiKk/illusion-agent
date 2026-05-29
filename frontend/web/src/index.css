@@ -119,9 +119,10 @@ pre code.hljs {
   background: #F1F5F9;
 }
 
-.prose th {
+.prose th,
+.prose th[align] {
   padding: 0.5rem 0.75rem;
-  text-align: center;
+  text-align: center !important;
   font-weight: 600;
   color: #1E293B;
   border-bottom: 1px solid rgba(148, 163, 184, 0.3);
