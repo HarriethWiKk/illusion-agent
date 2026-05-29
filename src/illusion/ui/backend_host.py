@@ -478,7 +478,6 @@ class ReactBackendHost:
                 return
             # 错误事件
             if isinstance(event, ErrorEvent):
-                await self._emit(BackendEvent(type="error", message=event.message))
                 await self._emit(
                     BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
                 )

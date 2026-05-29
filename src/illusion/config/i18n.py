@@ -148,6 +148,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "compact_recent_preserved": {"zh-CN": "最近的消息已原样保留。", "en-US": "Recent messages are preserved verbatim."},
     "compact_suppress_followup": {"zh-CN": "\n从上次中断处继续对话，不要向用户提问。直接继续 — 不要确认摘要，不要复述进展，不要以「我继续」等开头。像中断从未发生一样继续上次的任务。", "en-US": "\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."},
     "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
+    "permission_denied_stopped": {"zh-CN": "权限被拒绝，已终止当前操作（{tool}）。", "en-US": "Permission denied, stopped current operation ({tool})."},
 }
 
 # --- 命令描述翻译 ---

@@ -73,6 +73,19 @@ class MaxTurnsExceeded(RuntimeError):
         self.max_turns = max_turns
 
 
+class PermissionDenied(RuntimeError):
+    """当用户拒绝工具权限时抛出，用于终止当前查询循环。
+
+    Attributes:
+        tool_name: 被拒绝的工具名称
+        message: 拒绝原因描述
+    """
+
+    def __init__(self, tool_name: str, message: str = "") -> None:
+        self.tool_name = tool_name
+        super().__init__(message or f"Permission denied for {tool_name}")
+
+
 # ---------------------------------------------------------------------------
 # 后台代理完成通知
 # ---------------------------------------------------------------------------
@@ -365,41 +378,46 @@ async def run_query(
         # 输出工具链开始事件
         yield ToolChainStarted(tool_count=len(tool_calls)), None
 
-        if len(tool_calls) == 1:
-            # 单个工具：顺序执行
-            tc = tool_calls[0]
-            # 始终发送带完整 tool_input 的 ToolExecutionStarted，
-            # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
-            yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
-            result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
-            yield ToolExecutionCompleted(
-                tool_name=tc.name,
-                output=result.text_content,
-                is_error=result.is_error,
-                tool_use_id=tc.id,
-            ), None
-            tool_results = [result]
-        else:
-            # 多个工具：并发执行
-            for tc in tool_calls:
+        try:
+            if len(tool_calls) == 1:
+                # 单个工具：顺序执行
+                tc = tool_calls[0]
                 # 始终发送带完整 tool_input 的 ToolExecutionStarted，
                 # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
-
-            async def _run(tc):
-                return await _execute_tool_call(context, tc.name, tc.id, tc.input)
-
-            # 并发执行所有工具调用
-            results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
-            tool_results = list(results)
-
-            for tc, result in zip(tool_calls, tool_results):
+                result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
                     output=result.text_content,
                     is_error=result.is_error,
                     tool_use_id=tc.id,
                 ), None
+                tool_results = [result]
+            else:
+                # 多个工具：并发执行
+                for tc in tool_calls:
+                    # 始终发送带完整 tool_input 的 ToolExecutionStarted，
+                    # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
+                    yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
+
+                async def _run(tc):
+                    return await _execute_tool_call(context, tc.name, tc.id, tc.input)
+
+                # 并发执行所有工具调用
+                results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
+                tool_results = list(results)
+
+                for tc, result in zip(tool_calls, tool_results):
+                    yield ToolExecutionCompleted(
+                        tool_name=tc.name,
+                        output=result.text_content,
+                        is_error=result.is_error,
+                        tool_use_id=tc.id,
+                    ), None
+        except PermissionDenied as exc:
+            from illusion.config.i18n import t
+            yield ErrorEvent(message=t("permission_denied_stopped", tool=exc.tool_name)), None
+            return
 
         # 输出工具链完成事件
         yield ToolChainCompleted(
@@ -484,17 +502,9 @@ async def _execute_tool_call(
         if decision.requires_confirmation and context.permission_prompt is not None:
             confirmed = await context.permission_prompt(tool_name, decision.reason)
             if not confirmed:
-                return ToolResultBlock(
-                    tool_use_id=tool_use_id,
-                    content=f"Permission denied for {tool_name}",
-                    is_error=True,
-                )
+                raise PermissionDenied(tool_name, f"Permission denied for {tool_name}")
         else:
-            return ToolResultBlock(
-                tool_use_id=tool_use_id,
-                content=decision.reason or f"Permission denied for {tool_name}",
-                is_error=True,
-            )
+            raise PermissionDenied(tool_name, decision.reason or f"Permission denied for {tool_name}")
 
     # 执行工具
     result = await tool.execute(

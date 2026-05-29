@@ -61,15 +61,31 @@ def _parse_frontmatter(default_name: str, content: str) -> tuple[str, str]:
 
     支持 YAML frontmatter（--- 分隔），并回退到标题/段落解析。
     """
+    import yaml
+
     name = default_name
     description = ""
     lines = content.splitlines()
 
     # 先尝试 YAML frontmatter
     if lines and lines[0].strip() == "---":
+        end_idx = -1
         for i, line in enumerate(lines[1:], 1):
             if line.strip() == "---":
-                for fm_line in lines[1:i]:
+                end_idx = i
+                break
+        if end_idx > 0:
+            fm_text = "\n".join(lines[1:end_idx])
+            try:
+                data = yaml.safe_load(fm_text)
+                if isinstance(data, dict):
+                    if data.get("name"):
+                        name = str(data["name"]).strip()
+                    if data.get("description"):
+                        description = str(data["description"]).strip()
+            except Exception:
+                # YAML 解析失败，回退到手动解析
+                for fm_line in lines[1:end_idx]:
                     fm = fm_line.strip()
                     if fm.startswith("name:"):
                         val = fm[5:].strip().strip("'\"")
@@ -79,7 +95,6 @@ def _parse_frontmatter(default_name: str, content: str) -> tuple[str, str]:
                         val = fm[12:].strip().strip("'\"")
                         if val:
                             description = val
-                break
         if description:
             return name, description
 

@@ -703,8 +703,9 @@ async def _render_command_result(
 						tool_info = tool_uses_by_id.get(block.tool_use_id, {})
 						replay_items.append({
 							"role": "tool_result",
-							"text": block.content,
+							"text": block.text_content,
 							"tool_name": tool_info.get("name"),
+							"tool_use_id": block.tool_use_id,
 							"is_error": block.is_error,
 						})
 			elif msg.role == "assistant":
@@ -723,6 +724,7 @@ async def _render_command_result(
 							"text": f"{block.name} {json.dumps(block.input, ensure_ascii=True)}",
 							"tool_name": block.name,
 							"tool_input": block.input,
+							"tool_use_id": block.id,
 						})
 		await replace_transcript_items(replay_items)
 		if result.message and command_result_emitter is not None:
@@ -749,8 +751,9 @@ async def _render_command_result(
 							tool_info = tool_uses_by_id.get(block.tool_use_id, {})
 							await replay_transcript_item({
 								"role": "tool_result",
-								"text": block.content,
+								"text": block.text_content,
 								"tool_name": tool_info.get("name"),
+								"tool_use_id": block.tool_use_id,
 								"is_error": block.is_error,
 							})
 				elif msg.role == "assistant":
@@ -772,6 +775,7 @@ async def _render_command_result(
 									"text": f"{block.name} {json.dumps(block.input, ensure_ascii=True)}",
 									"tool_name": block.name,
 									"tool_input": block.input,
+									"tool_use_id": block.id,
 								})
 	elif result.clear_screen:
 		await clear_output()

@@ -144,10 +144,23 @@ def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
 
     # 先尝试 YAML frontmatter（--- ... ---）
     if lines and lines[0].strip() == "---":
+        end_idx = -1
         for i, line in enumerate(lines[1:], 1):
             if line.strip() == "---":
-                # 解析 frontmatter 字段
-                for fm_line in lines[1:i]:
+                end_idx = i
+                break
+        if end_idx > 0:
+            fm_text = "\n".join(lines[1:end_idx])
+            try:
+                data = yaml.safe_load(fm_text)
+                if isinstance(data, dict):
+                    if data.get("name"):
+                        name = str(data["name"]).strip()
+                    if data.get("description"):
+                        description = str(data["description"]).strip()
+            except Exception:
+                # YAML 解析失败，回退到手动解析
+                for fm_line in lines[1:end_idx]:
                     fm_stripped = fm_line.strip()
                     if fm_stripped.startswith("name:"):
                         val = fm_stripped[5:].strip().strip("'\"")
@@ -157,7 +170,6 @@ def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
                         val = fm_stripped[12:].strip().strip("'\"")
                         if val:
                             description = val
-                break
 
     # 回退：从标题和第一段提取
     if not description:
