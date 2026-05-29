@@ -21,7 +21,7 @@ export default function Sidebar({
 
   if (collapsed) {
     return (
-      <div className="w-14 bg-surface-card border-r border-border-light flex flex-col items-center py-4 shrink-0">
+      <div className="w-14 bg-surface-card border-r border-border-light flex flex-col items-center py-4 shrink-0 select-none">
         <button
           onClick={onToggle}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer"
@@ -36,7 +36,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="bg-surface-card border-r border-border-light flex flex-col h-full shrink-0" style={{ width: `${width}px` }}>
+    <aside className="bg-surface-card border-r border-border-light flex flex-col h-full shrink-0 select-none" style={{ width: `${width}px` }}>
       <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
         <button
           onClick={onToggle}

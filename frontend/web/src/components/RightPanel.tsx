@@ -30,7 +30,7 @@ export default function RightPanel({
   // 折叠态
   if (collapsed) {
     return (
-      <aside className="w-12 bg-surface-card border-l border-border-light flex flex-col items-center py-4 shrink-0">
+      <aside className="w-12 bg-surface-card border-l border-border-light flex flex-col items-center py-4 shrink-0 select-none">
         <button onClick={onToggle} title={t(lang, 'expand_panel')}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -50,7 +50,7 @@ export default function RightPanel({
   const projectRules = rules.filter((r) => r.source === 'project');
 
   return (
-    <aside className="bg-surface-card border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto" style={{ width: `${width}px` }}>
+    <aside className="bg-surface-card border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
       {/* 折叠按钮 */}
       <div className="px-5 pt-3 pb-1 flex justify-end">
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
@@ -175,7 +175,7 @@ function CollapsibleSection({
         {subtitle && <span className="text-xs text-content-disabled ml-auto">{subtitle}</span>}
       </button>
       {!collapsed && (
-        <div className="px-5 pb-2.5 flex flex-col gap-0.5">
+        <div className="px-5 pb-2.5 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto">
           {children}
         </div>
       )}
@@ -187,20 +187,22 @@ function CollapsibleSection({
 
 function ItemRow({ name, description, tag }: { name: string; description: string; tag?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const hasDesc = !!description?.trim();
 
   return (
     <div>
       <button
-        onClick={() => description && setExpanded((e) => !e)}
-        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${description ? 'hover:bg-surface-hover cursor-pointer' : 'cursor-default'}`}
+        onClick={() => hasDesc && setExpanded((e) => !e)}
+        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${hasDesc ? 'hover:bg-surface-hover cursor-pointer' : 'cursor-default'}`}
+        title={hasDesc ? description : name}
       >
         <span className="text-content-primary font-medium truncate flex-1 text-left">{name}</span>
         {tag && (
           <span className="text-[10px] text-content-disabled bg-surface-main px-1.5 py-0.5 rounded shrink-0">{tag}</span>
         )}
       </button>
-      {expanded && description && (
-        <div className="px-2 pb-1.5 text-xs text-content-secondary leading-relaxed">{description}</div>
+      {expanded && hasDesc && (
+        <div className="px-2 pb-1.5 text-xs text-content-secondary leading-relaxed whitespace-pre-wrap">{description}</div>
       )}
     </div>
   );

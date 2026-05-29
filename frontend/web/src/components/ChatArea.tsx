@@ -58,7 +58,7 @@ export default function ChatArea({
         {turns.map((turn, turnIdx) => (
           <div key={turnIdx} className={turnIdx > 0 ? 'mt-12' : ''}>
             {turn.map((item, msgIdx) => (
-              <MessageBubble key={`${turnIdx}-${msgIdx}`} item={item} lang={lang} />
+              <MessageBubble key={`${turnIdx}-${msgIdx}`} item={item} />
             ))}
           </div>
         ))}
@@ -76,7 +76,7 @@ export default function ChatArea({
         )}
         {busy && (assistantBuffer || streamingReasoning) && (
           <div className={turns.length > 0 ? 'mt-4' : ''}>
-            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
+            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} />
           </div>
         )}
         {modal?.kind === 'permission' && (

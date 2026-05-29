@@ -143,7 +143,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-surface-main select-none">
+    <div className="flex h-screen bg-surface-main">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={() => session.sendRequest({ type: 'list_sessions' })}

@@ -421,10 +421,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 function _parseSkillsResult(text: string): SkillSnapshot[] {
   const skills: SkillSnapshot[] = [];
   for (const line of text.split('\n')) {
-    // "- name [source]: description"
-    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]:?\s*(.*)$/);
+    // 主格式: "- name [source]: description"
+    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*:\s*(.*)$/);
     if (m) {
       skills.push({ name: m[1]!.trim(), description: m[3]!.trim(), source: m[2]!.trim() });
+      continue;
+    }
+    // 回退格式: "- name [source]"（无描述）
+    const m2 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
+    if (m2) {
+      skills.push({ name: m2[1]!.trim(), description: '', source: m2[2]!.trim() });
     }
   }
   return skills;
