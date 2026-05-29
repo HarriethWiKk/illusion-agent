@@ -48,7 +48,7 @@ export default {
       },
       fontFamily: {
         display: ['Playfair Display', 'Georgia', 'serif'],
-        body: ['DM Sans', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        body: ['Inter', 'Inter Fallback', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       boxShadow: {
@@ -57,8 +57,8 @@ export default {
         'glow': '0 0 20px rgba(99, 102, 241, 0.15)',
       },
       borderRadius: {
-        'sm': '10px',
-        'md': '14px',
+        'sm': '6px',
+        'md': '12px',
         'lg': '20px',
       },
     },
