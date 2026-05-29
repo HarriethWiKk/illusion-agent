@@ -25,7 +25,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
 - 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
 - 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
-- 🛠️ **Rich Toolset** - 36 built-in tools + MCP dynamic tool extension
+- 🛠️ **Rich Toolset** - 34 built-in tools + MCP dynamic tool extension
 - ⌨️ **47 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
@@ -220,7 +220,7 @@ illusion-code/
 │   ├── prompts/            # Prompt system
 │   ├── skills/             # Skill system
 │   ├── tasks/              # Task management
-│   ├── tools/              # Toolset (36 base tools)
+│   ├── tools/              # Toolset (34 base tools)
 │   ├── ui/                 # User interface
 │   │   ├── web/            # Web backend (FastAPI + WebSocket)
 │   │   └── ...
@@ -250,7 +250,7 @@ Supports multiple AI providers:
 
 ### Tool System
 
-Provides 36 core tools, covering:
+Provides 34 core tools, covering:
 
 - **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **Command Execution**: `bash`, `powershell`, `repl`
@@ -258,7 +258,7 @@ Provides 36 core tools, covering:
 - **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
 - **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
-- **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`, `brief`
+- **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
 - **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
 - **Interaction**: `ask_user_question`
 - **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
