@@ -14,8 +14,8 @@ interface MessageBubbleProps {
 export default function MessageBubble({ item, lang }: MessageBubbleProps) {
   if (item.role === 'user') {
     return (
-      <div className="flex justify-end py-2">
-        <div className="max-w-[75%] bg-primary text-white rounded-2xl rounded-br-md px-5 py-3.5 text-base shadow-soft">
+      <div className="flex justify-end py-1.5">
+        <div className="max-w-[min(82%,64ch)] bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] rounded-[6px] px-3 py-2 text-sm text-content-primary whitespace-pre-wrap break-words">
           {item.text}
         </div>
       </div>
@@ -24,14 +24,12 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
 
   if (item.role === 'assistant') {
     return (
-      <div className="py-2">
-        <div className="bg-white rounded-2xl px-6 py-5 shadow-card border border-border-light">
-          {item.reasoning && <ThinkingBlock text={item.reasoning} defaultOpen={true} label={lang ? t(lang, 'thinking_process') : undefined} />}
-          <div className="text-content-primary text-base prose max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {item.text}
-            </ReactMarkdown>
-          </div>
+      <div className="py-1.5">
+        {item.reasoning && <ThinkingBlock text={item.reasoning} defaultOpen={true} label={lang ? t(lang, 'thinking_process') : undefined} />}
+        <div className="text-content-primary text-sm prose max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {item.text}
+          </ReactMarkdown>
         </div>
       </div>
     );
@@ -41,16 +39,12 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
     const isError = item.is_error;
     return (
       <div className="py-1.5">
-        <div className={`bg-white rounded-xl shadow-card border overflow-hidden ${isError ? 'border-red-300' : 'border-border-light'}`}>
-          {/* 工具头部 */}
-          <ToolHeader
-            name={item.tool_name || 'tool'}
-            input={item.tool_input}
-            isError={isError}
-          />
-          {/* 工具输出 */}
-          <ToolOutput text={item.text} isError={isError} />
+        <div className="flex items-center gap-2">
+          <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
+          <span className={`text-sm font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{item.tool_name || 'tool'}</span>
+          {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
         </div>
+        <ToolOutput text={item.text} isError={isError} />
       </div>
     );
   }
@@ -60,41 +54,10 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
   }
 
   return (
-    <div className="py-1.5 text-sm text-content-disabled italic px-4">
+    <div className="py-1.5 text-xs text-content-disabled italic">
       {item.text}
     </div>
   );
-}
-
-function ToolHeader({ name, input, isError }: { name: string; input?: Record<string, unknown>; isError?: boolean }) {
-  const hasInput = input && Object.keys(input).length > 0;
-
-  return (
-    <div className="px-5 py-3 bg-surface-card-alt border-b border-border-light">
-      <div className="flex items-center gap-2">
-        <span className={`inline-block w-2 h-2 rounded-full ${isError ? 'bg-danger' : 'bg-primary'}`} />
-        <div className={`text-sm font-semibold font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</div>
-        {isError && <span className="text-xs text-danger font-medium ml-auto px-2 py-0.5 bg-red-50 rounded">ERROR</span>}
-      </div>
-      {hasInput && (
-        <div className="mt-2 space-y-1">
-          {Object.entries(input).map(([key, val]) => (
-            <div key={key} className="flex items-start gap-2 text-xs">
-              <span className="text-content-secondary font-mono shrink-0">{key}:</span>
-              <span className="text-content-primary font-mono break-all">{formatValue(val)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function formatValue(val: unknown): string {
-  if (typeof val === 'string') return val.length > 200 ? val.slice(0, 200) + '...' : val;
-  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
-  const json = JSON.stringify(val);
-  return json.length > 200 ? json.slice(0, 200) + '...' : json;
 }
 
 function ToolOutput({ text, isError }: { text: string; isError?: boolean }) {
@@ -102,17 +65,17 @@ function ToolOutput({ text, isError }: { text: string; isError?: boolean }) {
   if (!text) return null;
 
   return (
-    <div>
+    <div className="ml-3.5">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full px-5 py-2.5 flex items-center gap-2 text-sm text-content-secondary hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-xs text-content-secondary hover:text-content-primary transition-colors cursor-pointer py-1"
       >
-        <span className={`transform transition-transform text-xs ${open ? 'rotate-90' : ''}`}>▸</span>
+        <span className={`transform transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
         <span className="font-medium">输出</span>
-        {!open && <span className="text-content-disabled truncate ml-1 text-xs">{text.slice(0, 60)}{text.length > 60 ? '...' : ''}</span>}
+        {!open && <span className="text-content-disabled truncate">{text.slice(0, 60)}{text.length > 60 ? '...' : ''}</span>}
       </button>
       {open && (
-        <div className={`px-5 pb-3 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto ${isError ? 'text-danger bg-red-50' : 'text-content-primary bg-surface-card-alt'} mx-3 mb-3 rounded-lg p-3`}>
+        <div className={`mt-1 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] ${isError ? 'text-danger bg-red-50 border border-red-200' : 'text-content-primary bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5]'}`}>
           {text}
         </div>
       )}
@@ -125,18 +88,18 @@ function ThinkingBlock({ text, defaultOpen = false, label }: { text: string; def
   const preview = text.length > 100 ? text.slice(0, 100) + '...' : text;
 
   return (
-    <div className="mb-4">
+    <div className="mb-3">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-sm text-content-secondary hover:text-content-primary transition-colors cursor-pointer group w-full"
+        className="flex items-center gap-2 text-xs text-content-secondary hover:text-content-primary transition-colors cursor-pointer w-full"
       >
-        <span className="inline-block w-2 h-2 rounded-full bg-secondary group-hover:bg-secondary-hover transition-colors" />
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
         <span className="font-medium">{label || '思考过程'}</span>
-        {!open && <span className="text-content-disabled truncate flex-1 text-left text-xs">{preview}</span>}
-        <span className={`transform transition-transform text-xs ${open ? 'rotate-90' : ''}`}>▸</span>
+        {!open && <span className="text-content-disabled truncate flex-1 text-left">{preview}</span>}
+        <span className={`transform transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {open && (
-        <div className="mt-3 p-4 bg-primary-light text-sm text-content-primary whitespace-pre-wrap border border-primary/20 rounded-xl max-h-56 overflow-y-auto leading-relaxed">
+        <div className="mt-2 ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-sm text-content-primary whitespace-pre-wrap rounded-[6px] max-h-56 overflow-y-auto leading-relaxed">
           {text}
         </div>
       )}
@@ -145,19 +108,18 @@ function ThinkingBlock({ text, defaultOpen = false, label }: { text: string; def
 }
 
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
+  const hasInput = call.tool_input && Object.keys(call.tool_input).length > 0;
   return (
     <div className="py-1.5">
-      <div className="bg-white rounded-xl px-5 py-3 border border-border-light shadow-card">
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
-          <span className="text-sm font-semibold font-mono text-content-primary">{call.tool_name}</span>
-        </div>
-        {call.tool_input && Object.keys(call.tool_input).length > 0 && (
-          <div className="mt-2 p-2.5 bg-surface-card-alt text-xs font-mono text-content-secondary whitespace-pre-wrap max-h-32 overflow-y-auto rounded border border-border-light">
-            {JSON.stringify(call.tool_input, null, 2)}
-          </div>
-        )}
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+        <span className="text-sm font-medium font-mono text-content-primary">{call.tool_name}</span>
       </div>
+      {hasInput && (
+        <div className="ml-3.5 mt-1 p-2 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-xs font-mono text-content-secondary whitespace-pre-wrap max-h-32 overflow-y-auto rounded-[6px]">
+          {JSON.stringify(call.tool_input, null, 2)}
+        </div>
+      )}
     </div>
   );
 }
@@ -167,28 +129,27 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
   const hasText = text && text.trim();
 
   return (
-    <div className="py-2">
-      <div className="bg-white rounded-2xl px-6 py-5 shadow-card border border-border-light">
-        {hasReasoning && (
-          <div className={hasText ? 'mb-4' : ''}>
-            <div className="flex items-center gap-2 text-sm text-content-secondary mb-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-secondary animate-pulse" />
-              <span className="font-medium text-xs">{lang ? t(lang, 'thinking_process') : '思考过程'}</span>
-            </div>
-            <div className="p-3 bg-primary-light text-xs text-content-primary whitespace-pre-wrap border border-primary/20 rounded-xl max-h-48 overflow-y-auto leading-relaxed">
-              {reasoning}
-              {!hasText && <span className="inline-block w-1 h-3 bg-primary animate-pulse ml-0.5 align-middle" />}
-            </div>
+    <div className="py-1.5">
+      {hasReasoning && (
+        <div className={hasText ? 'mb-3' : ''}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+            <span className="text-xs font-medium text-content-secondary">{lang ? t(lang, 'thinking_process') : '思考过程'}</span>
           </div>
-        )}
-        {hasText && (
-          <div className="text-content-primary text-base prose max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {text}
-            </ReactMarkdown>
+          <div className="ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-xs text-content-primary whitespace-pre-wrap rounded-[6px] max-h-48 overflow-y-auto leading-relaxed">
+            {reasoning}
+            {!hasText && <span className="inline-block w-0.5 h-3.5 bg-primary animate-pulse ml-0.5 align-middle" />}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+      {hasText && (
+        <div className="text-content-primary text-sm prose max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {text}
+          </ReactMarkdown>
+          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse align-middle" />
+        </div>
+      )}
     </div>
   );
 }
