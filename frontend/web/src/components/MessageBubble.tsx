@@ -62,7 +62,7 @@ function ToolResultBubble({ name, text, isError }: { name: string; text: string;
         onClick={() => text && setOpen(!open)}
         className={`flex items-center gap-2 text-sm transition-colors cursor-pointer ${text ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
+        <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
         {!open && summary && <span className="text-xs text-content-disabled truncate">（{summary}）</span>}
         {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
@@ -86,7 +86,7 @@ function ThinkingBlock({ text, defaultOpen = false, label }: { text: string; def
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 text-xs text-content-secondary hover:text-content-primary transition-colors cursor-pointer w-full"
       >
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+        <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
         <span className="font-medium">{label || '思考过程'}</span>
         {!open && <span className="text-content-disabled truncate flex-1 text-left">{preview}</span>}
         <span className={`transform transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}>▸</span>
@@ -105,16 +105,29 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   return (
     <div className="py-1.5">
       <div className="flex items-center gap-2">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0" />
         <span className="text-sm font-medium font-mono text-content-primary">{call.tool_name}</span>
       </div>
       {hasInput && (
-        <div className="ml-3.5 mt-1 p-2 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-xs font-mono text-content-secondary whitespace-pre-wrap max-h-32 overflow-y-auto rounded-[6px]">
-          {JSON.stringify(call.tool_input, null, 2)}
+        <div className="ml-4 mt-1.5 space-y-0.5">
+          {Object.entries(call.tool_input!).map(([key, val]) => (
+            <div key={key} className="flex items-start gap-2 text-xs">
+              <span className="text-content-disabled font-mono shrink-0">{key}:</span>
+              <span className="text-content-secondary truncate">{formatToolValue(val)}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
+}
+
+function formatToolValue(val: unknown): string {
+  if (val === null || val === undefined) return '-';
+  if (typeof val === 'string') return val.length > 120 ? val.slice(0, 120) + '...' : val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  const s = JSON.stringify(val);
+  return s.length > 120 ? s.slice(0, 120) + '...' : s;
 }
 
 export function StreamingBuffer({ text, reasoning, lang }: { text: string; reasoning?: string; lang?: UiLanguage }) {
@@ -126,12 +139,12 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
       {hasReasoning && (
         <div className={hasText ? 'mb-3' : ''}>
           <div className="flex items-center gap-2 mb-2">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+            <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0" />
             <span className="text-xs font-medium text-content-secondary">{lang ? t(lang, 'thinking_process') : '思考过程'}</span>
           </div>
-          <div className="ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-xs text-content-primary whitespace-pre-wrap rounded-[6px] max-h-48 overflow-y-auto leading-relaxed">
+          <div className="ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-xs text-content-primary whitespace-pre-wrap rounded-[6px] leading-relaxed">
             {reasoning}
-            {!hasText && <span className="inline-block w-0.5 h-3.5 bg-primary animate-pulse ml-0.5 align-middle" />}
+            {!hasText && <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-middle" />}
           </div>
         </div>
       )}
@@ -140,7 +153,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {text}
           </ReactMarkdown>
-          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse align-middle" />
+          <span className="inline-block w-0.5 h-4 bg-primary animate-blink align-middle" />
         </div>
       )}
     </div>
