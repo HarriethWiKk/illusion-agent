@@ -99,7 +99,7 @@ function ThinkingBlock({ text, defaultOpen = false, label }: { text: string; def
         <span className={`transform transition-transform shrink-0 ${open ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {open && (
-        <div className="mt-2 ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-sm text-content-primary whitespace-pre-wrap rounded-[6px] max-h-56 overflow-y-auto leading-relaxed">
+        <div className="mt-2 ml-3.5 p-3 bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5] text-sm text-content-primary whitespace-pre-wrap rounded-[6px] leading-relaxed">
           {text}
         </div>
       )}
