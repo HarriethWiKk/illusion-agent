@@ -37,17 +37,7 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
   }
 
   if (item.role === 'tool_result') {
-    const isError = item.is_error;
-    return (
-      <div className="py-1.5">
-        <div className="flex items-center gap-2">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
-          <span className={`text-sm font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{item.tool_name || 'tool'}</span>
-          {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
-        </div>
-        <ToolOutput text={item.text} isError={isError} />
-      </div>
-    );
+    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} />;
   }
 
   if (item.role === 'tool') {
@@ -61,22 +51,24 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
   );
 }
 
-function ToolOutput({ text, isError }: { text: string; isError?: boolean }) {
+function ToolResultBubble({ name, text, isError }: { name: string; text: string; isError?: boolean }) {
   const [open, setOpen] = useState(false);
-  if (!text) return null;
+  const firstLine = text ? text.split('\n')[0] || '' : '';
+  const summary = firstLine.length > 60 ? firstLine.slice(0, 60) + '...' : firstLine;
 
   return (
-    <div className="ml-3.5">
+    <div className="py-1.5">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-content-secondary hover:text-content-primary transition-colors cursor-pointer py-1"
+        onClick={() => text && setOpen(!open)}
+        className={`flex items-center gap-2 text-sm transition-colors cursor-pointer ${text ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className={`transform transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-        <span className="font-medium">输出</span>
-        {!open && <span className="text-content-disabled truncate">{text.slice(0, 60)}{text.length > 60 ? '...' : ''}</span>}
+        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
+        <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
+        {!open && summary && <span className="text-xs text-content-disabled truncate">（{summary}）</span>}
+        {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
       </button>
-      {open && (
-        <div className={`mt-1 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] ${isError ? 'text-danger bg-red-50 border border-red-200' : 'text-content-primary bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5]'}`}>
+      {open && text && (
+        <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] ${isError ? 'text-danger bg-red-50 border border-red-200' : 'text-content-primary bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5]'}`}>
           {text}
         </div>
       )}
