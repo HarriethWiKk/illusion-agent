@@ -27,7 +27,7 @@ export default function MessageBubble({ item, lang }: MessageBubbleProps) {
     return (
       <div className="py-1.5">
         {item.reasoning && <ThinkingBlock text={item.reasoning} defaultOpen={true} label={lang ? t(lang, 'thinking_process') : undefined} />}
-        <div className="text-content-primary text-sm prose max-w-none">
+        <div className="text-content-primary text-sm prose max-w-full">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {item.text}
           </ReactMarkdown>
@@ -136,7 +136,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
         </div>
       )}
       {hasText && (
-        <div className="text-content-primary text-sm prose max-w-none">
+        <div className="text-content-primary text-sm prose max-w-full">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {text}
           </ReactMarkdown>

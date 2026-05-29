@@ -1,4 +1,6 @@
 import { t, type UiLanguage } from '../i18n';
+import TodoPanel from './TodoPanel';
+import type { TodoItemSnapshot } from '../types/protocol';
 
 interface RightPanelProps {
   lang: UiLanguage;
@@ -7,9 +9,10 @@ interface RightPanelProps {
   busy: boolean;
   collapsed: boolean;
   onToggle: () => void;
+  todoItems: TodoItemSnapshot[];
 }
 
-export default function RightPanel({ lang, status, connected, busy, collapsed, onToggle }: RightPanelProps) {
+export default function RightPanel({ lang, status, connected, busy, collapsed, onToggle, todoItems }: RightPanelProps) {
   const mode = String(status?.permission_mode ?? 'Default');
   const cwd = String(status?.cwd ?? '-');
   const sessionId = String(status?.session_id ?? '-');
@@ -55,6 +58,13 @@ export default function RightPanel({ lang, status, connected, busy, collapsed, o
           </svg>
         </button>
       </div>
+
+      {/* Todo 列表 */}
+      {todoItems.length > 0 && (
+        <div className="px-3 pb-3">
+          <TodoPanel items={todoItems} />
+        </div>
+      )}
 
       {/* 连接状态 */}
       <div className="px-5 pb-4">

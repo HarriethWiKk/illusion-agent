@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import MessageBubble, { PendingToolBubble, StreamingBuffer } from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';
+import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 interface ChatAreaProps {
@@ -12,18 +13,22 @@ interface ChatAreaProps {
   pendingToolCalls: PendingToolCall[];
   busy: boolean;
   connected: boolean;
+  modal: Record<string, unknown> | null;
+  onPermissionResponse: (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => void;
+  onQuestionResponse: (requestId: string, answer: string) => void;
 }
 
 export default function ChatArea({
   lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, busy, connected,
+  modal, onPermissionResponse, onQuestionResponse,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls]);
+  }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, modal]);
 
-  const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0;
+  const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0 || !!modal;
 
   // 按用户消息分组为轮次(turn)，每轮以用户消息开头
   const turns = useMemo(() => {
@@ -49,7 +54,7 @@ export default function ChatArea({
         <WelcomeScreen lang={lang} />
       )}
 
-      <div className="mx-auto px-6 md:px-10 lg:px-16 py-6">
+      <div className="mx-auto max-w-5xl px-6 md:px-10 lg:px-16 py-6">
         {turns.map((turn, turnIdx) => (
           <div key={turnIdx} className={turnIdx > 0 ? 'mt-12' : ''}>
             {turn.map((item, msgIdx) => (
@@ -68,6 +73,12 @@ export default function ChatArea({
           <div className={turns.length > 0 ? 'mt-4' : ''}>
             <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
           </div>
+        )}
+        {modal?.kind === 'permission' && (
+          <PermissionCard modal={modal} lang={lang} onRespond={onPermissionResponse} />
+        )}
+        {modal?.kind === 'question' && (
+          <QuestionCard modal={modal} lang={lang} onRespond={onQuestionResponse} />
         )}
       </div>
       <div ref={bottomRef} />

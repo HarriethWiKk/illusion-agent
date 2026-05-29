@@ -262,3 +262,12 @@ pre code.hljs {
   outline: 2px solid #6366F1;
   outline-offset: 2px;
 }
+
+/* ========== 动画 ========== */
+@keyframes pulse-scale {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(0.667); }
+}
+.animate-pulse-scale {
+  animation: pulse-scale 1.2s ease-in-out infinite;
+}

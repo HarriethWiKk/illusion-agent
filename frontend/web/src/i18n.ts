@@ -69,6 +69,9 @@ const ZH: Record<string, string> = {
   collapse_panel: '收起侧栏',
   expand_panel: '展开侧栏',
   context_window: '上下文窗口',
+  question_submit: '提交',
+  question_placeholder: '输入你的回答...',
+  multi_select_confirm: '确认',
 };
 
 const EN: Record<string, string> = {
@@ -129,6 +132,9 @@ const EN: Record<string, string> = {
   collapse_panel: 'Collapse',
   expand_panel: 'Expand',
   context_window: 'Context Window',
+  question_submit: 'Submit',
+  question_placeholder: 'Type your answer...',
+  multi_select_confirm: 'Confirm',
 };
 
 export function t(lang: UiLanguage, key: string): string {

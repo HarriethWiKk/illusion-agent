@@ -41,7 +41,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const selectCommand = useCallback((cmd: string) => {
     setValue('');
     setShowCommands(false);
-    onSubmit(`/${cmd}`);
+    onSubmit(cmd);
   }, [onSubmit]);
 
   const handleKeyDown = useCallback(
@@ -117,7 +117,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
       {showCommands && filteredCommands.length > 0 && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-[#e5e5e5] rounded-[6px] shadow-lg max-h-56 overflow-y-auto py-1 z-20"
+          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 z-20"
         >
           {filteredCommands.map((cmd, idx) => (
             <button
@@ -127,12 +127,12 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
                 idx === selectedIndex ? 'bg-primary-light text-primary' : 'text-content-secondary hover:bg-surface-hover'
               }`}
             >
-              <span className="font-mono">/{cmd}</span>
+              <span className="font-mono">{cmd}</span>
             </button>
           ))}
         </div>
       )}
-      <div className="flex items-end bg-white rounded-[12px] border border-[#e5e5e5] shadow-soft">
+      <div className="flex items-end bg-white rounded-[12px] border border-border-light shadow-soft">
         <textarea
           value={value}
           onChange={handleChange}

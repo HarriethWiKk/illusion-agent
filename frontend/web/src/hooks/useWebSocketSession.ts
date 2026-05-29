@@ -47,6 +47,13 @@ export interface WebSocketSessionState {
   sessions: { value: string; label: string }[];
   deleteSessions: { value: string; label: string }[];
   clearDeleteSessions: () => void;
+  clearModal: () => void;
+  clearSelectModal: () => void;
+  clearCommandResult: () => void;
+  markSuppressCommandResult: () => void;
+  requestSelectCommand: (command: string) => void;
+  selectModalCommand: string | null;
+  selectModalOptions: Option[];
   setEffortValue: (value: string) => void;
   setModelValue: (value: string) => void;
   sendRequest: (payload: Record<string, unknown>) => void;
@@ -76,6 +83,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
   const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
+  const [selectModalCommand, setSelectModalCommand] = useState<string | null>(null);
+  const [selectModalOptions, setSelectModalOptions] = useState<Option[]>([]);
+  const pendingSelectCommandRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -86,6 +96,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const assistantFlushedForToolRef = useRef(false);
   const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
   const showThinkingRef = useRef(true);
+  const suppressNextCommandResultRef = useRef(false);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -123,6 +134,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
   const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
+  const clearModal = useCallback((): void => { setModal(null); }, []);
+  const clearSelectModal = useCallback((): void => { setSelectModalCommand(null); setSelectModalOptions([]); pendingSelectCommandRef.current = null; }, []);
+  const clearCommandResult = useCallback((): void => { setCommandResult(null); }, []);
+  const markSuppressCommandResult = useCallback((): void => { suppressNextCommandResultRef.current = true; }, []);
+  const requestSelectCommand = useCallback((command: string): void => {
+    pendingSelectCommandRef.current = command;
+    sendRequest({ type: 'select_command', command });
+  }, [sendRequest]);
 
   const setEffortValue = useCallback((value: string): void => {
     // 与 terminal 端一致：用 apply_select_command 发送选择结果
@@ -279,22 +298,30 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const m = evt.modal ?? {};
         const cmd = String(m.command ?? '');
         const rawOpts = evt.select_options ?? [];
+        const wasExplicit = pendingSelectCommandRef.current === cmd;
+        pendingSelectCommandRef.current = null;
+
         if (cmd === 'resume') { setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
         if (cmd === 'delete') { setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
         if (cmd === 'effort') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
           setEffortOptions(opts);
+          if (wasExplicit && opts.length > 0) { setSelectModalCommand(cmd); setSelectModalOptions(opts); }
           setBusy(false); return;
         }
         if (cmd === 'model') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
           setModelOptions(opts);
+          if (wasExplicit && opts.length > 0) { setSelectModalCommand(cmd); setSelectModalOptions(opts); }
           setBusy(false); return;
         }
         if (cmd === 'permissions') {
-          // 用 active 选项覆盖 status.permission_mode
           const activeMode = rawOpts.find((o) => o.active)?.value;
           if (activeMode) setStatus((s) => ({ ...s, permission_mode: activeMode }));
+          if (wasExplicit && rawOpts.length > 0) {
+            const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
+            setSelectModalCommand(cmd); setSelectModalOptions(opts);
+          }
           setBusy(false); return;
         }
         setBusy(false); return;
@@ -306,7 +333,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       if (evt.type === 'todo_update' && evt.todo_items != null) { setTodoItems(evt.todo_items); return; }
       if (evt.type === 'swarm_status') { if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates); if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20)); return; }
       if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
-      if (evt.type === 'command_result' && evt.command_result_data) { setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' }); return; }
+      if (evt.type === 'command_result' && evt.command_result_data) {
+        if (suppressNextCommandResultRef.current) { suppressNextCommandResultRef.current = false; return; }
+        setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' }); return;
+      }
       if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
       if (evt.type === 'shutdown') { ws.close(); }
     }
@@ -319,12 +349,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
-    clearDeleteSessions, setEffortValue, setModelValue, sendRequest, clearStaticItems,
+    clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
+    selectModalCommand, selectModalOptions, requestSelectCommand,
+    setEffortValue, setModelValue, sendRequest, clearStaticItems,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
-    clearDeleteSessions, setEffortValue, setModelValue, sendRequest, clearStaticItems,
+    clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
+    selectModalCommand, selectModalOptions, requestSelectCommand,
+    setEffortValue, setModelValue, sendRequest, clearStaticItems,
   ]);
 }
