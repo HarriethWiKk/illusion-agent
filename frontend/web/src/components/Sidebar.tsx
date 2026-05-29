@@ -11,10 +11,11 @@ interface SidebarProps {
   onDeleteSessions: () => void;
   collapsed: boolean;
   onToggle: () => void;
+  width?: number;
 }
 
 export default function Sidebar({
-  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle,
+  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -35,7 +36,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="w-[280px] bg-surface-card border-r border-border-light flex flex-col h-full shrink-0">
+    <aside className="bg-surface-card border-r border-border-light flex flex-col h-full shrink-0" style={{ width: `${width}px` }}>
       <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
         <button
           onClick={onToggle}

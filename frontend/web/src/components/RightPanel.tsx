@@ -15,11 +15,12 @@ interface RightPanelProps {
   plugins: PluginSnapshot[];
   rules: RuleSnapshot[];
   mcpServers: McpServerSnapshot[];
+  width?: number;
 }
 
 export default function RightPanel({
   lang, status, connected, busy, collapsed, onToggle, todoItems,
-  skills, plugins, rules, mcpServers,
+  skills, plugins, rules, mcpServers, width = 260,
 }: RightPanelProps) {
   // 上下文使用量
   const contextWindow = Number(status?.context_window ?? 0);
@@ -49,7 +50,7 @@ export default function RightPanel({
   const projectRules = rules.filter((r) => r.source === 'project');
 
   return (
-    <aside className="w-[260px] bg-surface-card border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto">
+    <aside className="bg-surface-card border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto" style={{ width: `${width}px` }}>
       {/* 折叠按钮 */}
       <div className="px-5 pt-3 pb-1 flex justify-end">
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
@@ -73,6 +74,7 @@ export default function RightPanel({
           title="Skills"
           count={skills.length}
           subtitle={projectSkills.length > 0 ? `${projectSkills.length} project` : undefined}
+          defaultCollapsed={false}
         >
           {skills.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.description} tag={s.source === 'project' ? 'P' : undefined} />
@@ -146,14 +148,15 @@ export default function RightPanel({
 // ---- 可折叠区域 ----
 
 function CollapsibleSection({
-  title, count, subtitle, children,
+  title, count, subtitle, children, defaultCollapsed = true,
 }: {
   title: string;
   count: number;
   subtitle?: string;
   children: React.ReactNode;
+  defaultCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
     <div className="border-t border-border-light">

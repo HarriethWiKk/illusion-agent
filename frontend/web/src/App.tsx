@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeLanguage, t, type UiLanguage } from './i18n';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';
@@ -18,6 +18,28 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [rightPanelWidth, setRightPanelWidth] = useState(260);
+  const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
+
+  const handleResizeStart = useCallback((side: 'left' | 'right', e: React.MouseEvent) => {
+    e.preventDefault();
+    const startW = side === 'left' ? sidebarWidth : rightPanelWidth;
+    dragRef.current = { side, startX: e.clientX, startW };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const maxW = window.innerWidth / 3;
+      const dx = ev.clientX - dragRef.current.startX;
+      if (dragRef.current.side === 'left') {
+        setSidebarWidth(Math.min(maxW, Math.max(280, dragRef.current.startW + dx)));
+      } else {
+        setRightPanelWidth(Math.min(maxW, Math.max(260, dragRef.current.startW - dx)));
+      }
+    };
+    const onUp = () => { dragRef.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [sidebarWidth, rightPanelWidth]);
 
   // 连接后自动请求 effort、model 和 permissions 列表
   useEffect(() => {
@@ -119,12 +141,17 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-surface-main">
+    <div className="flex h-screen bg-surface-main select-none">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={() => session.sendRequest({ type: 'list_sessions' })}
         onDeleteSessions={handleDeleteSessions}
-        collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
+        collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        width={sidebarWidth} />
+      {!sidebarCollapsed && (
+        <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
+          onMouseDown={(e) => handleResizeStart('left', e)} />
+      )}
       <div className="flex flex-col flex-1 min-w-0">
         {!session.connected && (
           <div className="px-4 py-2.5 bg-primary-light border-b border-primary/20 text-sm text-primary text-center font-medium">{t(lang, 'connecting')}</div>
@@ -141,11 +168,16 @@ export default function App() {
           onModeChange={handleModeChange} onModelChange={session.setModelValue}
           onEffortChange={session.setEffortValue} onRequestModelList={handleRequestModelList} />
       </div>
+      {!rightPanelCollapsed && (
+        <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
+          onMouseDown={(e) => handleResizeStart('right', e)} />
+      )}
       <RightPanel lang={lang} status={session.status}
         connected={session.connected} busy={session.busy}
         collapsed={rightPanelCollapsed} onToggle={() => setRightPanelCollapsed(!rightPanelCollapsed)}
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
-        rules={session.rules} mcpServers={session.mcpServers} />
+        rules={session.rules} mcpServers={session.mcpServers}
+        width={rightPanelWidth} />
 
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
