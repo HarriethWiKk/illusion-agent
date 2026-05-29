@@ -137,7 +137,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           disabled={!connected && !busy}
           className={`absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             busy
-              ? 'bg-red-100 text-danger hover:bg-red-200'
+              ? 'bg-red-100 text-danger hover:bg-red-200 animate-pulse'
               : 'bg-primary text-white hover:bg-primary-hover'
           }`}
           title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}

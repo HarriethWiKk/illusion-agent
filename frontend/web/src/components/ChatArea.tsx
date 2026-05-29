@@ -32,7 +32,7 @@ export default function ChatArea({
       if (item.role === 'user' || result.length === 0) {
         result.push([item]);
       } else {
-        result[result.length - 1].push(item);
+        result[result.length - 1]!.push(item);
       }
     }
     return result;
