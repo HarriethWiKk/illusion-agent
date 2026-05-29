@@ -182,6 +182,62 @@ type DisplayEntry = {
 };
 
 function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
+	const usedResults = new Set<number>();
+	const matchedResult = new Map<number, TranscriptItem>();
+	// 第一轮：匹配 tool 与 tool_result
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		if (item.role !== 'tool') continue;
+		if (item.tool_use_id) {
+			for (let j = i + 1; j < items.length; j++) {
+				if (items[j].role === 'tool_result' && items[j].tool_use_id === item.tool_use_id && !usedResults.has(j)) {
+					matchedResult.set(i, items[j]);
+					usedResults.add(j);
+					break;
+				}
+			}
+		}
+		if (!matchedResult.has(i)) {
+			for (let j = i + 1; j < items.length; j++) {
+				if (items[j].role === 'tool_result' && items[j].tool_name === item.tool_name && !usedResults.has(j)) {
+					matchedResult.set(i, items[j]);
+					usedResults.add(j);
+					break;
+				}
+			}
+		}
+	}
+	// 第二轮：检测 replay 模式（tool 与 result 不相邻）并重排序
+	// replay 时所有 tool 在前、所有 result 在后，需要将 result 移到对应 tool 后面
+	// 正常流程中 tool 和 result 已相邻，无需重排
+	const hasReplayPattern = items.some((item, i) => {
+		if (item.role !== 'tool' || !matchedResult.has(i)) return false;
+		// 检查下一个 item 是否是对应的 result
+		const next = items[i + 1];
+		return !next || next.role !== 'tool_result' || next.tool_use_id !== item.tool_use_id;
+	});
+	if (hasReplayPattern) {
+		// 重排序：每个 tool 后面紧跟其 result
+		const reordered: TranscriptItem[] = [];
+		const unmatchedResults: TranscriptItem[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.role === 'tool') {
+				reordered.push(item);
+				const res = matchedResult.get(i);
+				if (res) reordered.push(res);
+			} else if (item.role === 'tool_result' && usedResults.has(i)) {
+				unmatchedResults.push(item); // 已在对应 tool 后面渲染，跳过原位
+			} else {
+				reordered.push(item);
+			}
+		}
+		return groupToolItemsOrdered(reordered);
+	}
+	return groupToolItemsOrdered(items);
+}
+
+function groupToolItemsOrdered(items: TranscriptItem[]): GroupEntry[] {
 	const result: GroupEntry[] = [];
 	const usedResults = new Set<number>();
 	const resultToTool = new Map<number, number>();
@@ -190,7 +246,6 @@ function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 		const item = items[i];
 		if (item.role === 'tool') {
 			let resultItem: TranscriptItem | null = null;
-			// 优先通过 tool_use_id 匹配（并发工具调用时更准确）
 			if (item.tool_use_id) {
 				for (let j = i + 1; j < items.length; j++) {
 					if (items[j].role === 'tool_result' && items[j].tool_use_id === item.tool_use_id && !usedResults.has(j)) {
@@ -201,7 +256,6 @@ function groupToolItems(items: TranscriptItem[]): GroupEntry[] {
 					}
 				}
 			}
-			// 回退到 tool_name 匹配（兼容无 tool_use_id 的情况）
 			if (!resultItem) {
 				for (let j = i + 1; j < items.length; j++) {
 					if (items[j].role === 'tool_result' && items[j].tool_name === item.tool_name && !usedResults.has(j)) {
