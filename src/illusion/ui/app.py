@@ -166,6 +166,7 @@ async def run_print_mode(
         permission_prompt=_noop_permission,
         ask_user_prompt=_noop_ask,
         effort=effort,
+        is_interactive=False,
     )
     await start_runtime(bundle)
 

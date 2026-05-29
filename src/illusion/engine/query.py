@@ -235,7 +235,6 @@ async def run_query(
     compact_state: AutoCompactState = context.compact_state or AutoCompactState()
 
     turn_count = 0  # 轮次计数器
-    pending_brief_text = ""  # 暂存的 brief 消息内容，用于注入到下一轮 assistant 消息
     while context.max_turns is None or turn_count < context.max_turns:
         turn_count += 1
 
@@ -341,14 +340,6 @@ async def run_query(
         # 添加助手消息到历史记录
         messages.append(final_message)
 
-        # 如果上一轮有 brief 工具调用，但模型本轮没有产生可见文本（只有思考），
-        # 将 brief 内容注入到 assistant 消息中，确保对话结构完整。
-        # 否则下轮用户消息会导致 API 报错（连续两条 user 消息之间缺少 assistant）
-        if pending_brief_text and not final_message.text.strip():
-            from illusion.engine.messages import TextBlock
-            final_message.content.append(TextBlock(text=pending_brief_text))
-        pending_brief_text = ""
-
         yield AssistantTurnComplete(message=final_message, usage=usage), usage
 
         # 如果没有工具调用，检查是否有待处理的后台代理
@@ -417,15 +408,6 @@ async def run_query(
                 for tc, result in zip(tool_calls, tool_results)
             ]
         ), None
-
-        # 收集 brief 工具的消息内容，供下一轮注入到 assistant 消息
-        pending_brief_text = ""
-        for tc, result in zip(tool_calls, tool_results):
-            if tc.name == "brief" and not result.is_error:
-                text = result.text_content.strip()
-                if text:
-                    pending_brief_text = text
-                    break
 
         # 将工具结果作为用户消息添加到历史记录
         messages.append(ConversationMessage(role="user", content=tool_results))

@@ -10,7 +10,6 @@ import pytest
 
 from illusion.tools.bash_tool import BashTool, BashToolInput
 from illusion.tools.base import ToolExecutionContext
-from illusion.tools.brief_tool import BriefTool, BriefToolInput
 from illusion.tools.config_tool import ConfigTool, ConfigToolInput
 from illusion.tools.enter_worktree_tool import EnterWorktreeTool, EnterWorktreeToolInput
 from illusion.tools.exit_worktree_tool import ExitWorktreeTool, ExitWorktreeToolInput
@@ -110,7 +109,7 @@ async def test_bash_tool_returns_clear_error_when_bash_missing_on_windows(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_tool_search_and_brief_tools(tmp_path: Path):
+async def test_tool_search_tools(tmp_path: Path):
     registry = create_default_tool_registry()
     context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
 
@@ -119,12 +118,6 @@ async def test_tool_search_and_brief_tools(tmp_path: Path):
         context,
     )
     assert "read_file" in search_result.output
-
-    brief_result = await BriefTool().execute(
-        BriefToolInput(message="abcdefghijklmnopqrstuvwxyz"),
-        ToolExecutionContext(cwd=tmp_path),
-    )
-    assert brief_result.output == "abcdefghijklmnopqrstuvwxyz"
 
 
 @pytest.mark.asyncio
@@ -365,7 +358,8 @@ def test_default_registry_matches_claude_tool_shape():
 
     assert "powershell" in names
     assert "repl" in names
-    assert "structured_output" in names
+    # structured_output 只在非交互模式下加载
+    assert "structured_output" not in names
     assert "team_create" in names
     assert "team_delete" in names
 
@@ -377,6 +371,12 @@ def test_default_registry_matches_claude_tool_shape():
     assert "cron_list" not in names
     assert "cron_delete" not in names
     assert "remote_trigger" not in names
+
+
+def test_non_interactive_registry_includes_structured_output():
+    registry = create_default_tool_registry(is_interactive=False)
+    names = {tool.name for tool in registry.list_tools()}
+    assert "structured_output" in names
 
 
 @pytest.mark.asyncio

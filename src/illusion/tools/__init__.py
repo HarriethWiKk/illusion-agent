@@ -20,7 +20,6 @@ from illusion.tools.ask_user_question_tool import AskUserQuestionTool
 from illusion.tools.agent_tool import AgentTool
 from illusion.tools.bash_tool import BashTool
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolRegistry, ToolResult
-from illusion.tools.brief_tool import BriefTool
 from illusion.tools.config_tool import ConfigTool
 from illusion.tools.cron_tool import CronTool
 from illusion.tools.enter_plan_mode_tool import EnterPlanModeTool
@@ -58,17 +57,18 @@ from illusion.tools.web_fetch_tool import WebFetchTool
 from illusion.tools.web_search_tool import WebSearchTool
 
 
-def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
+def create_default_tool_registry(mcp_manager=None, is_interactive: bool = True) -> ToolRegistry:
     """返回默认内置工具注册表
-    
+
     Args:
         mcp_manager: MCP 管理器（可选）
-    
+        is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
+
     Returns:
         ToolRegistry: 工具注册表
     """
     registry = ToolRegistry()
-    for tool in (
+    tools = [
         BashTool(),
         PowerShellTool(),
         ReplTool(),
@@ -86,9 +86,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         WebFetchTool(),
         WebSearchTool(),
         ConfigTool(),
-        BriefTool(),
         SleepTool(),
-        StructuredOutputTool(),
         EnterWorktreeTool(),
         ExitWorktreeTool(),
         TodoWriteTool(),
@@ -105,7 +103,11 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         SendMessageTool(),
         TeamCreateTool(),
         TeamDeleteTool(),
-    ):
+    ]
+    # StructuredOutputTool 只在非交互模式下加载
+    if not is_interactive:
+        tools.append(StructuredOutputTool())
+    for tool in tools:
         registry.register(tool)
     if mcp_manager is not None:
         registry.register(ListMcpResourcesTool(mcp_manager))
