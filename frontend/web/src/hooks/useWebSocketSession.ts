@@ -57,6 +57,7 @@ export interface WebSocketSessionState {
   clearSelectModal: () => void;
   clearCommandResult: () => void;
   markSuppressCommandResult: () => void;
+  setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
   selectModalCommand: string | null;
   selectModalOptions: Option[];
@@ -141,6 +142,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(payload));
   }, []);
+
+  const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
 
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
   const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
@@ -401,7 +404,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
     clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
     selectModalCommand, selectModalOptions, requestSelectCommand,
-    setEffortValue, setModelValue, sendRequest, clearStaticItems,
+    setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
@@ -409,7 +412,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     bgAgentLabel, commandResult, connected, sessions, deleteSessions,
     clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
     selectModalCommand, selectModalOptions, requestSelectCommand,
-    setEffortValue, setModelValue, sendRequest, clearStaticItems,
+    setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
   ]);
 }
 

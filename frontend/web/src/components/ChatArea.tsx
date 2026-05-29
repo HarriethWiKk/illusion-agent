@@ -69,6 +69,11 @@ export default function ChatArea({
             ))}
           </div>
         )}
+        {busy && !assistantBuffer && !streamingReasoning && pendingToolCalls.length === 0 && (
+          <div className={turns.length > 0 ? 'mt-4' : ''}>
+            <ThinkingIndicator lang={lang} />
+          </div>
+        )}
         {busy && (assistantBuffer || streamingReasoning) && (
           <div className={turns.length > 0 ? 'mt-4' : ''}>
             <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
@@ -82,6 +87,21 @@ export default function ChatArea({
         )}
       </div>
       <div ref={bottomRef} />
+    </div>
+  );
+}
+
+function ThinkingIndicator({ lang }: { lang: UiLanguage }) {
+  return (
+    <div className="flex items-center gap-2.5 py-2">
+      <span className="flex gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+      </span>
+      <span className="text-xs text-content-secondary animate-pulse">
+        {lang === 'zh-CN' ? '正在思考...' : 'Thinking...'}
+      </span>
     </div>
   );
 }

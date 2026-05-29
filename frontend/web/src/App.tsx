@@ -57,6 +57,7 @@ export default function App() {
     // 特殊命令处理（与 terminal 端对齐）
     if (trimmed === '/new' || trimmed === '/clear' || trimmed === '/clean') {
       session.markSuppressCommandResult();
+      session.setBusyTrue();
       session.sendRequest({ type: 'submit_line', line: '/new' });
       setTimeout(() => session.sendRequest({ type: 'list_sessions' }), 500);
       return;
@@ -81,7 +82,8 @@ export default function App() {
       session.requestSelectCommand('permissions');
       return;
     }
-    // 通用提交
+    // 通用提交（立即设置 busy 状态以获得即时反馈）
+    session.setBusyTrue();
     session.sendRequest({ type: 'submit_line', line: trimmed });
   };
   const handleStop = () => { session.markSuppressCommandResult(); session.sendRequest({ type: 'stop' }); };
