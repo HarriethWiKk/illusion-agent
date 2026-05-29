@@ -328,8 +328,8 @@ async def _rg_search(
     if include_hidden:
         cmd.append("--hidden")
 
-    # VCS目录排除
-    for vcs_dir in (".git", ".svn", ".hg", ".bzr"):
+    # VCS目录排除（与claude code保持一致）
+    for vcs_dir in (".git", ".svn", ".hg", ".bzr", ".jj", ".sl"):
         cmd.extend(["--glob", f"!{vcs_dir}"])
 
     if not case_sensitive:
