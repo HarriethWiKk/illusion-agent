@@ -43,7 +43,7 @@
 }
 
 html {
-  font-size: 14px;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -217,7 +217,7 @@ pre code.hljs {
 
 /* ========== Markdown 内容字体 ========== */
 .prose {
-  font-size: 0.875rem;
+  font-size: 1rem;
   line-height: 1.8;
   font-family: 'Inter', sans-serif;
   color: #1E293B;

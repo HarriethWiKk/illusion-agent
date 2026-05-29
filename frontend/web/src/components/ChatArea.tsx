@@ -49,7 +49,7 @@ export default function ChatArea({
         <WelcomeScreen lang={lang} />
       )}
 
-      <div className="max-w-[800px] mx-auto px-4 md:px-5 py-6">
+      <div className="mx-auto px-6 md:px-10 lg:px-16 py-6">
         {turns.map((turn, turnIdx) => (
           <div key={turnIdx} className={turnIdx > 0 ? 'mt-12' : ''}>
             {turn.map((item, msgIdx) => (

@@ -70,7 +70,23 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           return;
         }
       }
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter') {
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl+Enter / Cmd+Enter: 插入换行
+          e.preventDefault();
+          const target = e.currentTarget;
+          const start = target.selectionStart;
+          const end = target.selectionEnd;
+          const newValue = value.slice(0, start) + '\n' + value.slice(end);
+          setValue(newValue);
+          requestAnimationFrame(() => {
+            target.selectionStart = target.selectionEnd = start + 1;
+            target.style.height = 'auto';
+            target.style.height = Math.min(target.scrollHeight, 140) + 'px';
+          });
+          return;
+        }
+        // Enter: 发送
         e.preventDefault();
         if (busy || !connected) return;
         const line = value.trim();
@@ -116,7 +132,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           ))}
         </div>
       )}
-      <div className="relative bg-white rounded-[12px] border border-[#e5e5e5] shadow-soft">
+      <div className="flex items-end bg-white rounded-[12px] border border-[#e5e5e5] shadow-soft">
         <textarea
           value={value}
           onChange={handleChange}
@@ -124,7 +140,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           placeholder={connected ? t(lang, 'input_placeholder') : t(lang, 'disconnected')}
           rows={1}
           disabled={!connected}
-          className="w-full resize-none bg-transparent outline-none text-sm text-content-primary placeholder-content-disabled min-h-[24px] max-h-[140px] disabled:opacity-50 leading-normal pl-3 pr-10 pt-2 pb-14"
+          className="flex-1 resize-none bg-transparent outline-none text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] disabled:opacity-50 leading-normal py-2.5 pl-3 pr-2"
           style={{ height: 'auto', overflow: 'hidden' }}
           onInput={(e) => {
             const el = e.currentTarget;
@@ -135,7 +151,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         <button
           onClick={handleSend}
           disabled={!connected && !busy}
-          className={`absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             busy
               ? 'bg-red-100 text-danger hover:bg-red-200 animate-pulse'
               : 'bg-primary text-white hover:bg-primary-hover'
