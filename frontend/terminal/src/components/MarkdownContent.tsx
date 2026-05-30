@@ -1,4 +1,4 @@
-import {lexer} from 'marked';
+import {lexer, Lexer} from 'marked';
 import React, {type ReactNode, useMemo} from 'react';
 import {Box, Text} from 'ink';
 import type {Token, Tokens} from 'marked';
@@ -9,6 +9,24 @@ import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {stringWidth, padAligned, wrapText} from '../utils/markdown.js';
 
 const INLINE_CODE_COLOR = '#b1b9f9';
+
+const HTML_TAG_COLORS: Record<string, string | undefined> = {
+	kbd: '#56d4dd',
+	sub: undefined,
+	sup: undefined,
+};
+
+const HTML_TAG_RE = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/;
+
+// 预处理 ^上标^ 语法：在 lexer 之前转换为 <sup> 标签
+// 正则要求 ^ 前面不是字母/数字（避免 x^2 等数学表达式被误匹配），
+// 且 ^ 后第一个字符不能是空白或 ^（避免 ^2 + y^ 等误匹配）
+const _originalLex = Lexer.prototype.lex;
+Lexer.prototype.lex = function (src: string) {
+	src = src.replace(/(?<![a-zA-Z0-9])\^([^\s^][^\^]*?)\^(?!\^)/g, '<sup>$1</sup>');
+	return _originalLex.call(this, src);
+};
+
 type MarkdownRenderStyle = {
 	color?: string;
 	italic?: boolean;
@@ -63,14 +81,14 @@ function renderInline(
 			case 'codespan': {
 				const ct = t as Tokens.Codespan;
 				result.push(
-					<Text key={k} color={INLINE_CODE_COLOR} italic={style?.italic}>{ct.text}</Text>,
+					<Text key={k} color={style?.color ?? INLINE_CODE_COLOR} italic={style?.italic}>{ct.text}</Text>,
 				);
 				break;
 			}
 			case 'link': {
 				const lt = t as Tokens.Link;
 				result.push(
-					<Text key={k} color={theme.colors.info} underline italic={style?.italic}>
+					<Text key={k} color={style?.color ?? theme.colors.info} underline italic={style?.italic}>
 						{renderInline(lt.tokens, theme, k, style)}
 					</Text>,
 				);
@@ -91,6 +109,49 @@ function renderInline(
 			}
 			case 'br': {
 				result.push(<Text key={k} color={style?.color} italic={style?.italic}>{'\n'}</Text>);
+				break;
+			}
+			case 'del': {
+				const dt = t as Tokens.Del;
+				result.push(
+					<Text key={k} strikethrough color={style?.color} italic={style?.italic}>{renderInline(dt.tokens, theme, k, style)}</Text>,
+				);
+				break;
+			}
+			case 'html': {
+				const raw = t.raw ?? (t as {text?: string}).text ?? '';
+				// 自闭合标签（<hr>、<br>）或无法识别的标签：跳过
+				if (/^<(hr|br|img)\b/i.test(raw)) break;
+				const m = raw.match(HTML_TAG_RE);
+				if (!m) break;
+				const isClosing = !!m[1];
+				if (isClosing) break; // 闭合标签，跳过
+				const tagName = m[2].toLowerCase();
+				// 开始标签：向后找到闭合标签，收集中间文本并施加样式
+				let innerText = '';
+				let found = false;
+				let j = i + 1;
+				for (; j < tokens.length; j++) {
+					const nt = tokens[j];
+					if (nt.type === 'html') {
+						const nRaw = nt.raw ?? (nt as {text?: string}).text ?? '';
+						const cm = nRaw.match(HTML_TAG_RE);
+						if (cm && cm[1] && cm[2].toLowerCase() === tagName) {
+							found = true;
+							break;
+						}
+					}
+					innerText += (nt as {text?: string}).text ?? (nt as {raw?: string}).raw ?? '';
+				}
+				if (found && innerText) {
+					const tagColor = HTML_TAG_COLORS[tagName];
+					result.push(
+						<Text key={k} color={tagColor ?? style?.color} bold={!!tagColor} italic={style?.italic}>
+							{innerText}
+						</Text>,
+					);
+					i = j; // 跳到闭合标签位置，循环 i++ 会移到下一个
+				}
 				break;
 			}
 			default: {
@@ -238,23 +299,29 @@ function tokensToElements(
 
 			case 'heading': {
 				const ht = token as Tokens.Heading;
-				const content = renderInline(ht.tokens, theme, `h-${ki}`, style);
+				const headingColor = ht.depth === 1
+					? theme.colors.highlight
+					: ht.depth === 2
+						? theme.colors.info
+						: theme.colors.illusionShimmer;
+				const headingStyle: MarkdownRenderStyle = {...style, color: headingColor};
+				const content = renderInline(ht.tokens, theme, `h-${ki}`, headingStyle);
 
 				if (ht.depth === 1) {
 					elements.push(
-						<Text key={`t-${ki++}`} bold underline color={theme.colors.highlight} italic={style?.italic}>
+						<Text key={`t-${ki++}`} bold underline color={headingColor} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
 				} else if (ht.depth === 2) {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.info} italic={style?.italic}>
+						<Text key={`t-${ki++}`} bold color={headingColor} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
 				} else {
 					elements.push(
-						<Text key={`t-${ki++}`} bold color={theme.colors.illusionShimmer} italic={style?.italic}>
+						<Text key={`t-${ki++}`} bold color={headingColor} italic={style?.italic}>
 							{content}
 						</Text>,
 					);
@@ -331,6 +398,52 @@ function tokensToElements(
 					raw.replace(/\n+$/, '').split('\n').forEach((line) => {
 						elements.push(<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>{line}</Text>);
 					});
+				}
+				break;
+			}
+
+			case 'html': {
+				const ht = token as Tokens.HTML;
+				const raw = ht.raw ?? ht.text ?? '';
+				const lines = raw.replace(/\n+$/, '').split('\n');
+				let inDetails = false;
+				let inSummary = false;
+				let summaryText = '';
+				let detailLines: string[] = [];
+				const summaryTagRe = /<summary\b[^>]*>([\s\S]*?)<\/summary>/i;
+				const stripTags = (s: string) => s.replace(/<[^>]+>/g, '');
+				for (const line of lines) {
+					if (/^<details\b/i.test(line)) { inDetails = true; continue; }
+					if (/^<\/details>/i.test(line)) {
+						if (summaryText) {
+							elements.push(
+								<Text key={`t-${ki++}`} bold color={theme.colors.info}>{summaryText}</Text>,
+							);
+						}
+						for (const dl of detailLines) {
+							elements.push(
+								<Text key={`t-${ki++}`} color={style?.color}>{'  '}{dl}</Text>,
+							);
+						}
+						inDetails = false; summaryText = ''; detailLines = [];
+						continue;
+					}
+					if (/<summary\b/i.test(line)) {
+						const sm = line.match(summaryTagRe);
+						if (sm) { summaryText = stripTags(sm[1]).trim(); }
+						inSummary = true;
+						if (!/<\/summary>/i.test(line)) continue;
+					}
+					if (/<\/summary>/i.test(line)) { inSummary = false; continue; }
+					if (inSummary) { summaryText += stripTags(line).trim(); continue; }
+					if (/^<hr\b/i.test(line)) {
+						elements.push(<Text key={`t-${ki++}`} color={theme.colors.muted}>{'─'.repeat(40)}</Text>);
+						continue;
+					}
+					const stripped = stripTags(line).trim();
+					if (!stripped) continue;
+					if (inDetails) { detailLines.push(stripped); continue; }
+					elements.push(<Text key={`t-${ki++}`} color={style?.color}>{stripped}</Text>);
 				}
 				break;
 			}
