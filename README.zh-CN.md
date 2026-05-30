@@ -1080,25 +1080,6 @@ illusion mcp remove <name>       # 移除服务器
 
 ## 🧪 开发与测试
 
-### 前端构建
-
-两个前端（终端 TUI 和 Web UI）使用前需要先构建。终端前端使用 esbuild 打包以加速启动；Web 前端使用 Vite 构建。
-
-```bash
-# 一次性构建两个前端
-python scripts/build_frontend.py
-
-# 只构建终端前端
-python scripts/build_frontend.py --terminal
-
-# 只构建 Web 前端
-python scripts/build_frontend.py --web
-```
-
-> **注意**：`uv sync` 使用 editable install，不会自动触发前端构建。克隆或拉取更新后需手动运行构建脚本。构建 wheel（`hatch build`、`pip install .` 或 `uv build`）时，前端构建会通过 hatch build hook 自动执行。
-
-### 运行测试
-
 ```bash
 # 安装开发依赖
 uv sync --dev

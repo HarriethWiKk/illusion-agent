@@ -1078,25 +1078,6 @@ Defined through `plugin.json` manifest:
 
 ## 🧪 Development & Testing
 
-### Frontend Build
-
-Both frontends (terminal TUI and Web UI) need to be built before use. The terminal frontend is bundled with esbuild for fast startup; the web frontend is built with Vite.
-
-```bash
-# Build both frontends at once
-python scripts/build_frontend.py
-
-# Build only terminal frontend
-python scripts/build_frontend.py --terminal
-
-# Build only web frontend
-python scripts/build_frontend.py --web
-```
-
-> **Note**: `uv sync` uses editable install and does NOT trigger frontend builds. You need to run the build script manually after cloning or pulling updates. When building a wheel (`hatch build`, `pip install .`, or `uv build`), the frontend build runs automatically via a hatch build hook.
-
-### Running Tests
-
 ```bash
 # Install development dependencies
 uv sync --dev
