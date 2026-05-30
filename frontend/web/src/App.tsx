@@ -22,7 +22,7 @@ export default function App() {
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
   const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
 
-  // 内联选项状态（/context、/language 等）
+  // 内联选项状态
   const [inlineOptions, setInlineOptions] = useState<SelectRequestPayload | null>(null);
 
   // Toast 状态
@@ -49,9 +49,6 @@ export default function App() {
     toastHoverRef.current = false;
     toastTimerRef.current = setTimeout(() => { setToastMessage(null); toastTimerRef.current = null; }, TOAST_DURATION);
   }, []);
-
-  // 删除会话状态
-  const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
 
   // 注册回调
   useEffect(() => {
@@ -83,7 +80,7 @@ export default function App() {
     if (!line.trim()) return;
     const trimmed = line.trim();
 
-    // /language → 前端本地构建选项（和 terminal 端一致）
+    // /language → 前端本地构建选项
     if (trimmed === '/language' || trimmed === '/language show') {
       const current = normalizeLanguage(session.status?.ui_language);
       setInlineOptions({
@@ -97,14 +94,22 @@ export default function App() {
       return;
     }
 
-    // /context → 发送 select_command 到后端获取选项
-    if (trimmed === '/context') {
-      session.setBusyTrue();
-      session.requestSelectCommand('context');
+    // /resume → 发送 list_sessions（和 terminal 端一致）
+    if (trimmed === '/resume') {
+      session.sendRequest({ type: 'list_sessions' });
       return;
     }
 
-    // 其他所有命令 → 直接提交
+    // 通过 select_command 获取内联选项的命令
+    const selectCommands = ['context', 'rewind', 'model', 'delete'];
+    const cmdName = trimmed.startsWith('/') ? (trimmed.slice(1).split(/\s+/)[0] ?? '') : '';
+    if (cmdName && selectCommands.includes(cmdName)) {
+      session.setBusyTrue();
+      session.requestSelectCommand(cmdName);
+      return;
+    }
+
+    // 其他所有命令（含 /effort）→ 直接提交，结果走 toast
     session.setBusyTrue();
     session.sendRequest({ type: 'submit_line', line: trimmed });
   };
@@ -123,31 +128,9 @@ export default function App() {
   const handleSelectSession = (id: string) => {
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
   };
-
-  // 删除会话
   const handleDeleteSessions = useCallback(() => {
-    session.sendRequest({ type: 'select_command', command: 'delete' });
-  }, [session.sendRequest]);
-
-  const handleConfirmDelete = useCallback(() => {
-    for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
-    session.clearDeleteSessions();
-    setDeleteSelected(new Set());
-    setTimeout(() => session.sendRequest({ type: 'list_sessions' }), 500);
-  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions]);
-
-  const handleCloseDeleteModal = useCallback(() => {
-    session.clearDeleteSessions();
-    setDeleteSelected(new Set());
-  }, [session.clearDeleteSessions]);
-
-  const toggleDeleteItem = useCallback((v: string) => {
-    setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
-  }, []);
-
-  const showDeleteModal = session.deleteSessions.length > 0;
-  const regularSessions = session.deleteSessions.filter((s) => s.value !== '__all__');
-  const hasAllOption = session.deleteSessions.some((s) => s.value === '__all__');
+    session.requestSelectCommand('delete');
+  }, [session.requestSelectCommand]);
 
   const handlePermissionResponse = (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => {
     session.sendRequest({ type: 'permission_response', request_id: requestId, allowed, always_allow: alwaysAllow, tool_name: toolName });
@@ -199,44 +182,6 @@ export default function App() {
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
-
-      {/* 删除会话弹窗 */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-white rounded-2xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-border-light">
-              <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
-            </div>
-            <div className="flex-1 overflow-y-auto py-2">
-              {regularSessions.length === 0 ? (
-                <div className="px-6 py-8 text-center text-sm text-content-disabled">{t(lang, 'no_sessions')}</div>
-              ) : regularSessions.map((s) => (
-                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-surface-hover transition-colors">
-                  <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => toggleDeleteItem(s.value)} className="w-4 h-4 rounded accent-danger" />
-                  <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
-                </label>
-              ))}
-            </div>
-            <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
-              <div>{hasAllOption && (
-                <button onClick={() => {
-                  session.sendRequest({ type: 'apply_select_command', command: 'delete', value: '__all__' });
-                  session.clearDeleteSessions(); setDeleteSelected(new Set());
-                  setTimeout(() => session.sendRequest({ type: 'list_sessions' }), 500);
-                }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
-              )}</div>
-              <div className="flex gap-2">
-                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light">{t(lang, 'cancel')}</button>
-                <button onClick={handleConfirmDelete} disabled={deleteSelected.size === 0}
-                  className="px-4 py-2 text-sm text-white bg-danger hover:bg-danger-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                  {t(lang, 'confirm_delete')} ({deleteSelected.size})
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Toast 通知 */}
       {toastMessage && (

@@ -56,8 +56,6 @@ export interface WebSocketSessionState {
   bgAgentLabel: string | null;
   connected: boolean;
   sessions: { value: string; label: string }[];
-  deleteSessions: { value: string; label: string }[];
-  clearDeleteSessions: () => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -93,7 +91,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
-  const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -150,7 +147,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
 
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
-  const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
   const clearModal = useCallback((): void => { setModal(null); }, []);
   const requestSelectCommand = useCallback((command: string): void => {
     sendRequest({ type: 'select_command', command });
@@ -319,8 +315,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const rawOpts = evt.select_options ?? [];
 
         // 内置数据更新
-        if (cmd === 'resume') { setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
-        if (cmd === 'delete') { setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
+        if (cmd === 'resume') {
+          setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
+          // 同时通知 App 显示内联选项
+          if (onSelectRequestRef.current) {
+            const title = String(m.title ?? cmd);
+            const options = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), description: o.description ? String(o.description) : undefined, active: o.active === true }));
+            onSelectRequestRef.current({ command: cmd, title, options });
+          }
+          setBusy(false); return;
+        }
         if (cmd === 'effort') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
           setEffortOptions(opts); setBusy(false); return;
@@ -405,7 +409,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions,
+    bgAgentLabel, connected, sessions,
     clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
@@ -413,7 +417,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions,
+    bgAgentLabel, connected, sessions,
     clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
