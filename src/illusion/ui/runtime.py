@@ -310,6 +310,7 @@ async def build_runtime(
             "session_id": session_id,
         },
         effort=EffortMapper.normalize(settings.effort),
+        session_id=session_id,
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine

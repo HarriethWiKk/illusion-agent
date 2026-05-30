@@ -39,6 +39,7 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
+from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot, rewind_to
 from illusion.tools.base import ToolRegistry
 
 
@@ -79,6 +80,7 @@ class QueryEngine:
         hook_executor: HookExecutor | None = None,
         tool_metadata: dict[str, object] | None = None,
         effort: EffortLevel | None = None,
+        session_id: str = "",
     ) -> None:
         self._api_client = api_client  # API客户端
         self._tool_registry = tool_registry  # 工具注册表
@@ -97,6 +99,8 @@ class QueryEngine:
         self._cost_tracker = CostTracker()  # 成本跟踪器
         self._bg_agent_tracker = BackgroundAgentTracker()  # 后台代理追踪器
         self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
+        self._file_history: FileHistoryState | None = None  # 文件历史状态
+        self._session_id: str = session_id or ""  # 会话 ID（用于文件历史目录）
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -199,6 +203,20 @@ class QueryEngine:
         """
         self._messages = list(messages)
 
+    @property
+    def file_history(self) -> FileHistoryState | None:
+        """返回文件历史状态。"""
+        return self._file_history
+
+    def _extract_file_paths(self, tool_name: str, tool_input: dict) -> list[str]:
+        """从工具输入中提取文件路径。"""
+        path_keys = ("path", "file_path", "notebook_path")
+        paths = []
+        for key in path_keys:
+            if key in tool_input and isinstance(tool_input[key], str):
+                paths.append(tool_input[key])
+        return paths
+
     def has_pending_continuation(self) -> bool:
         """当对话以等待后续模型轮次的工具结果结束时返回True。
 
@@ -233,8 +251,26 @@ class QueryEngine:
             >>> async for event in engine.submit_message("你好"):
             ...     print(event)
         """
+        # 初始化文件历史状态（如尚未初始化）
+        if self._file_history is None:
+            self._file_history = FileHistoryState(
+                session_id=self._session_id or __import__('uuid').uuid4().hex[:12],
+                cwd=str(self._cwd),
+            )
+
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))
+
+        # 为这条用户消息创建文件历史快照（用消息列表长度作为 ID）
+        make_snapshot(self._file_history, str(len(self._messages)))
+
+        # 文件历史回调：工具执行前备份文件
+        def _on_before_tool_execute(tool_name: str, tool_input: dict) -> None:
+            if self._file_history is None:
+                return
+            for fpath in self._extract_file_paths(tool_name, tool_input):
+                track_edit(self._file_history, fpath)
+
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,
@@ -251,6 +287,7 @@ class QueryEngine:
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
             compact_state=self._compact_state,
+            on_before_tool_execute=_on_before_tool_execute,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

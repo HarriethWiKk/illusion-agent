@@ -91,6 +91,7 @@ from illusion.services import (
     summarize_messages,
 )
 from illusion.services.session_storage import get_project_session_dir, load_session_snapshot
+from illusion.services.file_history import rewind_to
 from illusion.skills import load_skill_registry
 from illusion.tasks import get_task_manager
 
@@ -651,12 +652,29 @@ def create_default_command_registry() -> CommandRegistry:
                 return CommandResult(message="Usage: /rewind [TURNS]")
         before = len(context.engine.messages)
         updated = _rewind_turns(context.engine.messages, turns)
-        context.engine.load_messages(updated)
         removed = before - len(updated)
+
+        # 文件回退：找到目标快照并恢复文件
+        reverted_count = 0
+        fh = context.engine.file_history
+        if fh is not None and fh.snapshots:
+            # 目标轮次索引 = 当前快照数 - 回退轮次数
+            target_turn = max(0, len(fh.snapshots) - turns)
+            reverted_files = rewind_to(fh, target_turn)
+            reverted_count = len(reverted_files)
+
+        # 硬删除：直接截断消息列表
+        context.engine.load_messages(updated)
+
+        # 构建反馈消息
+        lines = [f"Rewound {turns} turn(s); removed {removed} message(s)."]
+        if reverted_count > 0:
+            lines.append(f"Reverted {reverted_count} file(s).")
+
         return CommandResult(
             clear_screen=True,
             replay_messages=list(updated),
-            message=f"Rewound {turns} turn(s); removed {removed} message(s).",
+            message="\n".join(lines),
         )
 
     async def _files_handler(args: str, context: CommandContext) -> CommandResult:
@@ -1349,6 +1367,7 @@ def create_default_command_registry() -> CommandRegistry:
             delete_session_by_id,
             list_session_snapshots,
         )
+        from illusion.services.file_history import cleanup_file_history, cleanup_all_file_histories
 
         tokens = args.strip().split()
 
@@ -1371,6 +1390,7 @@ def create_default_command_registry() -> CommandRegistry:
         # /delete all / /delete __all__ — 清除所有会话
         if tokens[0] in ("all", "__all__"):
             count = delete_all_sessions(context.cwd)
+            cleanup_all_file_histories()
             context.engine.clear()
             return CommandResult(
                 message=f"Deleted {count} session file(s).",
@@ -1381,6 +1401,7 @@ def create_default_command_registry() -> CommandRegistry:
         # /delete <session_id> — 删除指定会话
         sid = tokens[0]
         if delete_session_by_id(context.cwd, sid):
+            cleanup_file_history(sid)
             if sid == context.session_id:
                 context.engine.clear()
                 return CommandResult(

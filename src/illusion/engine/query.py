@@ -210,6 +210,8 @@ class QueryContext:
     effort: EffortLevel | None = None
     bg_agent_tracker: BackgroundAgentTracker | None = None
     compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
+    # 文件历史回调：工具执行前调用，参数为 (工具名称, 工具输入)
+    on_before_tool_execute: Callable[[str, dict], None] | None = None
 
 
 async def run_query(
@@ -518,6 +520,10 @@ async def _execute_tool_call(
                 raise PermissionDenied(tool_name, f"Permission denied for {tool_name}")
         else:
             raise PermissionDenied(tool_name, decision.reason or f"Permission denied for {tool_name}")
+
+    # 文件历史：工具执行前回调（备份即将被修改的文件）
+    if context.on_before_tool_execute is not None:
+        context.on_before_tool_execute(tool_name, tool_input)
 
     # 执行工具
     result = await tool.execute(
