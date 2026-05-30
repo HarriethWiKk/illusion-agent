@@ -52,7 +52,7 @@ from illusion.config.i18n import (
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal, get_args
+from typing import Any, TYPE_CHECKING, Awaitable, Callable, Literal, get_args
 
 import pyperclip
 
@@ -394,6 +394,389 @@ def _coerce_setting_value(settings: Settings, key: str, raw: str):
     return raw
 
 
+def _explore_codebase(root: Path) -> dict[str, Any]:
+    """探索代码库结构，识别项目类型和工具链
+    
+    Args:
+        root: 项目根目录
+        
+    Returns:
+        包含项目信息的字典
+    """
+    findings: dict[str, Any] = {
+        "languages": [],
+        "frameworks": [],
+        "package_manager": None,
+        "build_commands": [],
+        "test_commands": [],
+        "lint_commands": [],
+        "format_commands": [],
+        "existing_configs": [],
+        "ci_config": None,
+        "has_gitignore": False,
+        "readme_summary": None,
+    }
+    
+    # 扫描文件结构
+    try:
+        all_files = [
+            p for p in root.rglob("*")
+            if p.is_file()
+            and ".git" not in p.parts
+            and ".venv" not in p.parts
+            and "node_modules" not in p.parts
+            and "__pycache__" not in p.parts
+        ]
+    except Exception:
+        all_files = []
+    
+    # 检测语言
+    lang_indicators = {
+        ".py": "Python",
+        ".js": "JavaScript",
+        ".ts": "TypeScript",
+        ".jsx": "React",
+        ".tsx": "React",
+        ".java": "Java",
+        ".go": "Go",
+        ".rs": "Rust",
+        ".rb": "Ruby",
+        ".php": "PHP",
+        ".cs": "C#",
+        ".cpp": "C++",
+        ".c": "C",
+        ".swift": "Swift",
+        ".kt": "Kotlin",
+    }
+    
+    detected_langs = set()
+    for f in all_files:
+        if f.suffix in lang_indicators:
+            detected_langs.add(lang_indicators[f.suffix])
+    findings["languages"] = sorted(detected_langs)
+    
+    # 检测框架和语言指示文件
+    framework_indicators = {
+        "package.json": None,
+        "requirements.txt": "Python",
+        "pyproject.toml": "Python",
+        "setup.py": "Python",
+        "Cargo.toml": "Rust",
+        "go.mod": "Go",
+        "pom.xml": "Java",
+        "build.gradle": "Java",
+        "Gemfile": "Ruby",
+        "composer.json": "PHP",
+    }
+    
+    for indicator, lang in framework_indicators.items():
+        if (root / indicator).exists():
+            if lang and lang not in findings["languages"]:
+                findings["languages"].append(lang)
+    
+    # 检测配置文件关联的语言
+    config_lang_indicators = {
+        "tsconfig.json": "TypeScript",
+        "jsconfig.json": "JavaScript",
+        "webpack.config.js": "JavaScript",
+        "vite.config.ts": "TypeScript",
+        "vite.config.js": "JavaScript",
+        "next.config.js": "Next.js",
+        "nuxt.config.js": "Nuxt",
+        "angular.json": "Angular",
+        "vue.config.js": "Vue",
+        "svelte.config.js": "Svelte",
+    }
+    
+    for config_file, lang in config_lang_indicators.items():
+        if (root / config_file).exists():
+            if lang not in findings["languages"] and lang not in ["Next.js", "Nuxt", "Angular", "Vue", "Svelte"]:
+                findings["languages"].append(lang)
+            elif lang in ["Next.js", "Nuxt", "Angular", "Vue", "Svelte"] and lang not in findings["frameworks"]:
+                findings["frameworks"].append(lang)
+    
+    # 检测包管理器
+    if (root / "package.json").exists():
+        if (root / "yarn.lock").exists():
+            findings["package_manager"] = "yarn"
+        elif (root / "pnpm-lock.yaml").exists():
+            findings["package_manager"] = "pnpm"
+        else:
+            findings["package_manager"] = "npm"
+    elif (root / "requirements.txt").exists() or (root / "pyproject.toml").exists():
+        findings["package_manager"] = "pip"
+    elif (root / "Cargo.toml").exists():
+        findings["package_manager"] = "cargo"
+    elif (root / "go.mod").exists():
+        findings["package_manager"] = "go"
+    
+    # 读取 package.json 获取脚本
+    package_json = root / "package.json"
+    if package_json.exists():
+        try:
+            with open(package_json, encoding="utf-8") as f:
+                data = json.load(f)
+                scripts = data.get("scripts", {})
+                if "build" in scripts:
+                    findings["build_commands"].append(f"npm run build")
+                if "test" in scripts:
+                    findings["test_commands"].append(f"npm test")
+                if "lint" in scripts:
+                    findings["lint_commands"].append(f"npm run lint")
+                if "dev" in scripts:
+                    findings["build_commands"].append(f"npm run dev")
+                if "format" in scripts:
+                    findings["format_commands"].append(f"npm run format")
+        except Exception:
+            pass
+    
+    # 读取 pyproject.toml 获取命令
+    pyproject = root / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            import tomllib
+            with open(pyproject, "rb") as f:
+                data = tomllib.load(f)
+                scripts = data.get("tool", {}).get("poetry", {}).get("scripts", {})
+                if scripts:
+                    findings["build_commands"].append("poetry run <script>")
+                # 检测 ruff/black 格式化配置
+                if "tool" in data:
+                    if "ruff" in data["tool"]:
+                        findings["format_commands"].append("ruff format")
+                        if "lint" not in findings["lint_commands"]:
+                            findings["lint_commands"].append("ruff check")
+                    if "black" in data["tool"]:
+                        findings["format_commands"].append("black")
+        except Exception:
+            pass
+    
+    # 检测 Makefile
+    makefile = root / "Makefile"
+    if makefile.exists():
+        try:
+            content = makefile.read_text(encoding="utf-8")
+            if "build:" in content:
+                findings["build_commands"].append("make build")
+            if "test:" in content:
+                findings["test_commands"].append("make test")
+            if "lint:" in content:
+                findings["lint_commands"].append("make lint")
+            if "fmt:" in content or "format:" in content:
+                findings["format_commands"].append("make fmt")
+        except Exception:
+            pass
+    
+    # 检测格式化工具配置
+    format_configs = {
+        ".prettierrc": "prettier",
+        ".prettierrc.json": "prettier",
+        ".prettierrc.js": "prettier",
+        "prettier.config.js": "prettier",
+        "biome.json": "biome",
+        ".eslintrc": "eslint",
+        ".eslintrc.json": "eslint",
+        ".eslintrc.js": "eslint",
+        "eslint.config.js": "eslint",
+        ".golangci.yml": "golangci-lint",
+        ".golangci.yaml": "golangci-lint",
+        "rustfmt.toml": "rustfmt",
+        ".rustfmt.toml": "rustfmt",
+    }
+    
+    for config_file, tool_name in format_configs.items():
+        if (root / config_file).exists():
+            if tool_name not in findings["format_commands"]:
+                findings["format_commands"].append(tool_name)
+    
+    # 检测 CI 配置
+    ci_configs = {
+        ".github/workflows": "GitHub Actions",
+        ".gitlab-ci.yml": "GitLab CI",
+        "Jenkinsfile": "Jenkins",
+        ".circleci/config.yml": "CircleCI",
+        ".travis.yml": "Travis CI",
+    }
+    
+    for ci_path, ci_name in ci_configs.items():
+        if (root / ci_path).exists():
+            findings["ci_config"] = ci_name
+            break
+    
+    # 检测 .gitignore
+    findings["has_gitignore"] = (root / ".gitignore").exists()
+    
+    # 检测现有 AI 配置
+    ai_configs = [
+        ".cursor/rules",
+        ".cursorrules",
+        ".github/copilot-instructions.md",
+        ".windsurfrules",
+        ".clinerules",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "ILLUSION.md",
+    ]
+    for config in ai_configs:
+        if (root / config).exists():
+            findings["existing_configs"].append(config)
+    
+    # 检测常用框架
+    if (root / "package.json").exists():
+        try:
+            with open(root / "package.json", encoding="utf-8") as f:
+                data = json.load(f)
+                deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+                if "react" in deps:
+                    findings["frameworks"].append("React")
+                if "vue" in deps:
+                    findings["frameworks"].append("Vue")
+                if "svelte" in deps:
+                    findings["frameworks"].append("Svelte")
+                if "next" in deps:
+                    findings["frameworks"].append("Next.js")
+                if "nuxt" in deps:
+                    findings["frameworks"].append("Nuxt")
+                if "express" in deps:
+                    findings["frameworks"].append("Express")
+                if "fastapi" in deps:
+                    findings["frameworks"].append("FastAPI")
+                if "django" in deps:
+                    findings["frameworks"].append("Django")
+                if "flask" in deps:
+                    findings["frameworks"].append("Flask")
+                if "angular" in deps or "@angular/core" in deps:
+                    findings["frameworks"].append("Angular")
+        except Exception:
+            pass
+    
+    # 提取 README 摘要
+    readme = root / "README.md"
+    if readme.exists():
+        try:
+            content = readme.read_text(encoding="utf-8")
+            # 提取前几行作为项目描述，跳过 HTML 和图片
+            desc_lines = []
+            in_code_block = False
+            in_html_block = False
+            for line in content.split("\n")[:50]:
+                stripped = line.strip()
+                # 跳过代码块
+                if stripped.startswith("```"):
+                    in_code_block = not in_code_block
+                    continue
+                if in_code_block:
+                    continue
+                # 跳过 HTML 块
+                if stripped.startswith("<") and not stripped.startswith("</"):
+                    if stripped.endswith(">") and "/" not in stripped:
+                        in_html_block = True
+                    continue
+                if in_html_block:
+                    if stripped.startswith("</") or stripped.endswith("/>"):
+                        in_html_block = False
+                    continue
+                # 跳过图片和空行
+                if stripped.startswith("![") or not stripped:
+                    continue
+                # 跳过标题行
+                if stripped.startswith("#"):
+                    continue
+                # 跳过 badge 和链接
+                if stripped.startswith("[") and "badges" in stripped.lower():
+                    continue
+                # 保留有意义的文本
+                if len(stripped) > 10:  # 过短的行通常是装饰
+                    desc_lines.append(stripped)
+                if len(desc_lines) >= 3:
+                    break
+            if desc_lines:
+                findings["readme_summary"] = " ".join(desc_lines)
+        except Exception:
+            pass
+    
+    return findings
+
+
+def _generate_claudemd(findings: dict[str, Any], root: Path) -> str:
+    """基于项目发现生成 CLAUDE.md 内容
+    
+    Args:
+        findings: 项目探索结果
+        root: 项目根目录
+        
+    Returns:
+        CLAUDE.md 内容
+    """
+    lines = [
+        "# CLAUDE.md",
+        "",
+        "This file provides guidance to Illusion Code when working with code in this repository.",
+        "",
+    ]
+    
+    # 项目概述
+    if findings.get("readme_summary"):
+        lines.append("## 项目概述")
+        lines.append(findings["readme_summary"])
+        lines.append("")
+    
+    # 技术栈
+    if findings["languages"] or findings["frameworks"] or findings["package_manager"]:
+        lines.append("## 技术栈")
+        if findings["languages"]:
+            lines.append(f"- 主要语言: {', '.join(findings['languages'])}")
+        if findings["frameworks"]:
+            lines.append(f"- 框架: {', '.join(findings['frameworks'])}")
+        if findings["package_manager"]:
+            lines.append(f"- 包管理器: {findings['package_manager']}")
+        if findings.get("ci_config"):
+            lines.append(f"- CI/CD: {findings['ci_config']}")
+        lines.append("")
+    
+    # 常用命令
+    has_commands = any([
+        findings["build_commands"],
+        findings["test_commands"],
+        findings["lint_commands"],
+        findings.get("format_commands")
+    ])
+    if has_commands:
+        lines.append("## 常用命令")
+        if findings["build_commands"]:
+            lines.append(f"- 构建: `{findings['build_commands'][0]}`")
+        if findings["test_commands"]:
+            lines.append(f"- 测试: `{findings['test_commands'][0]}`")
+        if findings["lint_commands"]:
+            lines.append(f"- 代码检查: `{findings['lint_commands'][0]}`")
+        if findings.get("format_commands"):
+            lines.append(f"- 格式化: `{findings['format_commands'][0]}`")
+        lines.append("")
+    
+    # 开发规范
+    lines.extend([
+        "## 开发规范",
+        "- 修改后请验证测试是否通过",
+        "- 保持代码变更最小化",
+    ])
+    
+    # 如果有格式化工具，添加格式化规范
+    if findings.get("format_commands"):
+        lines.append(f"- 代码格式化: 使用 `{findings['format_commands'][0]}`")
+    
+    lines.append("")
+    
+    # 如果有现有配置，提示用户
+    if findings["existing_configs"]:
+        lines.append("## 现有 AI 配置")
+        lines.append("检测到以下 AI 配置文件，内容可能需要合并：")
+        for config in findings["existing_configs"]:
+            lines.append(f"- `{config}`")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
 def create_default_command_registry() -> CommandRegistry:
     """Create the built-in command registry."""
     registry = CommandRegistry()
@@ -711,20 +1094,30 @@ def create_default_command_registry() -> CommandRegistry:
         )
 
     async def _init_handler(args: str, context: CommandContext) -> CommandResult:
+        """智能初始化项目配置
+        
+        流程：
+        1. 探索代码库结构
+        2. 识别项目类型和工具链
+        3. 生成有针对性的配置
+        """
         del args
+        root = Path(context.cwd)
         project_dir = get_project_config_dir(context.cwd)
         created: list[str] = []
-
-        claudemd = Path(context.cwd) / "CLAUDE.md"
+        findings: dict[str, Any] = {}
+        
+        # Phase 1: 探索代码库
+        findings = _explore_codebase(root)
+        
+        # Phase 2: 生成 CLAUDE.md
+        claudemd = root / "CLAUDE.md"
         if not claudemd.exists():
-            claudemd.write_text(
-                "# Project Instructions\n\n"
-                "- Use IllusionCode tools deliberately.\n"
-                "- Keep changes minimal and verify with tests when possible.\n",
-                encoding="utf-8",
-            )
-            created.append(str(claudemd.relative_to(Path(context.cwd))))
-
+            content = _generate_claudemd(findings, root)
+            claudemd.write_text(content, encoding="utf-8")
+            created.append("CLAUDE.md")
+        
+        # Phase 3: 创建项目配置目录
         for relative, content in (
             (
                 project_dir / "README.md",
@@ -746,11 +1139,47 @@ def create_default_command_registry() -> CommandRegistry:
             relative.parent.mkdir(parents=True, exist_ok=True)
             if not relative.exists():
                 relative.write_text(content, encoding="utf-8")
-                created.append(str(relative.relative_to(Path(context.cwd))))
-
+                created.append(str(relative.relative_to(root)))
+        
+        # Phase 4: 生成报告
         if not created:
             return CommandResult(message="Project already initialized for IllusionCode.")
-        return CommandResult(message="Initialized project files:\n" + "\n".join(f"- {item}" for item in created))
+        
+        report_lines = [
+            "✨ **Illusion Code 项目初始化完成**\n",
+            "## 已创建文件",
+            *[f"- {item}" for item in created],
+            "",
+            "## 项目分析",
+        ]
+        
+        if findings.get("languages"):
+            report_lines.append(f"- **检测到语言**: {', '.join(findings['languages'])}")
+        if findings.get("frameworks"):
+            report_lines.append(f"- **检测到框架**: {', '.join(findings['frameworks'])}")
+        if findings.get("package_manager"):
+            report_lines.append(f"- **包管理器**: {findings['package_manager']}")
+        if findings.get("build_commands"):
+            report_lines.append(f"- **构建命令**: {', '.join(findings['build_commands'])}")
+        if findings.get("test_commands"):
+            report_lines.append(f"- **测试命令**: {', '.join(findings['test_commands'])}")
+        if findings.get("lint_commands"):
+            report_lines.append(f"- **代码检查**: {', '.join(findings['lint_commands'])}")
+        if findings.get("format_commands"):
+            report_lines.append(f"- **格式化工具**: {', '.join(findings['format_commands'])}")
+        if findings.get("ci_config"):
+            report_lines.append(f"- **CI/CD**: {findings['ci_config']}")
+        
+        report_lines.extend([
+            "",
+            "## 下一步建议",
+            "- 查看 `CLAUDE.md` 了解项目配置",
+            "- 运行 `/memory` 管理项目记忆",
+            "- 运行 `/skills` 查看可用技能",
+            "- 根据需要调整 CLAUDE.md 中的配置",
+        ])
+        
+        return CommandResult(message="\n".join(report_lines))
 
     async def _bridge_handler(args: str, context: CommandContext) -> CommandResult:
         tokens = args.split()
