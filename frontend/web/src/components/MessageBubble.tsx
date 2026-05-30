@@ -59,12 +59,14 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
     <div className="py-1.5">
       <button
         onClick={() => text && setOpen(!open)}
-        className={`flex items-center gap-2 text-sm transition-colors cursor-pointer ${text ? 'text-content-secondary hover:text-content-primary' : ''}`}
+        className={`flex items-start gap-2 text-sm transition-colors cursor-pointer text-left ${text ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
-        <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
-        {!open && summary && <span className={`text-xs truncate ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
-        {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
+        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-danger' : 'bg-primary'}`} />
+        <span>
+          <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
+          {!open && summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
+          {isError && <span className="text-xs text-danger font-medium"> ERROR</span>}
+        </span>
       </button>
       {open && text && (
         <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] select-text ${isError ? 'text-danger bg-red-50 border border-red-200' : 'text-content-primary bg-[rgba(0,0,0,0.031)] border border-[#e5e5e5]'}`}>
@@ -87,10 +89,12 @@ function ThinkingBlock({ text }: { text: string }) {
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
   return (
-    <div className="py-1.5 flex items-center gap-2">
-      <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0" />
-      <span className="text-sm font-medium font-mono text-content-primary">{call.tool_name}</span>
-      {summary && <span className="text-xs text-content-disabled truncate">（{summary}）</span>}
+    <div className="py-1.5 flex items-start gap-2">
+      <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
+      <span className="text-sm">
+        <span className="font-medium font-mono text-content-primary">{call.tool_name}</span>
+        {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
+      </span>
     </div>
   );
 }
