@@ -42,6 +42,12 @@ class CustomBuildHook(BuildHookInterface):
             print(f"hatch_build: skipping {name} (no package.json)")
             return
 
+        # 如果 dist 已存在则跳过构建
+        dist_dir = frontend_dir / "dist"
+        if dist_dir.exists() and any(dist_dir.iterdir()):
+            print(f"hatch_build: skipping {name} (dist already exists)")
+            return
+
         print(f"hatch_build: building {name} frontend...")
 
         # npm install
