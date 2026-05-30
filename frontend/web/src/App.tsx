@@ -131,7 +131,7 @@ export default function App() {
   const handleSelectSession = (id: string) => {
     session.suppressInlineOptions();
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
-    setTimeout(() => session.sendRequest({ type: 'list_sessions' }), 500);
+    setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
   };
   const handleListSessions = useCallback(() => {
     session.suppressInlineOptions();
