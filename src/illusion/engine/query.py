@@ -513,6 +513,13 @@ async def _execute_tool_call(
         command=_command,
     )
     if not decision.allowed:
+        # 系统自动阻止（如计划模式）：返回错误结果给模型，不终止查询循环
+        if decision.auto_blocked:
+            return ToolResultBlock(
+                tool_use_id=tool_use_id,
+                content=f"[Permission blocked] {decision.reason or f'{tool_name} is not allowed in current mode'}",
+                is_error=True,
+            )
         # 需要用户确认
         if decision.requires_confirmation and context.permission_prompt is not None:
             confirmed = await context.permission_prompt(tool_name, decision.reason)

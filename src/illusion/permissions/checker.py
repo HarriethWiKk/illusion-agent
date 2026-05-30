@@ -37,18 +37,20 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class PermissionDecision:
     """权限决策结果
-    
+
     表示检查工具调用是否允许执行的结果。
-    
+
     Attributes:
         allowed: 是否允许执行该工具
         requires_confirmation: 是否需要用户确认
         reason: 决策原因说明
+        auto_blocked: 是否为系统自动阻止（如计划模式），而非用户显式拒绝
     """
 
     allowed: bool  # 是否允许执行
     requires_confirmation: bool = False  # 是否需要用户确认
     reason: str = ""  # 决策原因
+    auto_blocked: bool = False  # 系统自动阻止（计划模式等）
 
 
 @dataclass(frozen=True)
@@ -156,11 +158,12 @@ class PermissionChecker:
         if is_read_only:
             return PermissionDecision(allowed=True, reason="read-only tools are allowed")
 
-        # 计划模式：阻止变更工具
+        # 计划模式：阻止变更工具（自动阻止，不终止查询循环）
         if self._settings.mode == PermissionMode.PLAN:
             return PermissionDecision(
                 allowed=False,
                 reason="Plan mode blocks mutating tools until the user exits plan mode",
+                auto_blocked=True,
             )
 
         # 默认模式：变更工具需要确认
