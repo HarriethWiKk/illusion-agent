@@ -63,7 +63,7 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
       >
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
-        {!open && summary && <span className="text-xs text-content-disabled truncate">（{summary}）</span>}
+        {!open && summary && <span className={`text-xs truncate ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
         {isError && <span className="text-xs text-danger font-medium">ERROR</span>}
       </button>
       {open && text && (
