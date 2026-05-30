@@ -400,19 +400,32 @@ async def run_query(
                     # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
                     yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
 
-                async def _run(tc):
-                    return await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                async def _safe_run(idx: int, tc):
+                    """并发执行单个工具，捕获非权限异常转为错误结果。"""
+                    try:
+                        result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                        return idx, result
+                    except PermissionDenied:
+                        raise
+                    except Exception as exc:
+                        return idx, ToolResultBlock(
+                            tool_use_id=tc.id,
+                            content=f"Tool {tc.name} failed: {exc}",
+                            is_error=True,
+                        )
 
-                # 并发执行所有工具调用
-                results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
-                tool_results = list(results)
-
-                for tc, result in zip(tool_calls, tool_results):
+                # 并发执行所有工具调用，每个工具完成后立即发送完成事件
+                tool_results: list[ToolResultBlock] = [None] * len(tool_calls)
+                for coro in asyncio.as_completed(
+                    [_safe_run(i, tc) for i, tc in enumerate(tool_calls)]
+                ):
+                    idx, result = await coro
+                    tool_results[idx] = result
                     yield ToolExecutionCompleted(
-                        tool_name=tc.name,
+                        tool_name=tool_calls[idx].name,
                         output=result.text_content,
                         is_error=result.is_error,
-                        tool_use_id=tc.id,
+                        tool_use_id=tool_calls[idx].id,
                     ), None
         except PermissionDenied as exc:
             from illusion.config.i18n import t
