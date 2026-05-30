@@ -121,16 +121,43 @@ export default function App() {
 
   const handleInlineClose = useCallback(() => setInlineOptions(null), []);
 
+  // 删除会话弹窗状态
+  const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
   const handleNewSession = () => {
     session.sendRequest({ type: 'submit_line', line: '/new' });
   };
   const handleSelectSession = (id: string) => {
+    session.suppressInlineOptions();
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
+    setTimeout(() => session.sendRequest({ type: 'list_sessions' }), 500);
   };
+  const handleListSessions = useCallback(() => {
+    session.suppressInlineOptions();
+    session.sendRequest({ type: 'list_sessions' });
+  }, [session.suppressInlineOptions, session.sendRequest]);
   const handleDeleteSessions = useCallback(() => {
+    session.suppressInlineOptions();
     session.requestSelectCommand('delete');
-  }, [session.requestSelectCommand]);
+  }, [session.suppressInlineOptions, session.requestSelectCommand]);
+  const handleConfirmDelete = useCallback(() => {
+    for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
+    session.clearDeleteSessions();
+    setDeleteSelected(new Set());
+    setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions]);
+  const handleCloseDeleteModal = useCallback(() => {
+    session.clearDeleteSessions();
+    setDeleteSelected(new Set());
+  }, [session.clearDeleteSessions]);
+  const toggleDeleteItem = useCallback((v: string) => {
+    setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
+  }, []);
+
+  const showDeleteModal = session.deleteSessions.length > 0;
+  const regularSessions = session.deleteSessions.filter((s) => s.value !== '__all__');
+  const hasAllOption = session.deleteSessions.some((s) => s.value === '__all__');
 
   const handlePermissionResponse = (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => {
     session.sendRequest({ type: 'permission_response', request_id: requestId, allowed, always_allow: alwaysAllow, tool_name: toolName });
@@ -145,7 +172,7 @@ export default function App() {
     <div className="flex h-screen bg-surface-main">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
-        onListSessions={() => session.sendRequest({ type: 'list_sessions' })}
+        onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
         collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         width={sidebarWidth} />
@@ -182,6 +209,44 @@ export default function App() {
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
+
+      {/* 删除会话弹窗（仅 sidebar 触发） */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={handleCloseDeleteModal} />
+          <div className="relative bg-white rounded-2xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-border-light">
+              <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
+            </div>
+            <div className="flex-1 overflow-y-auto py-2">
+              {regularSessions.length === 0 ? (
+                <div className="px-6 py-8 text-center text-sm text-content-disabled">{t(lang, 'no_sessions')}</div>
+              ) : regularSessions.map((s) => (
+                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-surface-hover transition-colors">
+                  <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => toggleDeleteItem(s.value)} className="w-4 h-4 rounded accent-danger" />
+                  <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
+              <div>{hasAllOption && (
+                <button onClick={() => {
+                  session.sendRequest({ type: 'apply_select_command', command: 'delete', value: '__all__' });
+                  session.clearDeleteSessions(); setDeleteSelected(new Set());
+                  setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+                }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
+              )}</div>
+              <div className="flex gap-2">
+                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light">{t(lang, 'cancel')}</button>
+                <button onClick={handleConfirmDelete} disabled={deleteSelected.size === 0}
+                  className="px-4 py-2 text-sm text-white bg-danger hover:bg-danger-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                  {t(lang, 'confirm_delete')} ({deleteSelected.size})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast 通知 */}
       {toastMessage && (

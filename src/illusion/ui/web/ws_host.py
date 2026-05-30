@@ -887,13 +887,14 @@ class WebBackendHost:
                 await self._emit(BackendEvent(type="error", message=("没有可回退的消息。" if zh else "No messages to rewind to.")))
                 return
             options = []
-            for idx, msg in reversed(user_msgs):
+            total = len(user_msgs)
+            for k, (idx, msg) in enumerate(reversed(user_msgs)):
                 text = msg.text.strip()
                 label = text[:80] + ("…" if len(text) > 80 else "")
                 options.append({
                     "value": str(idx),
                     "label": label,
-                    "description": f"#{idx}",
+                    "description": f"#{total - k}",
                 })
             await self._emit(
                 BackendEvent(

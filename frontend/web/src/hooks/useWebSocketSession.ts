@@ -56,6 +56,9 @@ export interface WebSocketSessionState {
   bgAgentLabel: string | null;
   connected: boolean;
   sessions: { value: string; label: string }[];
+  deleteSessions: { value: string; label: string }[];
+  clearDeleteSessions: () => void;
+  suppressInlineOptions: () => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -91,6 +94,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
+  const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -106,9 +110,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
+  const suppressInlineRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
+  const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -147,6 +153,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
 
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
+  const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
   const clearModal = useCallback((): void => { setModal(null); }, []);
   const requestSelectCommand = useCallback((command: string): void => {
     sendRequest({ type: 'select_command', command });
@@ -313,12 +320,24 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const m = evt.modal ?? {};
         const cmd = String(m.command ?? '');
         const rawOpts = evt.select_options ?? [];
+        const suppressed = suppressInlineRef.current;
+        suppressInlineRef.current = false;
 
-        // 内置数据更新
+        // resume：始终更新 sessions，仅在非抑制时通知内联选项
         if (cmd === 'resume') {
           setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
-          // 同时通知 App 显示内联选项
-          if (onSelectRequestRef.current) {
+          if (!suppressed && onSelectRequestRef.current) {
+            const title = String(m.title ?? cmd);
+            const options = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), description: o.description ? String(o.description) : undefined, active: o.active === true }));
+            onSelectRequestRef.current({ command: cmd, title, options });
+          }
+          setBusy(false); return;
+        }
+        // delete：抑制时走 deleteSessions 弹窗，否则走内联选项
+        if (cmd === 'delete') {
+          if (suppressed) {
+            setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
+          } else if (onSelectRequestRef.current) {
             const title = String(m.title ?? cmd);
             const options = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), description: o.description ? String(o.description) : undefined, active: o.active === true }));
             onSelectRequestRef.current({ command: cmd, title, options });
@@ -409,7 +428,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions,
+    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
     clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
@@ -417,7 +436,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions,
+    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
     clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
