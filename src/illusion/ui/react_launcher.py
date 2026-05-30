@@ -44,6 +44,41 @@ def _resolve_npm() -> str:
     return shutil.which("npm") or "npm"
 
 
+def _resolve_node() -> str:
+    """解析 node 可执行文件路径。
+
+    Returns:
+        str: node 可执行文件路径
+    """
+    return shutil.which("node") or "node"
+
+
+def _resolve_tsx_bin(frontend_dir: Path) -> list[str] | None:
+    """直接解析 tsx 可执行文件路径，跳过 npm exec 开销。
+
+    Args:
+        frontend_dir: 前端目录路径
+
+    Returns:
+        list[str] | None: tsx 启动命令列表，未找到时返回 None
+    """
+    node = _resolve_node()
+    # Windows: node_modules/.bin/tsx.cmd
+    if sys.platform == "win32":
+        tsx_cmd = frontend_dir / "node_modules" / ".bin" / "tsx.cmd"
+        if tsx_cmd.exists():
+            return [str(tsx_cmd)]
+    # Unix: node_modules/.bin/tsx
+    tsx_bin = frontend_dir / "node_modules" / ".bin" / "tsx"
+    if tsx_bin.exists():
+        return [node, str(tsx_bin)]
+    # 直接调用 tsx 的 CLI 入口
+    tsx_mjs = frontend_dir / "node_modules" / "tsx" / "dist" / "cli.mjs"
+    if tsx_mjs.exists():
+        return [node, str(tsx_mjs)]
+    return None
+
+
 def get_frontend_dir() -> Path:
     """返回 React 终端前端目录。
 
@@ -184,19 +219,47 @@ async def launch_react_tui(
             "initial_prompt": prompt,
         }
     )
-    # 启动前端进程
-    process = await asyncio.create_subprocess_exec(
-        npm,
-        "exec",
-        "--",
-        "tsx",
-        "src/index.tsx",
-        cwd=str(frontend_dir),
-        env=env,
-        stdin=None,
-        stdout=None,
-        stderr=None,
-    )
+    node = _resolve_node()
+    dist_entry = frontend_dir / "dist" / "index.mjs"
+
+    if dist_entry.exists():
+        # 优先使用 esbuild 预编译产物（最快启动路径）
+        process = await asyncio.create_subprocess_exec(
+            node,
+            str(dist_entry),
+            cwd=str(frontend_dir),
+            env=env,
+            stdin=None,
+            stdout=None,
+            stderr=None,
+        )
+    else:
+        # 回退到 tsx 实时编译（开发模式）
+        tsx_cmd = _resolve_tsx_bin(frontend_dir)
+        if tsx_cmd is not None:
+            process = await asyncio.create_subprocess_exec(
+                *tsx_cmd,
+                "src/index.tsx",
+                cwd=str(frontend_dir),
+                env=env,
+                stdin=None,
+                stdout=None,
+                stderr=None,
+            )
+        else:
+            # 最终回退：通过 npm exec 调用 tsx
+            process = await asyncio.create_subprocess_exec(
+                npm,
+                "exec",
+                "--",
+                "tsx",
+                "src/index.tsx",
+                cwd=str(frontend_dir),
+                env=env,
+                stdin=None,
+                stdout=None,
+                stderr=None,
+            )
     return await process.wait()
 
 

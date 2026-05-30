@@ -49,6 +49,11 @@ packages = ["src/illusion"]
 "frontend/terminal/package.json" = "illusion/_frontend/package.json"
 "frontend/terminal/tsconfig.json" = "illusion/_frontend/tsconfig.json"
 "frontend/terminal/src" = "illusion/_frontend/src"
+"frontend/terminal/dist" = "illusion/_frontend/dist"
+"frontend/web/dist" = "illusion/_web_dist"
+
+[tool.hatch.build.hooks.custom]
+path = "scripts/hatch_build.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

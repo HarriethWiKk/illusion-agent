@@ -85,11 +85,61 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 ### 安装
 
+#### 第一步：克隆仓库并安装 Python 依赖
+
 ```bash
 git clone https://github.com/your-repo/illusion-code.git
 cd illusion-code
 uv sync
 ```
+
+#### 第二步：构建前端
+
+终端 TUI（Ink/React）和 Web UI（Vite/React）使用前必须先构建。有三种方式：
+
+**方式一：构建脚本（推荐）**
+
+一条命令构建两个前端。需要 Node.js 18+。
+
+```bash
+python scripts/build_frontend.py              # 构建两者
+python scripts/build_frontend.py --terminal   # 只构建终端 TUI
+python scripts/build_frontend.py --web        # 只构建 Web UI
+```
+
+**方式二：手动使用 npm**
+
+分别在各前端目录下执行 `npm install` 和 `npm run build`：
+
+```bash
+# 终端 TUI（esbuild → dist/index.mjs）
+cd frontend/terminal
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+
+# Web UI（Vite → dist/）
+cd frontend/web
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+```
+
+**方式三：hatch build（自动构建）**
+
+构建 wheel 时，hatch build hook 会自动为两个前端执行 `npm install` + `npm run build`，无需手动操作。
+
+```bash
+# 构建 wheel（前端自动构建）
+hatch build
+
+# 或直接安装（同样触发 build hook）
+pip install .
+```
+
+> **注意**：`uv sync` 使用 editable install，不会触发 hatch build hook。执行 `uv sync` 后必须手动运行方式一或方式二。
+
+#### 第三步：使用
 
 > **注意**：`uv sync` 仅在项目目录下创建虚拟环境，不会将 `illusion` 命令注册到系统 PATH。若需在任意目录使用 `illusion` 命令，有以下方式：
 >
@@ -1030,13 +1080,31 @@ illusion mcp remove <name>       # 移除服务器
 
 ## 🧪 开发与测试
 
+### 前端构建
+
+两个前端（终端 TUI 和 Web UI）使用前需要先构建。终端前端使用 esbuild 打包以加速启动；Web 前端使用 Vite 构建。
+
+```bash
+# 一次性构建两个前端
+python scripts/build_frontend.py
+
+# 只构建终端前端
+python scripts/build_frontend.py --terminal
+
+# 只构建 Web 前端
+python scripts/build_frontend.py --web
+```
+
+> **注意**：`uv sync` 使用 editable install，不会自动触发前端构建。克隆或拉取更新后需手动运行构建脚本。构建 wheel（`hatch build`、`pip install .` 或 `uv build`）时，前端构建会通过 hatch build hook 自动执行。
+
+### 运行测试
+
 ```bash
 # 安装开发依赖
 uv sync --dev
 
 # 运行测试
 pytest
-
 ```
 
 ---

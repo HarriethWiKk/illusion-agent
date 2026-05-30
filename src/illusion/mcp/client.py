@@ -24,6 +24,7 @@ MCP 客户端管理器模块
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from contextlib import AsyncExitStack
 from typing import Any
@@ -82,14 +83,15 @@ class McpClientManager:
     async def connect_all(self) -> None:
         """
         连接所有已配置的 STDIO 类型 MCP 服务器
-        
-        遍历所有服务器配置，对于 STDIO 类型的服务器建立连接，
+
+        并行连接所有 STDIO 类型的服务器以加速启动，
         其他类型的服务器标记为失败（当前版本仅支持 STDIO）。
         """
+        # 收集需要并行连接的 STDIO 服务器
+        stdio_tasks: list[tuple[str, McpStdioServerConfig]] = []
         for name, config in self._server_configs.items():
-            # 仅支持 STDIO 类型的服务器连接
             if isinstance(config, McpStdioServerConfig):
-                await self._connect_stdio(name, config)
+                stdio_tasks.append((name, config))
             else:
                 # 其他传输类型标记为失败
                 self._statuses[name] = McpConnectionStatus(
@@ -99,6 +101,12 @@ class McpClientManager:
                     auth_configured=bool(getattr(config, "headers", None)),
                     detail=f"Unsupported MCP transport in current build: {config.type}",
                 )
+
+        # 并行连接所有 STDIO 服务器
+        if stdio_tasks:
+            await asyncio.gather(
+                *(self._connect_stdio(name, config) for name, config in stdio_tasks),
+            )
 
     async def reconnect_all(self) -> None:
         """

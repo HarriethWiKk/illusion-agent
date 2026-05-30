@@ -85,11 +85,61 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 ### Installation
 
+#### Step 1: Clone and install Python dependencies
+
 ```bash
 git clone https://github.com/your-repo/illusion-code.git
 cd illusion-code
 uv sync
 ```
+
+#### Step 2: Build the frontends
+
+The terminal TUI (Ink/React) and Web UI (Vite/React) must be built before first use. There are three ways to do this:
+
+**Option A: Build script (recommended)**
+
+Builds both frontends in one command. Requires Node.js 18+.
+
+```bash
+python scripts/build_frontend.py              # Build both
+python scripts/build_frontend.py --terminal   # Terminal TUI only
+python scripts/build_frontend.py --web        # Web UI only
+```
+
+**Option B: npm directly**
+
+Run `npm install` and `npm run build` in each frontend directory:
+
+```bash
+# Terminal TUI (esbuild → dist/index.mjs)
+cd frontend/terminal
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+
+# Web UI (Vite → dist/)
+cd frontend/web
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+```
+
+**Option C: hatch build (automatic)**
+
+When building a wheel, the hatch build hook automatically runs `npm install` + `npm run build` for both frontends. No manual frontend build step needed.
+
+```bash
+# Build wheel (frontend build runs automatically)
+hatch build
+
+# Or install directly (also triggers the build hook)
+pip install .
+```
+
+> **Note**: `uv sync` uses editable install and does NOT trigger the hatch build hook. You must run Option A or B manually after `uv sync`.
+
+#### Step 3: Usage
 
 > **Note**: `uv sync` only creates a virtual environment within the project directory and does NOT register the `illusion` command globally in your PATH. To use `illusion` from any directory, use one of:
 >
@@ -1028,13 +1078,31 @@ Defined through `plugin.json` manifest:
 
 ## 🧪 Development & Testing
 
+### Frontend Build
+
+Both frontends (terminal TUI and Web UI) need to be built before use. The terminal frontend is bundled with esbuild for fast startup; the web frontend is built with Vite.
+
+```bash
+# Build both frontends at once
+python scripts/build_frontend.py
+
+# Build only terminal frontend
+python scripts/build_frontend.py --terminal
+
+# Build only web frontend
+python scripts/build_frontend.py --web
+```
+
+> **Note**: `uv sync` uses editable install and does NOT trigger frontend builds. You need to run the build script manually after cloning or pulling updates. When building a wheel (`hatch build`, `pip install .`, or `uv build`), the frontend build runs automatically via a hatch build hook.
+
+### Running Tests
+
 ```bash
 # Install development dependencies
 uv sync --dev
 
 # Run tests
 pytest
-
 ```
 
 ---
