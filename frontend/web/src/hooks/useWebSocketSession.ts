@@ -26,6 +26,12 @@ function stripToolCallLines(text: string): string {
 
 type Option = { value: string; label: string; active?: boolean };
 
+export type SelectRequestPayload = {
+  command: string;
+  title: string;
+  options: Array<{ value: string; label: string; description?: string; active?: boolean }>;
+};
+
 export interface WebSocketSessionState {
   staticItems: TranscriptItem[];
   assistantBuffer: string;
@@ -48,23 +54,19 @@ export interface WebSocketSessionState {
   swarmTeammates: SwarmTeammateSnapshot[];
   swarmNotifications: SwarmNotificationSnapshot[];
   bgAgentLabel: string | null;
-  commandResult: { text: string; type: 'success' | 'error' | 'info' } | null;
   connected: boolean;
   sessions: { value: string; label: string }[];
   deleteSessions: { value: string; label: string }[];
   clearDeleteSessions: () => void;
   clearModal: () => void;
-  clearSelectModal: () => void;
-  clearCommandResult: () => void;
-  markSuppressCommandResult: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
-  selectModalCommand: string | null;
-  selectModalOptions: Option[];
   setEffortValue: (value: string) => void;
   setModelValue: (value: string) => void;
   sendRequest: (payload: Record<string, unknown>) => void;
   clearStaticItems: () => void;
+  setOnSelectRequest: (fn: ((payload: SelectRequestPayload) => void) | null) => void;
+  setOnCommandResult: (fn: ((text: string, type: string) => void) | null) => void;
 }
 
 export function useWebSocketSession(url: string): WebSocketSessionState {
@@ -89,13 +91,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
   const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
-  const [commandResult, setCommandResult] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
   const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
-  const [selectModalCommand, setSelectModalCommand] = useState<string | null>(null);
-  const [selectModalOptions, setSelectModalOptions] = useState<Option[]>([]);
-  const pendingSelectCommandRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -106,8 +104,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const assistantFlushedForToolRef = useRef(false);
   const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
   const showThinkingRef = useRef(true);
-  const suppressNextCommandResultRef = useRef(false);
   const pendingInfoCommandRef = useRef<string | null>(null);
+
+  // 回调 refs：App 注入，用于 select_request 和 command_result 事件
+  const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
+  const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
+
+  const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
+  const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -148,21 +152,15 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
   const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
   const clearModal = useCallback((): void => { setModal(null); }, []);
-  const clearSelectModal = useCallback((): void => { setSelectModalCommand(null); setSelectModalOptions([]); pendingSelectCommandRef.current = null; }, []);
-  const clearCommandResult = useCallback((): void => { setCommandResult(null); }, []);
-  const markSuppressCommandResult = useCallback((): void => { suppressNextCommandResultRef.current = true; }, []);
   const requestSelectCommand = useCallback((command: string): void => {
-    pendingSelectCommandRef.current = command;
     sendRequest({ type: 'select_command', command });
   }, [sendRequest]);
 
   const setEffortValue = useCallback((value: string): void => {
-    // 与 terminal 端一致：用 apply_select_command 发送选择结果
     sendRequest({ type: 'apply_select_command', command: 'effort', value });
   }, [sendRequest]);
 
   const setModelValue = useCallback((value: string): void => {
-    // 与 terminal 端一致：用 apply_select_command 发送选择结果
     sendRequest({ type: 'apply_select_command', command: 'model', value });
   }, [sendRequest]);
 
@@ -201,7 +199,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       }
       if (evt.type === 'state_snapshot') {
         const newState = evt.state ?? {};
-        // 检测 model/effort 变化，重新请求选项以同步 active 标记
         const oldModel = typeof status.model === 'string' ? status.model : '';
         const newModel = typeof newState.model === 'string' ? newState.model : '';
         if (newModel && newModel !== oldModel) {
@@ -296,7 +293,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
         }
-        // 推入 tool 项（携带 tool_input，供 toolInputMap 摘要显示）
         pushStatic({ role: 'tool', text: toolName, tool_name: toolName, tool_input: toolInput, tool_use_id: toolUseId || undefined });
         pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName,
           tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined });
@@ -321,33 +317,37 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const m = evt.modal ?? {};
         const cmd = String(m.command ?? '');
         const rawOpts = evt.select_options ?? [];
-        const wasExplicit = pendingSelectCommandRef.current === cmd;
-        pendingSelectCommandRef.current = null;
 
+        // 内置数据更新
         if (cmd === 'resume') { setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
         if (cmd === 'delete') { setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') }))); setBusy(false); return; }
         if (cmd === 'effort') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
-          setEffortOptions(opts);
-          if (wasExplicit && opts.length > 0) { setSelectModalCommand(cmd); setSelectModalOptions(opts); }
-          setBusy(false); return;
+          setEffortOptions(opts); setBusy(false); return;
         }
         if (cmd === 'model') {
           const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
-          setModelOptions(opts);
-          if (wasExplicit && opts.length > 0) { setSelectModalCommand(cmd); setSelectModalOptions(opts); }
-          setBusy(false); return;
+          setModelOptions(opts); setBusy(false); return;
         }
         if (cmd === 'permissions') {
           const activeMode = rawOpts.find((o) => o.active)?.value;
           if (activeMode) setStatus((s) => ({ ...s, permission_mode: activeMode }));
-          if (wasExplicit && rawOpts.length > 0) {
-            const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
-            setSelectModalCommand(cmd); setSelectModalOptions(opts);
-          }
           setBusy(false); return;
         }
-        setBusy(false); return;
+
+        // 其他命令（context、context-window、language 等）→ 通知 App 显示内联选项
+        if (onSelectRequestRef.current) {
+          const title = String(m.title ?? cmd);
+          const options = rawOpts.map((o) => ({
+            value: String(o.value ?? ''),
+            label: String(o.label ?? ''),
+            description: o.description ? String(o.description) : undefined,
+            active: o.active === true,
+          }));
+          onSelectRequestRef.current({ command: cmd, title, options });
+        }
+        setBusy(false);
+        return;
       }
 
       // === 其他 ===
@@ -357,14 +357,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       if (evt.type === 'swarm_status') { if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates); if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20)); return; }
       if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
       if (evt.type === 'command_result' && evt.command_result_data) {
-        if (suppressNextCommandResultRef.current) { suppressNextCommandResultRef.current = false; return; }
         const msg = evt.command_result_data.message ?? '';
         const pending = pendingInfoCommandRef.current;
         if (pending) {
           pendingInfoCommandRef.current = null;
           if (pending === 'skills') {
             setSkills(_parseSkillsResult(msg));
-            // 链式获取下一个
             setTimeout(() => {
               const ws = wsRef.current;
               if (ws && ws.readyState === WebSocket.OPEN) {
@@ -390,7 +388,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             return;
           }
         }
-        setCommandResult({ text: evt.command_result_data.message, type: evt.command_result_data.type || 'info' }); return;
+        // 通知 App 显示 toast
+        if (onCommandResultRef.current) {
+          onCommandResultRef.current(msg, evt.command_result_data.type || 'info');
+        }
+        return;
       }
       if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
       if (evt.type === 'shutdown') { ws.close(); }
@@ -403,18 +405,18 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, commandResult, connected, sessions, deleteSessions,
-    clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
-    selectModalCommand, selectModalOptions, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions,
+    clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
+    setOnSelectRequest, setOnCommandResult,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, commandResult, connected, sessions, deleteSessions,
-    clearDeleteSessions, clearModal, clearSelectModal, clearCommandResult, markSuppressCommandResult,
-    selectModalCommand, selectModalOptions, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions,
+    clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
+    setOnSelectRequest, setOnCommandResult,
   ]);
 }
 
@@ -423,13 +425,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 function _parseSkillsResult(text: string): SkillSnapshot[] {
   const skills: SkillSnapshot[] = [];
   for (const line of text.split('\n')) {
-    // 主格式: "- name [source]: description"
     const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*:\s*(.*)$/);
     if (m) {
       skills.push({ name: m[1]!.trim(), description: m[3]!.trim(), source: m[2]!.trim() });
       continue;
     }
-    // 回退格式: "- name [source]"（无描述）
     const m2 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
     if (m2) {
       skills.push({ name: m2[1]!.trim(), description: '', source: m2[2]!.trim() });
@@ -441,7 +441,6 @@ function _parseSkillsResult(text: string): SkillSnapshot[] {
 function _parsePluginsResult(text: string): PluginSnapshot[] {
   const plugins: PluginSnapshot[] = [];
   for (const line of text.split('\n')) {
-    // "- name [enabled/disabled]"
     const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
     if (m) {
       plugins.push({
@@ -458,7 +457,6 @@ function _parsePluginsResult(text: string): PluginSnapshot[] {
 function _parseRulesResult(text: string): RuleSnapshot[] {
   const rules: RuleSnapshot[] = [];
   for (const line of text.split('\n')) {
-    // "  1. name  —  preview"
     const m = line.match(/^\s*\d+\.\s*(.+?)\s*[—-]/);
     if (m) {
       rules.push({ name: m[1]!.trim(), source: 'project' });

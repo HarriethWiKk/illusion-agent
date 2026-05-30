@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
+interface InlineOption {
+  value: string;
+  label: string;
+  description?: string;
+  active?: boolean;
+}
+
+interface InlineOptions {
+  command: string;
+  title: string;
+  options: InlineOption[];
+}
+
 interface PromptInputProps {
   lang: UiLanguage;
   busy: boolean;
@@ -8,9 +21,12 @@ interface PromptInputProps {
   commands: string[];
   onSubmit: (line: string) => void;
   onStop: () => void;
+  inlineOptions?: InlineOptions | null;
+  onInlineSelect?: (command: string, value: string) => void;
+  onInlineClose?: () => void;
 }
 
-export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop }: PromptInputProps) {
+export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose }: PromptInputProps) {
   const [value, setValue] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -21,9 +37,8 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
     return cmd.toLowerCase().startsWith(query) || cmd.toLowerCase().includes(query.slice(1));
   });
 
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [value]);
+  // 当 inlineOptions 变化时重置选中索引
+  useEffect(() => { setSelectedIndex(0); }, [inlineOptions, value]);
 
   useEffect(() => {
     if (showCommands && listRef.current) {
@@ -35,8 +50,8 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setValue(newValue);
-    setShowCommands(newValue.startsWith('/') && newValue.length > 0 && filteredCommands.length > 0);
-  }, [filteredCommands.length]);
+    setShowCommands(newValue.startsWith('/') && newValue.length > 0 && filteredCommands.length > 0 && !inlineOptions);
+  }, [filteredCommands.length, inlineOptions]);
 
   const selectCommand = useCallback((cmd: string) => {
     setValue('');
@@ -46,6 +61,35 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // 内联选项模式
+      if (inlineOptions) {
+        const opts = inlineOptions.options;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.min(i + 1, opts.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (opts[selectedIndex] && onInlineSelect) {
+            onInlineSelect(inlineOptions.command, opts[selectedIndex].value);
+          }
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onInlineClose?.();
+          return;
+        }
+        return;
+      }
+
+      // 自动补全模式
       if (showCommands) {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
@@ -70,9 +114,10 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           return;
         }
       }
+
+      // 普通输入模式
       if (e.key === 'Enter') {
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl+Enter / Cmd+Enter: 插入换行
           e.preventDefault();
           const target = e.currentTarget;
           const start = target.selectionStart;
@@ -86,7 +131,6 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           });
           return;
         }
-        // Enter: 发送
         e.preventDefault();
         if (busy || !connected) return;
         const line = value.trim();
@@ -96,7 +140,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         setShowCommands(false);
       }
     },
-    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand],
+    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose],
   );
 
   const handleSend = () => {
@@ -112,9 +156,32 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
     setShowCommands(false);
   };
 
+  const showInline = inlineOptions && inlineOptions.options.length > 0;
+  const showAutocomplete = showCommands && filteredCommands.length > 0 && !showInline;
+
   return (
     <div className="px-4 md:px-5 pb-4 pt-2 relative">
-      {showCommands && filteredCommands.length > 0 && (
+      {/* 内联选项 */}
+      {showInline && (
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-64 overflow-y-auto py-1 z-20">
+          <div className="px-3 py-1.5 text-xs text-content-disabled font-medium">{inlineOptions.title}</div>
+          {inlineOptions.options.map((opt, idx) => (
+            <button
+              key={opt.value}
+              onClick={() => onInlineSelect?.(inlineOptions.command, opt.value)}
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 ${
+                idx === selectedIndex ? 'bg-primary-light text-primary' : opt.active ? 'bg-surface-hover text-content-primary' : 'text-content-secondary hover:bg-surface-hover'
+              }`}
+            >
+              <span className="font-medium">{opt.label}</span>
+              {opt.description && <span className="text-xs text-content-disabled">{opt.description}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 自动补全列表 */}
+      {showAutocomplete && (
         <div
           ref={listRef}
           className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 z-20"
@@ -132,6 +199,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           ))}
         </div>
       )}
+
       <div className="flex items-end bg-white rounded-[12px] border border-border-light shadow-soft">
         <textarea
           value={value}
