@@ -5,6 +5,17 @@ import WelcomeScreen from './WelcomeScreen';
 import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
+/** 从 staticItems 中提取 tool_use_id → tool_input 映射 */
+function buildToolInputMap(items: TranscriptItem[]): Map<string, Record<string, unknown>> {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const item of items) {
+    if (item.role === 'tool' && item.tool_use_id && item.tool_input) {
+      map.set(item.tool_use_id, item.tool_input);
+    }
+  }
+  return map;
+}
+
 interface ChatAreaProps {
   lang: UiLanguage;
   staticItems: TranscriptItem[];
@@ -43,6 +54,9 @@ export default function ChatArea({
     return result;
   }, [staticItems]);
 
+  // tool_use_id → tool_input 映射，用于 tool_result 摘要显示
+  const toolInputMap = useMemo(() => buildToolInputMap(staticItems), [staticItems]);
+
   return (
     <div className="flex-1 overflow-y-auto bg-surface-main">
       {!connected && !hasContent && (
@@ -58,7 +72,7 @@ export default function ChatArea({
         {turns.map((turn, turnIdx) => (
           <div key={turnIdx} className={turnIdx > 0 ? 'mt-12' : ''}>
             {turn.map((item, msgIdx) => (
-              <MessageBubble key={`${turnIdx}-${msgIdx}`} item={item} />
+              <MessageBubble key={`${turnIdx}-${msgIdx}`} item={item} toolInputMap={toolInputMap} />
             ))}
           </div>
         ))}

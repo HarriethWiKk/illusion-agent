@@ -296,7 +296,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
         }
-        pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName, tool_input: toolInput,
+        // 推入 tool 项（携带 tool_input，供 toolInputMap 摘要显示）
+        pushStatic({ role: 'tool', text: toolName, tool_name: toolName, tool_input: toolInput, tool_use_id: toolUseId || undefined });
+        pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName,
           tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined });
         return;
       }

@@ -8,9 +8,10 @@ import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 interface MessageBubbleProps {
   item: TranscriptItem;
+  toolInputMap?: Map<string, Record<string, unknown>>;
 }
 
-export default function MessageBubble({ item }: MessageBubbleProps) {
+export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps) {
   if (item.role === 'user') {
     return (
       <div className="flex justify-end py-1.5">
@@ -35,7 +36,8 @@ export default function MessageBubble({ item }: MessageBubbleProps) {
   }
 
   if (item.role === 'tool_result') {
-    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} />;
+    const toolInput = (item.tool_use_id && toolInputMap?.get(item.tool_use_id)) || item.tool_input;
+    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} toolInput={toolInput} />;
   }
 
   if (item.role === 'tool') {
@@ -49,10 +51,9 @@ export default function MessageBubble({ item }: MessageBubbleProps) {
   );
 }
 
-function ToolResultBubble({ name, text, isError }: { name: string; text: string; isError?: boolean }) {
+function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
-  const firstLine = text ? text.split('\n')[0] || '' : '';
-  const summary = firstLine.length > 60 ? firstLine.slice(0, 60) + '...' : firstLine;
+  const summary = summarizeInput(name, toolInput, name);
 
   return (
     <div className="py-1.5">
@@ -84,33 +85,94 @@ function ThinkingBlock({ text }: { text: string }) {
 }
 
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
-  const hasInput = call.tool_input && Object.keys(call.tool_input).length > 0;
+  const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
   return (
-    <div className="py-1.5">
-      <div className="flex items-center gap-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0" />
-        <span className="text-sm font-medium font-mono text-content-primary">{call.tool_name}</span>
-      </div>
-      {hasInput && (
-        <div className="ml-4 mt-1.5 space-y-0.5">
-          {Object.entries(call.tool_input!).map(([key, val]) => (
-            <div key={key} className="flex items-start gap-2 text-xs">
-              <span className="text-content-disabled font-mono shrink-0">{key}:</span>
-              <span className="text-content-secondary truncate">{formatToolValue(val)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="py-1.5 flex items-center gap-2">
+      <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0" />
+      <span className="text-sm font-medium font-mono text-content-primary">{call.tool_name}</span>
+      {summary && <span className="text-xs text-content-disabled truncate">（{summary}）</span>}
     </div>
   );
 }
 
-function formatToolValue(val: unknown): string {
-  if (val === null || val === undefined) return '-';
-  if (typeof val === 'string') return val.length > 120 ? val.slice(0, 120) + '...' : val;
-  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
-  const s = JSON.stringify(val);
-  return s.length > 120 ? s.slice(0, 120) + '...' : s;
+// ---- 摘要生成（与 terminal 端 summarizeInput 保持一致）----
+
+const MAX_COMMAND_LINES = 2;
+const MAX_COMMAND_CHARS = 160;
+
+function summarizeInput(toolName: string, toolInput?: Record<string, unknown>, fallback?: string): string {
+  if (!toolInput) return truncateCommand(fallback ?? '');
+  const lower = toolName.toLowerCase();
+
+  if ((lower === 'bash' || lower === 'powershell') && toolInput.command) {
+    return truncateCommand(String(toolInput.command));
+  }
+  if ((lower === 'read' || lower === 'fileread' || lower === 'read_file') && (toolInput.path || toolInput.file_path)) {
+    return String(toolInput.path ?? toolInput.file_path);
+  }
+  if ((lower === 'write' || lower === 'filewrite' || lower === 'write_file') && (toolInput.path || toolInput.file_path)) {
+    return String(toolInput.path ?? toolInput.file_path);
+  }
+  if ((lower === 'edit' || lower === 'fileedit' || lower === 'edit_file') && (toolInput.path || toolInput.file_path)) {
+    return String(toolInput.path ?? toolInput.file_path);
+  }
+  if (lower === 'grep' && toolInput.pattern) {
+    return `/${String(toolInput.pattern)}/`;
+  }
+  if (lower === 'glob' && toolInput.pattern) {
+    return String(toolInput.pattern);
+  }
+  if (lower === 'agent' && toolInput.description) {
+    return truncateCommand(String(toolInput.description));
+  }
+  if (lower === 'todowrite' || lower === 'todo_write') {
+    const todos = toolInput.todos;
+    if (Array.isArray(todos)) {
+      const total = todos.length;
+      const completed = todos.filter((t: { status: string }) => t.status === 'completed').length;
+      return `${completed}/${total} tasks`;
+    }
+  }
+  if (lower === 'ask_user_question') {
+    const questions = toolInput.questions;
+    if (Array.isArray(questions) && questions.length > 0) {
+      const q = questions[0] as Record<string, unknown>;
+      return truncateCommand(String(q.question ?? ''));
+    }
+  }
+
+  const entries = Object.entries(toolInput);
+  if (entries.length > 0) {
+    const first = entries[0];
+    if (first) return truncateCommand(`${first[0]}=${String(first[1])}`);
+  }
+  return truncateCommand(fallback ?? '');
+}
+
+function truncateCommand(str: string): string {
+  const lines = str.split('\n');
+  const cleanedLines = lines.map(l => l.trim()).filter(l => l.length > 0);
+  const truncatedLines = cleanedLines.length > MAX_COMMAND_LINES
+    ? [...cleanedLines.slice(0, MAX_COMMAND_LINES)]
+    : cleanedLines;
+  let result = truncatedLines.join(' ');
+  const needsCharTruncation = result.length > MAX_COMMAND_CHARS || cleanedLines.length > MAX_COMMAND_LINES;
+  if (needsCharTruncation && result.length > MAX_COMMAND_CHARS) {
+    result = result.slice(0, MAX_COMMAND_CHARS);
+    const lastSemicolon = result.lastIndexOf(';');
+    if (lastSemicolon > MAX_COMMAND_CHARS * 0.3) {
+      result = result.slice(0, lastSemicolon + 1);
+    } else {
+      const lastSpace = result.lastIndexOf(' ');
+      if (lastSpace > MAX_COMMAND_CHARS * 0.5) {
+        result = result.slice(0, lastSpace);
+      }
+    }
+  }
+  if (needsCharTruncation) {
+    result += '…';
+  }
+  return result;
 }
 
 export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?: string }) {
