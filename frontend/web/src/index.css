@@ -79,7 +79,7 @@ pre code.hljs {
   background: transparent;
   padding: 0;
   border-radius: 0;
-  font-size: 13px;
+  font-size: 0.85em;
   color: #6366F1;
   font-weight: 500;
 }
@@ -87,6 +87,23 @@ pre code.hljs {
 .prose code::before,
 .prose code::after {
   content: '' !important;
+}
+
+/* 标题内的行内代码继承标题字号 */
+.prose h1 code,
+.prose h2 code,
+.prose h3 code,
+.prose h4 code {
+  font-size: inherit;
+  color: inherit;
+  font-weight: inherit;
+}
+
+/* 上标样式 */
+.prose sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
 }
 
 /* 代码块外层容器 */
