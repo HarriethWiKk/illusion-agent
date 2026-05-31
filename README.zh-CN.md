@@ -85,17 +85,27 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 ### 安装
 
-#### 推荐方式：pip install（一步到位）
+#### 推荐方式：从 PyPI 安装
 
-`pip install .` 会触发 hatch build hook 自动构建两个前端（终端 TUI 和 Web UI），并将 `illusion` 命令注册到全局 PATH。这是最简单的安装方式。
+最简单的安装方式，自动安装前端并注册 `illusion` 命令到全局 PATH。
 
 ```bash
-git clone https://github.com/your-repo/illusion-code.git
+pip install illusion-code
+```
+
+无需克隆仓库或安装 Node.js，所有内容已包含在包中。
+
+#### 备选方式：从源码安装
+
+克隆仓库后本地安装，hatch build hook 会自动构建前端。
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
 cd illusion-code
 pip install .
 ```
 
-安装完成后，`illusion` 命令在任意目录均可直接使用。需要 Node.js 18+（用于前端构建）。
+需要 Node.js 18+（用于前端构建）。
 
 #### 开发方式：uv sync（适合开发者）
 
@@ -130,9 +140,9 @@ python scripts/build_frontend.py --web        # 只构建 Web UI
 > pip install .
 > ```
 
-#### 手动构建前端
+#### 手动构建前端（仅源码安装需要）
 
-如需手动重新构建前端（例如更新了前端代码）：
+如从源码安装后需要重新构建前端（例如更新了前端代码）。PyPI 用户无需此步骤。
 
 **构建脚本（推荐）**
 
@@ -158,14 +168,16 @@ npm run build
 cd ../..
 ```
 
-#### 两种方式对比
+#### 三种方式对比
 
-| | `pip install .` | `uv sync` |
-|---|---|---|
-| 前端构建 | 自动（hatch hook） | 手动 |
-| `illusion` 命令 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
-| 安装类型 | 标准安装 | Editable 安装 |
-| 适用场景 | 终端用户 | 开发者 |
+| | `pip install illusion-code` | `pip install .` | `uv sync` |
+|---|---|---|---|
+| 来源 | PyPI | 本地 git clone | 本地 git clone |
+| 前端构建 | 预构建（已包含） | 自动（hatch hook） | 手动 |
+| 需要 Node.js | 否 | 是（18+） | 是（18+） |
+| `illusion` 命令 | 全局可用 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
+| 安装类型 | 标准安装 | 标准安装 | Editable 安装 |
+| 适用场景 | 终端用户 | 贡献者 | 开发者 |
 
 ### 基本使用
 

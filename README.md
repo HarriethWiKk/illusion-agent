@@ -85,17 +85,27 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 ### Installation
 
-#### Recommended: pip install (one-step setup)
+#### Recommended: pip install from PyPI
 
-`pip install .` triggers the hatch build hook to automatically build both frontends (terminal TUI and Web UI), and registers the `illusion` command globally. This is the simplest way to get started.
+The simplest way to install IllusionCode. Automatically installs both frontends and registers the `illusion` command globally.
 
 ```bash
-git clone https://github.com/your-repo/illusion-code.git
+pip install illusion-code
+```
+
+No git clone or Node.js required — everything is included in the package.
+
+#### Alternative: pip install from source
+
+Clone the repository and install locally. Triggers the hatch build hook to build frontends automatically.
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
 cd illusion-code
 pip install .
 ```
 
-After installation, `illusion` is available globally from any directory. Requires Node.js 18+ (for frontend build).
+Requires Node.js 18+ (for frontend build).
 
 #### Alternative: uv sync (for development)
 
@@ -130,9 +140,11 @@ python scripts/build_frontend.py --web        # Web UI only
 > pip install .
 > ```
 
-#### Manual frontend build (for both methods)
+#### Manual frontend build (for source installs only)
 
-If you need to rebuild frontends manually (e.g., after updating frontend code):
+If you installed from source and need to rebuild frontends (e.g., after updating frontend code). PyPI users do not need this step.
+
+**Build script (recommended)**
 
 **Build script (recommended)**
 
@@ -160,12 +172,14 @@ cd ../..
 
 #### Key differences
 
-| | `pip install .` | `uv sync` |
-|---|---|---|
-| Frontend build | Automatic (hatch hook) | Manual |
-| `illusion` command | Global | Project-only (via `uv run` or venv activation) | 
-| Install type | Standard | Editable |
-| Best for | End users | Developers |
+| | `pip install illusion-code` | `pip install .` | `uv sync` |
+|---|---|---|---|
+| Source | PyPI | Local git clone | Local git clone |
+| Frontend build | Pre-built (included) | Automatic (hatch hook) | Manual |
+| Node.js required | No | Yes (18+) | Yes (18+) |
+| `illusion` command | Global | Global | Project-only (via `uv run` or venv activation) |
+| Install type | Standard | Standard | Editable |
+| Best for | End users | Contributors | Developers |
 
 ### Basic Usage
 
