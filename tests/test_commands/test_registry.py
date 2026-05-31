@@ -451,13 +451,13 @@ async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
 
     init_command, init_args = registry.lookup("/init")
     init_result = await init_command.handler(init_args, context)
-    assert "Initialized project files" in init_result.message or "already initialized" in init_result.message
+    assert "Initialized project files" in init_result.message or "already initialized" in init_result.message or "初始化完成" in init_result.message or "已初始化" in init_result.message
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
 
     bridge_show_command, bridge_show_args = registry.lookup("/bridge show")
     bridge_show_result = await bridge_show_command.handler(bridge_show_args, context)
-    assert "Bridge summary:" in bridge_show_result.message
+    assert "Bridge summary:" in bridge_show_result.message or "Bridge 摘要" in bridge_show_result.message
 
     bridge_encode_command, bridge_encode_args = registry.lookup("/bridge encode https://api.example.com token123")
     bridge_encode_result = await bridge_encode_command.handler(bridge_encode_args, context)
