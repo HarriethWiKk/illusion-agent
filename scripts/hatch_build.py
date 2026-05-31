@@ -50,16 +50,46 @@ class CustomBuildHook(BuildHookInterface):
 
         print(f"hatch_build: building {name} frontend...")
 
-        # npm install
-        if not (frontend_dir / "node_modules").exists():
-            self._run([npm, "install", "--no-fund", "--no-audit"], frontend_dir)
+        # npm install（npm 会自动跳过已安装的包）
+        self._run([npm, "install", "--no-fund", "--no-audit"], frontend_dir)
 
         # npm run build
         self._run([npm, "run", "build"], frontend_dir)
 
+    @staticmethod
+    def _resolve_cmd(cmd: list[str]) -> list[str]:
+        """Windows 上将 .cmd/.bat 路径补全，避免 WinError 193。"""
+        if sys.platform == "win32" and not cmd[0].endswith((".cmd", ".bat", ".exe")):
+            for ext in (".cmd", ".bat", ".exe"):
+                candidate = cmd[0] + ext
+                if Path(candidate).exists():
+                    cmd = [candidate] + cmd[1:]
+                    break
+        return cmd
+
+    @staticmethod
+    def _fix_node_env(npm_path: str) -> dict[str, str]:
+        """将 npm 所在目录插入 PATH 前面，确保 npm.cmd 内部找到正确的 node.exe。
+
+        某些环境（如通过 pip 安装的 nodejs-wheel 包）会在 Python Scripts
+        目录中放置一个假的 node.exe，导致 npm.cmd 内部调用 node 时失败。
+        npm.cmd 使用 %~dp0\\node.exe 引用同目录的 node，所以我们把 npm
+        所在目录加到 PATH 最前面，让 npm.cmd 能找到真正的 node。
+        """
+        import os
+
+        npm_dir = str(Path(npm_path).parent)
+        env = dict(os.environ)
+        current_path = env.get("PATH", "")
+        if not current_path.startswith(npm_dir):
+            env["PATH"] = npm_dir + ";" + current_path
+        return env
+
     def _run(self, cmd: list[str], cwd: Path) -> None:
         """运行命令，失败时抛出异常。"""
-        result = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True)
+        cmd = self._resolve_cmd(cmd)
+        env = self._fix_node_env(cmd[0])
+        result = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, env=env)
         if result.returncode != 0:
             raise RuntimeError(
                 f"Command failed: {' '.join(cmd)}\n"
