@@ -30,7 +30,6 @@ from illusion.api.client import (
     ApiMessageCompleteEvent,
     ApiMessageRequest,
     ApiRetryEvent,
-    ApiStreamEvent,
     ApiTextDeltaEvent,
     ApiToolCallStartedEvent,
     SupportsStreamingMessages,

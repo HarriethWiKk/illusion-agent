@@ -39,7 +39,7 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
-from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot, rewind_to
+from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot
 from illusion.tools.base import ToolRegistry
 
 

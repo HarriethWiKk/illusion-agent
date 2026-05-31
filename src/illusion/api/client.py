@@ -43,21 +43,21 @@ _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
 _sdk_sig_field.annotation = str | None
 _SDKThinkingBlock.model_rebuild()
 
-from illusion.api.effort import EffortLevel
-from illusion.api.errors import (
+from illusion.api.effort import EffortLevel  # noqa: E402
+from illusion.api.errors import (  # noqa: E402
     AuthenticationFailure,
     IllusionCodeApiError,
     RateLimitFailure,
     RequestFailure,
 )
-from illusion.auth.external import (
+from illusion.auth.external import (  # noqa: E402
     claude_attribution_header,
     claude_oauth_betas,
     claude_oauth_headers,
     get_claude_code_session_id,
 )
-from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import (
+from illusion.api.usage import UsageSnapshot  # noqa: E402
+from illusion.engine.messages import (  # noqa: E402
     ConversationMessage,
     _messages_have_media,
     _strip_media_from_messages,

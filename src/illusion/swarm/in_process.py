@@ -28,7 +28,6 @@ from illusion.swarm.agent_executor import (
     AgentExecutionContext,
     AgentSpawnConfig,
     AgentAbortController,
-    run_agent_in_process,
     set_agent_context,
     _register_agent,
     _unregister_agent,
@@ -103,7 +102,7 @@ class InProcessBackend:
         )
 
         # 预先创建并注册执行上下文，以便 send_message 可以立即找到代理
-        from illusion.swarm.agent_executor import AgentExecutionContext, set_agent_context, _register_agent
+        from illusion.swarm.agent_executor import AgentExecutionContext, _register_agent
         ctx = AgentExecutionContext(
             agent_id=agent_id,
             agent_name=config.name,

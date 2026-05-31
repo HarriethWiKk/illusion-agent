@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import os
 from difflib import unified_diff
 from pathlib import Path
 

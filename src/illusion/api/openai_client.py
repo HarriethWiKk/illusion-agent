@@ -37,7 +37,6 @@ from illusion.api.client import (
     ApiTextDeltaEvent,
     ApiToolCallStartedEvent,
 )
-from illusion.api.effort import EffortLevel
 from illusion.api.compat import (
     merge_reasoning_text,
     parse_tool_arguments,

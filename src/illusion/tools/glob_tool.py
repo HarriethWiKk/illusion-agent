@@ -5,7 +5,6 @@ Glob 工具 - 使用 ripgrep 列出匹配的文件。
 """
 
 import logging
-from typing import Any
 
 from pydantic import BaseModel, Field
 

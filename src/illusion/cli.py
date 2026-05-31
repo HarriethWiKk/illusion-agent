@@ -385,7 +385,7 @@ def cron_logs_cmd(
 # ---- auth 子命令 ----
 
 # i18n 从共享模块导入
-from illusion.config.i18n import MESSAGES as _I18N, t as _t
+from illusion.config.i18n import MESSAGES as _I18N, t as _t  # noqa: E402
 
 
 def _ensure_language() -> str:
@@ -575,10 +575,8 @@ def _copilot_login(manager: Any) -> None:
     Args:
         manager: AuthManager 实例
     """
-    import time
 
     from illusion.auth.copilot import CopilotAuth
-    from illusion.auth.storage import store_env_credential
 
     copilot = CopilotAuth()
 
@@ -663,7 +661,6 @@ def _codex_login(manager: Any) -> None:
         manager: AuthManager 实例
     """
     from illusion.auth.external import default_binding_for_provider, load_external_credential
-    from illusion.auth.storage import store_env_credential
 
     # 1. 检查 Codex CLI 认证是否存在
     binding = default_binding_for_provider("openai_codex")

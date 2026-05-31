@@ -5,7 +5,7 @@ Grep 工具 - 使用 ripgrep 搜索文件内容。
 """
 
 import logging
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 

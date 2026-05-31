@@ -288,7 +288,6 @@ Terse command-style prompts produce shallow, generic work.
                 async def _run_background():
                     from illusion.swarm.agent_executor import (
                         AgentExecutionContext,
-                        set_agent_context,
                         _register_agent,
                         _unregister_agent,
                         TeammateMessage,

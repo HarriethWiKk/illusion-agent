@@ -43,7 +43,6 @@ from typing import Any, Literal
 
 from illusion.coordinator.agent_definitions import AgentDefinition
 from illusion.engine.messages import ConversationMessage
-from illusion.permissions.checker import PermissionChecker
 from illusion.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -529,7 +528,6 @@ async def run_agent_in_process(
     Returns:
         AgentResult: 代理执行结果。
     """
-    from illusion.engine.messages import TextBlock
     from illusion.engine.query import QueryContext
     from illusion.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent
 

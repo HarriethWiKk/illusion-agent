@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-import shutil
 import subprocess
 import sys
 
@@ -84,7 +83,6 @@ from illusion.plugins import load_plugins
 from illusion.prompts import build_runtime_system_prompt
 from illusion.plugins.installer import install_plugin_from_path, uninstall_plugin
 from illusion.services import (
-    compact_messages,
     estimate_conversation_tokens,
     export_session_markdown,
     save_session_snapshot,
@@ -93,7 +91,6 @@ from illusion.services import (
 from illusion.services.session_storage import get_project_session_dir, load_session_snapshot
 from illusion.services.file_history import rewind_to
 from illusion.skills import load_skill_registry
-from illusion.tasks import get_task_manager
 
 if TYPE_CHECKING:
     from illusion.state import AppStateStore
@@ -132,8 +129,6 @@ def _resolve_ui_language(context: "CommandContext | None") -> str:
     return str(load_settings().ui_language)
 
 
-def _is_zh(locale: str) -> bool:
-    return locale.lower().startswith("zh")
 
 
 def _translate_command_message(message: str, *, locale: str) -> str:
@@ -518,15 +513,15 @@ def _explore_codebase(root: Path) -> dict[str, Any]:
                 data = json.load(f)
                 scripts = data.get("scripts", {})
                 if "build" in scripts:
-                    findings["build_commands"].append(f"npm run build")
+                    findings["build_commands"].append("npm run build")
                 if "test" in scripts:
-                    findings["test_commands"].append(f"npm test")
+                    findings["test_commands"].append("npm test")
                 if "lint" in scripts:
-                    findings["lint_commands"].append(f"npm run lint")
+                    findings["lint_commands"].append("npm run lint")
                 if "dev" in scripts:
-                    findings["build_commands"].append(f"npm run dev")
+                    findings["build_commands"].append("npm run dev")
                 if "format" in scripts:
-                    findings["format_commands"].append(f"npm run format")
+                    findings["format_commands"].append("npm run format")
         except Exception:
             pass
     
@@ -1381,7 +1376,7 @@ def create_default_command_registry() -> CommandRegistry:
             return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
         # 验证 effort 级别
         try:
-            from illusion.api.effort import EffortMapper, EffortLevel
+            from illusion.api.effort import EffortMapper
             effort_level = EffortMapper.normalize(value)
         except ValueError:
             return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")

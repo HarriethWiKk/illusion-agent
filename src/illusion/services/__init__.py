@@ -14,7 +14,6 @@ from illusion.services.compact import (
     compact_messages,
     create_compact_boundary_marker,
     estimate_conversation_tokens,
-    estimate_message_tokens,
     get_autocompact_threshold,
     get_context_window,
     get_messages_after_compact_boundary,

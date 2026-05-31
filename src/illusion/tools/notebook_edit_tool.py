@@ -122,7 +122,7 @@ class NotebookEditTool(BaseTool):
                     output=f"Cell index {cell_index} out of range (notebook has {len(cells)} cells)",
                     is_error=True,
                 )
-            deleted = cells.pop(cell_index)
+            cells.pop(cell_index)
             _save_notebook(path, notebook)
             return ToolResult(
                 output=f"Deleted cell {cell_index} from {path}"

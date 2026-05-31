@@ -70,7 +70,7 @@ def _strip_tool_previews(text: str, tool_uses: list | None) -> str:
     names = [re.escape(tu.name) for tu in tool_uses]
     pattern = re.compile(rf'^\s*(?:{"|".join(names)})\s*\(', re.IGNORECASE)
     lines = text.split('\n')
-    filtered = [l for l in lines if not pattern.match(l)]
+    filtered = [line for line in lines if not pattern.match(line)]
     return '\n'.join(filtered) if filtered else text
 
 

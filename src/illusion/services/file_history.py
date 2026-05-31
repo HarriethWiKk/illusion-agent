@@ -27,7 +27,6 @@ import shutil
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
 
 from illusion.config.paths import get_config_dir
 
