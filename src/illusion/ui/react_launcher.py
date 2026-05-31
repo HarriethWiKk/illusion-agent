@@ -41,15 +41,29 @@ def _resolve_npm() -> str:
     Returns:
         str: npm 可执行文件路径
     """
-    return shutil.which("npm") or "npm"
+    npm = shutil.which("npm") or "npm"
+    if sys.platform == "win32" and not npm.endswith((".cmd", ".bat", ".exe")):
+        for ext in (".cmd", ".bat", ".exe"):
+            candidate = npm + ext
+            if Path(candidate).exists():
+                return candidate
+    return npm
 
 
 def _resolve_node() -> str:
     """解析 node 可执行文件路径。
 
+    Windows 上优先使用 npm 同目录的 node.exe，避免 Python nodejs-wheel
+    包装器干扰。
+
     Returns:
         str: node 可执行文件路径
     """
+    npm = shutil.which("npm")
+    if npm is not None:
+        sibling = Path(npm).parent / "node.exe"
+        if sibling.exists() and sys.platform == "win32":
+            return str(sibling)
     return shutil.which("node") or "node"
 
 
