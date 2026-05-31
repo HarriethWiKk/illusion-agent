@@ -85,21 +85,56 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 ### Installation
 
-#### Step 1: Clone and install Python dependencies
+#### Recommended: pip install (one-step setup)
+
+`pip install .` triggers the hatch build hook to automatically build both frontends (terminal TUI and Web UI), and registers the `illusion` command globally. This is the simplest way to get started.
+
+```bash
+git clone https://github.com/your-repo/illusion-code.git
+cd illusion-code
+pip install .
+```
+
+After installation, `illusion` is available globally from any directory. Requires Node.js 18+ (for frontend build).
+
+#### Alternative: uv sync (for development)
+
+`uv sync` creates an editable install within the project directory. It does **not** trigger the hatch build hook, so you must build frontends manually. This is recommended for developers who want to modify the source code.
 
 ```bash
 git clone https://github.com/your-repo/illusion-code.git
 cd illusion-code
 uv sync
+
+# Build frontends manually (required after uv sync)
+python scripts/build_frontend.py              # Build both
+python scripts/build_frontend.py --terminal   # Terminal TUI only
+python scripts/build_frontend.py --web        # Web UI only
 ```
 
-#### Step 2: Build the frontends
+> **Note**: `uv sync` does NOT register `illusion` globally. To use it:
+>
+> ```bash
+> # Option 1: Use uv run from the project directory
+> cd illusion-code
+> uv run illusion
+>
+> # Option 2: Activate the virtual environment
+> # Windows
+> .venv\Scripts\activate
+> # macOS / Linux
+> source .venv/bin/activate
+> illusion
+>
+> # Option 3: Install globally with pip (recommended)
+> pip install .
+> ```
 
-The terminal TUI (Ink/React) and Web UI (Vite/React) must be built before first use. There are three ways to do this:
+#### Manual frontend build (for both methods)
 
-**Option A: Build script (recommended)**
+If you need to rebuild frontends manually (e.g., after updating frontend code):
 
-Builds both frontends in one command. Requires Node.js 18+.
+**Build script (recommended)**
 
 ```bash
 python scripts/build_frontend.py              # Build both
@@ -107,9 +142,7 @@ python scripts/build_frontend.py --terminal   # Terminal TUI only
 python scripts/build_frontend.py --web        # Web UI only
 ```
 
-**Option B: npm directly**
-
-Run `npm install` and `npm run build` in each frontend directory:
+**npm directly**
 
 ```bash
 # Terminal TUI (esbuild → dist/index.mjs)
@@ -125,47 +158,22 @@ npm run build
 cd ../..
 ```
 
-**Option C: hatch build (automatic)**
+#### Key differences
 
-When building a wheel, the hatch build hook automatically runs `npm install` + `npm run build` for both frontends. No manual frontend build step needed.
-
-```bash
-# Build wheel (frontend build runs automatically)
-hatch build
-
-# Or install directly (also triggers the build hook)
-pip install .
-```
-
-> **Note**: `uv sync` uses editable install and does NOT trigger the hatch build hook. You must run Option A or B manually after `uv sync`.
-
-#### Step 3: Usage
-
-> **Note**: `uv sync` only creates a virtual environment within the project directory and does NOT register the `illusion` command globally in your PATH. To use `illusion` from any directory, use one of:
->
-> ```bash
-> # Option 1: Use uv run from the project directory
-> cd illusion-code
-> uv run illusion
->
-> # Option 2: Activate the virtual environment first
-> # Windows
-> .venv\Scripts\activate
-> # macOS / Linux
-> source .venv/bin/activate
-> illusion
->
-> # Option 3: Install globally with pip
-> pip install -e .
-> ```
+| | `pip install .` | `uv sync` |
+|---|---|---|
+| Frontend build | Automatic (hatch hook) | Manual |
+| `illusion` command | Global | Project-only (via `uv run` or venv activation) | 
+| Install type | Standard | Editable |
+| Best for | End users | Developers |
 
 ### Basic Usage
 
-> **First-time setup**: Run `uv run illusion auth login` first to configure your API credentials. Without authentication (or if the model is unavailable), the program may exit with an error code.
+> **First-time setup**: Run `illusion auth login` first to configure your API credentials. Without authentication (or if the model is unavailable), the program may exit with an error code.
 
 ```bash
 # First-time: configure authentication
-uv run illusion auth login
+illusion auth login
 
 # Start interactive session (recommended)
 illusion

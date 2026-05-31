@@ -85,21 +85,56 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 ### 安装
 
-#### 第一步：克隆仓库并安装 Python 依赖
+#### 推荐方式：pip install（一步到位）
+
+`pip install .` 会触发 hatch build hook 自动构建两个前端（终端 TUI 和 Web UI），并将 `illusion` 命令注册到全局 PATH。这是最简单的安装方式。
+
+```bash
+git clone https://github.com/your-repo/illusion-code.git
+cd illusion-code
+pip install .
+```
+
+安装完成后，`illusion` 命令在任意目录均可直接使用。需要 Node.js 18+（用于前端构建）。
+
+#### 开发方式：uv sync（适合开发者）
+
+`uv sync` 创建 editable install，不会触发 hatch build hook，需要手动构建前端。适合需要修改源代码的开发者。
 
 ```bash
 git clone https://github.com/your-repo/illusion-code.git
 cd illusion-code
 uv sync
+
+# 手动构建前端（uv sync 后必须执行）
+python scripts/build_frontend.py              # 构建两者
+python scripts/build_frontend.py --terminal   # 只构建终端 TUI
+python scripts/build_frontend.py --web        # 只构建 Web UI
 ```
 
-#### 第二步：构建前端
+> **注意**：`uv sync` 不会将 `illusion` 命令注册到全局 PATH。使用方式：
+>
+> ```bash
+> # 方式一：在项目目录下使用 uv run
+> cd illusion-code
+> uv run illusion
+>
+> # 方式二：激活虚拟环境
+> # Windows
+> .venv\Scripts\activate
+> # macOS / Linux
+> source .venv/bin/activate
+> illusion
+>
+> # 方式三：使用 pip 全局安装（推荐）
+> pip install .
+> ```
 
-终端 TUI（Ink/React）和 Web UI（Vite/React）使用前必须先构建。有三种方式：
+#### 手动构建前端
 
-**方式一：构建脚本（推荐）**
+如需手动重新构建前端（例如更新了前端代码）：
 
-一条命令构建两个前端。需要 Node.js 18+。
+**构建脚本（推荐）**
 
 ```bash
 python scripts/build_frontend.py              # 构建两者
@@ -107,9 +142,7 @@ python scripts/build_frontend.py --terminal   # 只构建终端 TUI
 python scripts/build_frontend.py --web        # 只构建 Web UI
 ```
 
-**方式二：手动使用 npm**
-
-分别在各前端目录下执行 `npm install` 和 `npm run build`：
+**手动使用 npm**
 
 ```bash
 # 终端 TUI（esbuild → dist/index.mjs）
@@ -125,47 +158,22 @@ npm run build
 cd ../..
 ```
 
-**方式三：hatch build（自动构建）**
+#### 两种方式对比
 
-构建 wheel 时，hatch build hook 会自动为两个前端执行 `npm install` + `npm run build`，无需手动操作。
-
-```bash
-# 构建 wheel（前端自动构建）
-hatch build
-
-# 或直接安装（同样触发 build hook）
-pip install .
-```
-
-> **注意**：`uv sync` 使用 editable install，不会触发 hatch build hook。执行 `uv sync` 后必须手动运行方式一或方式二。
-
-#### 第三步：使用
-
-> **注意**：`uv sync` 仅在项目目录下创建虚拟环境，不会将 `illusion` 命令注册到系统 PATH。若需在任意目录使用 `illusion` 命令，有以下方式：
->
-> ```bash
-> # 方式一：在项目目录下使用 uv run
-> cd illusion-code
-> uv run illusion
->
-> # 方式二：激活虚拟环境后使用
-> # Windows
-> .venv\Scripts\activate
-> # macOS / Linux
-> source .venv/bin/activate
-> illusion
->
-> # 方式三：使用 pip 全局安装
-> pip install -e .
-> ```
+| | `pip install .` | `uv sync` |
+|---|---|---|
+| 前端构建 | 自动（hatch hook） | 手动 |
+| `illusion` 命令 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
+| 安装类型 | 标准安装 | Editable 安装 |
+| 适用场景 | 终端用户 | 开发者 |
 
 ### 基本使用
 
-> **首次使用建议**：先执行 `uv run illusion auth login` 配置 API 认证，否则可能因未登录或模型不可用而报错退出。
+> **首次使用建议**：先执行 `illusion auth login` 配置 API 认证，否则可能因未登录或模型不可用而报错退出。
 
 ```bash
 # 首次使用：配置认证
-uv run illusion auth login
+illusion auth login
 
 # 启动交互式会话（推荐）
 illusion

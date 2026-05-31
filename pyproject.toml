@@ -61,8 +61,8 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
