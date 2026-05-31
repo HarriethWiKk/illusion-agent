@@ -268,6 +268,15 @@ class QueryEngine:
         def _on_before_tool_execute(tool_name: str, tool_input: dict) -> None:
             if self._file_history is None:
                 return
+            # 跳过只读工具（如 grep、glob），它们不会修改文件
+            tool = self._tool_registry.get(tool_name)
+            if tool is not None:
+                try:
+                    parsed_input = tool.input_model.model_validate(tool_input)
+                    if tool.is_read_only(parsed_input):
+                        return
+                except Exception:
+                    pass
             for fpath in self._extract_file_paths(tool_name, tool_input):
                 track_edit(self._file_history, fpath)
 
