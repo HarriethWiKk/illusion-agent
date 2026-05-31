@@ -136,7 +136,7 @@ class GlobTool(BaseTool):
         args.append(path)
 
         try:
-            stdout, stderr, returncode = await run_rg(args)
+            stdout, stderr, returncode = await run_rg(args, cwd=str(context.cwd))
 
             # 退出码 1 表示无匹配
             if returncode == 1:
@@ -150,6 +150,12 @@ class GlobTool(BaseTool):
             lines = stdout.strip().split("\n")
             if not lines or (len(lines) == 1 and not lines[0]):
                 return ToolResult(output="(no matches)")
+
+            # 规范化路径：移除 rg 在 Windows 上添加的 .\ 或 ./ 前缀
+            lines = [
+                line[2:] if line.startswith((".\\", "./")) else line
+                for line in lines
+            ]
 
             # 限制结果数量
             limit = arguments.limit

@@ -147,14 +147,30 @@ class McpClientManager:
     async def close(self) -> None:
         """
         关闭所有活跃的 MCP 会话
-        
+
         释放所有资源，包括关闭流和清理会话。
         """
         # 关闭所有异步上下文栈
         for stack in list(self._stacks.values()):
-            await stack.aclose()
+            try:
+                await stack.aclose()
+            except RuntimeError:
+                # 当 connect_all 使用 asyncio.gather 并行连接时，
+                # cancel scope 在子任务中进入但在主任务中退出，
+                # anyio 会拒绝跨任务退出 cancel scope。
+                # 此时子进程资源会随进程退出自动回收。
+                pass
         self._stacks.clear()
         self._sessions.clear()
+
+    async def __aenter__(self) -> McpClientManager:
+        """异步上下文管理器入口，自动连接所有服务器。"""
+        await self.connect_all()
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        """异步上下文管理器出口，自动关闭所有连接。"""
+        await self.close()
 
     def list_statuses(self) -> list[McpConnectionStatus]:
         """

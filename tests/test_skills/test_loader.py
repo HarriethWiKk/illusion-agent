@@ -14,7 +14,7 @@ def test_load_skill_registry_includes_bundled(tmp_path: Path, monkeypatch):
 
     names = [skill.name for skill in registry.list_skills()]
     assert "simplify" in names
-    assert "review" in names
+    assert "verify" in names
 
 
 def test_load_skill_registry_includes_user_skills(tmp_path: Path, monkeypatch):

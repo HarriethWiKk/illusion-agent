@@ -69,8 +69,7 @@ async def test_plugin_install_load_and_uninstall_flow(tmp_path: Path, monkeypatc
     assert plugins[0].skills[0].name == "FixtureSkill"
 
     manager = McpClientManager(load_mcp_server_configs(settings, plugins))
-    await manager.connect_all()
-    try:
+    async with manager:
         registry = create_default_tool_registry(manager)
         skill_tool = registry.get("skill")
         skill_result = await skill_tool.execute(
@@ -86,8 +85,6 @@ async def test_plugin_install_load_and_uninstall_flow(tmp_path: Path, monkeypatc
             ToolExecutionContext(cwd=project),
         )
         assert mcp_result.output == "fixture-hello:plugin"
-    finally:
-        await manager.close()
 
     assert uninstall_plugin("fixture-plugin") is True
     assert load_plugins(load_settings(), project) == []

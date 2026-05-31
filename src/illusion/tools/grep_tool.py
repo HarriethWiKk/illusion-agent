@@ -158,7 +158,7 @@ Usage:
         args.append(path)
 
         try:
-            stdout, stderr, returncode = await run_rg(args)
+            stdout, stderr, returncode = await run_rg(args, cwd=str(context.cwd))
 
             # 退出码 1 表示无匹配
             if returncode == 1:

@@ -24,8 +24,7 @@ async def test_stdio_mcp_manager_connects_and_executes_real_server():
             )
         }
     )
-    await manager.connect_all()
-    try:
+    async with manager:
         statuses = manager.list_statuses()
         assert len(statuses) == 1
         assert statuses[0].state == "connected"
@@ -50,5 +49,3 @@ async def test_stdio_mcp_manager_connects_and_executes_real_server():
             ToolExecutionContext(cwd=Path(".")),
         )
         assert "fixture resource contents" in resource_result.output
-    finally:
-        await manager.close()

@@ -33,7 +33,7 @@ async def test_search_edit_flow_across_registry(tmp_path: Path):
     assert "src" in glob_result.output and "demo.py" in glob_result.output
 
     grep_result = await grep.execute(
-        grep.input_model(pattern="beta", file_glob="**/*.py"),
+        grep.input_model(pattern="beta", glob="**/*.py"),
         context,
     )
     assert "demo.py" in grep_result.output

@@ -64,13 +64,13 @@ async def test_glob_and_grep(tmp_path: Path):
     assert sorted(glob_result.output.splitlines()) == ["a.py", "b.py"]
 
     grep_result = await GrepTool().execute(
-        GrepToolInput(pattern=r"def\s+beta", file_glob="*.py"),
+        GrepToolInput(pattern=r"def\s+beta", glob="*.py"),
         context,
     )
     assert "b.py" in grep_result.output
 
     file_root_result = await GrepTool().execute(
-        GrepToolInput(pattern=r"def\s+alpha", root="a.py"),
+        GrepToolInput(pattern=r"def\s+alpha", path="a.py"),
         context,
     )
     assert "a.py" in file_root_result.output
