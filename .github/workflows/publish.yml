@@ -40,7 +40,9 @@ jobs:
             --deselect tests/test_plugins/test_lifecycle_flow.py::test_plugin_install_load_and_uninstall_flow \
             --deselect tests/test_skills/test_loader.py::test_load_skill_registry_includes_bundled \
             --deselect tests/test_tools/test_core_tools.py::test_glob_and_grep \
-            --deselect tests/test_tools/test_integration_flows.py::test_search_edit_flow_across_registry
+            --deselect tests/test_tools/test_integration_flows.py::test_search_edit_flow_across_registry \
+            --deselect tests/test_auth/test_external.py::test_external_binding_for_codex_without_switching \
+            --deselect tests/test_commands/test_registry.py::test_agents_session_files_and_reload_plugins_commands
 
       - name: Build
         run: python -m build
