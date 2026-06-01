@@ -57,9 +57,14 @@ def _filter_gitignored(files: list[Path], root: Path) -> list[Path]:
             )
             if result.returncode == 0 and result.stdout:
                 for line in result.stdout.splitlines():
-                    trimmed = line.strip()
+                    trimmed = line.strip().strip('"')
                     if trimmed:
-                        ignored.add(Path(trimmed).resolve())
+                        # git 可能返回绝对路径或相对路径
+                        p = Path(trimmed)
+                        if p.is_absolute():
+                            ignored.add(p.resolve())
+                        else:
+                            ignored.add((root / trimmed).resolve())
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
 
