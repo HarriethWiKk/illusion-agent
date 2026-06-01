@@ -149,6 +149,19 @@ MESSAGES: dict[str, dict[str, str]] = {
     "compact_suppress_followup": {"zh-CN": "\n从上次中断处继续对话，不要向用户提问。直接继续 — 不要确认摘要，不要复述进展，不要以「我继续」等开头。像中断从未发生一样继续上次的任务。", "en-US": "\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."},
     "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
     "permission_denied_stopped": {"zh-CN": "权限被拒绝，已终止当前操作（{tool}）。", "en-US": "Permission denied, stopped current operation ({tool})."},
+    # --- update ---
+    "update_checking": {"zh-CN": "正在检查更新...", "en-US": "Checking for updates..."},
+    "update_latest": {"zh-CN": "已是最新版本 {version}", "en-US": "Already up to date ({version})"},
+    "update_available": {"zh-CN": "发现新版本: {current} → {latest}", "en-US": "Update available: {current} → {latest}"},
+    "update_confirm": {"zh-CN": "按回车开始更新，Ctrl+C 取消", "en-US": "Press Enter to update, Ctrl+C to cancel"},
+    "update_installing": {"zh-CN": "正在安装...", "en-US": "Installing..."},
+    "update_success": {"zh-CN": "更新成功！新版本: {version}", "en-US": "Updated successfully! New version: {version}"},
+    "update_failed": {"zh-CN": "更新失败: {error}", "en-US": "Update failed: {error}"},
+    "update_network_error": {"zh-CN": "网络连接失败，请检查网络设置", "en-US": "Network error, please check your connection"},
+    "update_deps_checking": {"zh-CN": "正在检查依赖更新...", "en-US": "Checking dependency updates..."},
+    "update_deps_available": {"zh-CN": "以下依赖可升级:", "en-US": "The following dependencies can be upgraded:"},
+    "update_deps_confirm": {"zh-CN": "按回车更新依赖，Ctrl+C 取消", "en-US": "Press Enter to update dependencies, Ctrl+C to cancel"},
+    "update_deps_success": {"zh-CN": "依赖更新完成", "en-US": "Dependencies updated successfully"},
 }
 
 # --- 命令描述翻译 ---
@@ -200,6 +213,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "privacy-settings": "显示本地隐私与存储设置",
     "delete": "清理选定的会话",
     "rules": "查看选定的规则",
+    "update": "检查并更新 IllusionCode",
 }
 
 # --- 斜杠命令输出翻译 ---

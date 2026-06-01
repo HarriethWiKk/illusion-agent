@@ -202,6 +202,7 @@ def create_default_command_registry() -> CommandRegistry:
         reload_plugins_handler,
         share_handler,
         skills_handler,
+        update_handler,
         version_handler,
     )
     from illusion.commands.misc import make_help_handler
@@ -279,6 +280,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", privacy_settings_handler))
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
+    registry.register(SlashCommand("update", "Check for and install IllusionCode updates", update_handler))
 
     # /help 需要引用 registry 实例
     help_handler = make_help_handler(registry)

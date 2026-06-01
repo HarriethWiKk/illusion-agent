@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import importlib.metadata
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from illusion.commands.helpers import copy_to_clipboard, last_message_text
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings
@@ -151,6 +154,148 @@ async def files_handler(args: str, context: CommandContext) -> CommandResult:
     return CommandResult(
         message="\n".join(lines) if lines else "(no matching files)"
     )
+
+
+def _check_pypi_latest() -> str | None:
+    """查询 PyPI 获取 illusion-code 最新版本号
+
+    Returns:
+        str | None: 最新版本号，查询失败返回 None
+    """
+    try:
+        resp = httpx.get(
+            "https://pypi.org/pypi/illusion-code/json",
+            timeout=10,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        return resp.json()["info"]["version"]
+    except Exception:
+        return None
+
+
+def _get_current_version() -> str:
+    """获取当前安装的 illusion-code 版本号
+
+    Returns:
+        str: 当前版本号
+    """
+    try:
+        return importlib.metadata.version("illusion")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.1.1"
+
+
+def _run_pip_upgrade(packages: list[str]) -> tuple[bool, str]:
+    """执行 pip install --upgrade
+
+    Args:
+        packages: 要升级的包名列表
+
+    Returns:
+        tuple[bool, str]: (是否成功, 输出信息)
+    """
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", *packages]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        output = result.stdout + result.stderr
+        return result.returncode == 0, output.strip()
+    except subprocess.TimeoutExpired:
+        return False, "pip upgrade timed out"
+    except Exception as exc:
+        return False, str(exc)
+
+
+async def update_handler(args: str, context: CommandContext) -> CommandResult:
+    """检查并更新 IllusionCode"""
+    from illusion.config.i18n import t
+
+    del context
+    include_deps = "--deps" in args
+
+    # 1. 获取当前版本
+    current = _get_current_version()
+
+    # 2. 查询 PyPI 最新版本
+    print(t("update_checking"))
+    latest = _check_pypi_latest()
+
+    if latest is None:
+        # PyPI 查询失败，降级为直接升级
+        print(t("update_network_error"))
+        print(t("update_installing"))
+        ok, output = _run_pip_upgrade(["illusion-code"])
+        if ok:
+            new_ver = _get_current_version()
+            return CommandResult(message=t("update_success", version=new_ver))
+        return CommandResult(message=t("update_failed", error=output[:200]))
+
+    # 3. 版本对比
+    if latest == current:
+        msg = t("update_latest", version=current)
+        if not include_deps:
+            return CommandResult(message=msg)
+        # 即使已是最新，如果指定了 --deps 仍继续检查依赖
+        print(msg)
+    else:
+        print(t("update_available", current=current, latest=latest))
+        print(t("update_confirm"))
+        try:
+            input()
+        except (KeyboardInterrupt, EOFError):
+            return CommandResult(message="Cancelled.")
+
+        print(t("update_installing"))
+        ok, output = _run_pip_upgrade(["illusion-code"])
+        if ok:
+            print(t("update_success", version=latest))
+        else:
+            return CommandResult(message=t("update_failed", error=output[:200]))
+
+    # 4. 依赖更新
+    if include_deps:
+        print(t("update_deps_checking"))
+        # 从 pyproject.toml 读取依赖包名
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            import tomli as tomllib  # type: ignore[no-redef]
+
+        pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        if not pyproject_path.exists():
+            pyproject_path = Path.cwd() / "pyproject.toml"
+
+        if pyproject_path.exists():
+            with pyproject_path.open("rb") as f:
+                data = tomllib.load(f)
+            deps = data.get("project", {}).get("dependencies", [])
+            # 提取包名（去掉版本约束）
+            pkg_names = []
+            for dep in deps:
+                name = dep.split(">=")[0].split("==")[0].split("<=")[0].split("~=")[0].split("[")[0].strip()
+                pkg_names.append(name)
+
+            if pkg_names:
+                print(t("update_deps_available"))
+                for pkg in pkg_names:
+                    print(f"  - {pkg}")
+                print(t("update_deps_confirm"))
+                try:
+                    input()
+                except (KeyboardInterrupt, EOFError):
+                    return CommandResult(message="Cancelled.")
+
+                ok, output = _run_pip_upgrade(pkg_names)
+                if ok:
+                    return CommandResult(message=t("update_deps_success"))
+                return CommandResult(message=t("update_failed", error=output[:200]))
+
+    return CommandResult(message="")
 
 
 async def continue_handler(args: str, context: CommandContext) -> CommandResult:
