@@ -17,7 +17,6 @@ from __future__ import annotations
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.commands.init.analysis.architecture import analyze_architecture
@@ -32,7 +31,7 @@ from illusion.commands.init.generation.claudemd import generate_claude_md, updat
 from illusion.commands.init.generation.illusionmd import generate_illusion_md
 from illusion.commands.init.generation.memory_template import generate_memory_template
 from illusion.commands.init.generation.rules import generate_rules
-from illusion.commands.init.types import AnalysisResult, FileInfo, ProjectData
+from illusion.commands.init.types import AnalysisResult, ProjectData
 from illusion.config.paths import get_project_config_dir
 
 

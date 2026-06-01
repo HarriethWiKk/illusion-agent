@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-from typing import Literal, get_args
 
 from illusion.commands.helpers import coerce_setting_value
 from illusion.commands.types import CommandContext, CommandResult

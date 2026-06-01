@@ -72,7 +72,7 @@ def _rule_testing(analysis: AnalysisResult) -> str:
 
     if conv.test_directory:
         lines.append(f"- Location: `{conv.test_directory}/`")
-        lines.append(f"- Naming: test files should be named `test_*.py` or `*_test.py`")
+        lines.append("- Naming: test files should be named `test_*.py` or `*_test.py`")
 
     lines.append(f"- Run tests: `{analysis.project_name} test` or check Common Commands in CLAUDE.md")
 
