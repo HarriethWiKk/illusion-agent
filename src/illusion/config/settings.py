@@ -220,10 +220,22 @@ class Settings(BaseModel):
 
     def get_env(self, env_key: str) -> EnvConfig | None:
         """获取指定的环境配置"""
+        # 首先检查直接属性
         value = getattr(self, env_key, None)
         if isinstance(value, dict):
             return EnvConfig.model_validate(value)
-        return value if isinstance(value, EnvConfig) else None
+        if isinstance(value, EnvConfig):
+            return value
+        
+        # 然后检查 model_extra
+        extras = self.model_extra or {}
+        value = extras.get(env_key)
+        if isinstance(value, dict):
+            return EnvConfig.model_validate(value)
+        if isinstance(value, EnvConfig):
+            return value
+        
+        return None
 
     def list_envs(self) -> dict[str, EnvConfig]:
         """列出所有 env_N 配置"""

@@ -55,8 +55,8 @@ def get_config_dir() -> Path:
     Returns:
         Path: 配置目录路径
     """
-    # 检查环境变量 ILLUSION_CONFIG_DIR 是否设置
-    env_dir = os.environ.get("ILLUSION_CONFIG_DIR")
+    # 检查环境变量 ILLUSION_CONFIG_DIR 是否设置（同时支持大写和小写）
+    env_dir = os.environ.get("ILLUSION_CONFIG_DIR") or os.environ.get("illusion_CONFIG_DIR")
     if env_dir:
         # 使用环境变量指定的目录
         config_dir = Path(env_dir)
@@ -88,8 +88,8 @@ def get_data_dir() -> Path:
     Returns:
         Path: 数据目录路径
     """
-    # 检查环境变量 ILLUSION_DATA_DIR 是否设置
-    env_dir = os.environ.get("ILLUSION_DATA_DIR")
+    # 检查环境变量 ILLUSION_DATA_DIR 是否设置（同时支持大写和小写）
+    env_dir = os.environ.get("ILLUSION_DATA_DIR") or os.environ.get("illusion_DATA_DIR")
     if env_dir:
         data_dir = Path(env_dir)
     else:
