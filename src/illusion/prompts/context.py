@@ -103,6 +103,42 @@ def build_runtime_system_prompt(
     """
     sections = [build_system_prompt(custom_prompt=settings.system_prompt, cwd=str(cwd))]
 
+    # 计划模式
+    from illusion.permissions.modes import PermissionMode
+    if settings.permission.mode == PermissionMode.PLAN:
+        from illusion.config.plan_file import DEFAULT_SESSION_ID, get_plan_file_path
+        plan_path = str(get_plan_file_path(DEFAULT_SESSION_ID))
+        sections.append(
+            "# Plan Mode\n"
+            "Plan mode is active. The user indicated that they do not want you to execute yet -- "
+            "you MUST NOT make any edits (with the exception of registered plan files), "
+            "run any non-readonly tools (including changing configs or making commits), or otherwise "
+            "make any changes to the system.\n\n"
+            "## Plan File Info:\n"
+            f"Your plan file is: {plan_path}\n"
+            "This file does NOT exist yet — you must create it using the Write tool.\n\n"
+            "## Iterative Planning Workflow\n"
+            "You are pair-planning with the user. Explore the code to build context, ask the user "
+            "questions when you hit decisions you can't make alone, and write your findings into plan "
+            "files as you go.\n\n"
+            "### The Loop\n"
+            "Repeat this cycle until the plan is complete:\n"
+            "1. **Explore** — Use Glob, Grep, Read to read code.\n"
+            "2. **Update plan files** — After each discovery, immediately capture what you learned.\n"
+            "3. **Ask the user** — When you hit an ambiguity, use AskUserQuestion. Then go back to step 1.\n\n"
+            "### Plan File Structure\n"
+            "- Begin with a **Context** section: explain why this change is being made\n"
+            "- Include only your recommended approach, not all alternatives\n"
+            "- Include the paths of critical files to be modified\n"
+            "- Include a verification section describing how to test the changes\n\n"
+            "### Ending Your Turn\n"
+            "Your turn should only end by either:\n"
+            "- Using AskUserQuestion to gather more information\n"
+            "- Calling ExitPlanMode when the plan is ready for approval\n\n"
+            "**Important:** Use ExitPlanMode to request plan approval. Do NOT ask about plan approval "
+            "via text or AskUserQuestion."
+        )
+
     # 快速模式
     if settings.fast_mode:
         sections.append(
