@@ -107,6 +107,20 @@ pip install .
 
 Requires Node.js 18+ (for frontend build).
 
+#### Alternative: pip install -e . (editable, from source)
+
+Editable install from source. Like `pip install .`, it triggers the hatch build hook to build frontends automatically and registers `illusion` globally. Like `uv sync`, source code changes take effect immediately without reinstalling.
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
+cd illusion-code
+pip install -e .
+```
+
+Requires Node.js 18+ (for frontend build).
+
+> **When to use**: Best for developers who want both an editable install (live code changes) and the `illusion` command available globally. Unlike `uv sync`, no manual frontend build or `uv run` wrapper is needed.
+
 #### Alternative: uv sync (for development)
 
 `uv sync` creates an editable install within the project directory. It does **not** trigger the hatch build hook, so you must build frontends manually. This is recommended for developers who want to modify the source code.
@@ -138,13 +152,14 @@ python scripts/build_frontend.py --web        # Web UI only
 >
 > # Option 3: Install globally with pip (recommended)
 > pip install .
+>
+> # Option 4: Editable install with pip (global + live code changes)
+> pip install -e .
 > ```
 
 #### Manual frontend build (for source installs only)
 
 If you installed from source and need to rebuild frontends (e.g., after updating frontend code). PyPI users do not need this step.
-
-**Build script (recommended)**
 
 **Build script (recommended)**
 
@@ -172,14 +187,15 @@ cd ../..
 
 #### Key differences
 
-| | `pip install illusion-code` | `pip install .` | `uv sync` |
-|---|---|---|---|
-| Source | PyPI | Local git clone | Local git clone |
-| Frontend build | Pre-built (included) | Automatic (hatch hook) | Manual |
-| Node.js required | No | Yes (18+) | Yes (18+) |
-| `illusion` command | Global | Global | Project-only (via `uv run` or venv activation) |
-| Install type | Standard | Standard | Editable |
-| Best for | End users | Contributors | Developers |
+| | `pip install illusion-code` | `pip install .` | `pip install -e .` | `uv sync` |
+|---|---|---|---|---|
+| Source | PyPI | Local git clone | Local git clone | Local git clone |
+| Frontend build | Pre-built (included) | Automatic (hatch hook) | Automatic (hatch hook) | Manual |
+| Node.js required | No | Yes (18+) | Yes (18+) | Yes (18+) |
+| `illusion` command | Global | Global | Global | Project-only (via `uv run` or venv activation) |
+| Install type | Standard | Standard | Editable | Editable |
+| Code changes take effect | Reinstall needed | Reinstall needed | Immediately | Immediately |
+| Best for | End users | Contributors | Developers (global + editable) | Developers |
 
 ### Basic Usage
 

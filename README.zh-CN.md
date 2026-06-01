@@ -107,6 +107,20 @@ pip install .
 
 需要 Node.js 18+（用于前端构建）。
 
+#### 备选方式：pip install -e .（可编辑安装，从源码）
+
+从源码进行可编辑安装。与 `pip install .` 相同，会触发 hatch build hook 自动构建前端并全局注册 `illusion` 命令；与 `uv sync` 相同，源码修改立即生效，无需重新安装。
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
+cd illusion-code
+pip install -e .
+```
+
+需要 Node.js 18+（用于前端构建）。
+
+> **适用场景**：适合希望同时拥有可编辑安装（代码即时生效）和全局 `illusion` 命令的开发者。与 `uv sync` 不同，无需手动构建前端，也无需使用 `uv run` 包装。
+
 #### 开发方式：uv sync（适合开发者）
 
 `uv sync` 创建 editable install，不会触发 hatch build hook，需要手动构建前端。适合需要修改源代码的开发者。
@@ -138,6 +152,9 @@ python scripts/build_frontend.py --web        # 只构建 Web UI
 >
 > # 方式三：使用 pip 全局安装（推荐）
 > pip install .
+>
+> # 方式四：pip 可编辑安装（全局 + 代码即时生效）
+> pip install -e .
 > ```
 
 #### 手动构建前端（仅源码安装需要）
@@ -168,16 +185,17 @@ npm run build
 cd ../..
 ```
 
-#### 三种方式对比
+#### 四种方式对比
 
-| | `pip install illusion-code` | `pip install .` | `uv sync` |
-|---|---|---|---|
-| 来源 | PyPI | 本地 git clone | 本地 git clone |
-| 前端构建 | 预构建（已包含） | 自动（hatch hook） | 手动 |
-| 需要 Node.js | 否 | 是（18+） | 是（18+） |
-| `illusion` 命令 | 全局可用 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
-| 安装类型 | 标准安装 | 标准安装 | Editable 安装 |
-| 适用场景 | 终端用户 | 贡献者 | 开发者 |
+| | `pip install illusion-code` | `pip install .` | `pip install -e .` | `uv sync` |
+|---|---|---|---|---|
+| 来源 | PyPI | 本地 git clone | 本地 git clone | 本地 git clone |
+| 前端构建 | 预构建（已包含） | 自动（hatch hook） | 自动（hatch hook） | 手动 |
+| 需要 Node.js | 否 | 是（18+） | 是（18+） | 是（18+） |
+| `illusion` 命令 | 全局可用 | 全局可用 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
+| 安装类型 | 标准安装 | 标准安装 | 可编辑安装 | 可编辑安装 |
+| 代码修改生效 | 需重新安装 | 需重新安装 | 即时生效 | 即时生效 |
+| 适用场景 | 终端用户 | 贡献者 | 开发者（全局+可编辑） | 开发者 |
 
 ### 基本使用
 
