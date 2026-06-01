@@ -238,6 +238,9 @@ _COMMAND_EXACT: dict[str, str] = {
     # 计划模式
     "Plan mode enabled.": "计划模式已开启。",
     "Plan mode disabled.": "计划模式已关闭。",
+    # 计划审批
+    "Plan approved. Starting implementation.": "计划已批准，开始实施。",
+    "User rejected the plan.": "用户拒绝了该计划。",
     # 模型
     "Usage: /model [show|set MODEL]": "用法：/model [show|set MODEL]",
     "Model set to": "模型已切换为",
