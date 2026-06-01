@@ -52,7 +52,7 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
-from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem
+from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 
@@ -134,6 +134,7 @@ class WebBackendHost:
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str]] = {}      # 用户问答
+        self._plan_approval_requests: dict[str, asyncio.Future[tuple[bool, str]]] = {}  # 计划审批
         self._always_allowed_tools: set[str] = set()                # 总是允许的工具
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
@@ -160,6 +161,7 @@ class WebBackendHost:
                 restore_session_id=self._config.restore_session_id,
                 permission_prompt=self._ask_permission,
                 ask_user_prompt=self._ask_question,
+                plan_approval_prompt=self._ask_plan_approval,
                 effort=self._config.effort,
             )
         except Exception as exc:
@@ -230,6 +232,14 @@ class WebBackendHost:
                         except (json.JSONDecodeError, TypeError):
                             pass
                         self._question_requests[request.request_id].set_result(answer)
+                    await self._emit(BackendEvent(type="modal_request", modal=None))
+                    continue
+                # 计划审批响应
+                if request.type == "plan_approval_response":
+                    if request.request_id in self._plan_approval_requests:
+                        self._plan_approval_requests[request.request_id].set_result(
+                            (bool(request.allowed), request.feedback or "")
+                        )
                     await self._emit(BackendEvent(type="modal_request", modal=None))
                     continue
                 # 列出会话
@@ -343,6 +353,13 @@ class WebBackendHost:
             if request.type == "question_response":
                 if request.request_id in self._question_requests:
                     self._question_requests[request.request_id].set_result(request.answer or "")
+                await self._emit(BackendEvent(type="modal_request", modal=None))
+                continue
+            if request.type == "plan_approval_response":
+                if request.request_id in self._plan_approval_requests:
+                    self._plan_approval_requests[request.request_id].set_result(
+                        (bool(request.allowed), request.feedback or "")
+                    )
                 await self._emit(BackendEvent(type="modal_request", modal=None))
                 continue
 
@@ -490,10 +507,15 @@ class WebBackendHost:
                             todo_items = []
                         await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
                 # 计划相关工具完成时发送 plan_mode_change 事件
-                if event.tool_name in ("set_permission_mode", "plan_mode"):
+                if event.tool_name in ("set_permission_mode", "plan_mode", "enter_plan_mode", "exit_plan_mode"):
                     assert self._bundle is not None
-                    new_mode = self._bundle.app_state.get().permission_mode
-                    await self._emit(BackendEvent(type="plan_mode_change", plan_mode=new_mode))
+                    # 从设置中读取最新模式（app_state 可能尚未同步）
+                    raw_mode = self._bundle.current_settings().permission.mode.value
+                    formatted_mode = format_permission_mode(raw_mode)
+                    # 同步 app_state 以保持一致
+                    self._bundle.app_state.set(permission_mode=raw_mode)
+                    await self._emit(BackendEvent(type="plan_mode_change", plan_mode=formatted_mode))
+                    await self._emit(self._status_snapshot())
                 return
             # 错误事件
             if isinstance(event, ErrorEvent):
@@ -851,21 +873,6 @@ class WebBackendHost:
             )
             return
 
-        if command == "language":
-            current = str(state.ui_language or "zh-CN")
-            options = [
-                {"value": "set zh-CN", "label": "简体中文", "description": "中文界面", "active": current == "zh-CN"},
-                {"value": "set en", "label": "English", "description": "English UI", "active": current == "en"},
-            ]
-            await self._emit(
-                BackendEvent(
-                    type="select_request",
-                    modal={"kind": "select", "title": "语言" if zh else "Language", "command": "language"},
-                    select_options=options,
-                )
-            )
-            return
-
         if command == "model":
             options = self._model_select_options(current_model, settings.provider)
             await self._emit(
@@ -1132,6 +1139,45 @@ class WebBackendHost:
             return await future
         finally:
             self._question_requests.pop(request_id, None)
+
+    async def _ask_plan_approval(self, plan: str) -> tuple[bool, str]:
+        """向用户展示计划并等待审批。
+
+        先将计划内容作为 plan 消息写入对话流，再弹出审批模态让用户选择批准或拒绝。
+
+        Args:
+            plan: 计划内容（Markdown 格式）
+
+        Returns:
+            tuple[bool, str]: (是否批准, 用户反馈)
+        """
+        # 将计划写入对话流
+        await self._emit(
+            BackendEvent(
+                type="transcript_item",
+                item=TranscriptItem(role="plan", text=plan),
+            )
+        )
+        # 弹出审批模态
+        request_id = uuid4().hex
+        future: asyncio.Future[tuple[bool, str]] = asyncio.get_running_loop().create_future()
+        self._plan_approval_requests[request_id] = future
+        await self._emit(
+            BackendEvent(
+                type="modal_request",
+                modal={
+                    "kind": "plan_approval",
+                    "request_id": request_id,
+                },
+            )
+        )
+        try:
+            return await asyncio.wait_for(future, timeout=300)
+        except asyncio.TimeoutError:
+            log.warning("Plan approval request %s timed out after 300s, rejecting", request_id)
+            return False, "Plan approval timed out"
+        finally:
+            self._plan_approval_requests.pop(request_id, None)
 
     async def _stop_active_line(self) -> None:
         """停止当前活动的行处理任务。"""

@@ -74,6 +74,7 @@ from illusion.tools import ToolRegistry, create_default_tool_registry
 # 类型别名定义
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]  # 权限确认回调
 AskUserPrompt = Callable[[str], Awaitable[str]]  # 用户问答回调
+PlanApprovalPrompt = Callable[[str], Awaitable[tuple[bool, str]]]  # 计划审批回调
 SystemPrinter = Callable[[str], Awaitable[None]]  # 系统消息打印回调
 StreamRenderer = Callable[[StreamEvent], Awaitable[None]]  # 流式事件渲染回调
 ClearHandler = Callable[[], Awaitable[None]]  # 清空输出回调
@@ -172,6 +173,7 @@ async def build_runtime(
     api_client: SupportsStreamingMessages | None = None,
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
+    plan_approval_prompt: PlanApprovalPrompt | None = None,
     restore_messages: list[dict] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
@@ -302,6 +304,7 @@ async def build_runtime(
         max_turns=settings.max_turns,
         permission_prompt=permission_prompt,
         ask_user_prompt=ask_user_prompt,
+        plan_approval_prompt=plan_approval_prompt,
         hook_executor=hook_executor,
         tool_metadata={
             "mcp_manager": mcp_manager,

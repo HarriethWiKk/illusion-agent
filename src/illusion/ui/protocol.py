@@ -60,6 +60,7 @@ class FrontendRequest(BaseModel):
         "stop",
         "permission_response",
         "question_response",
+        "plan_approval_response",
         "list_sessions",
         "select_command",
         "apply_select_command",
@@ -73,6 +74,7 @@ class FrontendRequest(BaseModel):
     always_allow: bool | None = None
     tool_name: str | None = None
     answer: str | None = None
+    feedback: str | None = None
 
 
 class TranscriptItem(BaseModel):
@@ -89,7 +91,7 @@ class TranscriptItem(BaseModel):
         reasoning: 思考文本（可选）
     """
 
-    role: Literal["system", "user", "assistant", "tool", "tool_result", "log"]
+    role: Literal["system", "user", "assistant", "tool", "tool_result", "log", "plan"]
     text: str
     tool_name: str | None = None
     tool_input: dict[str, Any] | None = None
@@ -335,7 +337,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "provider": state.provider,
         "auth_status": state.auth_status,
         "base_url": state.base_url,
-        "permission_mode": _format_permission_mode(state.permission_mode),
+        "permission_mode": format_permission_mode(state.permission_mode),
         "ui_language": state.ui_language,
         "fast_mode": state.fast_mode,
         "effort": state.effort,
@@ -364,7 +366,7 @@ _MODE_LABELS = {
 }
 
 
-def _format_permission_mode(raw: str) -> str:
+def format_permission_mode(raw: str) -> str:
     """将原始权限模式转换为人类可读的标签。
 
     Args:
@@ -381,4 +383,5 @@ __all__ = [
     "FrontendRequest",
     "TaskSnapshot",
     "TranscriptItem",
+    "format_permission_mode",
 ]
