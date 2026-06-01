@@ -272,6 +272,10 @@ illusion cron toggle <name> <true|false>  # Enable/disable task
 illusion cron run <name>         # Manually trigger task
 illusion cron history            # View execution history
 illusion cron logs               # View scheduler logs
+
+# Self-update
+illusion update                  # Check for and install updates from PyPI
+illusion update --deps           # Also update project dependencies
 ```
 
 ### Interactive Slash Commands
@@ -286,6 +290,7 @@ In interactive sessions, you can use the following commands:
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
 | Multi-Agent | `/continue` | Agent collaboration |
+| Self-Update | `/update` | Check for and install IllusionCode updates |
 
 ---
 

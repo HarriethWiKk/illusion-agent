@@ -272,6 +272,10 @@ illusion cron toggle <name> <true|false>  # 启用/禁用任务
 illusion cron run <name>         # 手动触发执行任务
 illusion cron history            # 查看执行历史
 illusion cron logs               # 查看调度器日志
+
+# 自更新
+illusion update                  # 检查并从 PyPI 安装更新
+illusion update --deps           # 同时更新项目依赖
 ```
 
 ### 交互式斜杠命令
@@ -286,6 +290,7 @@ illusion cron logs               # 查看调度器日志
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
 | 多智能体 | `/continue` | Agent 协作 |
+| 自更新 | `/update` | 检查并安装 IllusionCode 更新 |
 
 ---
 
