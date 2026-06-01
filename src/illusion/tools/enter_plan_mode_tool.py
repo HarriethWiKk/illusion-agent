@@ -6,7 +6,8 @@
 
 主要功能：
     - 切换设置权限模式为计划模式
-    - 允许在编写代码前探索代码库并设计实现方案
+    - 注册计划文件路径（plan mode 下豁免写入限制）
+    - 即时更新权限检查器（不等待下一轮对话）
 
 类说明：
     - EnterPlanModeToolInput: 工具输入模型（无操作）
@@ -18,7 +19,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings, save_settings
 from illusion.permissions import PermissionMode
@@ -26,27 +27,23 @@ from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
 class EnterPlanModeToolInput(BaseModel):
-    """无操作输入模型
-    
-    此工具不需要任何输入参数。
+    """进入计划模式的输入模型。
+
+    Attributes:
+      name: 计划文件名称（如 "auth-refactor"）
     """
+
+    name: str = Field(
+        description="A short descriptive name for the plan file, using lowercase letters, numbers, and hyphens (e.g. 'auth-refactor', 'db-migration', 'test-plan'). This will be used as the filename.",
+    )
 
 
 class EnterPlanModeTool(BaseTool):
     """切换设置权限模式为计划模式
-    
+
     此工具用于在开始非平凡的实现任务之前主动使用。
     获得用户对方法的批准可以防止浪费精力并确保一致性。
     此工具将您转换到计划模式，在那里您可以探索代码库并设计实现方案以供用户批准。
-
-    何时使用此工具：
-    - 新功能实现时
-    - 有多种有效方法时
-    - 需要修改代码时
-    - 需要架构决策时
-    - 可能涉及多个文件时
-    - 需求不清晰时
-    - 用户偏好很重要时
     """
 
     name = "enter_plan_mode"
@@ -138,10 +135,31 @@ User: "What files handle routing?"
     input_model = EnterPlanModeToolInput
 
     async def execute(self, arguments: EnterPlanModeToolInput, context: ToolExecutionContext) -> ToolResult:
-        # 删除未使用的参数
-        del arguments, context
-        # 加载设置并将权限模式切换为计划模式
+        from illusion.config.plan_file import DEFAULT_SESSION_ID, get_plan_file_path, get_plan_slug
+
+        # 1. 保存设置（持久化到磁盘）
         settings = load_settings()
         settings.permission.mode = PermissionMode.PLAN
         save_settings(settings)
-        return ToolResult(output="Permission mode set to plan")
+
+        # 2. 即时更新权限检查器（当前轮次立即生效）
+        checker = context.metadata.get("permission_checker")
+        if checker:
+            checker.set_mode(PermissionMode.PLAN)
+
+        # 3. 生成并缓存 slug，注册计划文件路径
+        get_plan_slug(DEFAULT_SESSION_ID, name=arguments.name)
+        plan_path = str(get_plan_file_path(DEFAULT_SESSION_ID))
+        if checker:
+            checker.set_plan_file(plan_path)
+
+        # 4. 返回确认信息
+        return ToolResult(
+            output=(
+                f"Entered plan mode. Your plan file is: {plan_path}\n\n"
+                "This file does NOT exist yet — you must create it using the Write tool.\n\n"
+                "You MUST NOT write or edit any files except this plan file. "
+                "Explore the codebase, then write your plan. "
+                "Call ExitPlanMode when ready for user approval."
+            )
+        )
