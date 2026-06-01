@@ -34,7 +34,7 @@ from illusion.api.client import SupportsStreamingMessages
 from illusion.api.effort import EffortLevel
 from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
-from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, PermissionPrompt, QueryContext, run_query
+from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, PermissionPrompt, PlanApprovalPrompt, QueryContext, run_query
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookExecutor
 from illusion.permissions.checker import PermissionChecker
@@ -77,6 +77,7 @@ class QueryEngine:
         max_turns: int | None = 8,
         permission_prompt: PermissionPrompt | None = None,
         ask_user_prompt: AskUserPrompt | None = None,
+        plan_approval_prompt: PlanApprovalPrompt | None = None,
         hook_executor: HookExecutor | None = None,
         tool_metadata: dict[str, object] | None = None,
         effort: EffortLevel | None = None,
@@ -92,6 +93,7 @@ class QueryEngine:
         self._max_turns = max_turns  # 最大轮次
         self._permission_prompt = permission_prompt  # 权限提示回调
         self._ask_user_prompt = ask_user_prompt  # 用户询问回调
+        self._plan_approval_prompt = plan_approval_prompt  # 计划审批回调
         self._hook_executor = hook_executor  # 钩子执行器
         self._tool_metadata = tool_metadata or {}  # 工具元数据
         self._effort = effort  # effort 级别
@@ -291,6 +293,7 @@ class QueryEngine:
             max_turns=self._max_turns,
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
+            plan_approval_prompt=self._plan_approval_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,
@@ -328,6 +331,7 @@ class QueryEngine:
             max_turns=max_turns if max_turns is not None else self._max_turns,
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
+            plan_approval_prompt=self._plan_approval_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,

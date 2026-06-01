@@ -58,6 +58,8 @@ from illusion.tools.base import ToolRegistry
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]
 # 用户询问回调类型：问题 -> 回答
 AskUserPrompt = Callable[[str], Awaitable[str]]
+# 计划审批回调类型：计划内容 -> (是否允许, 反馈)
+PlanApprovalPrompt = Callable[[str], Awaitable[tuple[bool, str]]]
 
 
 class MaxTurnsExceeded(RuntimeError):
@@ -203,6 +205,7 @@ class QueryContext:
     max_tokens: int
     permission_prompt: PermissionPrompt | None = None
     ask_user_prompt: AskUserPrompt | None = None
+    plan_approval_prompt: PlanApprovalPrompt | None = None
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
@@ -539,6 +542,8 @@ async def _execute_tool_call(
             metadata={
                 "tool_registry": context.tool_registry,
                 "ask_user_prompt": context.ask_user_prompt,
+                "plan_approval_prompt": context.plan_approval_prompt,
+                "permission_checker": context.permission_checker,
                 **(context.tool_metadata or {}),
             },
         ),
