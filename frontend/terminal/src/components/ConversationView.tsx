@@ -509,6 +509,18 @@ function MessageRow({
 			);
 		}
 
+		case 'plan':
+			return (
+				<Box marginTop={1} flexDirection="column" borderStyle="round" borderColor={theme.colors.info} paddingX={1}>
+					<Box marginBottom={0}>
+						<Text bold color={theme.colors.info}>{t(language, 'planReview')}</Text>
+					</Box>
+					<Box flexDirection="column">
+						<MarkdownContent text={item.text} availableWidth={Math.max(40, terminalWidth - 6)} />
+					</Box>
+				</Box>
+			);
+
 		case 'log':
 			return (
 				<Box>

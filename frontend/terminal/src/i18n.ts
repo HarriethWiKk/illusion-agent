@@ -31,6 +31,12 @@ const ZH: Dict = {
 	assistantReply: '助手回复',
 	bgAgentWaiting: '等待后台代理完成',
 	bgAgentResuming: '后台代理已完成，继续执行',
+	planReview: '计划审批',
+	approve: '批准',
+	reject: '拒绝',
+	planApproved: '计划已批准，开始实施。',
+	planRejected: '计划已拒绝。',
+	planFeedbackPrompt: '请输入修改意见（可选，Enter 提交，Esc 跳过）：',
 };
 
 const EN: Dict = {
@@ -62,6 +68,12 @@ const EN: Dict = {
 	assistantReply: 'Response',
 	bgAgentWaiting: 'Waiting for background agent',
 	bgAgentResuming: 'Background agent completed, resuming',
+	planReview: 'Plan Review',
+	approve: 'Approve',
+	reject: 'Reject',
+	planApproved: 'Plan approved. Starting implementation.',
+	planRejected: 'Plan rejected.',
+	planFeedbackPrompt: 'Enter feedback (optional, Enter to submit, Esc to skip): ',
 };
 
 const ALL: Record<UiLanguage, Dict> = {
