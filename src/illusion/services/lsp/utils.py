@@ -12,13 +12,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Windows: 防止 subprocess 弹出 Git GUI 窗口
+# Windows: 防止 subprocess 弹出控制台/GUI 窗口
+_GIT_SUBPROCESS_KWARGS: dict = {}
 if sys.platform == "win32":
-    _STARTUPINFO = subprocess.STARTUPINFO()
-    _STARTUPINFO.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    _STARTUPINFO.wShowWindow = subprocess.SW_HIDE
-else:
-    _STARTUPINFO = None
+    _GIT_SUBPROCESS_KWARGS["creationflags"] = subprocess.CREATE_NO_WINDOW
 
 from illusion.services.lsp.models import _PYTHON_GLOB, _SKIP_PARTS
 
@@ -48,7 +45,8 @@ def _filter_gitignored(files: list[Path], root: Path) -> list[Path]:
             cwd=root,
             capture_output=True,
             check=True,
-            startupinfo=_STARTUPINFO,
+            stdin=subprocess.DEVNULL,
+            **_GIT_SUBPROCESS_KWARGS,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return files
@@ -64,7 +62,8 @@ def _filter_gitignored(files: list[Path], root: Path) -> list[Path]:
                 capture_output=True,
                 text=True,
                 timeout=5,
-                startupinfo=_STARTUPINFO,
+                stdin=subprocess.DEVNULL,
+                **_GIT_SUBPROCESS_KWARGS,
             )
             if result.returncode == 0 and result.stdout:
                 for line in result.stdout.splitlines():
