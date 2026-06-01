@@ -291,7 +291,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// /version → 显示版本信息（前端处理，不发送到后端）
 		if (trimmed === '/version') {
 			session.setCommandResult({
-				text: 'IllusionCode 0.1.0',
+				text: 'IllusionCode 0.1.1',
 				type: 'info',
 			});
 			return true;

@@ -41,7 +41,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # 应用程序版本
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def _version_callback(value: bool) -> None:
