@@ -7,9 +7,14 @@ LSP 共享工具函数。
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+# Windows: 防止 subprocess 弹出 Git GUI 窗口
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 from illusion.services.lsp.models import _PYTHON_GLOB, _SKIP_PARTS
 
@@ -39,6 +44,7 @@ def _filter_gitignored(files: list[Path], root: Path) -> list[Path]:
             cwd=root,
             capture_output=True,
             check=True,
+            creationflags=_CREATION_FLAGS,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return files
@@ -54,6 +60,7 @@ def _filter_gitignored(files: list[Path], root: Path) -> list[Path]:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                creationflags=_CREATION_FLAGS,
             )
             if result.returncode == 0 and result.stdout:
                 for line in result.stdout.splitlines():
