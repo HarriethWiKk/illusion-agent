@@ -15,16 +15,16 @@
     >>> from illusion.commands import CommandRegistry, SlashCommand
 """
 
+from illusion.commands.types import CommandContext, CommandHandler, CommandResult
 from illusion.commands.registry import (
-    CommandContext,
     CommandRegistry,
-    CommandResult,
     SlashCommand,
     create_default_command_registry,
 )
 
 __all__ = [
     "CommandContext",
+    "CommandHandler",
     "CommandRegistry",
     "CommandResult",
     "SlashCommand",

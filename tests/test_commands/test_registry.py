@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import illusion.commands.registry as registry_module
+import illusion.commands.helpers as helpers_module
 from illusion.commands.registry import CommandContext, create_default_command_registry
 from illusion.config.paths import get_feedback_log_path, get_project_issue_file, get_project_pr_comments_file
 from illusion.config.settings import load_settings, save_settings, Settings
@@ -511,7 +511,7 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
     def _fake_copy(text: str) -> None:
         copied.append(text)
 
-    monkeypatch.setattr(registry_module.pyperclip, "copy", _fake_copy)
+    monkeypatch.setattr(helpers_module.pyperclip, "copy", _fake_copy)
 
     copy_command, copy_args = registry.lookup("/copy")
     copy_result = await copy_command.handler(copy_args, context)

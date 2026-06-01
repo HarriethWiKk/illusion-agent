@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from illusion.commands.registry import CommandContext, CommandResult
+from illusion.commands.types import CommandContext, CommandResult
 from illusion.commands.init.analysis.architecture import analyze_architecture
 from illusion.commands.init.analysis.conventions import detect_conventions
 from illusion.commands.init.analysis.dependencies import analyze_dependencies
