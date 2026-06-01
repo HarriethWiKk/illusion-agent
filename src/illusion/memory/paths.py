@@ -7,9 +7,11 @@
 主要功能：
     - 生成基于项目路径的唯一记忆目录
     - 管理MEMORY.md入口点文件
+    - 支持项目级记忆目录（.illusion/memory/）
 
 函数说明：
-    - get_project_memory_dir: 获取项目记忆目录
+    - get_project_memory_dir: 获取项目记忆目录（全局数据目录）
+    - get_project_local_memory_dir: 获取项目级记忆目录（.illusion/memory/）
     - get_memory_entrypoint: 获取记忆入口点文件
 
 使用示例：
@@ -27,14 +29,14 @@ from illusion.config.paths import get_data_dir
 
 
 def get_project_memory_dir(cwd: str | Path) -> Path:
-    """获取项目持久化记忆目录
-    
+    """获取项目持久化记忆目录（全局数据目录）
+
     目录名格式: {项目名}-{sha1哈希前12位}
     使用项目路径的哈希确保唯一性
-    
+
     Args:
         cwd: 当前工作目录
-    
+
     Returns:
         Path: 记忆目录的Path对象
     """
@@ -45,13 +47,39 @@ def get_project_memory_dir(cwd: str | Path) -> Path:
     return memory_dir  # 返回目录
 
 
-def get_memory_entrypoint(cwd: str | Path) -> Path:
-    """获取项目记忆入口点文件
-    
+def get_project_local_memory_dir(cwd: str | Path) -> Path:
+    """获取项目级记忆目录（.illusion/memory/）
+
+    项目级记忆目录位于项目根目录下的 .illusion/memory/，
+    用于存储项目特定的记忆配置。
+
     Args:
         cwd: 当前工作目录
-    
+
+    Returns:
+        Path: 项目级记忆目录的Path对象
+    """
+    project_dir = Path(cwd).resolve() / ".illusion" / "memory"  # 构建项目级记忆目录路径
+    project_dir.mkdir(parents=True, exist_ok=True)  # 创建目录
+    return project_dir  # 返回目录
+
+
+def get_memory_entrypoint(cwd: str | Path) -> Path:
+    """获取项目记忆入口点文件
+
+    优先返回项目级记忆目录下的 MEMORY.md，
+    如果不存在则返回全局记忆目录下的 MEMORY.md。
+
+    Args:
+        cwd: 当前工作目录
+
     Returns:
         Path: MEMORY.md文件的Path对象
     """
-    return get_project_memory_dir(cwd) / "MEMORY.md"  # 返回入口点文件路径
+    # 优先使用项目级记忆目录
+    local_entrypoint = get_project_local_memory_dir(cwd) / "MEMORY.md"
+    if local_entrypoint.exists():
+        return local_entrypoint
+
+    # 回退到全局记忆目录
+    return get_project_memory_dir(cwd) / "MEMORY.md"

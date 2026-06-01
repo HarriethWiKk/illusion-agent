@@ -7,6 +7,7 @@ CLAUDE.md 发现和加载模块
 主要功能：
     - 在当前目录中查找 CLAUDE.md 文件
     - 发现 .claude/rules 目录下的规则文件
+    - 发现 .illusion/ 目录下的指令文件（CLAUDE.md、AGENTS.md、ILLUSION.md）
     - 将多个指令文件加载为一个提示词章节
 
 使用示例：
@@ -19,9 +20,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# AI 指令文件名列表（在根目录和 .illusion/ 目录下扫描）
+_AI_INSTRUCTION_FILES = [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "ILLUSION.md",
+]
+
 
 def discover_claude_md_files(cwd: str | Path) -> list[Path]:
-    """发现相关的 CLAUDE.md 指令文件（只在 cwd 中查找）
+    """发现相关的 CLAUDE.md 指令文件（只在 cwd 中向下查找）
+
+    扫描范围：
+    1. 根目录下的 CLAUDE.md、AGENTS.md、ILLUSION.md
+    2. .claude/CLAUDE.md 和 .claude/rules/*.md
+    3. .illusion/ 目录下的 CLAUDE.md、AGENTS.md、ILLUSION.md
 
     Args:
         cwd: 工作目录
@@ -33,20 +46,35 @@ def discover_claude_md_files(cwd: str | Path) -> list[Path]:
     results: list[Path] = []
     seen: set[Path] = set()
 
-    for candidate in (
-        current / "CLAUDE.md",
-        current / ".claude" / "CLAUDE.md",
-    ):
+    # 1. 扫描根目录下的 AI 指令文件
+    for filename in _AI_INSTRUCTION_FILES:
+        candidate = current / filename
         if candidate.exists() and candidate not in seen:
             results.append(candidate)
             seen.add(candidate)
 
-    rules_dir = current / ".claude" / "rules"
+    # 2. 扫描 .claude/ 目录下的文件
+    claude_dir = current / ".claude"
+    claude_md = claude_dir / "CLAUDE.md"
+    if claude_md.exists() and claude_md not in seen:
+        results.append(claude_md)
+        seen.add(claude_md)
+
+    rules_dir = claude_dir / "rules"
     if rules_dir.is_dir():
         for rule in sorted(rules_dir.glob("*.md")):
             if rule not in seen:
                 results.append(rule)
                 seen.add(rule)
+
+    # 3. 扫描 .illusion/ 目录下的 AI 指令文件
+    illusion_dir = current / ".illusion"
+    if illusion_dir.is_dir():
+        for filename in _AI_INSTRUCTION_FILES:
+            candidate = illusion_dir / filename
+            if candidate.exists() and candidate not in seen:
+                results.append(candidate)
+                seen.add(candidate)
 
     return results
 

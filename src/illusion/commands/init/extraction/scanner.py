@@ -425,11 +425,33 @@ def _detect_ci(root: Path) -> str | None:
 
 
 def _detect_ai_configs(root: Path) -> list[str]:
-    """检测现有 AI 配置文件"""
+    """检测现有 AI 配置文件
+
+    扫描范围：
+    1. 项目根目录下的 AI 配置文件
+    2. .illusion/ 目录下的 AI 配置文件
+
+    Args:
+        root: 项目根目录
+
+    Returns:
+        list[str]: 找到的配置文件路径列表（相对于根目录）
+    """
     configs = []
+
+    # 1. 扫描根目录下的 AI 配置文件
     for config in _AI_CONFIGS:
         if (root / config).exists():
             configs.append(config)
+
+    # 2. 扫描 .illusion/ 目录下的 AI 配置文件
+    illusion_dir = root / ".illusion"
+    if illusion_dir.is_dir():
+        for config in _AI_CONFIGS:
+            illusion_config = illusion_dir / config
+            if illusion_config.exists():
+                configs.append(f".illusion/{config}")
+
     return configs
 
 
