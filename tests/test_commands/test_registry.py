@@ -451,9 +451,11 @@ async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
 
     init_command, init_args = registry.lookup("/init")
     init_result = await init_command.handler(init_args, context)
-    assert "Initialized project files" in init_result.message or "already initialized" in init_result.message or "初始化完成" in init_result.message or "已初始化" in init_result.message
+    assert "initialization complete" in init_result.message or "already initialized" in init_result.message or "初始化完成" in init_result.message or "已初始化" in init_result.message
     assert (tmp_path / "CLAUDE.md").exists()
+    assert (tmp_path / "ILLUSION.md").exists()
     assert (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
+    assert (tmp_path / ".illusion" / "rules" / "project-structure.md").exists()
 
     bridge_show_command, bridge_show_args = registry.lookup("/bridge show")
     bridge_show_result = await bridge_show_command.handler(bridge_show_args, context)

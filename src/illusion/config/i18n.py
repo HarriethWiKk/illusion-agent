@@ -228,6 +228,15 @@ _COMMAND_EXACT: dict[str, str] = {
     "No skills available.": "没有可用技能。",
     # 项目初始化
     "Project already initialized for IllusionCode.": "项目已完成 IllusionCode 初始化。",
+    "## Files created": "## 已创建文件",
+    "## Files updated": "## 已更新文件",
+    "## Project analysis": "## 项目分析",
+    "## Next steps": "## 下一步建议",
+    "- Review `CLAUDE.md` for project configuration": "- 查看 `CLAUDE.md` 了解项目配置",
+    "- Review `ILLUSION.md` for project-specific guidance": "- 查看 `ILLUSION.md` 了解项目特定指导",
+    "- Run `/memory` to manage project memories": "- 运行 `/memory` 管理项目记忆",
+    "- Run `/skills` to view available skills": "- 运行 `/skills` 查看可用技能",
+    "- Adjust `CLAUDE.md` as needed": "- 根据需要调整 `CLAUDE.md`",
     # Bridge
     "No bridge sessions.": "没有 bridge 会话。",
     # 认证
@@ -400,6 +409,15 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Saved feedback to (.+)$", r"已保存反馈到 \1"),
     # 初始化
     (r"^Initialized project files:$", r"已初始化项目文件："),
+    (r"^\*\*Illusion Code project initialization complete\.\*\*$", r"✨ **Illusion Code 项目初始化完成**"),
+    (r"^- \*\*Languages\*\*: (.+)$", r"- **检测到语言**: \1"),
+    (r"^- \*\*Frameworks\*\*: (.+)$", r"- **检测到框架**: \1"),
+    (r"^- \*\*Package Manager\*\*: (.+)$", r"- **包管理器**: \1"),
+    (r"^- \*\*Build\*\*: `(.+)`$", r"- **构建命令**: `\1`"),
+    (r"^- \*\*Test\*\*: `(.+)`$", r"- **测试命令**: `\1`"),
+    (r"^- \*\*Lint\*\*: `(.+)`$", r"- **代码检查**: `\1`"),
+    (r"^- \*\*Format\*\*: `(.+)`$", r"- **格式化工具**: `\1`"),
+    (r"^- \*\*CI/CD\*\*: (.+)$", r"- **CI/CD**: \1"),
     # 技能
     (r"^Skill not found: (.+)$", r"未找到技能：\1"),
     # 规则
