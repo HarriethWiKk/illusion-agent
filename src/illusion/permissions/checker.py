@@ -84,11 +84,15 @@ class PermissionChecker:
 
     def __init__(self, settings: PermissionSettings) -> None:
         """初始化权限检查器
-        
+
         Args:
             settings: 权限设置对象
         """
         self._settings = settings
+        # 进入计划模式前的权限模式，用于退出时恢复
+        self._pre_plan_mode: PermissionMode | None = None
+        # 当前计划文件路径（plan mode 下豁免写入限制）
+        self._plan_file_path: str | None = None
         # 从设置中解析路径规则
         self._path_rules: list[PathRule] = []
         for rule in getattr(settings, "path_rules", []):
@@ -101,6 +105,41 @@ class PermissionChecker:
                     "跳过路径规则，pattern 字段缺失为空或非字符串: %r",
                     rule,
                 )
+
+    @property
+    def current_mode(self) -> PermissionMode:
+        """返回当前权限模式。"""
+        return self._settings.mode
+
+    def set_mode(self, mode: PermissionMode) -> None:
+        """立即切换权限模式，保存前一个模式以便恢复。
+
+        仅在尚未保存前一个模式时才保存（防止重复调用覆盖原始模式）。
+
+        Args:
+            mode: 目标权限模式
+        """
+        if self._pre_plan_mode is None:
+            self._pre_plan_mode = self._settings.mode
+        self._settings.mode = mode
+
+    def restore_mode(self) -> None:
+        """恢复到进入计划模式之前的权限模式，并清理计划文件路径。"""
+        if self._pre_plan_mode is not None:
+            self._settings.mode = self._pre_plan_mode
+            self._pre_plan_mode = None
+        self._plan_file_path = None
+
+    def set_plan_file(self, file_path: str) -> None:
+        """设置当前计划文件路径，使其在 plan mode 下可写。
+
+        路径会被规范化为 resolve 后的绝对路径，确保符号链接等场景下比较正确。
+
+        Args:
+            file_path: 计划文件的绝对路径
+        """
+        from pathlib import Path
+        self._plan_file_path = str(Path(file_path).expanduser().resolve())
 
     def evaluate(
         self,
@@ -158,8 +197,12 @@ class PermissionChecker:
         if is_read_only:
             return PermissionDecision(allowed=True, reason="read-only tools are allowed")
 
-        # 计划模式：阻止变更工具（自动阻止，不终止查询循环）
+        # 计划模式：阻止变更工具（自动阻止，不终止查询循环），但豁免计划文件和退出工具
         if self._settings.mode == PermissionMode.PLAN:
+            if tool_name == "exit_plan_mode":
+                return PermissionDecision(allowed=True, reason="ExitPlanMode is always allowed in plan mode")
+            if file_path and self._plan_file_path and file_path == self._plan_file_path:
+                return PermissionDecision(allowed=True, reason="Plan file is writable in plan mode")
             return PermissionDecision(
                 allowed=False,
                 reason="Plan mode blocks mutating tools until the user exits plan mode",
