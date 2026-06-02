@@ -85,5 +85,5 @@ class TestLspClient:
     @pytest.mark.asyncio
     async def test_request_without_start_raises(self):
         client = LspClient()
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(RuntimeError, match="not connected"):
             await client.request("textDocument/definition", {})

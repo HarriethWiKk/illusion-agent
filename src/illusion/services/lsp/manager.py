@@ -84,10 +84,35 @@ class LspManager:
         self._clients.clear()
         self._starting.clear()
 
+    async def initialize_client(self, lang_id: str, root_uri: str) -> None:
+        """初始化指定语言的 LSP 客户端（如果尚未初始化）。"""
+        client = self._clients.get(lang_id)
+        if client is None or client.is_initialized:
+            return
+        await client.initialize(
+            root_uri=root_uri,
+            capabilities={
+                "textDocument": {
+                    "definition": {"dynamicRegistration": False},
+                    "references": {"dynamicRegistration": False},
+                    "hover": {"dynamicRegistration": False},
+                    "documentSymbol": {"dynamicRegistration": False},
+                    "implementation": {"dynamicRegistration": False},
+                    "callHierarchy": {"dynamicRegistration": False},
+                },
+            },
+        )
+
     async def _get_or_start_client(self, lang_id: str) -> LspClient | None:
         """获取或启动指定语言的 LSP 客户端。"""
+        # 检查已有客户端是否仍可用
         if lang_id in self._clients:
-            return self._clients[lang_id]
+            client = self._clients[lang_id]
+            if client._connected:
+                return client
+            # 连接已断开，移除并重新启动
+            logger.info("LSP client for %s disconnected, restarting", lang_id)
+            self._clients.pop(lang_id, None)
 
         if lang_id in self._starting:
             return None  # 正在启动中

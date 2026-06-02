@@ -34,7 +34,6 @@ def decode_message(data: bytes) -> tuple[list[dict[str, Any]], bytes]:
     """
     messages: list[dict[str, Any]] = []
     while data:
-        # 查找 Content-Length 头
         idx = data.find(_CONTENT_LENGTH_PREFIX)
         if idx != 0:
             break
@@ -51,7 +50,7 @@ def decode_message(data: bytes) -> tuple[list[dict[str, Any]], bytes]:
 
         body_start = header_end + len(_HEADER_SEPARATOR)
         if len(data) < body_start + content_length:
-            break  # 数据不完整
+            break
 
         body_bytes = data[body_start : body_start + content_length]
         try:
@@ -70,10 +69,12 @@ class LspClient:
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._notification_handlers: dict[str, list] = {}
         self._buffer: bytes = b""
         self._next_id: int = 1
+        self._connected: bool = False
         self.capabilities: dict[str, Any] | None = None
         self.is_initialized: bool = False
 
@@ -90,7 +91,9 @@ class LspClient:
             stderr=asyncio.subprocess.PIPE,
             env=options.get("env") if options else None,
         )
+        self._connected = True
         self._reader_task = asyncio.create_task(self._read_loop())
+        self._stderr_task = asyncio.create_task(self._stderr_loop())
 
     async def initialize(self, root_uri: str, capabilities: dict[str, Any] | None = None) -> dict[str, Any]:
         """发送 initialize 请求。"""
@@ -107,8 +110,8 @@ class LspClient:
 
     async def request(self, method: str, params: Any, timeout: float = 30.0) -> Any:
         """发送请求并等待响应。"""
-        if self._process is None or self._process.stdin is None:
-            raise RuntimeError("LSP client not started")
+        if not self._connected or self._process is None or self._process.stdin is None:
+            raise RuntimeError("LSP client not connected")
 
         msg_id = self._next_id
         self._next_id += 1
@@ -117,8 +120,13 @@ class LspClient:
         self._pending[msg_id] = future
 
         msg = {"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}
-        self._process.stdin.write(encode_message(msg))
-        await self._process.stdin.drain()
+        try:
+            self._process.stdin.write(encode_message(msg))
+            await self._process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError) as e:
+            self._pending.pop(msg_id, None)
+            self._connected = False
+            raise RuntimeError("LSP connection lost") from e
 
         try:
             response = await asyncio.wait_for(future, timeout=timeout)
@@ -134,12 +142,16 @@ class LspClient:
 
     async def notify(self, method: str, params: Any) -> None:
         """发送通知（无需响应）。"""
-        if self._process is None or self._process.stdin is None:
-            raise RuntimeError("LSP client not started")
+        if not self._connected or self._process is None or self._process.stdin is None:
+            raise RuntimeError("LSP client not connected")
 
         msg = {"jsonrpc": "2.0", "method": method, "params": params}
-        self._process.stdin.write(encode_message(msg))
-        await self._process.stdin.drain()
+        try:
+            self._process.stdin.write(encode_message(msg))
+            await self._process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            self._connected = False
+            raise RuntimeError("LSP connection lost")
 
     def on_notification(self, method: str, handler: Any) -> None:
         """注册通知处理器。"""
@@ -147,12 +159,14 @@ class LspClient:
 
     async def stop(self) -> None:
         """关闭连接并终止子进程。"""
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+        self._connected = False
+        for task in (self._reader_task, self._stderr_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         if self._process:
             try:
                 self._process.terminate()
@@ -169,23 +183,47 @@ class LspClient:
             while True:
                 chunk = await self._process.stdout.read(4096)
                 if not chunk:
-                    break
+                    break  # EOF — 进程已退出
                 self._buffer += chunk
                 messages, self._buffer = decode_message(self._buffer)
                 for msg in messages:
                     self._dispatch(msg)
         except asyncio.CancelledError:
             pass
+        finally:
+            # 进程退出或读取失败 — 标记断开并清理 pending futures
+            self._connected = False
+            self._fail_all_pending("LSP connection lost (process exited)")
+
+    async def _stderr_loop(self) -> None:
+        """持续读取 stderr 防止管道缓冲区满导致进程挂起。"""
+        assert self._process and self._process.stderr
+        try:
+            while True:
+                chunk = await self._process.stderr.read(4096)
+                if not chunk:
+                    break
+                # 将 stderr 输出记录到日志（调试用）
+                text = chunk.decode("utf-8", errors="replace").strip()
+                if text:
+                    logger.debug("LSP stderr: %s", text)
+        except asyncio.CancelledError:
+            pass
+
+    def _fail_all_pending(self, reason: str) -> None:
+        """将所有未完成的 pending futures 设为异常。"""
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(RuntimeError(reason))
+        self._pending.clear()
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
         """分发消息到对应的 future 或通知处理器。"""
         if "id" in msg and "method" not in msg:
-            # 响应消息
             future = self._pending.pop(msg["id"], None)
             if future and not future.done():
                 future.set_result(msg)
         elif "method" in msg:
-            # 通知或请求
             handlers = self._notification_handlers.get(msg["method"], [])
             for handler in handlers:
                 try:

@@ -112,9 +112,27 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
+        # 初始化 LSP 服务器（使用工作区根目录）
+        if not client.is_initialized:
+            await manager.initialize_client(lang_id, root.as_uri())
+
         # LSP 位置参数（0-based）
         position = {"line": arguments.line - 1, "character": arguments.character - 1}
         text_doc = {"uri": file_path.as_uri()}
+
+        # 通知 LSP 服务器文件已打开
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            await client.notify("textDocument/didOpen", {
+                "textDocument": {
+                    "uri": text_doc["uri"],
+                    "languageId": lang_id,
+                    "version": 1,
+                    "text": content,
+                },
+            })
+        except Exception:
+            pass  # 非致命错误
 
         try:
             if op == "goToDefinition":
