@@ -128,6 +128,8 @@ class LspClient:
     async def request(self, method: str, params: Any = None, timeout: float = 30, **kw) -> Any:
         if not self._connected:
             raise RuntimeError("LSP client not connected")
+        if self._proc and self._proc.poll() is not None:
+            raise RuntimeError(f"LSP process exited with code {self._proc.returncode}")
         if params is None:
             params = kw or {}
 
@@ -259,5 +261,9 @@ class LspClient:
                 line = self._proc.stderr.readline()
                 if not line:
                     break
+                text = line.decode("utf-8", errors="replace").strip()
+                if text:
+                    import sys
+                    print(f"[LSP-STDERR] {text}", file=sys.stderr, flush=True)
         except Exception:
             pass
