@@ -229,18 +229,64 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         return ToolResult(output=format_document_symbol(result or [], root))
 
     async def _workspace_symbol(self, manager: Any, root: Path, arguments: LspToolInput) -> ToolResult:
+        query = arguments.filePath or ""
+        if not query:
+            return ToolResult(output="workspaceSymbol requires a query. Specify filePath as the search query.", is_error=True)
+
         all_results: list[dict] = []
         for lang_id in manager._configs:
             client = await manager.get_client_for_language(lang_id)
             if client is None:
                 continue
+
+            # 确保客户端已初始化
+            if not client.is_initialized:
+                await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
+
+            # 确保至少打开一个文件以触发工作区索引
+            if lang_id not in _opened_files.values():
+                await self._ensure_workspace_indexed(client, lang_id, root)
+
             try:
-                result = await client.request("workspace/symbol", {"query": arguments.filePath or ""})
+                result = await client.request("workspace/symbol", {"query": query}, timeout=15)
                 if result:
                     all_results.extend(result)
             except Exception:
                 continue
+
         return ToolResult(output=format_workspace_symbol(all_results, root))
+
+    @staticmethod
+    async def _ensure_workspace_indexed(client: Any, lang_id: str, root: Path) -> None:
+        """打开工作区中的一个文件以触发 LSP 服务器索引。"""
+        # 找一个源文件
+        ext_map = {".py": "python", ".ts": "typescript", ".go": "go", ".rs": "rust"}
+        target_ext = None
+        for ext, lid in ext_map.items():
+            if lid == lang_id:
+                target_ext = ext
+                break
+        if not target_ext:
+            return
+
+        # 在根目录下查找第一个匹配的文件
+        try:
+            for f in root.rglob(f"*{target_ext}"):
+                if f.is_file() and ".git" not in f.parts and "node_modules" not in f.parts:
+                    content = f.read_text(encoding="utf-8", errors="replace")
+                    await client.notify("textDocument/didOpen", {
+                        "textDocument": {
+                            "uri": f.as_uri(),
+                            "languageId": lang_id,
+                            "version": 1,
+                            "text": content,
+                        },
+                    })
+                    _opened_files[f.as_uri()] = lang_id
+                    await asyncio.sleep(2)  # 等待索引
+                    return
+        except Exception:
+            pass
 
     async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(

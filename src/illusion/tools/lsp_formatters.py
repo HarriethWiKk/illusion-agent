@@ -170,7 +170,10 @@ def format_incoming_calls(results: list[dict[str, Any]], root: Path) -> str:
     """格式化入向调用结果。"""
     if not results:
         return "No incoming calls found (nothing calls this function)."
-    lines = [f"Found {len(results)} incoming call(s):"]
+
+    # 去重：用 (caller_path, call_line, caller_name) 作为唯一键
+    seen: set[tuple[str, int, str]] = set()
+    lines: list[str] = []
     for call in results:
         from_ = call.get("from", {})
         from_name = from_.get("name", "")
@@ -180,19 +183,27 @@ def format_incoming_calls(results: list[dict[str, Any]], root: Path) -> str:
         from_path = display_path(_uri_to_path(from_uri), root)
         from_ranges = call.get("fromRanges", [])
         for r in from_ranges:
-            r_start = r.get("start", {})
+            r_line = r.get("start", {}).get("line", 0) + 1
+            key = (from_path, r_line, from_name)
+            if key in seen:
+                continue
+            seen.add(key)
             lines.append(
-                f"  {from_path}:{r_start.get('line', 0) + 1} [{from_name}] "
+                f"  {from_path}:{r_line} [{from_name}] "
                 f"(defined at {from_path}:{from_start.get('line', 0) + 1})"
             )
-    return "\n".join(lines)
+    if not lines:
+        return "No incoming calls found (nothing calls this function)."
+    return f"Found {len(lines)} incoming call(s):\n" + "\n".join(lines)
 
 
 def format_outgoing_calls(results: list[dict[str, Any]], root: Path) -> str:
     """格式化出向调用结果。"""
     if not results:
         return "No outgoing calls found (this function calls nothing)."
-    lines = [f"Found {len(results)} outgoing call(s):"]
+
+    seen: set[tuple[str, int, str]] = set()
+    lines: list[str] = []
     for call in results:
         to = call.get("to", {})
         to_name = to.get("name", "")
@@ -202,12 +213,19 @@ def format_outgoing_calls(results: list[dict[str, Any]], root: Path) -> str:
         to_path = display_path(_uri_to_path(to_uri), root)
         from_ranges = call.get("fromRanges", [])
         for r in from_ranges:
-            r_start = r.get("start", {})
+            r_line = r.get("start", {}).get("line", 0) + 1
+            to_line = to_start.get("line", 0) + 1
+            key = (to_path, to_line, to_name)
+            if key in seen:
+                continue
+            seen.add(key)
             lines.append(
-                f"  {to_name} -> {to_path}:{to_start.get('line', 0) + 1} "
-                f"(called at line {r_start.get('line', 0) + 1})"
+                f"  {to_name} -> {to_path}:{to_line} "
+                f"(called at line {r_line})"
             )
-    return "\n".join(lines)
+    if not lines:
+        return "No outgoing calls found (this function calls nothing)."
+    return f"Found {len(lines)} outgoing call(s):\n" + "\n".join(lines)
 
 
 def _uri_to_path(uri: str) -> Path:
