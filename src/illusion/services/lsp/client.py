@@ -81,10 +81,13 @@ class LspClient:
             kw["startupinfo"] = si
             kw["creationflags"] = sp.CREATE_NO_WINDOW
 
-        # Windows: shutil.which 能解析 .cmd 包装器（如 typescript-language-server.cmd）
-        import shutil
-        resolved = shutil.which(command) or command
-        self._proc = sp.Popen([resolved] + args, **kw)
+        if sys.platform == "win32":
+            # Windows: shell=True 让 cmd.exe 解析 .cmd 包装器
+            kw["shell"] = True
+            cmd_str = command + " " + " ".join(args) if args else command
+            self._proc = sp.Popen(cmd_str, **kw)
+        else:
+            self._proc = sp.Popen([command] + args, **kw)
         self._connected = True
 
         # 读取线程
