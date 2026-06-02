@@ -2,9 +2,8 @@
 LSP 客户端
 ==========
 
-基于 pylspclient 的 LSP 客户端实现。
-pylspclient 正确处理 JSON-RPC 协议（消息分帧、flush、双向通信），
-等价于参考项目使用的 vscode-jsonrpc。
+参考 vscode-jsonrpc 的双向通信模式实现。
+核心：独立读取循环 + 写入队列 + asyncio.Future 关联请求/响应。
 """
 
 from __future__ import annotations
@@ -15,18 +14,14 @@ import logging
 import os
 import subprocess
 import sys
-import threading
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
-
-import pylspclient
 
 logger = logging.getLogger(__name__)
 
 
 def _uri_to_path(uri: str) -> str:
-    """将 file:// URI 转换为本地路径字符串。"""
     if uri.startswith("file://"):
         parsed = urlparse(uri)
         path_str = unquote(parsed.path)
@@ -36,199 +31,239 @@ def _uri_to_path(uri: str) -> str:
     return unquote(uri)
 
 
-class LspClient:
-    """基于 pylspclient 的 LSP 客户端。
+def _encode(msg: dict) -> bytes:
+    payload = json.dumps(msg, ensure_ascii=False).encode("utf-8")
+    return f"Content-Length: {len(payload)}\r\n\r\n".encode() + payload
 
-    pylspclient 使用 JsonRpcEndpoint 正确处理 JSON-RPC 协议：
-    - send_request: 添加 Content-Length 头 + write + flush
-    - recv_response: 读取 Content-Length 头 + 读取 body + JSON 解析
-    - LspEndpoint: 专用线程持续读取消息并分发
-    """
+
+class LspClient:
+    """LSP 客户端，参考 vscode-jsonrpc 的双向通信模式。"""
 
     def __init__(self) -> None:
-        self._process: subprocess.Popen | None = None
-        self._endpoint: pylspclient.LspEndpoint | None = None
-        self._lsp_client: pylspclient.LspClient | None = None
-        self._notification_handlers: dict[str, list] = {}
+        self._proc: asyncio.subprocess.Process | None = None
+        self._read_task: asyncio.Task | None = None
+        self._write_q: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._write_task: asyncio.Task | None = None
+        self._pending: dict[int, asyncio.Future] = {}
+        self._notify_handlers: dict[str, list] = {}
         self._request_handlers: dict[str, Any] = {}
-        self._connected: bool = False
-        self.capabilities: dict[str, Any] | None = None
-        self.is_initialized: bool = False
-
-    async def start(self, command: str, args: list[str], options: dict[str, Any] | None = None) -> None:
-        """启动 LSP 服务器子进程。"""
-        if self._process is not None:
-            return  # 已启动，静默返回
-        if self._endpoint is not None:
-            return  # 已启动，静默返回
-
-        kwargs: dict[str, Any] = {
-            "stdin": subprocess.PIPE,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-        }
-        if options and options.get("env"):
-            kwargs["env"] = options["env"]
-        if options and options.get("cwd"):
-            kwargs["cwd"] = options["cwd"]
-
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            kwargs["startupinfo"] = startupinfo
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-        self._process = subprocess.Popen([command] + args, **kwargs)
-        self._connected = True
-
-        # 创建 pylspclient 的 JSON-RPC 端点和 LSP 端点
-        json_rpc_endpoint = pylspclient.JsonRpcEndpoint(self._process.stdin, self._process.stdout)
-
-        # 注册请求处理器（服务器->客户端）
-        method_callbacks = {
-            "workspace/configuration": self._handle_workspace_config,
-            "window/workDoneProgress/create": lambda params: None,
-        }
-
-        # 创建 LspEndpoint（不启动线程 — pylspclient.LspClient.initialize() 会自动启动）
-        self._endpoint = pylspclient.LspEndpoint(
-            json_rpc_endpoint,
-            method_callbacks=method_callbacks,
-            notify_callbacks=self._notification_handlers,
-            timeout=60,
-        )
-        self._endpoint.daemon = True
-
-        # 创建 LSP 客户端（initialize() 会调用 endpoint.start()）
-        self._lsp_client = pylspclient.LspClient(self._endpoint)
-
-        # stderr 日志
-        self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
-        self._stderr_thread.start()
-
-    async def initialize(
-        self,
-        root_uri: str,
-        capabilities: dict[str, Any] | None = None,
-        root_path: str | None = None,
-        process_id: int | None = None,
-        initialization_options: Any = None,
-        workspace_folders: list[dict[str, str]] | None = None,
-    ) -> dict[str, Any]:
-        """发送 initialize 请求。"""
-        if not self._lsp_client:
-            raise RuntimeError("LSP client not started")
-
-        if root_path is None and root_uri.startswith("file://"):
-            root_path = _uri_to_path(root_uri)
-
-        if workspace_folders is None:
-            workspace_folders = [{
-                "uri": root_uri,
-                "name": Path(root_path or "").name or "workspace",
-            }]
-
-        # pylspclient 的 initialize 方法在单独线程中运行
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: self._lsp_client.initialize(
-                processId=process_id or os.getpid(),
-                rootPath=root_path or "",
-                rootUri=root_uri,
-                initializationOptions=initialization_options or {},
-                capabilities=capabilities or {},
-                trace="off",
-                workspaceFolders=workspace_folders,
-            ),
-        )
-
-        self.capabilities = dict(result.get("capabilities", {})) if result else {}
-        self.is_initialized = True
-
-        # 发送 initialized 通知
-        await loop.run_in_executor(None, self._lsp_client.initialized)
-
-        return dict(result) if result else {}
-
-    async def request(self, method: str, params: Any = None, timeout: float = 30.0, **kwargs: Any) -> Any:
-        """发送请求并等待响应。params 为 dict 或通过 kwargs 传递。"""
-        if not self._connected or not self._endpoint:
-            raise RuntimeError("LSP client not connected")
-
-        if params is None:
-            params = kwargs
-        elif kwargs:
-            params = {**params, **kwargs}
-
-        loop = asyncio.get_event_loop()
-        try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: self._endpoint.call_method(method, **params)),
-                timeout=timeout,
-            )
-            return result
-        except pylspclient.lsp_errors.ResponseError as e:
-            raise RuntimeError(f"LSP error: {e}")
-
-    async def notify(self, method: str, params: Any = None, **kwargs: Any) -> None:
-        """发送通知。params 为 dict 或通过 kwargs 传递。"""
-        if not self._connected or not self._endpoint:
-            raise RuntimeError("LSP client not connected")
-
-        if params is None:
-            params = kwargs
-        elif kwargs:
-            params = {**params, **kwargs}
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: self._endpoint.send_notification(method, **params))
-
-    def on_notification(self, method: str, handler: Any) -> None:
-        """注册通知处理器。"""
-        self._notification_handlers[method] = handler
-        # pylspclient 的 notify_callbacks 在 LspEndpoint.run() 中使用
-        # 如果 endpoint 已启动，需要动态更新
-        if self._endpoint:
-            self._endpoint.notify_callbacks[method] = handler
-
-    def on_request(self, method: str, handler: Any) -> None:
-        """注册服务器->客户端请求处理器。"""
-        self._request_handlers[method] = handler
-        if self._endpoint:
-            self._endpoint.method_callbacks[method] = handler
-
-    async def stop(self) -> None:
-        """关闭连接并终止子进程。"""
+        self._buf = b""
+        self._next_id = 1
         self._connected = False
-        if self._endpoint:
-            self._endpoint.stop()
-        if self._process:
-            try:
-                self._process.terminate()
-                self._process.wait(timeout=5)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                self._process.kill()
-            self._process = None
+        self.capabilities: dict | None = None
         self.is_initialized = False
 
-    def _handle_workspace_config(self, params: Any) -> list:
-        """处理 workspace/configuration 请求。"""
-        items = params.get("items", []) if isinstance(params, dict) else []
-        return [{}] * len(items)
-
-    def _read_stderr(self) -> None:
-        """读取 stderr 输出。"""
-        if not self._process or not self._process.stderr:
+    async def start(self, command: str, args: list[str], options: dict | None = None) -> None:
+        if self._proc is not None:
             return
+
+        kw: dict[str, Any] = {
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+        }
+        if options and options.get("env"):
+            kw["env"] = options["env"]
+        if options and options.get("cwd"):
+            kw["cwd"] = options["cwd"]
+        if sys.platform == "win32":
+            import subprocess as sp
+            si = sp.STARTUPINFO()
+            si.dwFlags |= sp.STARTF_USESHOWWINDOW
+            si.wShowWindow = sp.SW_HIDE
+            kw["startupinfo"] = si
+            kw["creationflags"] = sp.CREATE_NO_WINDOW
+
+        self._proc = await asyncio.create_subprocess_exec(command, *args, **kw)
+        self._connected = True
+        self._read_task = asyncio.create_task(self._reader())
+        self._write_task = asyncio.create_task(self._writer())
+        asyncio.create_task(self._stderr_drain())
+
+    async def initialize(
+        self, root_uri: str, capabilities: dict | None = None,
+        root_path: str | None = None, process_id: int | None = None,
+        initialization_options: Any = None, workspace_folders: list | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "processId": process_id or os.getpid(),
+            "rootUri": root_uri,
+            "capabilities": capabilities or {},
+        }
+        if root_path:
+            params["rootPath"] = root_path
+        elif root_uri.startswith("file://"):
+            params["rootPath"] = _uri_to_path(root_uri)
+        if initialization_options is not None:
+            params["initializationOptions"] = initialization_options
+        if workspace_folders:
+            params["workspaceFolders"] = workspace_folders
+        else:
+            params["workspaceFolders"] = [{
+                "uri": root_uri,
+                "name": Path(params.get("rootPath", "")).name or "workspace",
+            }]
+
+        result = await self.request("initialize", params, timeout=45)
+        self.capabilities = result.get("capabilities", {})
+        self.is_initialized = True
+        await self.notify("initialized", {})
+        return result
+
+    async def request(self, method: str, params: Any = None, timeout: float = 30, **kw) -> Any:
+        if not self._connected:
+            raise RuntimeError("LSP client not connected")
+        if params is None:
+            params = kw or {}
+
+        msg_id = self._next_id
+        self._next_id += 1
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._pending[msg_id] = fut
+
+        await self._write(_encode({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}))
+
+        try:
+            resp = await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            self._pending.pop(msg_id, None)
+            raise TimeoutError(f"LSP '{method}' timed out after {timeout}s")
+
+        if "error" in resp:
+            raise RuntimeError(f"LSP error: {resp['error'].get('message', resp['error'])}")
+        return resp.get("result")
+
+    async def notify(self, method: str, params: Any = None, **kw) -> None:
+        if not self._connected:
+            raise RuntimeError("LSP client not connected")
+        if params is None:
+            params = kw or {}
+        await self._write(_encode({"jsonrpc": "2.0", "method": method, "params": params}))
+
+    def on_notification(self, method: str, handler: Any) -> None:
+        self._notify_handlers.setdefault(method, []).append(handler)
+
+    def on_request(self, method: str, handler: Any) -> None:
+        self._request_handlers[method] = handler
+
+    async def stop(self) -> None:
+        self._connected = False
+        for t in (self._read_task, self._write_task):
+            if t:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+        if self._proc:
+            try:
+                self._proc.terminate()
+                await asyncio.wait_for(self._proc.wait(), timeout=5)
+            except Exception:
+                self._proc.kill()
+            self._proc = None
+        self.is_initialized = False
+
+    # --- 内部实现 ---
+
+    async def _write(self, data: bytes) -> None:
+        await self._write_q.put(data)
+
+    async def _writer(self) -> None:
+        """专用写入循环：从队列取数据，write + drain。"""
+        assert self._proc and self._proc.stdin
         try:
             while True:
-                line = self._process.stderr.readline()
+                data = await self._write_q.get()
+                if data is None:
+                    break
+                try:
+                    self._proc.stdin.write(data)
+                    await self._proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    self._connected = False
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    async def _reader(self) -> None:
+        """专用读取循环：持续读取 stdout 并分发消息。"""
+        assert self._proc and self._proc.stdout
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(4096)
+                if not chunk:
+                    break
+                self._buf += chunk
+                while self._buf:
+                    # 解析 Content-Length 头
+                    idx = self._buf.find(b"Content-Length: ")
+                    if idx != 0:
+                        break
+                    hdr_end = self._buf.find(b"\r\n\r\n")
+                    if hdr_end == -1:
+                        break
+                    try:
+                        cl = int(self._buf[15:hdr_end])
+                    except ValueError:
+                        break
+                    body_start = hdr_end + 4
+                    if len(self._buf) < body_start + cl:
+                        break
+                    body = self._buf[body_start:body_start + cl]
+                    self._buf = self._buf[body_start + cl:]
+                    try:
+                        msg = json.loads(body)
+                    except json.JSONDecodeError:
+                        continue
+                    self._dispatch(msg)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._connected = False
+            for f in self._pending.values():
+                if not f.done():
+                    f.set_exception(RuntimeError("LSP connection lost"))
+            self._pending.clear()
+
+    def _dispatch(self, msg: dict) -> None:
+        if "id" in msg and "method" not in msg:
+            # 响应
+            fut = self._pending.pop(msg["id"], None)
+            if fut and not fut.done():
+                fut.set_result(msg)
+        elif "id" in msg and "method" in msg:
+            # 服务器->客户端请求
+            handler = self._request_handlers.get(msg["method"])
+            if handler:
+                try:
+                    result = handler(msg.get("params", {}))
+                except Exception as e:
+                    result = None
+                    logger.error("Handler error for %s: %s", msg["method"], e)
+            else:
+                result = None
+                logger.debug("No handler for server request: %s", msg["method"])
+            # 异步发送响应（不阻塞读取循环）
+            resp = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
+            asyncio.ensure_future(self._write(_encode(resp)))
+        elif "method" in msg:
+            # 通知
+            for h in self._notify_handlers.get(msg["method"], []):
+                try:
+                    h(msg.get("params"))
+                except Exception:
+                    logger.exception("Notification handler error for %s", msg["method"])
+
+    async def _stderr_drain(self) -> None:
+        assert self._proc and self._proc.stderr
+        try:
+            while True:
+                line = await self._proc.stderr.readline()
                 if not line:
                     break
                 text = line.decode("utf-8", errors="replace").strip()
                 if text:
                     logger.debug("LSP stderr: %s", text)
-        except Exception:
+        except asyncio.CancelledError:
             pass
