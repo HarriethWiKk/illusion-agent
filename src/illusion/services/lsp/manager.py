@@ -9,6 +9,7 @@ LSP 多语言管理器
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +22,14 @@ logger = logging.getLogger(__name__)
 class LspManager:
     """管理多个 LSP 服务器实例，按文件扩展名路由。"""
 
+    # 启动失败后的冷却时间（秒）
+    _FAIL_COOLDOWN = 30.0
+
     def __init__(self, configs: dict[str, LspServerConfig]) -> None:
         self._configs = configs
         self._clients: dict[str, LspClient] = {}
         self._starting: dict[str, bool] = {}
+        self._last_fail: dict[str, float] = {}  # lang_id -> last failure timestamp
 
         # 构建扩展名 -> 语言 ID 映射
         self._ext_map: dict[str, str] = {}
@@ -117,6 +122,11 @@ class LspManager:
         if lang_id in self._starting:
             return None  # 正在启动中
 
+        # 冷却检查：启动失败后短时间内不再重试
+        last_fail = self._last_fail.get(lang_id, 0)
+        if time.monotonic() - last_fail < self._FAIL_COOLDOWN:
+            return None
+
         config = self._configs.get(lang_id)
         if config is None:
             return None
@@ -130,9 +140,11 @@ class LspManager:
             return client
         except FileNotFoundError:
             logger.warning("LSP server not found for %s: %s", lang_id, config.command)
+            self._last_fail[lang_id] = time.monotonic()
             return None
         except Exception:
             logger.exception("Failed to start LSP server for %s", lang_id)
+            self._last_fail[lang_id] = time.monotonic()
             return None
         finally:
             self._starting.pop(lang_id, None)
