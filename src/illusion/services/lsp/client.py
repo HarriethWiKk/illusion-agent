@@ -195,10 +195,10 @@ class LspClient:
             pass
 
     def _reader(self) -> None:
-        """专用读取线程。"""
+        """专用读取线程。Windows 上 read(n>1) 会阻塞直到读满 n 字节，必须用 read(1)。"""
         try:
             while self._connected:
-                chunk = self._proc.stdout.read(4096)
+                chunk = self._proc.stdout.read(1)
                 if not chunk:
                     break
                 self._buf += chunk
@@ -235,10 +235,12 @@ class LspClient:
 
     def _dispatch(self, msg: dict) -> None:
         if "id" in msg and "method" not in msg:
+            # 响应 — 通知 asyncio 事件循环
             fut = self._pending.pop(msg["id"], None)
             if fut and not fut.done():
                 self._loop.call_soon_threadsafe(fut.set_result, msg)
         elif "id" in msg and "method" in msg:
+            # 服务器->客户端请求 — 同步处理，通过写入队列回复
             handler = self._request_handlers.get(msg["method"])
             if handler:
                 try:
@@ -247,8 +249,10 @@ class LspClient:
                     result = None
             else:
                 result = None
-            self._write_q.put(_encode({"jsonrpc": "2.0", "id": msg["id"], "result": result}))
+            resp = _encode({"jsonrpc": "2.0", "id": msg["id"], "result": result})
+            self._write_q.put(resp)
         elif "method" in msg:
+            # 通知
             for h in self._notify_handlers.get(msg["method"], []):
                 try:
                     h(msg.get("params"))

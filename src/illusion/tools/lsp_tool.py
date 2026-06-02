@@ -238,39 +238,79 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
-        import sys
-        print(f"[LSP-DEBUG] workspaceSymbol start, query={query!r}", file=sys.stderr)
-
         all_results: list[dict] = []
-        for lang_id in manager._configs:
+        query_lower = query.lower()
+        manager = _get_manager()
+
+        # 收集项目中的所有源文件
+        source_files: list[tuple[Path, str]] = []
+        skip_names = {"node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", "target", "vendor"}
+        for f in root.rglob("*"):
+            if not f.is_file():
+                continue
+            if any(p in skip_names for p in f.relative_to(root).parts):
+                continue
+            lang_id = manager.get_language_id(f)
+            if lang_id:
+                source_files.append((f, lang_id))
+
+        # 按语言分组
+        by_lang: dict[str, list[Path]] = {}
+        for f, lid in source_files:
+            by_lang.setdefault(lid, []).append(f)
+
+        for lang_id, files in by_lang.items():
             client = await manager.get_client_for_language(lang_id)
             if client is None:
-                print(f"[LSP-DEBUG] {lang_id}: no client (not installed)", file=sys.stderr)
                 continue
-
-            print(f"[LSP-DEBUG] {lang_id}: init={client.is_initialized} alive={client.is_alive} connected={client._connected}", file=sys.stderr)
-
+            if not client.is_alive:
+                manager._clients.pop(lang_id, None)
+                client = await manager.get_client_for_language(lang_id)
+                if client is None:
+                    continue
             if not client.is_initialized:
                 await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
-                print(f"[LSP-DEBUG] {lang_id}: after init, alive={client.is_alive}", file=sys.stderr)
-
-            if lang_id not in _opened_files.values():
-                await self._open_first_file(client, lang_id, root)
-                print(f"[LSP-DEBUG] {lang_id}: after open_file, alive={client.is_alive}", file=sys.stderr)
-
-            try:
-                print(f"[LSP-DEBUG] {lang_id}: sending workspace/symbol...", file=sys.stderr)
-                result = await client.request("workspace/symbol", query=query, timeout=15)
-                print(f"[LSP-DEBUG] {lang_id}: got {len(result) if result else 0} results, alive={client.is_alive}", file=sys.stderr)
-                if result:
-                    query_lower = query.lower()
-                    filtered = [s for s in result if query_lower in s.get("name", "").lower()]
-                    all_results.extend(filtered[:10])
-            except Exception as e:
-                print(f"[LSP-DEBUG] {lang_id}: ERROR {e}, alive={client.is_alive}", file=sys.stderr)
+            if not client.is_alive:
                 continue
 
-        print(f"[LSP-DEBUG] workspaceSymbol done, total={len(all_results)}", file=sys.stderr)
+            for file_path in files:
+                if len(all_results) >= 10:
+                    break
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                    file_uri = file_path.as_uri()
+
+                    if file_uri not in _opened_files:
+                        await client.notify("textDocument/didOpen", textDocument={
+                            "uri": file_uri, "languageId": lang_id, "version": 1, "text": content,
+                        })
+                        _opened_files[file_uri] = lang_id
+
+                    symbols = await client.request(
+                        "textDocument/documentSymbol",
+                        textDocument={"uri": file_uri},
+                        timeout=10,
+                    )
+                    if symbols:
+                        for sym in symbols:
+                            name = sym.get("name", "")
+                            if query_lower in name.lower():
+                                range_ = sym.get("range", {})
+                                all_results.append({
+                                    "name": name,
+                                    "kind": sym.get("kind", 0),
+                                    "location": {"uri": file_uri, "range": range_},
+                                    "containerName": sym.get("detail", ""),
+                                })
+                                if len(all_results) >= 10:
+                                    break
+                except Exception:
+                    continue
+            if len(all_results) >= 10:
+                break
+
+        if not all_results:
+            return ToolResult(output=f"No symbols matching '{query}' found in workspace.")
         return ToolResult(output=format_workspace_symbol(all_results, root))
 
     @staticmethod
