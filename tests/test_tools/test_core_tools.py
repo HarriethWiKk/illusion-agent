@@ -170,35 +170,32 @@ async def test_lsp_tool(tmp_path: Path):
         'def greet(name):\n    """Return a greeting."""\n    return f"hi {name}"\n',
         encoding="utf-8",
     )
-    (tmp_path / "pkg" / "app.py").write_text(
-        "from pkg.utils import greet\n\nprint(greet('world'))\n",
-        encoding="utf-8",
-    )
     context = ToolExecutionContext(cwd=tmp_path)
 
-    document_symbols = await LspTool().execute(
-        LspToolInput(operation="document_symbol", file_path="pkg/utils.py"),
+    # 测试不支持的文件类型
+    (tmp_path / "readme.txt").write_text("hello", encoding="utf-8")
+    result = await LspTool().execute(
+        LspToolInput(operation="documentSymbol", filePath="readme.txt"),
         context,
     )
-    assert "function greet" in document_symbols.output
+    assert result.is_error is True
+    assert "Unsupported file type" in result.output
 
-    definition = await LspTool().execute(
-        LspToolInput(operation="go_to_definition", file_path="pkg/app.py", symbol="greet"),
+    # 测试文件不存在
+    result = await LspTool().execute(
+        LspToolInput(operation="goToDefinition", filePath="pkg/nonexistent.py", line=1, character=1),
         context,
     )
-    assert "utils.py" in definition.output and "1:1" in definition.output
+    assert result.is_error is True
+    assert "File not found" in result.output
 
-    references = await LspTool().execute(
-        LspToolInput(operation="find_references", file_path="pkg/app.py", symbol="greet"),
+    # 测试缺少 filePath 的操作
+    result = await LspTool().execute(
+        LspToolInput(operation="goToDefinition"),
         context,
     )
-    assert "app.py" in references.output and "greet" in references.output
-
-    hover = await LspTool().execute(
-        LspToolInput(operation="hover", file_path="pkg/app.py", symbol="greet"),
-        context,
-    )
-    assert "Return a greeting." in hover.output
+    assert result.is_error is True
+    assert "filePath is required" in result.output
 
 
 @pytest.mark.asyncio

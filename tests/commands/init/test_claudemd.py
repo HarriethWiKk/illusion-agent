@@ -64,8 +64,7 @@ def _make_data() -> ProjectData:
         config_files={},
         pyproject_data=None,
         package_json_data=None,
-        python_modules=[],
-        non_python_overviews={},
+        modules=[],
     )
 
 

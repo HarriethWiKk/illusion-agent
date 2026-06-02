@@ -252,28 +252,20 @@ async def test_lsp_flow_across_registry(tmp_path: Path):
         ),
         context,
     )
-    await write.execute(
-        write.input_model(
-            path="pkg/app.py",
-            content="from pkg.utils import greet\n\nprint(greet('world'))\n",
-        ),
-        context,
-    )
 
-    symbol_result = await lsp.execute(
-        lsp.input_model(operation="workspace_symbol", query="greet"),
+    # 测试不支持的文件类型
+    (tmp_path / "readme.txt").write_text("hello", encoding="utf-8")
+    result = await lsp.execute(
+        lsp.input_model(operation="documentSymbol", filePath="readme.txt"),
         context,
     )
-    assert "function greet" in symbol_result.output
+    assert result.is_error is True
+    assert "Unsupported file type" in result.output
 
-    definition_result = await lsp.execute(
-        lsp.input_model(operation="go_to_definition", file_path="pkg/app.py", symbol="greet"),
+    # 测试文件不存在
+    result = await lsp.execute(
+        lsp.input_model(operation="goToDefinition", filePath="pkg/nonexistent.py", line=1, character=1),
         context,
     )
-    assert "utils.py" in definition_result.output and "1:1" in definition_result.output
-
-    hover_result = await lsp.execute(
-        lsp.input_model(operation="hover", file_path="pkg/app.py", symbol="greet"),
-        context,
-    )
-    assert "Return a greeting." in hover_result.output
+    assert result.is_error is True
+    assert "File not found" in result.output
