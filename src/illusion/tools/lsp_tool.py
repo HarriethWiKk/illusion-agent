@@ -75,13 +75,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
     @staticmethod
     def _find_workspace_root(file_path: Path, cwd: Path) -> Path:
-        """查找文件的工作区根目录。
-
-        按优先级尝试：
-        1. 向上查找包含 .git 的目录
-        2. 向上查找包含 pyproject.toml/package.json/go.mod/Cargo.toml 的目录
-        3. 使用 cwd
-        """
+        """查找文件的工作区根目录。"""
         current = file_path.parent
         for marker in (".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml"):
             check = current
@@ -133,49 +127,18 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
-        # 初始化 LSP 服务器（使用文件所在目录的最近父目录作为工作区根目录）
+        # 初始化 LSP 服务器
         if not client.is_initialized:
             workspace_root = self._find_workspace_root(file_path, root)
-            await manager.initialize_client(
-                lang_id,
-                workspace_root.as_uri(),
-                root_path=str(workspace_root),
-            )
+            await manager.initialize_client(lang_id, workspace_root.as_uri(), root_path=str(workspace_root))
 
         # LSP 位置参数（0-based）
         position = {"line": arguments.line - 1, "character": arguments.character - 1}
         text_doc = {"uri": file_path.as_uri()}
 
-        # 通知 LSP 服务器文件已打开（仅首次）
-        file_uri = text_doc["uri"]
-        if _opened_files.get(file_uri) != lang_id:
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="replace")
-
-                # 设置诊断等待事件
-                diag_event = asyncio.Event()
-                def _on_diag(params: dict) -> None:
-                    if params.get("uri") == file_uri:
-                        diag_event.set()
-                client.on_notification("textDocument/publishDiagnostics", _on_diag)
-
-                await client.notify("textDocument/didOpen", {
-                    "textDocument": {
-                        "uri": file_uri,
-                        "languageId": lang_id,
-                        "version": 1,
-                        "text": content,
-                    },
-                })
-                _opened_files[file_uri] = lang_id
-
-                # 等待服务器分析完成（publishDiagnostics 通知），最长 10 秒
-                try:
-                    await asyncio.wait_for(diag_event.wait(), timeout=10)
-                except asyncio.TimeoutError:
-                    pass  # 超时后继续尝试
-            except Exception:
-                pass  # 非致命错误
+        # 确保文件已打开（参考项目模式：先 openFile 再发请求）
+        if _opened_files.get(text_doc["uri"]) != lang_id:
+            await self._open_file(client, file_path, lang_id, text_doc["uri"])
 
         try:
             if op == "goToDefinition":
@@ -207,10 +170,41 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 )
             return ToolResult(output=f"LSP error: {msg}", is_error=True)
 
+    @staticmethod
+    async def _open_file(client: Any, file_path: Path, lang_id: str, file_uri: str) -> None:
+        """打开文件并等待服务器分析完成。"""
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+
+            # 等待诊断通知
+            diag_event = asyncio.Event()
+            def _on_diag(params: dict) -> None:
+                if params.get("uri") == file_uri:
+                    diag_event.set()
+            client.on_notification("textDocument/publishDiagnostics", _on_diag)
+
+            await client.notify("textDocument/didOpen", {
+                "textDocument": {
+                    "uri": file_uri,
+                    "languageId": lang_id,
+                    "version": 1,
+                    "text": content,
+                },
+            })
+            _opened_files[file_uri] = lang_id
+
+            # 等待服务器分析完成（最长 10 秒）
+            try:
+                await asyncio.wait_for(diag_event.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                pass
+        except Exception:
+            pass
+
     async def _go_to_definition(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
             "textDocument/definition",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         results = result if isinstance(result, list) else [result] if result else []
         return ToolResult(output=format_go_to_definition(results, root))
@@ -218,25 +212,21 @@ Note: LSP servers must be configured for the file type. If no server is availabl
     async def _find_references(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
             "textDocument/references",
-            {
-                "textDocument": text_doc,
-                "position": position,
-                "context": {"includeDeclaration": True},
-            },
+            textDocument=text_doc, position=position, context={"includeDeclaration": True},
         )
         return ToolResult(output=format_find_references(result or [], root))
 
     async def _hover(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
             "textDocument/hover",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         return ToolResult(output=format_hover(result, root))
 
     async def _document_symbol(self, client: Any, root: Path, text_doc: dict) -> ToolResult:
         result = await client.request(
             "textDocument/documentSymbol",
-            {"textDocument": text_doc},
+            textDocument=text_doc,
         )
         return ToolResult(output=format_document_symbol(result or [], root))
 
@@ -257,34 +247,14 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             if not client.is_initialized:
                 await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
 
-            # 确保至少打开过一个文件以触发工作区索引
+            # 确保至少打开过一个文件（参考项目模式：workspaceSymbol 前也要 openFile）
             if lang_id not in _opened_files.values():
                 await self._open_first_file(client, lang_id, root)
 
-            # 用 documentSymbol 作为"探针"确认服务器就绪
-            # 如果探针失败，说明服务器还在索引，等待后重试
-            probe_uri = next((uri for uri, lid in _opened_files.items() if lid == lang_id), None)
-            if probe_uri:
-                for attempt in range(3):
-                    try:
-                        probe = await client.request(
-                            "textDocument/documentSymbol",
-                            {"textDocument": {"uri": probe_uri}},
-                            timeout=10,
-                        )
-                        if probe is not None:
-                            break  # 服务器就绪
-                    except Exception:
-                        pass
-                    await asyncio.sleep(2)  # 等待索引
-
-            # 发送 workspace/symbol 请求
             try:
-                result = await client.request("workspace/symbol", {"query": query}, timeout=15)
+                result = await client.request("workspace/symbol", query=query)
                 if result:
-                    interesting_kinds = {5, 6, 11, 12, 13, 14, 23, 10}
-                    filtered = [s for s in result if s.get("kind", 0) in interesting_kinds]
-                    all_results.extend(filtered[:10])
+                    all_results.extend(result[:10])
             except Exception:
                 continue
 
@@ -292,7 +262,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
     @staticmethod
     async def _open_first_file(client: Any, lang_id: str, root: Path) -> None:
-        """打开工作区中的一个源文件，等待索引完成。优先查找常见目录。"""
+        """打开工作区中的一个源文件。"""
         ext_map = {".py": "python", ".ts": "typescript", ".go": "go", ".rs": "rust", ".c": "cpp"}
         target_ext = None
         for ext, lid in ext_map.items():
@@ -302,7 +272,6 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         if not target_ext:
             return
 
-        # 优先查找常见源码目录，避免 rglob 全盘搜索
         search_dirs = [root / "src", root / "lib", root / "app", root]
         target_file = None
         for search_dir in search_dirs:
@@ -332,7 +301,6 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             content = target_file.read_text(encoding="utf-8", errors="replace")
             file_uri = target_file.as_uri()
 
-            # 等待诊断通知
             diag_event = asyncio.Event()
             def _on_diag(params: dict) -> None:
                 if params.get("uri") == file_uri:
@@ -356,7 +324,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
     async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
             "textDocument/implementation",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         results = result if isinstance(result, list) else [result] if result else []
         return ToolResult(output=format_go_to_definition(results, root))
@@ -364,28 +332,28 @@ Note: LSP servers must be configured for the file type. If no server is availabl
     async def _prepare_call_hierarchy(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
             "textDocument/prepareCallHierarchy",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         return ToolResult(output=format_prepare_call_hierarchy(result or [], root))
 
     async def _incoming_calls(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         items = await client.request(
             "textDocument/prepareCallHierarchy",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         if not items:
             return ToolResult(output="No incoming calls found (nothing calls this function).")
         item = items[0] if isinstance(items, list) else items
-        result = await client.request("callHierarchy/incomingCalls", {"item": item})
+        result = await client.request("callHierarchy/incomingCalls", item=item)
         return ToolResult(output=format_incoming_calls(result or [], root))
 
     async def _outgoing_calls(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         items = await client.request(
             "textDocument/prepareCallHierarchy",
-            {"textDocument": text_doc, "position": position},
+            textDocument=text_doc, position=position,
         )
         if not items:
             return ToolResult(output="No outgoing calls found (this function calls nothing).")
         item = items[0] if isinstance(items, list) else items
-        result = await client.request("callHierarchy/outgoingCalls", {"item": item})
+        result = await client.request("callHierarchy/outgoingCalls", item=item)
         return ToolResult(output=format_outgoing_calls(result or [], root))
