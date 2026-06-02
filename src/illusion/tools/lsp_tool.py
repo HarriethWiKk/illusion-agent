@@ -250,28 +250,32 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
         all_results: list[dict] = []
         for lang_id in manager._configs:
-            client = await manager.get_client_for_language(lang_id)
-            if client is None:
-                continue
+            # 重试逻辑：最多尝试 2 次（服务器崩溃后重启）
+            for attempt in range(2):
+                client = await manager.get_client_for_language(lang_id)
+                if client is None:
+                    break
 
-            # 确保客户端已初始化
-            if not client.is_initialized:
-                await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
+                if not client.is_initialized:
+                    await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
 
-            # 确保至少打开过一个文件以触发工作区索引
-            if lang_id not in _opened_files.values():
-                await self._open_first_file(client, lang_id, root)
+                if lang_id not in _opened_files.values():
+                    await self._open_first_file(client, lang_id, root)
 
-            try:
-                result = await client.request("workspace/symbol", {"query": query}, timeout=15)
-                if result:
-                    all_results.extend(result)
-            except RuntimeError as e:
-                if "connection lost" in str(e).lower():
-                    manager._clients.pop(lang_id, None)
-                continue
-            except Exception:
-                continue
+                try:
+                    result = await client.request("workspace/symbol", {"query": query}, timeout=15)
+                    if result:
+                        all_results.extend(result)
+                    break  # 成功，跳出重试
+                except RuntimeError as e:
+                    if "connection lost" in str(e).lower():
+                        manager._clients.pop(lang_id, None)
+                        if attempt == 0:
+                            await asyncio.sleep(1)  # 等待后重试
+                            continue
+                    break
+                except Exception:
+                    break
 
         return ToolResult(output=format_workspace_symbol(all_results, root))
 

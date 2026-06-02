@@ -95,10 +95,6 @@ class LspManager:
         if client is None or client.is_initialized:
             return
 
-        # 注册 workspace/configuration 请求处理器
-        # 某些服务器（如 pyright、tsserver）会发送此请求，即使客户端未声明支持
-        client.on_request("workspace/configuration", self._handle_workspace_config)
-
         import os
         await client.initialize(
             root_uri=root_uri,
@@ -183,6 +179,8 @@ class LspManager:
         self._starting[lang_id] = True
         try:
             client = LspClient()
+            # 在启动前注册处理器，防止服务器发送请求时无响应
+            client.on_request("workspace/configuration", self._handle_workspace_config)
             await client.start(config.command, config.args)
             self._clients[lang_id] = client
             logger.info("Started LSP server for %s: %s", lang_id, config.command)
