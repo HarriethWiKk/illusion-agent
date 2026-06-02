@@ -63,12 +63,22 @@ def estimate_conversation_tokens(messages: list[ConversationMessage]) -> int:
 
 
 def get_context_window(model: str) -> int:
-    """返回模型的上下文窗口大小。"""
+    """返回模型的上下文窗口大小。
+
+    如果模型名包含 [1m] 后缀（Anthropic 百万上下文标记），
+    则自动返回 1,000,000 tokens，除非用户在 settings.json 中
+    显式设置了更大的 context_window。
+    """
     from illusion.config.settings import load_settings
 
     settings = load_settings()
     if settings.context_window and settings.context_window > 0:
         return settings.context_window
+
+    # 检测 Anthropic 百万上下文模型后缀 [1m]
+    if "[1m]" in model:
+        return 1_000_000
+
     return _DEFAULT_CONTEXT_WINDOW
 
 

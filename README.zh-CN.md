@@ -573,7 +573,7 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
 | `env_N` | object | - | 环境配置组（EnvConfig），支持动态添加 env_1, env_2... | 见下方 EnvConfig 字段说明 |
 | `model` | string | "env_1.model_1" | 当前活跃模型引用，格式为 `env_N.model_N` | `"env_2.model_1"` |
 | `context_window` | int | 200000 | 上下文窗口大小 | `128000` |
-| `system_prompt` | string\|null | null | 自定义系统提示词（全局覆盖） | `"你是一个专业的Python开发者"` |
+| `system_prompt` | string\|null | null | 自定义系统提示词（全局，可被 env_N 级别覆盖） | `"你是一个专业的Python开发者"` |
 | `max_tokens` | int | 16384 | 最大输出 token 数 | `32768` |
 | `max_turns` | int | 200 | 最大对话轮数 | `500` |
 | `ui_language` | string | "zh-CN" | 界面语言 | `"en-US"` |
@@ -596,7 +596,7 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
 | `base_url` | string\|null | 否 | 自定义 API 端点，null 表示使用默认端点 |
 | `api_key` | string | 否 | API 密钥（可直接填写，也可留空由 `illusion auth login` 存储到 credentials.json） |
 | `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
-| `model_N` | string | 否 | 模型名称，支持多个 model_1, model_2, model_3... |
+| `model_N` | string | 否 | 模型名称，支持多个 model_1, model_2, model_3... 追加 `[1m]` 可启用百万上下文（如 `claude-sonnet-4-6[1m]`） |
 
 #### 多模型配置示例
 
@@ -613,6 +613,9 @@ IllusionCode 支持通过 `env_N` 分组管理多个环境/提供商配置。每
   },
   "model": "env_1.model_1"
 }
+```
+
+> **百万上下文**：Anthropic 模型支持 `[1m]` 后缀以启用 100 万 token 的扩展上下文窗口。在模型名后追加即可（如 `claude-sonnet-4-6[1m]`）。IllusionCode 会自动检测此后缀并将内部上下文追踪调整为 1,000,000 tokens。
 ```
 
 **切换模型的方式**：

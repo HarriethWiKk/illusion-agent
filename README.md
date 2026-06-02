@@ -573,7 +573,7 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
 | `env_N` | object | - | Environment config group (EnvConfig), supports dynamic env_1, env_2... | See EnvConfig field description below |
 | `model` | string | "env_1.model_1" | Active model reference, format: `env_N.model_N` | `"env_2.model_1"` |
 | `context_window` | int | 200000 | Context window size | `128000` |
-| `system_prompt` | string\|null | null | Custom system prompt (global override) | `"You are a professional Python developer"` |
+| `system_prompt` | string\|null | null | Custom system prompt (global; can be overridden per env_N) | `"You are a professional Python developer"` |
 | `max_tokens` | int | 16384 | Maximum output token count | `32768` |
 | `max_turns` | int | 200 | Maximum conversation turns | `500` |
 | `ui_language` | string | "en-US" | UI language | `"zh-CN"` |
@@ -596,7 +596,7 @@ IllusionCode supports managing multiple environment/provider configurations thro
 | `base_url` | string\|null | No | Custom API endpoint, null uses default endpoint |
 | `api_key` | string | No | API key (can be filled directly, or left empty for `illusion auth login` to store in credentials.json) |
 | `system_prompt` | string\|null | No | System prompt for this environment (overrides global) |
-| `model_N` | string | No | Model name, supports multiple: model_1, model_2, model_3... |
+| `model_N` | string | No | Model name, supports multiple: model_1, model_2, model_3... Append `[1m]` for million-token context (e.g. `claude-sonnet-4-6[1m]`) |
 
 #### Multi-Model Configuration Example
 
@@ -613,6 +613,9 @@ Configure multiple models under the same environment, switch via `env_N.model_N`
   },
   "model": "env_1.model_1"
 }
+```
+
+> **Million-Token Context**: Anthropic models support the `[1m]` suffix for extended 1M context window. Append it to the model name (e.g. `claude-sonnet-4-6[1m]`). IllusionCode automatically detects this suffix and adjusts the internal context tracking to 1,000,000 tokens.
 ```
 
 **Ways to switch models**:
