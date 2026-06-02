@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-from illusion.services.lsp.client import LspClient, decode_message, encode_message
+from illusion.services.lsp.client import LspClient, _decode_messages, _encode_message
 
 
 class TestEncodeMessage:
     """JSON-RPC 消息编码测试。"""
 
     def test_encode_request(self):
-        msg = encode_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        msg = _encode_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         assert b"Content-Length:" in msg
         header, body = msg.split(b"\r\n\r\n", 1)
         content_length = int(header.split(b":")[1].strip())
@@ -23,7 +23,7 @@ class TestEncodeMessage:
         assert parsed["id"] == 1
 
     def test_encode_notification(self):
-        msg = encode_message({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        msg = _encode_message({"jsonrpc": "2.0", "method": "initialized", "params": {}})
         header, body = msg.split(b"\r\n\r\n", 1)
         parsed = json.loads(body)
         assert "id" not in parsed
@@ -38,7 +38,7 @@ class TestDecodeMessage:
         header = f"Content-Length: {len(body)}\r\n\r\n".encode()
         data = header + body
 
-        messages, remaining = decode_message(data)
+        messages, remaining = _decode_messages(data)
         assert len(messages) == 1
         assert messages[0]["id"] == 1
         assert messages[0]["result"] == {}
@@ -52,7 +52,7 @@ class TestDecodeMessage:
             + f"Content-Length: {len(body2)}\r\n\r\n".encode() + body2
         )
 
-        messages, remaining = decode_message(data)
+        messages, remaining = _decode_messages(data)
         assert len(messages) == 2
         assert messages[0]["result"] == "a"
         assert messages[1]["result"] == "b"
@@ -63,13 +63,13 @@ class TestDecodeMessage:
         header = f"Content-Length: {len(body)}\r\n\r\n".encode()
         data = header + body[: len(body) // 2]
 
-        messages, remaining = decode_message(data)
+        messages, remaining = _decode_messages(data)
         assert len(messages) == 0
         assert remaining == data
 
     def test_decode_no_content_length(self):
         data = b"garbage data\r\n\r\nbody"
-        messages, remaining = decode_message(data)
+        messages, remaining = _decode_messages(data)
         assert len(messages) == 0
 
 
