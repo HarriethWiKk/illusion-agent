@@ -96,14 +96,21 @@ class LspManager:
             return
 
         import os
+        config = self._configs.get(lang_id)
+
         await client.initialize(
             root_uri=root_uri,
             root_path=root_path,
             process_id=os.getpid(),
+            initialization_options=config.initialization_options if config else None,
             capabilities={
+                "window": {
+                    "workDoneProgress": True,
+                },
                 "workspace": {
-                    "configuration": False,
-                    "workspaceFolders": False,
+                    "configuration": True,
+                    "didChangeWatchedFiles": {"dynamicRegistration": True},
+                    "workspaceFolders": True,
                 },
                 "textDocument": {
                     "synchronization": {
@@ -115,7 +122,7 @@ class LspManager:
                     "publishDiagnostics": {
                         "relatedInformation": True,
                         "tagSupport": {"valueSet": [1, 2]},
-                        "versionSupport": False,
+                        "versionSupport": True,
                         "codeDescriptionSupport": True,
                         "dataSupport": False,
                     },
@@ -147,11 +154,27 @@ class LspManager:
             },
         )
 
+        # 发送配置变更通知（opencode 的关键模式）
+        if config and config.settings:
+            await client.notify("workspace/didChangeConfiguration", {
+                "settings": config.settings,
+            })
+
     @staticmethod
     def _handle_workspace_config(params: Any) -> list:
-        """处理 workspace/configuration 请求，返回空配置。"""
+        """处理 workspace/configuration 请求，返回空配置对象。"""
         items = params.get("items", []) if isinstance(params, dict) else []
-        return [None] * len(items)
+        return [{}] * len(items)
+
+    @staticmethod
+    def _handle_work_done_progress(params: Any) -> None:
+        """处理 window/workDoneProgress/create 请求。"""
+        return None
+
+    @staticmethod
+    def _handle_workspace_folders(params: Any) -> list:
+        """处理 workspace/workspaceFolders 请求。"""
+        return []
 
     async def _get_or_start_client(self, lang_id: str) -> LspClient | None:
         """获取或启动指定语言的 LSP 客户端。"""
@@ -179,8 +202,10 @@ class LspManager:
         self._starting[lang_id] = True
         try:
             client = LspClient()
-            # 在启动前注册处理器，防止服务器发送请求时无响应
+            # 在启动前注册请求处理器，防止服务器发送请求时无响应
             client.on_request("workspace/configuration", self._handle_workspace_config)
+            client.on_request("window/workDoneProgress/create", self._handle_work_done_progress)
+            client.on_request("workspace/workspaceFolders", self._handle_workspace_folders)
             await client.start(config.command, config.args)
             self._clients[lang_id] = client
             logger.info("Started LSP server for %s: %s", lang_id, config.command)
