@@ -1,22 +1,59 @@
+/**
+ * @fileoverview 命令选择器组件
+ *
+ * 提供命令提示列表和指令执行结果的显示功能。
+ * 支持两种模式：
+ * - hints: 显示命令提示列表，支持键盘导航和选择
+ * - result: 显示指令执行结果
+ *
+ * @module CommandPicker
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
 
+/**
+ * 最大可见行数
+ * 控制命令提示列表或结果最多显示的行数
+ */
 const MAX_VISIBLE = 6;
 
+/**
+ * 命令选择器模式类型
+ * - 'hints': 命令提示模式
+ * - 'result': 结果显示模式
+ */
 type CommandPickerMode = 'hints' | 'result';
 
+/**
+ * 命令选择器组件属性
+ */
 type CommandPickerProps = {
+	/** 命令提示列表 */
 	hints?: string[];
+	/** 当前选中的索引 */
 	selectedIndex?: number;
+	/** 总命令数 */
 	totalCommands?: number;
 	/** 结果模式：显示指令执行结果 */
 	mode?: CommandPickerMode;
+	/** 结果文本内容 */
 	result?: string;
+	/** 结果类型：'success'（成功）、'error'（错误）、'info'（信息） */
 	resultType?: 'success' | 'error' | 'info';
 };
 
+/**
+ * 命令选择器组件
+ *
+ * 根据模式显示命令提示列表或指令执行结果。
+ * 在提示模式下，支持键盘上下导航、Tab 补全、Enter 选择和 Esc 关闭。
+ *
+ * @param props - 组件属性
+ * @returns 返回命令选择器的 JSX 元素，如果没有内容可显示则返回 null
+ */
 export function CommandPicker({
 	hints,
 	selectedIndex,

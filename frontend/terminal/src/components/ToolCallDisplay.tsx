@@ -1,3 +1,14 @@
+/**
+ * @fileoverview 工具调用显示组件
+ *
+ * 显示工具调用和工具执行结果，支持：
+ * - 工具名称和参数摘要显示
+ * - 执行结果截断显示
+ * - 错误结果特殊着色
+ *
+ * @module ToolCallDisplay
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
@@ -8,10 +19,23 @@ import type {TranscriptItem} from '../types.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {stringWidth} from '../utils/markdown.js';
 
+/** 最大输出显示行数 */
 const MAX_OUTPUT_LINES = 8;
+/** 命令摘要最大行数 */
 const MAX_COMMAND_LINES = 2;
+/** 命令摘要最大字符数 */
 const MAX_COMMAND_CHARS = 160;
 
+/**
+ * 工具调用显示组件
+ *
+ * 根据转录项的角色类型显示工具调用或工具执行结果。
+ *
+ * @param props - 组件属性
+ * @param props.item - 转录项
+ * @param props.language - 当前 UI 语言
+ * @returns 返回工具调用显示的 JSX 元素
+ */
 export function ToolCallDisplay({item, language}: {item: TranscriptItem; language: UiLanguage}): React.JSX.Element {
 	const theme = useTheme();
 

@@ -1,3 +1,18 @@
+/**
+ * @fileoverview WebSocket 会话管理 Hook
+ *
+ * 本模块提供了 useWebSocketSession Hook，用于管理与后端的 WebSocket 通信会话。
+ * 主要功能包括：
+ * - 建立和维护 WebSocket 连接
+ * - 处理后端发送的 JSON 协议事件
+ * - 管理会话状态（转录项、任务、命令等）
+ * - 处理助手流式回复的缓冲和刷新
+ * - 管理工具调用的生命周期
+ * - 处理模态对话框和选择请求
+ *
+ * @module useWebSocketSession
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -14,24 +29,62 @@ import type {
   TranscriptItem,
 } from '../types/protocol';
 
+/**
+ * 助手流式回复刷新间隔（毫秒）
+ * 控制助手回复文本在屏幕上的更新频率
+ */
 const ASSISTANT_DELTA_FLUSH_MS = 8;
+
+/**
+ * 助手流式回复刷新字符阈值
+ * 当缓冲的字符数达到此值时立即刷新
+ */
 const ASSISTANT_DELTA_FLUSH_CHARS = 16;
+
+/**
+ * 工具调用行匹配正则表达式
+ *
+ * 匹配模型可能嵌入在助手文本中的工具调用预览行。
+ * 例如："  bash (git add ...)" 或 "read (file_path: ...)"
+ */
 const TOOL_CALL_LINE_RE = /^\s{2,}\w[\w-]*\s*\(.*\)\s*$/;
 
+/**
+ * 从助手文本中移除工具调用预览行
+ *
+ * @param text - 原始助手文本
+ * @returns 移除工具调用行后的文本
+ */
 function stripToolCallLines(text: string): string {
   const lines = text.split('\n');
   const filtered = lines.filter((line) => !TOOL_CALL_LINE_RE.test(line));
   return filtered.length > 0 ? filtered.join('\n') : text;
 }
 
+/**
+ * 选项类型
+ */
 type Option = { value: string; label: string; active?: boolean };
 
+/**
+ * 选择请求载荷类型
+ *
+ * 后端发送到前端的选择请求，用于显示选择模态对话框。
+ */
 export type SelectRequestPayload = {
+  /** 关联的命令名称 */
   command: string;
+  /** 对话框标题 */
   title: string;
+  /** 可选项列表 */
   options: Array<{ value: string; label: string; description?: string; active?: boolean }>;
 };
 
+/**
+ * WebSocket 会话状态接口
+ *
+ * 定义了 useWebSocketSession Hook 返回的所有状态和操作方法。
+ */
 export interface WebSocketSessionState {
   staticItems: TranscriptItem[];
   assistantBuffer: string;

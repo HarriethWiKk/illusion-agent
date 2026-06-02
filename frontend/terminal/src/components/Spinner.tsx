@@ -1,3 +1,15 @@
+/**
+ * @fileoverview 加载动画组件
+ *
+ * 显示带有动态效果的加载指示器，包括：
+ * - 涟漪图标动画
+ * - 动词轮换显示
+ * - 省略号呼吸动画
+ * - 待办事项进度显示
+ *
+ * @module Spinner
+ */
+
 import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text} from 'ink';
 
@@ -6,6 +18,19 @@ import {t} from '../i18n.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TodoItemSnapshot} from '../types.js';
 
+/**
+ * 加载动画组件
+ *
+ * 在等待后端响应时显示动态加载指示器。
+ *
+ * @param props - 组件属性
+ * @param props.label - 自定义标签文本（可选）
+ * @param props.todoItems - 待办事项列表（可选）
+ * @param props.language - 当前 UI 语言（可选）
+ * @param props.toolName - 当前工具名称（可选）
+ * @param props.sessionId - 会话 ID（可选）
+ * @returns 返回加载动画的 JSX 元素
+ */
 export function Spinner({label, todoItems, language, toolName, sessionId}: {label?: string; todoItems?: TodoItemSnapshot[]; language?: UiLanguage; toolName?: string; sessionId?: string}): React.JSX.Element {
 	const theme = useTheme();
 	const frames = theme.icons.spinner;

@@ -1,3 +1,16 @@
+/**
+ * @fileoverview 侧边面板组件
+ *
+ * 显示应用状态信息的侧边面板，包含多个子面板：
+ * - 状态面板（模型、提供商、权限等）
+ * - 任务面板
+ * - MCP 服务器面板
+ * - 桥接会话面板
+ * - 命令面板
+ *
+ * @module SidePanel
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
@@ -5,6 +18,20 @@ import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {BridgeSessionSnapshot, McpServerSnapshot, TaskSnapshot} from '../types.js';
 
+/**
+ * 侧边面板组件
+ *
+ * 组合多个子面板显示完整的应用状态信息。
+ *
+ * @param props - 组件属性
+ * @param props.status - 后端状态对象
+ * @param props.tasks - 任务列表
+ * @param props.commands - 可用命令列表
+ * @param props.commandHints - 命令提示列表
+ * @param props.mcpServers - MCP 服务器列表
+ * @param props.bridgeSessions - 桥接会话列表
+ * @returns 返回侧边面板的 JSX 元素
+ */
 export function SidePanel({
 	status,
 	tasks,
@@ -33,6 +60,11 @@ export function SidePanel({
 	);
 }
 
+/**
+ * 状态面板组件
+ *
+ * 显示当前会话的状态信息，包括模型、提供商、权限模式等。
+ */
 function StatusPanel({status, theme}: {status: Record<string, unknown>; theme: ThemeConfig}): React.JSX.Element {
 	const agentCount = Number(status.agent_count ?? 0);
 	return (
@@ -58,6 +90,11 @@ function StatusPanel({status, theme}: {status: Record<string, unknown>; theme: T
 	);
 }
 
+/**
+ * 任务面板组件
+ *
+ * 显示当前活动的任务列表。
+ */
 function TaskPanel({tasks, theme}: {tasks: TaskSnapshot[]; theme: ThemeConfig}): React.JSX.Element {
 	const visible = tasks.slice(0, 6);
 	return (
@@ -87,6 +124,11 @@ function TaskPanel({tasks, theme}: {tasks: TaskSnapshot[]; theme: ThemeConfig}):
 	);
 }
 
+/**
+ * MCP 服务器面板组件
+ *
+ * 显示已连接的 MCP 服务器列表。
+ */
 function McpPanel({servers, theme}: {servers: McpServerSnapshot[]; theme: ThemeConfig}): React.JSX.Element {
 	return (
 		<>
@@ -117,6 +159,11 @@ function McpPanel({servers, theme}: {servers: McpServerSnapshot[]; theme: ThemeC
 	);
 }
 
+/**
+ * 桥接会话面板组件
+ *
+ * 显示已连接的桥接会话列表。
+ */
 function BridgePanel({sessions, theme}: {sessions: BridgeSessionSnapshot[]; theme: ThemeConfig}): React.JSX.Element {
 	return (
 		<>
@@ -142,6 +189,11 @@ function BridgePanel({sessions, theme}: {sessions: BridgeSessionSnapshot[]; them
 	);
 }
 
+/**
+ * 命令面板组件
+ *
+ * 显示可用的命令列表和当前命令提示。
+ */
 function CommandPanel({
 	commands,
 	hints,

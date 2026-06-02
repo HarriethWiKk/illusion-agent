@@ -1,31 +1,77 @@
+/**
+ * @fileoverview 提示输入组件
+ *
+ * Web 前端的用户输入组件，支持：
+ * - 多行文本输入
+ * - 命令自动补全（/ 前缀触发）
+ * - 内联选项选择
+ * - 快捷键支持（Enter 发送、Ctrl+Enter 换行、Esc 关闭）
+ * - 忙碌状态下的停止按钮
+ *
+ * @module PromptInput
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
+/**
+ * 内联选项接口
+ */
 interface InlineOption {
+  /** 选项值 */
   value: string;
+  /** 显示标签 */
   label: string;
+  /** 选项描述 */
   description?: string;
+  /** 是否为当前活跃选项 */
   active?: boolean;
 }
 
+/**
+ * 内联选项配置接口
+ */
 interface InlineOptions {
+  /** 关联的命令名称 */
   command: string;
+  /** 选项列表标题 */
   title: string;
+  /** 选项列表 */
   options: InlineOption[];
 }
 
+/**
+ * PromptInput 组件属性接口
+ */
 interface PromptInputProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 是否忙碌 */
   busy: boolean;
+  /** 是否已连接 */
   connected: boolean;
+  /** 可用命令列表 */
   commands: string[];
+  /** 提交回调 */
   onSubmit: (line: string) => void;
+  /** 停止回调 */
   onStop: () => void;
+  /** 内联选项配置（可选） */
   inlineOptions?: InlineOptions | null;
+  /** 内联选项选择回调（可选） */
   onInlineSelect?: (command: string, value: string) => void;
+  /** 内联选项关闭回调（可选） */
   onInlineClose?: () => void;
 }
 
+/**
+ * 提示输入组件
+ *
+ * Web 前端的用户输入组件。
+ *
+ * @param props - 组件属性
+ * @returns 返回提示输入的 JSX 元素
+ */
 export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose }: PromptInputProps) {
   const [value, setValue] = useState('');
   const [showCommands, setShowCommands] = useState(false);

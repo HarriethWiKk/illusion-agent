@@ -1,3 +1,16 @@
+/**
+ * @fileoverview 消息气泡组件
+ *
+ * Web 前端的消息显示组件，支持：
+ * - 用户消息（右对齐）
+ * - 助手回复（左对齐，支持 Markdown 渲染）
+ * - 工具调用结果（可展开/折叠）
+ * - 待处理工具调用（带脉冲动画）
+ * - 流式回复缓冲区
+ *
+ * @module MessageBubble
+ */
+
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,11 +20,24 @@ import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
+/**
+ * MessageBubble 组件属性接口
+ */
 interface MessageBubbleProps {
+  /** 转录项 */
   item: TranscriptItem;
+  /** 工具输入映射（用于显示工具调用参数） */
   toolInputMap?: Map<string, Record<string, unknown>>;
 }
 
+/**
+ * 消息气泡组件
+ *
+ * 根据消息角色类型渲染不同的消息样式。
+ *
+ * @param props - 组件属性
+ * @returns 返回消息气泡的 JSX 元素
+ */
 export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps) {
   if (item.role === 'user') {
     return (
@@ -52,6 +78,17 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
   );
 }
 
+/**
+ * 工具结果气泡组件
+ *
+ * 显示工具执行结果，支持展开/折叠查看详情。
+ *
+ * @param props - 组件属性
+ * @param props.name - 工具名称
+ * @param props.text - 结果文本
+ * @param props.isError - 是否为错误结果
+ * @param props.toolInput - 工具输入参数
+ */
 function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
   const summary = summarizeInput(name, toolInput, name);
@@ -78,6 +115,14 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
   );
 }
 
+/**
+ * 思考过程块组件
+ *
+ * 显示助手的思考/推理过程。
+ *
+ * @param props - 组件属性
+ * @param props.text - 思考过程文本
+ */
 function ThinkingBlock({ text }: { text: string }) {
   if (!text?.trim()) return null;
   return (
@@ -87,6 +132,14 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
+/**
+ * 待处理工具调用气泡组件
+ *
+ * 显示正在执行的工具调用，带有脉冲动画效果。
+ *
+ * @param props - 组件属性
+ * @param props.call - 待处理的工具调用信息
+ */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
   return (
@@ -180,6 +233,15 @@ function truncateCommand(str: string): string {
   return result;
 }
 
+/**
+ * 流式缓冲区组件
+ *
+ * 显示正在流式接收的助手回复，包括思考过程和正文。
+ *
+ * @param props - 组件属性
+ * @param props.text - 正文文本
+ * @param props.reasoning - 思考过程文本（可选）
+ */
 export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?: string }) {
   const hasReasoning = reasoning && reasoning.trim();
   const hasText = text && text.trim();

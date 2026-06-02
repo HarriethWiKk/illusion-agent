@@ -1,3 +1,12 @@
+/**
+ * @fileoverview 转录面板组件
+ *
+ * 显示对话历史的简化视图，用于侧边面板中。
+ * 显示最近的消息项和当前助手回复缓冲区。
+ *
+ * @module TranscriptPane
+ */
+
 import React from 'react';
 import {Box, Text} from 'ink';
 
@@ -5,8 +14,19 @@ import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 
+/** 最大可见消息项数 */
 const MAX_VISIBLE_ITEMS = 30;
 
+/**
+ * 转录面板组件
+ *
+ * 显示对话历史的简化视图。
+ *
+ * @param props - 组件属性
+ * @param props.items - 转录项列表
+ * @param props.assistantBuffer - 助手回复缓冲区
+ * @returns 返回转录面板的 JSX 元素
+ */
 export function TranscriptPane({
 	items,
 	assistantBuffer,

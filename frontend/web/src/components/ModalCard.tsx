@@ -1,26 +1,62 @@
+/**
+ * @fileoverview 模态卡片组件
+ *
+ * Web 前端的模态对话框组件，支持：
+ * - 权限请求卡片（允许/拒绝/总是允许）
+ * - 问答卡片（单选/多选/自定义输入）
+ *
+ * @module ModalCard
+ */
+
 import { useCallback, useEffect, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
+/**
+ * 问题选项接口
+ */
 interface QuestionOption {
+  /** 选项标签 */
   label: string;
+  /** 选项描述 */
   description?: string;
 }
 
+/**
+ * 问题项接口
+ */
 interface QuestionItem {
+  /** 问题文本 */
   question: string;
+  /** 问题标题（可选） */
   header?: string;
+  /** 选项列表（可选） */
   options?: QuestionOption[];
+  /** 是否多选（可选） */
   multiSelect?: boolean;
 }
 
 // ---- 权限请求卡片 ----
 
+/**
+ * 权限卡片组件属性接口
+ */
 interface PermissionCardProps {
+  /** 模态对话框配置 */
   modal: Record<string, unknown>;
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 响应回调函数 */
   onRespond: (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => void;
 }
 
+/**
+ * 权限请求卡片组件
+ *
+ * 显示工具执行权限请求，用户可以选择允许、拒绝或总是允许。
+ *
+ * @param props - 组件属性
+ * @returns 返回权限卡片的 JSX 元素
+ */
 export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) {
   const toolName = String(modal.tool_name ?? 'tool');
   const reason = modal.reason ? String(modal.reason) : null;
@@ -70,12 +106,26 @@ export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) 
 
 // ---- 问题卡片 ----
 
+/**
+ * 问题卡片组件属性接口
+ */
 interface QuestionCardProps {
+  /** 模态对话框配置 */
   modal: Record<string, unknown>;
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 响应回调函数 */
   onRespond: (requestId: string, answer: string) => void;
 }
 
+/**
+ * 问答卡片组件
+ *
+ * 显示问题并支持单选、多选或自定义输入回答。
+ *
+ * @param props - 组件属性
+ * @returns 返回问答卡片的 JSX 元素
+ */
 export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   const requestId = String(modal.request_id ?? '');
   const questions: QuestionItem[] = Array.isArray(modal.questions) ? (modal.questions as QuestionItem[]) : [];

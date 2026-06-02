@@ -1,23 +1,60 @@
+/**
+ * @fileoverview 右侧面板组件
+ *
+ * Web 前端的右侧面板组件，显示：
+ * - 待办事项列表
+ * - 技能列表
+ * - MCP 服务器列表
+ * - 插件列表
+ * - 规则列表
+ * - 上下文窗口使用量
+ *
+ * @module RightPanel
+ */
+
 import { useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import TodoPanel from './TodoPanel';
 import type { McpServerSnapshot, PluginSnapshot, RuleSnapshot, SkillSnapshot, TodoItemSnapshot } from '../types/protocol';
 
+/**
+ * RightPanel 组件属性接口
+ */
 interface RightPanelProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 后端状态 */
   status: Record<string, unknown>;
+  /** 是否已连接 */
   connected: boolean;
+  /** 是否忙碌 */
   busy: boolean;
+  /** 是否折叠 */
   collapsed: boolean;
+  /** 折叠/展开切换回调 */
   onToggle: () => void;
+  /** 待办事项列表 */
   todoItems: TodoItemSnapshot[];
+  /** 技能列表 */
   skills: SkillSnapshot[];
+  /** 插件列表 */
   plugins: PluginSnapshot[];
+  /** 规则列表 */
   rules: RuleSnapshot[];
+  /** MCP 服务器列表 */
   mcpServers: McpServerSnapshot[];
+  /** 面板宽度（可选，默认 260） */
   width?: number;
 }
 
+/**
+ * 右侧面板组件
+ *
+ * Web 前端的右侧面板组件。
+ *
+ * @param props - 组件属性
+ * @returns 返回右侧面板的 JSX 元素
+ */
 export default function RightPanel({
   lang, status, connected, busy, collapsed, onToggle, todoItems,
   skills, plugins, rules, mcpServers, width = 260,

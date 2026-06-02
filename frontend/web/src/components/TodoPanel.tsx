@@ -1,12 +1,37 @@
+/**
+ * @fileoverview 待办事项面板组件
+ *
+ * Web 前端的待办事项面板组件，支持：
+ * - 任务状态显示（进行中、待处理、已完成）
+ * - 自动排序（进行中 > 待处理 > 已完成）
+ * - 折叠/展开功能
+ * - 所有任务完成后自动隐藏
+ *
+ * @module TodoPanel
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TodoItemSnapshot } from '../types/protocol';
 
+/** 所有任务完成后自动隐藏的延迟时间（毫秒） */
 const HIDE_DELAY_MS = 4000;
 
+/**
+ * TodoPanel 组件属性接口
+ */
 interface TodoPanelProps {
+  /** 待办事项列表 */
   items: TodoItemSnapshot[];
 }
 
+/**
+ * 待办事项面板组件
+ *
+ * Web 前端的待办事项面板组件。
+ *
+ * @param props - 组件属性
+ * @returns 返回待办事项面板的 JSX 元素
+ */
 export default function TodoPanel({ items }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [hidden, setHidden] = useState(false);

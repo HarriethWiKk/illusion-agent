@@ -1,18 +1,45 @@
+/**
+ * @fileoverview 群体协作面板组件
+ *
+ * 显示群体协作模式下的协作者状态和通知信息。
+ * 支持：
+ * - 协作者状态显示（运行中、空闲、完成、错误）
+ * - 运行时长显示
+ * - 通知消息显示
+ * - 折叠/展开功能（ctrl+w）
+ *
+ * @module SwarmPanel
+ */
+
 import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
+
+/**
+ * 群体协作者类型
+ */
 export type SwarmTeammate = {
+	/** 协作者名称 */
 	name: string;
+	/** 协作者状态：'running'（运行中）、'idle'（空闲）、'done'（完成）、'error'（错误） */
 	status: 'running' | 'idle' | 'done' | 'error';
-	duration?: number; // seconds
+	/** 运行时长（秒） */
+	duration?: number;
+	/** 当前任务描述 */
 	task?: string;
 };
 
+/**
+ * 群体协作通知类型
+ */
 export type SwarmNotification = {
+	/** 发送者名称 */
 	from: string;
+	/** 通知消息内容 */
 	message: string;
+	/** 通知时间戳 */
 	timestamp: number;
 };
 

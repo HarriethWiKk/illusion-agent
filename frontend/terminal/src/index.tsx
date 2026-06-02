@@ -1,12 +1,33 @@
+/**
+ * @fileoverview 终端前端应用入口模块
+ *
+ * 本模块是 IllusionCode 终端前端的入口点，负责：
+ * 1. 从环境变量解析前端配置
+ * 2. 设置进程退出时的光标恢复
+ * 3. 抑制终端 resize 事件以避免 Ink 组件闪烁
+ * 4. 渲染根组件 App
+ *
+ * @module index
+ */
+
 import React from 'react';
 import {render} from 'ink';
 
 import {App} from './App.js';
 import type {FrontendConfig} from './types.js';
 
+/**
+ * 从前端配置环境变量中解析配置对象
+ * 如果环境变量不存在，则使用空对象作为默认值
+ */
 const config = JSON.parse(process.env.ILLUSION_FRONTEND_CONFIG ?? '{}') as FrontendConfig;
 
-// Restore terminal cursor visibility on exit (Ink hides it by default)
+/**
+ * 恢复终端光标可见性
+ *
+ * Ink 框架在启动时会隐藏终端光标，此函数在进程退出时恢复光标显示。
+ * 通过写入 ANSI 转义序列来实现光标恢复。
+ */
 const restoreCursor = (): void => {
 	process.stdout.write('\x1B[?25h');
 };
@@ -18,19 +39,22 @@ process.on('SIGTERM', () => {
 	process.exit(143);
 });
 
-// --- Suppress resize events ---
-// ink's eraseLines(N) + output pattern causes visible flicker on every resize.
-// But ink recalculates layout on EVERY React re-render (reading stdout.columns),
-// not just on resize events. So we can safely suppress resize events entirely.
-//
-// Layout still updates correctly when:
-// - User types (PromptInput state change → React re-render → layout recalc)
-// - Spinner ticks during busy state (32ms interval → React re-render)
-// - Backend sends events (status changes → React re-render)
-//
-// The only effect: terminal content doesn't reflow on resize until the next
-// React re-render. This is acceptable because idle content (StatusBar, hints)
-// is short and reflows on the next user interaction.
+/**
+ * 抑制终端 resize 事件
+ *
+ * Ink 的 eraseLines(N) + 输出模式在每次 resize 时会导致可见的闪烁。
+ * 但 Ink 在每次 React 重新渲染时都会重新计算布局（读取 stdout.columns），
+ * 而不仅仅是在 resize 事件时。因此我们可以安全地完全抑制 resize 事件。
+ *
+ * 布局在以下情况下仍会正确更新：
+ * - 用户输入时（PromptInput 状态变化 → React 重新渲染 → 布局重新计算）
+ * - 忙碌状态下 Spinner 滴答时（32ms 间隔 → React 重新渲染）
+ * - 后端发送事件时（状态变化 → React 重新渲染）
+ *
+ * 唯一的影响：终端内容在 resize 时不会重新流动，直到下一次 React 重新渲染。
+ * 这是可以接受的，因为空闲内容（StatusBar、提示信息）很短，
+ * 会在下一次用户交互时重新流动。
+ */
 const _origEmit = process.stdout.emit.bind(process.stdout);
 process.stdout.emit = function (event: string, ...args: unknown[]) {
 	if (event === 'resize') {
@@ -39,4 +63,10 @@ process.stdout.emit = function (event: string, ...args: unknown[]) {
 	return _origEmit(event, ...args);
 } as typeof process.stdout.emit;
 
+/**
+ * 渲染应用根组件
+ *
+ * 使用 Ink 的 render 函数将 App 组件渲染到终端。
+ * 配置对象通过 props 传递给 App 组件。
+ */
 render(<App config={config} />);

@@ -1,7 +1,32 @@
+/**
+ * @fileoverview 国际化（i18n）模块
+ *
+ * 本模块提供终端前端的多语言支持功能，目前支持：
+ * - 简体中文（zh-CN）
+ * - 英文（en）
+ *
+ * 所有用户可见的文本都应通过 t() 函数获取，以确保语言切换功能正常工作。
+ *
+ * @module i18n
+ */
+
+/**
+ * 支持的 UI 语言类型
+ * - 'zh-CN': 简体中文
+ * - 'en': 英文
+ */
 export type UiLanguage = 'zh-CN' | 'en';
 
+/**
+ * 语言字典类型
+ * 键为文本标识符，值为对应语言的翻译文本
+ */
 type Dict = Record<string, string>;
 
+/**
+ * 简体中文字典
+ * 包含所有 UI 文本的中文翻译
+ */
 const ZH: Dict = {
 	connecting: '正在连接后端...',
 	send: '发送',
@@ -39,6 +64,10 @@ const ZH: Dict = {
 	planFeedbackPrompt: '请输入修改意见（可选，Enter 提交，Esc 跳过）：',
 };
 
+/**
+ * 英文字典
+ * 包含所有 UI 文本的英文翻译
+ */
 const EN: Dict = {
 	connecting: 'Connecting to backend...',
 	send: 'send',
@@ -76,15 +105,38 @@ const EN: Dict = {
 	planFeedbackPrompt: 'Enter feedback (optional, Enter to submit, Esc to skip): ',
 };
 
+/**
+ * 所有语言字典的集合
+ * 按语言代码索引对应的翻译字典
+ */
 const ALL: Record<UiLanguage, Dict> = {
 	'zh-CN': ZH,
 	en: EN,
 };
 
+/**
+ * 标准化语言代码
+ *
+ * 将输入的语言值标准化为有效的 UiLanguage 类型。
+ * 如果输入为 'en' 则返回 'en'，否则默认返回 'zh-CN'。
+ *
+ * @param raw - 原始语言值（可能为任意类型）
+ * @returns 标准化后的语言代码
+ */
 export function normalizeLanguage(raw: unknown): UiLanguage {
 	return raw === 'en' ? 'en' : 'zh-CN';
 }
 
+/**
+ * 获取国际化文本
+ *
+ * 根据当前语言和文本键获取对应的翻译文本。
+ * 如果指定语言中不存在该键，则回退到中文文本。
+ *
+ * @param lang - 当前 UI 语言
+ * @param key - 文本标识符（必须是中文字典中已定义的键）
+ * @returns 对应语言的翻译文本
+ */
 export function t(lang: UiLanguage, key: keyof typeof ZH): string {
 	return ALL[lang][key] ?? ZH[key];
 }

@@ -1,11 +1,31 @@
+/**
+ * @fileoverview 状态栏组件
+ *
+ * 显示当前会话的状态信息，包括：
+ * - 模型名称
+ * - Token 使用量（输入/输出）
+ * - 权限模式
+ * - 活动任务数
+ * - MCP 服务器连接数
+ * - 后台代理数
+ *
+ * @module StatusBar
+ */
+
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TaskSnapshot} from '../types.js';
 
+/** 分隔符 */
 const SEP = ' · ';
 
+/**
+ * 自动模式指示器
+ *
+ * 当处于自动权限模式时显示的标识。
+ */
 function AutoModeIndicator(): React.JSX.Element {
 	const theme = useTheme();
 	return (
@@ -37,6 +57,11 @@ function TokenDisplay({
 	);
 }
 
+/**
+ * 任务指示器
+ *
+ * 显示当前活动任务的数量。
+ */
 function TaskIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	return (
@@ -56,6 +81,11 @@ function McpIndicator({count}: {count: number}): React.JSX.Element {
 	);
 }
 
+/**
+ * 代理指示器
+ *
+ * 显示当前运行的后台代理数量，带有闪烁动画效果。
+ */
 function AgentIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	const [visible, setVisible] = useState(true);

@@ -1,3 +1,14 @@
+/**
+ * @fileoverview 模态对话框宿主组件
+ *
+ * 管理和渲染各种类型的模态对话框，包括：
+ * - 问答模态框（支持单选、多选、自定义输入）
+ * - 权限确认模态框
+ * - MCP 认证模态框
+ *
+ * @module ModalHost
+ */
+
 import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import TextInput from 'ink-text-input';
@@ -6,19 +17,45 @@ import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
 import {useTheme} from '../theme/ThemeContext.js';
 
+/**
+ * 问题选项类型
+ */
 type QuestionOption = {
+	/** 选项标签 */
 	label: string;
+	/** 选项描述（可选） */
 	description?: string;
+	/** 选项预览（可选） */
 	preview?: string;
 };
 
+/**
+ * 问题项类型
+ */
 type QuestionItem = {
+	/** 问题文本 */
 	question: string;
+	/** 问题标题（可选） */
 	header?: string;
+	/** 选项列表（可选） */
 	options?: QuestionOption[];
+	/** 是否多选（可选） */
 	multiSelect?: boolean;
 };
 
+/**
+ * 问答模态框组件
+ *
+ * 显示问题并支持单选、多选或自定义输入回答。
+ *
+ * @param props - 组件属性
+ * @param props.modal - 模态对话框配置
+ * @param props.modalInput - 当前输入内容
+ * @param props.setModalInput - 设置输入内容的回调
+ * @param props.onSubmit - 提交回调
+ * @param props.language - 当前 UI 语言
+ * @returns 返回问答模态框的 JSX 元素
+ */
 function QuestionModal({
 	modal,
 	modalInput,
@@ -307,6 +344,15 @@ function QuestionModal({
 	);
 }
 
+/**
+ * 权限确认模态框组件
+ *
+ * 显示工具执行权限请求，提示用户确认是否允许执行。
+ *
+ * @param props - 组件属性
+ * @param props.modal - 模态对话框配置
+ * @returns 返回权限确认模态框的 JSX 元素
+ */
 function PermissionModal({
 	modal,
 }: {
@@ -342,6 +388,19 @@ function PermissionModal({
 	);
 }
 
+/**
+ * MCP 认证模态框组件
+ *
+ * 显示 MCP 服务器认证请求，提示用户输入认证信息。
+ *
+ * @param props - 组件属性
+ * @param props.modal - 模态对话框配置
+ * @param props.modalInput - 当前输入内容
+ * @param props.setModalInput - 设置输入内容的回调
+ * @param props.onSubmit - 提交回调
+ * @param props.language - 当前 UI 语言
+ * @returns 返回 MCP 认证模态框的 JSX 元素
+ */
 function McpAuthModal({
 	modal,
 	modalInput,
@@ -376,6 +435,20 @@ function McpAuthModal({
 	);
 }
 
+/**
+ * 模态对话框宿主组件
+ *
+ * 根据模态对话框的类型渲染对应的模态框组件。
+ * 支持的类型包括：permission（权限确认）、question（问答）、mcp_auth（MCP 认证）。
+ *
+ * @param props - 组件属性
+ * @param props.modal - 模态对话框配置（null 表示无模态框）
+ * @param props.modalInput - 当前输入内容
+ * @param props.setModalInput - 设置输入内容的回调
+ * @param props.onSubmit - 提交回调
+ * @param props.language - 当前 UI 语言
+ * @returns 返回对应的模态框组件，如果没有模态框则返回 null
+ */
 export function ModalHost({
 	modal,
 	modalInput,

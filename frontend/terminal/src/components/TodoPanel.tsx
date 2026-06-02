@@ -1,3 +1,15 @@
+/**
+ * @fileoverview 待办事项面板组件
+ *
+ * 显示当前任务的待办事项列表，支持：
+ * - 任务状态显示（进行中、待处理、已完成）
+ * - 自动排序（最近完成 > 进行中 > 待处理 > 较早完成）
+ * - 所有任务完成后自动隐藏
+ * - 最近完成任务的高亮显示
+ *
+ * @module TodoPanel
+ */
+
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text} from 'ink';
 
@@ -11,6 +23,15 @@ const HIDE_DELAY_MS = 5000;
 /** 最近完成任务的高亮时间（毫秒） */
 const RECENT_COMPLETED_TTL_MS = 30_000;
 
+/**
+ * 待办事项面板组件
+ *
+ * 显示当前任务的待办事项列表。
+ *
+ * @param props - 组件属性
+ * @param props.items - 待办事项列表
+ * @returns 返回待办事项面板的 JSX 元素
+ */
 export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Element {
 	const theme = useTheme();
 	const [hidden, setHidden] = useState(false);

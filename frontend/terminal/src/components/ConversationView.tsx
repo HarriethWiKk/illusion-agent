@@ -1,3 +1,18 @@
+/**
+ * @fileoverview 对话视图组件
+ *
+ * 显示完整的对话历史，包括：
+ * - 用户消息
+ * - 助手回复（支持 Markdown 渲染和思考过程显示）
+ * - 工具调用及其结果
+ * - 系统消息
+ * - 计划内容
+ * - 流式回复尾部
+ * - 待处理工具调用的闪烁指示器
+ *
+ * @module ConversationView
+ */
+
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Static, Text} from 'ink';
 
@@ -13,13 +28,35 @@ import {renderAssistantText, stripThinkTags, extractThinkContent, hasThinkTags, 
 import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
+/** 工具结果最大显示行数 */
 const MAX_RESULT_LINES = 2;
+/** 命令摘要最大显示行数 */
 const MAX_COMMAND_LINES = 2;
+/** 命令摘要最大字符数 */
 const MAX_COMMAND_CHARS = 160;
+/** 流式尾部最大显示行数 */
 const STREAMING_TAIL_LINES = 10;
+/** 最小换行宽度 */
 const MIN_WRAP_WIDTH = 12;
+/** 宽度安全余量 */
 const WIDTH_SAFETY_EXTRA = 2;
 
+/**
+ * 对话视图组件
+ *
+ * 使用 Ink 的 Static 组件高效渲染大量历史消息。
+ * 支持消息分组（工具调用与结果配对）、自动换行和截断。
+ *
+ * @param props - 组件属性
+ * @param props.staticItems - 静态转录项列表
+ * @param props.clearCount - 清空计数器（用于触发重新渲染）
+ * @param props.assistantBuffer - 助手流式回复缓冲区
+ * @param props.showWelcome - 是否显示欢迎横幅
+ * @param props.showThinking - 是否显示思考过程
+ * @param props.language - 当前 UI 语言
+ * @param props.pendingToolCalls - 待处理的工具调用列表
+ * @returns 返回对话视图的 JSX 元素
+ */
 export function ConversationView({
 	staticItems,
 	clearCount,
@@ -60,7 +97,7 @@ export function ConversationView({
 			prevRole: index > 0 ? entries[index - 1]?.role : undefined,
 		}));
 	}, [grouped, showWelcome]);
-	const displayedBuffer = assistantBuffer; // Already processed in useBackendSession
+	const displayedBuffer = assistantBuffer; // 已在 useBackendSession 中处理
 	const isSuppressedByStatic = useMemo(() => {
 		if (!displayedBuffer) return false;
 		const lastAssistant = [...grouped].reverse().find((entry) => entry.role === 'assistant');
@@ -88,7 +125,7 @@ export function ConversationView({
 
 			{displayedBuffer && !isSuppressedByStatic ? renderStreamingTail(displayedBuffer, grouped, theme, terminalWidth) : null}
 
-			{/* Pending tool call indicators — ● 闪烁表示工具正在执行中 */}
+			{/* 待处理工具调用指示器 — ● 闪烁表示工具正在执行中 */}
 			{pendingToolCalls && pendingToolCalls.length > 0 ? (
 				<Box marginTop={displayedBuffer || isSuppressedByStatic ? 0 : 1} flexDirection="column">
 					{pendingToolCalls.map((pc) => (
@@ -581,7 +618,7 @@ function renderStreamingTail(
 	theme: ThemeConfig,
 	terminalWidth: number,
 ): React.JSX.Element {
-	// Filter empty lines to prevent showing golden ● with no text
+	// 过滤空行以防止显示没有文本的金色 ●
 	const allLines = text.split('\n');
 	const lines = allLines.filter(l => l.trim() !== '');
 	if (lines.length === 0) return <Box />;

@@ -1,3 +1,16 @@
+/**
+ * @fileoverview 聊天区域组件
+ *
+ * Web 前端的主要对话显示区域，负责：
+ * - 显示对话历史（按轮次分组）
+ * - 显示待处理的工具调用
+ * - 显示流式回复和思考过程
+ * - 显示权限确认和问答模态框
+ * - 自动滚动到底部
+ *
+ * @module ChatArea
+ */
+
 import { useEffect, useMemo, useRef } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import MessageBubble, { PendingToolBubble, StreamingBuffer } from './MessageBubble';
@@ -5,7 +18,12 @@ import WelcomeScreen from './WelcomeScreen';
 import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
-/** 从 staticItems 中提取 tool_use_id → tool_input 映射 */
+/**
+ * 从 staticItems 中提取 tool_use_id → tool_input 映射
+ *
+ * @param items - 转录项列表
+ * @returns tool_use_id 到 tool_input 的映射
+ */
 function buildToolInputMap(items: TranscriptItem[]): Map<string, Record<string, unknown>> {
   const map = new Map<string, Record<string, unknown>>();
   for (const item of items) {
@@ -16,19 +34,40 @@ function buildToolInputMap(items: TranscriptItem[]): Map<string, Record<string, 
   return map;
 }
 
+/**
+ * ChatArea 组件属性接口
+ */
 interface ChatAreaProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 静态转录项列表 */
   staticItems: TranscriptItem[];
+  /** 助手回复缓冲区 */
   assistantBuffer: string;
+  /** 流式推理文本 */
   streamingReasoning: string;
+  /** 待处理的工具调用列表 */
   pendingToolCalls: PendingToolCall[];
+  /** 是否忙碌 */
   busy: boolean;
+  /** 是否已连接 */
   connected: boolean;
+  /** 模态对话框配置 */
   modal: Record<string, unknown> | null;
+  /** 权限响应回调 */
   onPermissionResponse: (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => void;
+  /** 问答响应回调 */
   onQuestionResponse: (requestId: string, answer: string) => void;
 }
 
+/**
+ * 聊天区域组件
+ *
+ * Web 前端的主要对话显示区域。
+ *
+ * @param props - 组件属性
+ * @returns 返回聊天区域的 JSX 元素
+ */
 export default function ChatArea({
   lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, busy, connected,
   modal, onPermissionResponse, onQuestionResponse,

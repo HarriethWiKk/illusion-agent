@@ -1,19 +1,53 @@
+/**
+ * @fileoverview 侧边栏组件
+ *
+ * Web 前端的侧边栏组件，支持：
+ * - 折叠/展开功能
+ * - 新建会话
+ * - 会话列表显示和选择
+ * - 删除会话功能
+ * - 连接状态显示
+ *
+ * @module Sidebar
+ */
+
 import { useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
+/**
+ * Sidebar 组件属性接口
+ */
 interface SidebarProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 是否已连接 */
   connected: boolean;
+  /** 会话列表 */
   sessions: { value: string; label: string }[];
+  /** 新建会话回调 */
   onNewSession: () => void;
+  /** 选择会话回调 */
   onSelectSession: (sessionId: string) => void;
+  /** 列出会话回调 */
   onListSessions: () => void;
+  /** 删除会话回调 */
   onDeleteSessions: () => void;
+  /** 是否折叠 */
   collapsed: boolean;
+  /** 折叠/展开切换回调 */
   onToggle: () => void;
+  /** 侧边栏宽度（可选，默认 280） */
   width?: number;
 }
 
+/**
+ * 侧边栏组件
+ *
+ * Web 前端的侧边栏组件。
+ *
+ * @param props - 组件属性
+ * @returns 返回侧边栏的 JSX 元素
+ */
 export default function Sidebar({
   lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280,
 }: SidebarProps) {

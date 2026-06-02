@@ -1,3 +1,12 @@
+/**
+ * @fileoverview 输入编辑器控制器组件
+ *
+ * 管理输入状态、命令提示和键盘交互的高级控制器组件。
+ * 封装了命令提示列表的显示逻辑和键盘导航。
+ *
+ * @module ComposerController
+ */
+
 import React, {useEffect, useMemo, useState} from 'react';
 import {useInput} from 'ink';
 
@@ -6,6 +15,24 @@ import type {TodoItemSnapshot} from '../types.js';
 import {CommandPicker} from './CommandPicker.js';
 import {PromptInput} from './PromptInput.js';
 
+/**
+ * 输入编辑器控制器组件
+ *
+ * 作为输入区域的控制器，负责：
+ * - 管理输入状态和命令提示
+ * - 处理键盘导航（上下箭头、Tab 补全、Enter 选择、Esc 关闭）
+ * - 协调命令选择器和输入框的显示
+ *
+ * @param props - 组件属性
+ * @param props.commands - 可用命令列表
+ * @param props.busy - 后端是否忙碌
+ * @param props.disabled - 是否禁用输入
+ * @param props.language - 当前 UI 语言
+ * @param props.todoItems - 待办事项列表
+ * @param props.toolName - 当前工具名称（可选）
+ * @param props.onSubmit - 提交回调函数
+ * @returns 返回输入编辑器控制器的 JSX 元素，如果禁用或忙碌则返回 null
+ */
 export function ComposerController({
 	commands,
 	busy,

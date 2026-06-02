@@ -1,3 +1,18 @@
+/**
+ * @fileoverview 后端会话管理 Hook
+ *
+ * 本模块提供了 useBackendSession Hook，用于管理与后端进程的通信会话。
+ * 主要功能包括：
+ * - 启动和管理后端子进程
+ * - 处理后端发送的 JSON 协议事件
+ * - 管理会话状态（转录项、任务、命令等）
+ * - 处理助手流式回复的缓冲和刷新
+ * - 管理工具调用的生命周期
+ * - 处理模态对话框和选择请求
+ *
+ * @module useBackendSession
+ */
+
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {spawn, type ChildProcess} from 'node:child_process';
 import readline from 'node:readline';
@@ -16,65 +31,145 @@ import type {
 	TranscriptItem,
 } from '../types.js';
 
+/**
+ * 协议前缀标识
+ * 后端发送的 JSON 消息都以此前缀开头，用于区分普通日志输出和协议消息
+ */
 const PROTOCOL_PREFIX = 'OHJSON:';
+
+/**
+ * 助手流式回复刷新间隔（毫秒）
+ * 控制助手回复文本在屏幕上的更新频率，约 60fps
+ */
 const ASSISTANT_DELTA_FLUSH_MS = 16;
+
+/**
+ * 助手流式回复刷新字符阈值
+ * 当缓冲的字符数达到此值时立即刷新，避免延迟感
+ */
 const ASSISTANT_DELTA_FLUSH_CHARS = 32;
 
-// Pattern for tool-call-like lines that the model may embed in assistant text.
-// Matches: "  bash (git add ...)" or "read (file_path: ...)"
+/**
+ * 工具调用行匹配正则表达式
+ *
+ * 匹配模型可能嵌入在助手文本中的工具调用预览行。
+ * 例如："  bash (git add ...)" 或 "read (file_path: ...)"
+ */
 const TOOL_CALL_LINE_RE = /^\s{2,}\w[\w-]*\s*\(.*\)\s*$/;
 
-/** Strip lines that look like tool-call previews from assistant text. */
+/**
+ * 从助手文本中移除工具调用预览行
+ *
+ * 模型有时会在回复中嵌入工具调用的预览文本，此函数将这些行移除，
+ * 因为真正的工具调用会通过专门的事件处理。
+ *
+ * @param text - 原始助手文本
+ * @returns 移除工具调用行后的文本；如果移除后为空则返回原始文本
+ */
 function stripToolCallLines(text: string): string {
 	const lines = text.split('\n');
 	const filtered = lines.filter((line) => !TOOL_CALL_LINE_RE.test(line));
-	// If stripping removed everything, return original text as fallback
+	// 如果移除后为空，返回原始文本作为兜底
 	return filtered.length > 0 ? filtered.join('\n') : text;
 }
 
+/**
+ * 后端会话管理 Hook
+ *
+ * 管理与后端子进程的完整生命周期，包括：
+ * - 启动后端进程并建立通信管道
+ * - 接收并解析后端事件流
+ * - 维护所有会话相关的状态
+ * - 处理助手流式回复的缓冲和显示
+ * - 管理工具调用的生命周期（开始、更新、完成）
+ * - 处理各种模态对话框（权限确认、计划审批等）
+ *
+ * @param config - 前端配置对象，包含后端启动命令等信息
+ * @param onExit - 后端退出时的回调函数
+ * @returns 包含所有会话状态和操作方法的对象
+ */
 export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
+	/** 静态转录项列表（已完成的消息） */
 	const [staticItems, setStaticItems] = useState<TranscriptItem[]>([]);
+	/** 清空计数器，用于触发 ConversationView 重新渲染 */
 	const [clearCount, setClearCount] = useState(0);
+	/**
+	 * 向静态列表追加新的转录项
+	 * @param item - 要追加的转录项
+	 */
 	const pushStatic = useCallback((item: TranscriptItem): void => {
 		setStaticItems((prev) => [...prev, item]);
 	}, []);
+	/** 助手回复缓冲区（当前正在流式接收的文本） */
 	const [assistantBuffer, setAssistantBuffer] = useState('');
+	/** 后端状态信息 */
 	const [status, setStatus] = useState<Record<string, unknown>>({});
+	/** 任务列表快照 */
 	const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
+	/** 可用命令列表 */
 	const [commands, setCommands] = useState<string[]>([]);
+	/** MCP 服务器列表快照 */
 	const [mcpServers, setMcpServers] = useState<McpServerSnapshot[]>([]);
+	/** 桥接会话列表快照 */
 	const [bridgeSessions, setBridgeSessions] = useState<BridgeSessionSnapshot[]>([]);
+	/** 当前活动的模态对话框配置 */
 	const [modal, setModal] = useState<Record<string, unknown> | null>(null);
+	/** 后端发起的选择请求 */
 	const [selectRequest, setSelectRequest] = useState<SelectRequestPayload | null>(null);
+	/** 是否正在处理中（等待后端响应） */
 	const [busy, setBusy] = useState(false);
+	/** 后端是否已就绪 */
 	const [ready, setReady] = useState(false);
+	/** 是否显示思考过程 */
 	const [showThinking, setShowThinking] = useState(true);
+	/** 待办事项列表 */
 	const [todoItems, setTodoItems] = useState<TodoItemSnapshot[]>([]);
+	/** 待处理的工具调用列表 */
 	const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
+	/** 群体协作者列表 */
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
+	/** 群体协作通知列表 */
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
+	/** 后台代理标签文本 */
 	const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
+	/** 指令执行结果 */
 	const [commandResult, setCommandResult] = useState<{
 		text: string;
 		type: 'success' | 'error' | 'info';
 	} | null>(null);
+	/** 后端子进程引用 */
 	const childRef = useRef<ChildProcess | null>(null);
+	/** 是否已发送初始提示词 */
 	const sentInitialPrompt = useRef(false);
 
-	// Streaming deltas can arrive one token at a time; updating Ink state for each
-	// delta causes heavy re-rendering/flicker. Buffer and flush at ~30fps.
+	// 流式增量可能逐 token 到达；为每个增量更新 Ink 状态会导致大量重渲染/闪烁。
+	// 因此使用缓冲区并以约 60fps 的频率刷新。
+	/** 助手回复显示缓冲区 */
 	const assistantBufferRef = useRef('');
+	/** 待刷新的助手增量文本 */
 	const pendingAssistantDeltaRef = useRef('');
+	/** 助手增量刷新定时器 */
 	const assistantFlushTimerRef = useRef<NodeJS.Timeout | null>(null);
+	/** 思考/推理过程缓冲区 */
 	const reasoningBufferRef = useRef('');
-	// Raw buffer for thinking tag processing and final message text
+	/** 原始缓冲区，用于思考标签处理和最终消息文本 */
 	const rawBufferRef = useRef('');
-	// Flag to prevent double-committing assistant text when tool_started
-	// flushes it before assistant_complete arrives
+	/**
+	 * 标志位：防止助手文本在 tool_started 时被刷新后，
+	 * assistant_complete 再次重复提交
+	 */
 	const assistantFlushedForToolRef = useRef(false);
-	// Ref for pendingToolCalls to avoid stale closure in handleEvent
+	/** 待处理工具调用的 ref，避免 handleEvent 中的闭包过期问题 */
 	const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
 
+	/**
+	 * 刷新助手增量缓冲区
+	 *
+	 * 将待处理的增量文本追加到原始缓冲区，然后处理思考标签：
+	 * - 如果不显示思考过程，移除所有 think 标签
+	 * - 如果显示思考过程，移除标签但保留内容
+	 * 将处理后的文本更新到显示缓冲区
+	 */
 	const flushAssistantDelta = (): void => {
 		const pending = pendingAssistantDeltaRef.current;
 		if (!pending) {
@@ -83,7 +178,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		pendingAssistantDeltaRef.current = '';
 		rawBufferRef.current += pending;
 
-		// Process thinking tags for streaming display
+		// 处理思考标签以用于流式显示
 		let displayText = rawBufferRef.current;
 		if (!showThinking) {
 			displayText = displayText
@@ -106,6 +201,12 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		setAssistantBuffer(displayText);
 	};
 
+	/**
+	 * 清空助手增量缓冲区
+	 *
+	 * 重置所有与助手流式回复相关的缓冲区和定时器，
+	 * 并清空显示缓冲区。
+	 */
 	const clearAssistantDelta = (): void => {
 		pendingAssistantDeltaRef.current = '';
 		assistantBufferRef.current = '';
@@ -118,6 +219,14 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		reasoningBufferRef.current = '';
 	};
 
+	/**
+	 * 向后端发送请求
+	 *
+	 * 将请求对象序列化为 JSON 并写入后端子进程的标准输入。
+	 * 如果子进程不可用或输入流已销毁，则静默忽略。
+	 *
+	 * @param payload - 要发送的请求对象
+	 */
 	const sendRequest = (payload: Record<string, unknown>): void => {
 		const child = childRef.current;
 		if (!child || !child.stdin || child.stdin.destroyed) {
@@ -126,6 +235,12 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		child.stdin.write(JSON.stringify(payload) + '\n');
 	};
 
+	/**
+	 * 清空所有静态转录项
+	 *
+	 * 清除对话历史、重置清空计数器，并清空助手增量缓冲区。
+	 * 用于实现 /new 或 /clear 命令。
+	 */
 	const clearStaticItems = (): void => {
 		setStaticItems([]);
 		setClearCount((c) => c + 1);
@@ -158,10 +273,19 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			onExit(code);
 		});
 
-		// Ensure child processes are killed on parent exit (prevents stale processes)
+		/**
+		 * 启动后端子进程并建立通信
+		 *
+		 * 此效果函数在组件挂载时执行以下操作：
+		 * 1. 根据配置启动后端子进程
+		 * 2. 创建 readline 接口读取后端输出
+		 * 3. 解析协议消息并分发到 handleEvent 处理
+		 * 4. 设置进程退出时的清理逻辑
+		 */
+		// 确保子进程在父进程退出时被杀死（防止僵尸进程）
 		const killChild = (): void => {
 			if (!child.killed) {
-				// Kill process group to ensure Python backend and its children all die
+				// 杀死进程组以确保 Python 后端及其所有子进程都被终止
 				try {
 					if (child.pid) {
 						process.kill(-child.pid, 'SIGTERM');
@@ -188,6 +312,32 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		};
 	}, []);
 
+	/**
+	 * 处理后端事件
+	 *
+	 * 根据事件类型分发处理逻辑，支持的事件类型包括：
+	 * - ready: 后端就绪，初始化状态
+	 * - state_snapshot: 状态快照更新
+	 * - tasks_snapshot: 任务列表更新
+	 * - transcript_item: 新增转录项
+	 * - assistant_delta: 助手流式回复增量
+	 * - assistant_complete: 助手回复完成
+	 * - line_complete: 行处理完成
+	 * - tool_started/tool_completed: 工具调用生命周期
+	 * - tool_input_updated: 工具参数更新
+	 * - clear_transcript/replace_transcript: 转录项管理
+	 * - select_request: 选择请求
+	 * - modal_request: 模态对话框请求
+	 * - error: 错误事件
+	 * - todo_update: 待办事项更新
+	 * - swarm_status: 群体协作状态更新
+	 * - plan_mode_change: 计划模式变更
+	 * - command_result: 指令执行结果
+	 * - bg_agent_status: 后台代理状态
+	 * - shutdown: 关闭信号
+	 *
+	 * @param event - 后端事件对象
+	 */
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
@@ -259,7 +409,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			}
 			flushAssistantDelta();
 
-			// Skip if tool_started already committed this text to static
+			// 如果 tool_started 已经将文本提交到静态列表，则跳过
 			if (!assistantFlushedForToolRef.current) {
 				const text = event.message ?? rawBufferRef.current;
 				const reasoning = (event.reasoning ?? reasoningBufferRef.current) || undefined;
@@ -273,8 +423,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'line_complete') {
-			// If the line ended without an assistant_complete (e.g. errors), make sure we
-			// don't leave stale streaming text on screen.
+			// 如果行在没有 assistant_complete 的情况下结束（例如发生错误），
+			// 确保不会在屏幕上留下过期的流式文本
 			clearAssistantDelta();
 			pendingToolCallsRef.current = [];
 			setPendingToolCalls([]);
@@ -284,7 +434,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if ((event.type === 'tool_started' || event.type === 'tool_completed') && event.item) {
 			if (event.type === 'tool_started') {
-				// Commit any pending assistant text to static before the tool call appears
+				// 在工具调用出现之前，将任何待处理的助手文本提交到静态列表
 				if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current || reasoningBufferRef.current.trim()) {
 					if (assistantFlushTimerRef.current) {
 						clearTimeout(assistantFlushTimerRef.current);

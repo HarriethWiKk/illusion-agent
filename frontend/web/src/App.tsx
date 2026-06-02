@@ -1,3 +1,18 @@
+/**
+ * @fileoverview Web 前端应用主组件
+ *
+ * 本模块是 IllusionCode Web 前端的核心入口，负责：
+ * 1. 整体应用布局与组件组合
+ * 2. WebSocket 会话管理
+ * 3. 处理用户提交的命令
+ * 4. 管理侧边栏和右侧面板的折叠/展开状态
+ * 5. Toast 通知显示
+ * 6. 删除会话弹窗
+ * 7. 权限和问答模态框响应
+ *
+ * @module App
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeLanguage, t, type UiLanguage } from './i18n';
 import { useWebSocketSession, type SelectRequestPayload } from './hooks/useWebSocketSession';
@@ -7,9 +22,19 @@ import PromptInput from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
 
+/** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
+
+/** Toast 通知显示时长（毫秒） */
 const TOAST_DURATION = 5000;
 
+/**
+ * 应用主组件
+ *
+ * Web 前端的根组件，负责组合所有子组件并管理全局状态。
+ *
+ * @returns 返回应用的 JSX 元素
+ */
 export default function App() {
   const session = useWebSocketSession(WS_URL);
   const lang: UiLanguage = useMemo(
@@ -50,13 +75,25 @@ export default function App() {
     toastTimerRef.current = setTimeout(() => { setToastMessage(null); toastTimerRef.current = null; }, TOAST_DURATION);
   }, []);
 
-  // 注册回调
+  /**
+   * 注册回调函数
+   *
+   * 将内联选项请求和指令结果回调注册到会话中。
+   */
   useEffect(() => {
     session.setOnSelectRequest((payload) => setInlineOptions(payload));
     session.setOnCommandResult((text, type) => showToast(text, type));
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
 
+  /**
+   * 处理面板大小调整开始
+   *
+   * 当用户开始拖拽面板边缘时触发，用于调整侧边栏或右侧面板的宽度。
+   *
+   * @param side - 要调整的面板（'left' 或 'right'）
+   * @param e - 鼠标事件
+   */
   const handleResizeStart = useCallback((side: 'left' | 'right', e: React.MouseEvent) => {
     e.preventDefault();
     const startW = side === 'left' ? sidebarWidth : rightPanelWidth;
@@ -76,6 +113,17 @@ export default function App() {
     document.addEventListener('mouseup', onUp);
   }, [sidebarWidth, rightPanelWidth]);
 
+  /**
+   * 处理用户提交的命令
+   *
+   * 根据命令类型进行不同处理：
+   * - /language: 前端本地构建语言选择选项
+   * - /resume: 发送 list_sessions 请求
+   * - /context, /rewind, /model, /delete: 通过 select_command 获取内联选项
+   * - 其他命令: 直接提交到后端
+   *
+   * @param line - 用户输入的命令
+   */
   const handleSubmit = (line: string) => {
     if (!line.trim()) return;
     const trimmed = line.trim();
@@ -114,55 +162,116 @@ export default function App() {
     session.sendRequest({ type: 'submit_line', line: trimmed });
   };
 
+  /**
+   * 处理内联选项选择
+   *
+   * 当用户从内联选项列表中选择一个选项时触发。
+   *
+   * @param command - 命令名称
+   * @param value - 选中的值
+   */
   const handleInlineSelect = useCallback((command: string, value: string) => {
     setInlineOptions(null);
     session.sendRequest({ type: 'apply_select_command', command, value });
   }, [session.sendRequest]);
 
+  /**
+   * 处理内联选项关闭
+   *
+   * 当用户关闭内联选项列表时触发。
+   */
   const handleInlineClose = useCallback(() => setInlineOptions(null), []);
 
   // 删除会话弹窗状态
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
 
+  /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
+
+  /** 处理新建会话 */
   const handleNewSession = () => {
     session.sendRequest({ type: 'submit_line', line: '/new' });
   };
+
+  /**
+   * 处理选择会话
+   *
+   * @param id - 会话 ID
+   */
   const handleSelectSession = (id: string) => {
     session.suppressInlineOptions();
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
     setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
   };
+
+  /** 处理列出会话 */
   const handleListSessions = useCallback(() => {
     session.suppressInlineOptions();
     session.sendRequest({ type: 'list_sessions' });
   }, [session.suppressInlineOptions, session.sendRequest]);
+
+  /** 处理删除会话 */
   const handleDeleteSessions = useCallback(() => {
     session.suppressInlineOptions();
     session.requestSelectCommand('delete');
   }, [session.suppressInlineOptions, session.requestSelectCommand]);
+  /**
+   * 处理确认删除
+   *
+   * 删除所有选中的会话。
+   */
   const handleConfirmDelete = useCallback(() => {
     for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
     session.clearDeleteSessions();
     setDeleteSelected(new Set());
     setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
   }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions]);
+
+  /**
+   * 处理关闭删除模态框
+   *
+   * 关闭删除会话弹窗并清除选中状态。
+   */
   const handleCloseDeleteModal = useCallback(() => {
     session.clearDeleteSessions();
     setDeleteSelected(new Set());
   }, [session.clearDeleteSessions]);
+
+  /**
+   * 切换删除项选中状态
+   *
+   * @param v - 会话 ID
+   */
   const toggleDeleteItem = useCallback((v: string) => {
     setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
   }, []);
 
+  /** 是否显示删除模态框 */
   const showDeleteModal = session.deleteSessions.length > 0;
+  /** 普通会话列表（排除 __all__ 选项） */
   const regularSessions = session.deleteSessions.filter((s) => s.value !== '__all__');
+  /** 是否有全部删除选项 */
   const hasAllOption = session.deleteSessions.some((s) => s.value === '__all__');
 
+  /**
+   * 处理权限响应
+   *
+   * @param requestId - 请求 ID
+   * @param allowed - 是否允许
+   * @param alwaysAllow - 是否总是允许
+   * @param toolName - 工具名称
+   */
   const handlePermissionResponse = (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => {
     session.sendRequest({ type: 'permission_response', request_id: requestId, allowed, always_allow: alwaysAllow, tool_name: toolName });
     session.clearModal();
   };
+
+  /**
+   * 处理问答响应
+   *
+   * @param requestId - 请求 ID
+   * @param answer - 用户回答
+   */
   const handleQuestionResponse = (requestId: string, answer: string) => {
     session.sendRequest({ type: 'question_response', request_id: requestId, answer });
     session.clearModal();

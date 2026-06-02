@@ -1,3 +1,22 @@
+/**
+ * @fileoverview Markdown 内容渲染组件
+ *
+ * 将 Markdown 文本渲染为终端可显示的 Ink 组件。
+ * 支持的 Markdown 特性包括：
+ * - 标题（h1-h6）
+ * - 粗体、斜体、删除线
+ * - 行内代码和代码块
+ * - 链接和图片
+ * - 列表（有序和无序）
+ * - 引用块
+ * - 表格
+ * - 水平线
+ * - HTML 标签（kbd、sub、sup）
+ * - 上标语法（^text^）
+ *
+ * @module MarkdownContent
+ */
+
 import {lexer, Lexer} from 'marked';
 import React, {type ReactNode, useMemo} from 'react';
 import {Box, Text} from 'ink';
@@ -8,30 +27,47 @@ import {useTheme} from '../theme/ThemeContext.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {stringWidth, padAligned, wrapText} from '../utils/markdown.js';
 
+/** 行内代码颜色 */
 const INLINE_CODE_COLOR = '#b1b9f9';
 
+/**
+ * HTML 标签颜色映射
+ * 定义特定 HTML 标签的渲染颜色
+ */
 const HTML_TAG_COLORS: Record<string, string | undefined> = {
 	kbd: '#56d4dd',
 	sub: undefined,
 	sup: undefined,
 };
 
+/** HTML 标签匹配正则表达式 */
 const HTML_TAG_RE = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/;
 
-// 预处理 ^上标^ 语法：在 lexer 之前转换为 <sup> 标签
-// 正则要求 ^ 前面不是字母/数字（避免 x^2 等数学表达式被误匹配），
-// 且 ^ 后第一个字符不能是空白或 ^（避免 ^2 + y^ 等误匹配）
+/**
+ * 预处理 ^上标^ 语法：在 lexer 之前转换为 <sup> 标签
+ * 正则要求 ^ 前面不是字母/数字（避免 x^2 等数学表达式被误匹配），
+ * 且 ^ 后第一个字符不能是空白或 ^（避免 ^2 + y^ 等误匹配）
+ */
 const _originalLex = Lexer.prototype.lex;
 Lexer.prototype.lex = function (src: string) {
 	src = src.replace(/(?<![a-zA-Z0-9])\^([^\s^][^\^]*?)\^(?!\^)/g, '<sup>$1</sup>');
 	return _originalLex.call(this, src);
 };
 
+/**
+ * Markdown 渲染样式类型
+ */
 type MarkdownRenderStyle = {
+	/** 文本颜色 */
 	color?: string;
+	/** 是否斜体 */
 	italic?: boolean;
 };
 
+/**
+ * 命名颜色 RGB 值映射
+ * 将颜色名称映射到 RGB 值数组
+ */
 const NAMED_COLORS: Record<string, [number, number, number]> = {
 	black: [0, 0, 0], red: [205, 0, 0], green: [0, 205, 0], yellow: [205, 205, 0],
 	blue: [0, 0, 238], magenta: [205, 0, 205], cyan: [0, 205, 205], white: [229, 229, 229],

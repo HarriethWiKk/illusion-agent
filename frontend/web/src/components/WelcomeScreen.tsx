@@ -1,9 +1,30 @@
+/**
+ * @fileoverview 欢迎屏幕组件
+ *
+ * Web 前端的欢迎屏幕组件，在会话开始时显示。
+ * 显示应用 Logo 和常用命令提示。
+ *
+ * @module WelcomeScreen
+ */
+
 import type { UiLanguage } from '../i18n';
 
+/**
+ * WelcomeScreen 组件属性接口
+ */
 interface WelcomeScreenProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
 }
 
+/**
+ * 欢迎屏幕组件
+ *
+ * 在会话开始时显示应用 Logo 和常用命令提示。
+ *
+ * @param props - 组件属性
+ * @returns 返回欢迎屏幕的 JSX 元素
+ */
 export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
   return (
     <div className="h-full flex flex-col items-center justify-center select-text">

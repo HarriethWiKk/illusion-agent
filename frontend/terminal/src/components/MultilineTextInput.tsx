@@ -1,19 +1,46 @@
+/**
+ * @fileoverview 多行文本输入组件
+ *
+ * 提供支持多行编辑的文本输入组件，功能包括：
+ * - 光标移动（上下左右箭头）
+ * - 文本插入和删除
+ * - 多行编辑（Ctrl+J 换行）
+ * - 光标位置记忆（上下移动时保持列位置）
+ * - 占位符显示
+ *
+ * @module MultilineTextInput
+ */
+
 import React, {useState, useEffect, useCallback} from 'react';
 import {Text, useInput} from 'ink';
 import chalk from 'chalk';
 
+/**
+ * 文本位置接口
+ */
 interface TextPosition {
+	/** 行号（从 0 开始） */
 	line: number;
+	/** 列号（从 0 开始） */
 	column: number;
 }
 
+/**
+ * 光标状态接口
+ */
 interface CursorState {
+	/** 光标在文本中的偏移量 */
 	cursorOffset: number;
+	/** 期望的列位置（用于上下移动时保持列位置） */
 	desiredColumn: number | null;
 }
 
 /**
  * 将字符偏移量转换为行列位置
+ *
+ * @param text - 原始文本
+ * @param offset - 字符偏移量
+ * @returns 对应的行列位置
  */
 function offsetToPosition(text: string, offset: number): TextPosition {
 	let line = 0;
@@ -31,6 +58,10 @@ function offsetToPosition(text: string, offset: number): TextPosition {
 
 /**
  * 获取指定行的起始偏移量和行内容
+ *
+ * @param text - 原始文本
+ * @param lineNumber - 行号（从 0 开始）
+ * @returns 包含行起始偏移量和行内容的对象
  */
 function getLineInfo(text: string, lineNumber: number): {startOffset: number; content: string} {
 	const lines = text.split('\n');
@@ -46,12 +77,29 @@ function getLineInfo(text: string, lineNumber: number): {startOffset: number; co
 
 /**
  * 获取文本总行数
+ *
+ * @param text - 原始文本
+ * @returns 文本的总行数
  */
 function getLineCount(text: string): number {
 	if (text.length === 0) return 1;
 	return text.split('\n').length;
 }
 
+/**
+ * 多行文本输入组件
+ *
+ * 提供支持多行编辑的文本输入功能。
+ *
+ * @param props - 组件属性
+ * @param props.value - 当前文本内容
+ * @param props.placeholder - 占位符文本（可选）
+ * @param props.focus - 是否获取焦点（可选，默认 true）
+ * @param props.showCursor - 是否显示光标（可选，默认 true）
+ * @param props.onChange - 文本变更回调
+ * @param props.onSubmit - 提交回调（可选，Enter 键触发）
+ * @returns 返回多行文本输入的 JSX 元素
+ */
 export default function MultilineTextInput({
 	value: originalValue,
 	placeholder = '',

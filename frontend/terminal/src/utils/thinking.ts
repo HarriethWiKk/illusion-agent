@@ -6,16 +6,16 @@
  * 2. 独立 reasoning 文本：通过后端 reasoning_content 字段传输（Kimi k2.5 等 OpenAI 兼容模型）
  */
 
-// 匹配完整的 <think...> 和 </think...> 标签
+/** 匹配完整的 <think...> 和 </think...> 标签 */
 const THINK_OPEN_TAG = /<think\b[^>]*>/gi;
 const THINK_CLOSE_TAG = /<\/think\b[^>]*>/gi;
-// 匹配未闭合的 <think 开头标签（流式传输时标签可能被截断）
+/** 匹配未闭合的 <think 开头标签（流式传输时标签可能被截断） */
 const THINK_OPEN_INCOMPLETE = /<th(?:i(?:n(?:k)?)?)?\s*$/i;
-// 匹配完整的开闭标签对及其内容
+/** 匹配完整的开闭标签对及其内容 */
 const THINK_BLOCK_FULL = /<think\b[^>]*>[\s\S]*?<\/think\b[^>]*>/gi;
-// DeepSeek 工具调用残留标记（例如 <｜DSML｜tool_calls）
+/** DeepSeek 工具调用残留标记（例如 <｜DSML｜tool_calls） */
 const DSML_TOOL_CALL_PREFIX = /<\s*[|｜]\s*DSML\s*[|｜]\s*tool_calls[^\n>]*>?/gi;
-// 兼容常见工具调用 XML 片段
+/** 兼容常见工具调用 XML 片段 */
 const TOOL_CALL_XML_BLOCK = /<tool_call\b[^>]*>[\s\S]*?<\/tool_call\b[^>]*>/gi;
 const TOOL_CALL_XML_TAG = /<\/?(?:tool_call|arg_key|arg_value)\b[^>]*>/gi;
 

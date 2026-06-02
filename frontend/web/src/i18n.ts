@@ -1,11 +1,28 @@
 /**
- * Web 前端国际化模块
+ * @fileoverview Web 前端国际化模块
  *
- * 支持 zh-CN 和 en 两种语言，语言由后端 settings 的 ui_language 字段决定
+ * 支持 zh-CN 和 en 两种语言，语言由后端 settings 的 ui_language 字段决定。
+ * 所有用户可见的文本都应通过 t() 函数获取，以确保语言切换功能正常工作。
+ *
+ * @module i18n
  */
 
+/**
+ * 支持的 UI 语言类型
+ * - 'zh-CN': 简体中文
+ * - 'en': 英文
+ */
 export type UiLanguage = 'zh-CN' | 'en';
 
+/**
+ * 标准化语言代码
+ *
+ * 将输入的语言值标准化为有效的 UiLanguage 类型。
+ * 如果输入为以 'en' 开头的字符串则返回 'en'，否则默认返回 'zh-CN'。
+ *
+ * @param raw - 原始语言值（可能为任意类型）
+ * @returns 标准化后的语言代码
+ */
 export function normalizeLanguage(raw: unknown): UiLanguage {
   if (typeof raw === 'string' && raw.toLowerCase().startsWith('en')) return 'en';
   return 'zh-CN';
@@ -137,6 +154,17 @@ const EN: Record<string, string> = {
   multi_select_confirm: 'Confirm',
 };
 
+/**
+ * 获取国际化文本
+ *
+ * 根据当前语言和文本键获取对应的翻译文本。
+ * 如果指定语言中不存在该键，则回退到中文文本。
+ * 如果中文中也不存在，则返回键名本身。
+ *
+ * @param lang - 当前 UI 语言
+ * @param key - 文本标识符
+ * @returns 对应语言的翻译文本
+ */
 export function t(lang: UiLanguage, key: string): string {
   if (lang === 'en') return EN[key] || ZH[key] || key;
   return ZH[key] || key;

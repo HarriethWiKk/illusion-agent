@@ -1,19 +1,56 @@
+/**
+ * @fileoverview 工具栏组件
+ *
+ * Web 前端的工具栏组件，提供：
+ * - 权限模式切换（默认/计划/自动）
+ * - 模型选择
+ * - 思考强度选择
+ *
+ * @module Toolbar
+ */
+
 import { useMemo, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
+/**
+ * 选项类型
+ */
 type Option = { value: string; label: string; active?: boolean };
 
+/**
+ * Toolbar 组件属性接口
+ */
 interface ToolbarProps {
+  /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 后端状态 */
   status: Record<string, unknown>;
+  /** 思考强度选项列表 */
   effortOptions: Option[];
+  /** 模型选项列表 */
   modelOptions: Option[];
+  /** 权限模式变更回调 */
   onModeChange: (value: string) => void;
+  /** 模型变更回调 */
   onModelChange: (value: string) => void;
+  /** 思考强度变更回调 */
   onEffortChange: (value: string) => void;
+  /** 请求模型列表回调 */
   onRequestModelList: () => void;
 }
 
+/**
+ * 下拉选择组件
+ *
+ * 通用的下拉选择器组件。
+ *
+ * @param props - 组件属性
+ * @param props.value - 当前值
+ * @param props.placeholder - 占位符文本
+ * @param props.options - 选项列表
+ * @param props.onChange - 变更回调
+ * @param props.onOpen - 展开回调（可选）
+ */
 function Dropdown({ value, placeholder, options, onChange, onOpen }: {
   value: string; placeholder?: string; options: Option[];
   onChange: (v: string) => void; onOpen?: () => void;

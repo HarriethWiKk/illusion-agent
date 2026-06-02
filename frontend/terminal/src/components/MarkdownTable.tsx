@@ -1,13 +1,30 @@
+/**
+ * @fileoverview Markdown 表格渲染组件
+ *
+ * 将 Markdown 表格渲染为终端可显示的文本。
+ * 支持：
+ * - 自动列宽计算
+ * - 文本对齐（左对齐、居中、右对齐）
+ * - 长文本自动换行
+ * - 垂直布局模式（当表格过宽时）
+ *
+ * @module MarkdownTable
+ */
+
 import type {Token, Tokens} from 'marked';
 import React from 'react';
 import {Text} from 'ink';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {padAligned, stringWidth, stripAnsi, wrapText} from '../utils/markdown.js';
 
+/** 安全边距（防止表格超出终端宽度） */
 const SAFETY_MARGIN = 4;
+/** 最小列宽 */
 const MIN_COLUMN_WIDTH = 3;
+/** 最大行数（超过此数使用垂直布局） */
 const MAX_ROW_LINES = 4;
 
+/** 行内代码颜色 */
 const INLINE_CODE_COLOR = '#b1b9f9';
 
 function hexToAnsiRgb(hex: string): string {

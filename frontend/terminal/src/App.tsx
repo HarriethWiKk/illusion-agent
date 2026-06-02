@@ -1,3 +1,16 @@
+/**
+ * @fileoverview 应用程序主组件模块
+ *
+ * 本模块是 IllusionCode 终端前端的核心入口，负责：
+ * 1. 整体应用布局与组件组合
+ * 2. 处理用户输入与键盘事件
+ * 3. 管理各种模态对话框（权限确认、计划审批、选择列表等）
+ * 4. 与后端会话通信
+ * 5. 支持国际化语言切换
+ *
+ * @module App
+ */
+
 import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
@@ -15,7 +28,18 @@ import {normalizeLanguage, t} from './i18n.js';
 import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
 
+/**
+ * 是否使用原始回车提交模式
+ * 当环境变量 ILLUSION_FRONTEND_RAW_RETURN 设置为 '1' 时启用
+ * 启用后回车键会直接提交输入内容，而不是触发换行
+ */
 const rawReturnSubmit = process.env.ILLUSION_FRONTEND_RAW_RETURN === '1';
+
+/**
+ * 脚本化自动化步骤列表
+ * 从环境变量 ILLUSION_FRONTEND_SCRIPT 中解析 JSON 数组
+ * 用于自动化测试或演示场景，按顺序自动执行预设的命令
+ */
 const scriptedSteps = (() => {
 	const raw = process.env.ILLUSION_FRONTEND_SCRIPT;
 	if (!raw) {
@@ -29,30 +53,59 @@ const scriptedSteps = (() => {
 	}
 })();
 
+/**
+ * 权限模式选项列表
+ * 定义了三种权限模式：默认模式、自动模式、计划模式
+ * 用于权限模式选择对话框
+ */
 const PERMISSION_MODES: SelectOption[] = [
 	{value: 'default', label: 'Default', description: 'Ask before write/execute operations'},
 	{value: 'full_auto', label: 'Auto', description: 'Allow all tools automatically'},
 	{value: 'plan', label: 'Plan Mode', description: 'Block all write operations'},
 ];
 
+/**
+ * 选择模态对话框状态类型
+ * @property title - 对话框标题
+ * @property options - 可选项列表
+ * @property onSelect - 选择回调函数
+ */
 type SelectModalState = {
 	title: string;
 	options: SelectOption[];
 	onSelect: (value: string) => void;
 } | null;
 
+/**
+ * 权限确认提示选项列表
+ * 当工具需要执行权限时显示的三个选项：允许、始终允许、拒绝
+ */
 const PERMISSION_PROMPT_OPTIONS: SelectOption[] = [
 	{value: 'allow', label: 'Allow', description: 'Approve this tool execution'},
 	{value: 'always', label: 'Always Allow', description: 'Always allow this tool without asking again'},
 	{value: 'deny', label: 'Deny', description: 'Reject this tool execution'},
 ];
 
+/**
+ * 计划审批选项列表
+ * 当 AI 生成执行计划后，用户可以选择批准或拒绝该计划
+ */
 const PLAN_APPROVAL_OPTIONS: SelectOption[] = [
 	{value: 'approve', label: 'Approve', description: 'Approve plan and start implementation'},
 	{value: 'reject', label: 'Reject', description: 'Reject plan and provide feedback'},
 ];
 
 
+/**
+ * 应用程序根组件
+ *
+ * 作为整个应用的入口点，包裹 ThemeProvider 以提供主题上下文。
+ * 接收前端配置参数并传递给内部组件。
+ *
+ * @param props - 组件属性
+ * @param props.config - 前端配置对象，包含后端连接等配置信息
+ * @returns 返回包含主题提供者和内部应用组件的 JSX 元素
+ */
 export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	return (
 		<ThemeProvider>
@@ -61,6 +114,20 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	);
 }
 
+/**
+ * 应用程序内部核心组件
+ *
+ * 负责处理所有应用逻辑，包括：
+ * - 用户输入处理与键盘事件监听
+ * - 后端会话管理与通信
+ * - 各种模态对话框的状态管理（权限确认、计划审批、选择列表等）
+ * - 命令解析与执行
+ * - 国际化语言支持
+ *
+ * @param props - 组件属性
+ * @param props.config - 前端配置对象
+ * @returns 返回完整的应用界面 JSX 元素
+ */
 function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const {exit} = useApp();
 	const theme = useTheme();
@@ -100,7 +167,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		return {...opt, label: t(language, 'deny')};
 	});
 
-	// Current tool name for spinner
+	/**
+	 * 当前正在执行的工具名称
+	 *
+	 * 用于在加载动画（Spinner）中显示当前正在执行的工具名称。
+	 * 优先检查 pendingToolCalls（工具调用刚开始，参数尚未到达），
+	 * 然后从静态消息列表中查找最近的工具调用。
+	 *
+	 * @returns 当前工具名称，如果没有正在执行的工具则返回 undefined
+	 */
 	const currentToolName = useMemo(() => {
 		// 优先检查 pendingToolCalls（工具调用刚开始，参数尚未到达）
 		if (session.pendingToolCalls.length > 0) {
@@ -118,7 +193,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		return undefined;
 	}, [session.staticItems, session.pendingToolCalls]);
 
-	// Command hints
+	/**
+	 * 命令提示列表
+	 *
+	 * 根据用户当前输入内容，过滤并排序匹配的命令列表。
+	 * 当输入以 '/' 开头时，显示所有以该前缀开头的可用命令。
+	 * 特别地，当输入仅为 '/' 时，将 '/language' 命令优先显示。
+	 *
+	 * @returns 匹配的命令字符串数组
+	 */
 	const commandHints = useMemo(() => {
 		if (!input.startsWith('/')) {
 			return [] as string[];
@@ -144,7 +227,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPickerIndex(0);
 	}, [canShowPicker, commandHints.length, input]);
 
-	// Handle backend-initiated select requests (e.g. /resume session list)
+	/**
+	 * 处理后端发起的选择请求
+	 *
+	 * 当后端需要用户从列表中选择时（例如 /resume 恢复会话列表），
+	 * 会发送 selectRequest，此效果函数将其转换为前端选择模态对话框。
+	 */
 	useEffect(() => {
 		if (!session.selectRequest) {
 			return;
@@ -188,11 +276,19 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPlanFeedback('');
 	}, [planApprovalRequestId, isPlanApprovalModal]);
 
-	// Intercept special commands that need interactive UI
+	/**
+	 * 拦截需要交互式界面的特殊命令
+	 *
+	 * 检查用户输入是否为需要特殊处理的命令（如权限设置、语言切换等），
+	 * 这些命令不会直接发送到后端，而是在前端显示相应的选择界面。
+	 *
+	 * @param cmd - 用户输入的命令字符串
+	 * @returns 如果命令被拦截处理则返回 true，否则返回 false
+	 */
 	const handleCommand = (cmd: string): boolean => {
 		const trimmed = cmd.trim();
 
-		// /permissions → show mode picker
+		// /permissions → 显示权限模式选择器
 		if (trimmed === '/permissions' || trimmed === '/permissions show') {
 			const currentMode = String(session.status.permission_mode ?? 'default');
 			const options = PERMISSION_MODES.map((opt) => ({
@@ -233,7 +329,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /plan → toggle plan mode
+		// /plan → 切换计划模式
 		if (trimmed === '/plan') {
 			const currentMode = String(session.status.permission_mode ?? 'default');
 			if (currentMode === 'plan') {
@@ -245,43 +341,43 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /resume → request session list from backend (will trigger select_request)
+		// /resume → 从后端请求会话列表（将触发 select_request）
 		if (trimmed === '/resume') {
 			session.sendRequest({type: 'list_sessions'});
 			return true;
 		}
 
-		// /model → show model selector dropdown
+		// /model → 显示模型选择下拉菜单
 		if (trimmed === '/model' || trimmed === '/model show') {
 			session.sendRequest({type: 'select_command', command: 'model'});
 			return true;
 		}
 
-		// /rewind → show message selector to pick rewind point
+		// /rewind → 显示消息选择器以选择回溯点
 		if (trimmed === '/rewind') {
 			session.sendRequest({type: 'select_command', command: 'rewind'});
 			return true;
 		}
 
-		// /delete → show session picker for deletion
+		// /delete → 显示会话选择器以删除会话
 		if (trimmed === '/delete') {
 			session.sendRequest({type: 'select_command', command: 'delete'});
 			return true;
 		}
 
-		// /rules → show rule picker
+		// /rules → 显示规则选择器
 		if (trimmed === '/rules') {
 			session.sendRequest({type: 'select_command', command: 'rules'});
 			return true;
 		}
 
-		// /context → show context management selector
+		// /context → 显示上下文管理选择器
 		if (trimmed === '/context') {
 			session.sendRequest({type: 'select_command', command: 'context'});
 			return true;
 		}
 
-		// /new → clear conversation window and start fresh session
+		// /new → 清空对话窗口并开始新会话
 		if (trimmed === '/new' || trimmed === '/clear') {
 			session.sendRequest({type: 'submit_line', line: '/new'});
 			session.setBusy(true);
@@ -300,6 +396,22 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		return false;
 	};
 
+	/**
+	 * 键盘输入事件处理函数
+	 *
+	 * 处理所有键盘快捷键和交互逻辑，包括：
+	 * - Ctrl+C: 退出程序
+	 * - Ctrl+X: 停止当前任务
+	 * - Ctrl+O: 将指令结果显示到对话中
+	 * - ESC: 清除指令结果
+	 * - 选择模态对话框的导航和选择
+	 * - 权限确认对话框的交互
+	 * - 计划审批对话框的交互
+	 * - 命令选择器的导航和选择
+	 *
+	 * @param chunk - 输入的字符内容
+	 * @param key - 按键信息对象，包含修饰键状态和特殊键标识
+	 */
 	useInput((chunk, key) => {
 		// Ctrl+C → 退出程序
 		if (key.ctrl && chunk === 'c') {
@@ -332,7 +444,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Select modal (permissions picker etc.) ---
+		// --- 选择模态对话框（权限选择器等） ---
 		if (selectModal) {
 			if (key.upArrow) {
 				setSelectIndex((i) => Math.max(0, i - 1));
@@ -354,7 +466,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				session.setBusy(false);
 				return;
 			}
-			// Number keys for quick selection
+			// 数字键快速选择
 			const num = parseInt(chunk, 10);
 			if (num >= 1 && num <= selectModal.options.length) {
 				const selected = selectModal.options[num - 1];
@@ -366,7 +478,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Scripted raw return ---
+		// --- 脚本化原始回车提交 ---
 		if (rawReturnSubmit && key.return) {
 			if (session.modal?.kind === 'question') {
 				session.sendRequest({
@@ -384,7 +496,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 		}
 
-		// --- Permission modal (MUST be before busy check — modal appears while busy) ---
+		// --- 权限确认模态对话框（必须在忙碌状态检查之前 — 模态框在忙碌时也会出现） ---
 		if (isPermissionModal) {
 			if (pendingPermissionAck) {
 				return;
@@ -415,12 +527,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Plan approval modal (MUST be before busy check — modal appears while busy) ---
+		// --- 计划审批模态对话框（必须在忙碌状态检查之前 — 模态框在忙碌时也会出现） ---
 		if (isPlanApprovalModal) {
-			// Feedback input mode
+			// 反馈输入模式
 			if (planFeedbackMode) {
 				if (key.return) {
-					// Submit rejection with feedback
+					// 提交拒绝并附带反馈
 					if (planApprovalRequestId) {
 						session.sendRequest({
 							type: 'plan_approval_response',
@@ -434,7 +546,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					return;
 				}
 				if (key.escape) {
-					// Cancel feedback, go back to options
+					// 取消反馈，返回选项界面
 					setPlanFeedbackMode(false);
 					setPlanFeedback('');
 					return;
@@ -443,7 +555,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					setPlanFeedback((f) => f.slice(0, -1));
 					return;
 				}
-				// Append printable characters
+				// 追加可打印字符
 				if (chunk && !key.ctrl && !key.meta) {
 					setPlanFeedback((f) => f + chunk);
 				}
@@ -468,13 +580,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						allowed: true,
 					});
 				} else {
-					// Enter feedback mode for rejection
+					// 进入反馈模式以拒绝计划
 					setPlanFeedbackMode(true);
 				}
 				return;
 			}
 			if (key.escape) {
-				// Escape = reject without feedback
+				// ESC = 不带反馈直接拒绝
 				if (planApprovalRequestId) {
 					session.sendRequest({
 						type: 'plan_approval_response',
@@ -487,17 +599,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Question modal (also appears while busy) ---
+		// --- 问题模态对话框（在忙碌时也会出现） ---
 		if (session.modal?.kind === 'question') {
 			return;
 		}
 
-		// --- Ignore input while busy ---
+		// --- 忙碌时忽略输入 ---
 		if (session.busy) {
 			return;
 		}
 
-		// --- Command picker ---
+		// --- 命令选择器 ---
 		if (showPicker) {
 			if (key.upArrow) {
 				setPickerIndex((i) => Math.max(0, i - 1));
@@ -533,10 +645,21 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 		}
 
-		// Note: normal Enter submission is handled by TextInput's onSubmit in
-		// PromptInput.  Do NOT duplicate it here — that causes double requests.
+		// 注意：普通的回车提交由 PromptInput 中的 TextInput 的 onSubmit 处理。
+		// 不要在这里重复处理 — 否则会导致重复请求。
 	});
 
+	/**
+	 * 表单提交处理函数
+	 *
+	 * 处理用户输入的提交逻辑：
+	 * 1. 如果当前有问答模态框，将输入作为回答发送到后端
+	 * 2. 如果输入为空、会话忙碌或未就绪，则忽略提交
+	 * 3. 如果是交互式命令，交给 handleCommand 处理
+	 * 4. 否则将输入作为普通消息发送到后端
+	 *
+	 * @param value - 用户输入的字符串值
+	 */
 	const onSubmit = (value: string): void => {
 		if (session.modal?.kind === 'question') {
 			session.sendRequest({
@@ -552,7 +675,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (!trimmed || session.busy || !session.ready) {
 			return;
 		}
-		// Check if it's an interactive command
+		// 检查是否为交互式命令
 		if (handleCommand(trimmed)) {
 			setInput('');
 			return;
@@ -573,7 +696,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		return () => clearTimeout(timer);
 	}, [session.commandResult]);
 
-	// Scripted automation
+	/**
+	 * 脚本化自动化执行效果
+	 *
+	 * 按顺序自动执行 scriptedSteps 中的命令步骤。
+	 * 当会话忙碌、存在模态对话框或选择对话框时暂停执行。
+	 * 每个步骤之间间隔 200 毫秒。
+	 */
 	useEffect(() => {
 		if (scriptIndex >= scriptedSteps.length) {
 			return;
@@ -591,7 +720,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 	return (
 		<Box flexDirection="column" height="100%">
-			{/* Conversation area */}
+			{/* 对话区域 */}
 			<Box flexDirection="column" flexGrow={1}>
 				<ConversationView
 					staticItems={session.staticItems}
@@ -606,7 +735,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			</Box>
 
 			<Box flexDirection="column" paddingX={1}>
-			{/* Plan approval modal — lightweight, plan content rendered in conversation */}
+			{/* 计划审批模态框 — 轻量级，计划内容在对话区域渲染 */}
 			{isPlanApprovalModal ? (
 				<Box flexDirection="column" marginTop={1} paddingX={1}>
 					{planFeedbackMode ? (
@@ -640,7 +769,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				</Box>
 			) : null}
 
-			{/* Permission confirm modal */}
+			{/* 权限确认模态框 */}
 			{isPermissionModal ? (
 				<SelectModal
 					title={`Allow ${String(session.modal?.tool_name ?? 'tool')}?`}
@@ -649,7 +778,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* Backend modal (question, mcp auth) */}
+			{/* 后端模态框（问答、MCP 认证） */}
 			{session.modal && !isPermissionModal && !isPlanApprovalModal ? (
 				<ModalHost
 					modal={session.modal}
@@ -660,7 +789,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* Frontend select modal (permissions picker, etc.) */}
+			{/* 前端选择模态框（权限选择器等） */}
 			{selectModal ? (
 				<SelectModal
 					title={selectModal.title}
@@ -669,12 +798,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* Command picker */}
+			{/* 命令选择器 */}
 			{showPicker ? (
 				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} totalCommands={session.commands.length} />
 			) : null}
 
-			{/* Command result display */}
+			{/* 指令结果显示 */}
 			{session.commandResult ? (
 				<CommandPicker
 					mode="result"
@@ -683,22 +812,22 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* Todo panel — hidden during plan approval */}
+			{/* 待办面板 — 计划审批期间隐藏 */}
 			{!isPlanApprovalModal && session.ready && session.todoItems.length > 0 ? (
 				<TodoPanel items={session.todoItems} />
 			) : null}
 
-			{/* Swarm panel — hidden during plan approval */}
+			{/* 群体协作面板 — 计划审批期间隐藏 */}
 			{!isPlanApprovalModal && session.ready && (session.swarmTeammates.length > 0 || session.swarmNotifications.length > 0) ? (
 				<SwarmPanel teammates={session.swarmTeammates} notifications={session.swarmNotifications} />
 			) : null}
 
-			{/* Status bar — hidden during plan approval */}
+			{/* 状态栏 — 计划审批期间隐藏 */}
 			{!isPlanApprovalModal && session.ready ? (
 				<StatusBar status={session.status} tasks={session.tasks} />
 			) : null}
 
-			{/* Input — show loading indicator until backend is ready */}
+			{/* 输入区域 — 后端就绪前显示加载指示器 */}
 			{!session.ready ? (
 				<Box>
 					<Text color={theme.colors.warning}>{t(language, 'connecting')}</Text>
@@ -727,7 +856,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			)}
 
-			{/* Keyboard hints (only after backend is ready) */}
+			{/* 键盘快捷键提示（仅在后端就绪后显示） */}
 			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
 				<Box>
 					<Text dimColor>
