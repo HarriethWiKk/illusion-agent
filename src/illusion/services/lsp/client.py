@@ -302,17 +302,21 @@ class LspClient:
         if self._process is None or self._process.stdin is None:
             return
         msg = {"jsonrpc": "2.0", "id": msg_id, "result": result}
-        try:
-            self._process.stdin.write(encode_message(msg))
-        except (BrokenPipeError, ConnectionResetError):
-            self._connected = False
+        asyncio.create_task(self._write_message(msg))
 
     def _send_error_response(self, msg_id: int, code: int, message: str) -> None:
         """发送错误响应消息。"""
         if self._process is None or self._process.stdin is None:
             return
         msg = {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
+        asyncio.create_task(self._write_message(msg))
+
+    async def _write_message(self, msg: dict[str, Any]) -> None:
+        """异步写入消息到 stdin。"""
+        if self._process is None or self._process.stdin is None:
+            return
         try:
             self._process.stdin.write(encode_message(msg))
+            await self._process.stdin.drain()
         except (BrokenPipeError, ConnectionResetError):
             self._connected = False

@@ -96,21 +96,17 @@ class LspManager:
             return
 
         import os
-        config = self._configs.get(lang_id)
-
         await client.initialize(
             root_uri=root_uri,
             root_path=root_path,
             process_id=os.getpid(),
-            initialization_options=config.initialization_options if config else None,
             capabilities={
                 "window": {
                     "workDoneProgress": True,
                 },
                 "workspace": {
-                    "configuration": True,
-                    "didChangeWatchedFiles": {"dynamicRegistration": True},
-                    "workspaceFolders": True,
+                    "configuration": False,
+                    "workspaceFolders": False,
                 },
                 "textDocument": {
                     "synchronization": {
@@ -122,7 +118,7 @@ class LspManager:
                     "publishDiagnostics": {
                         "relatedInformation": True,
                         "tagSupport": {"valueSet": [1, 2]},
-                        "versionSupport": True,
+                        "versionSupport": False,
                         "codeDescriptionSupport": True,
                         "dataSupport": False,
                     },
@@ -153,12 +149,6 @@ class LspManager:
                 },
             },
         )
-
-        # 发送配置变更通知（opencode 的关键模式）
-        if config and config.settings:
-            await client.notify("workspace/didChangeConfiguration", {
-                "settings": config.settings,
-            })
 
     @staticmethod
     def _handle_workspace_config(params: Any) -> list:
