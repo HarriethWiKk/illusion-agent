@@ -53,6 +53,11 @@ class LspClient:
         self.capabilities: dict | None = None
         self.is_initialized = False
 
+    @property
+    def is_alive(self) -> bool:
+        """检查服务器进程是否仍在运行。"""
+        return self._proc is not None and self._proc.returncode is None
+
     async def start(self, command: str, args: list[str], options: dict | None = None) -> None:
         if self._proc is not None:
             return
@@ -243,8 +248,6 @@ class LspClient:
                     logger.error("Handler error for %s: %s", msg["method"], e)
             else:
                 result = None
-                logger.debug("No handler for server request: %s", msg["method"])
-            # 异步发送响应（不阻塞读取循环）
             resp = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
             asyncio.ensure_future(self._write(_encode(resp)))
         elif "method" in msg:

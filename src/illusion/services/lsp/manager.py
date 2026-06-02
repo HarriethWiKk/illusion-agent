@@ -152,7 +152,7 @@ class LspManager:
 
     @staticmethod
     def _handle_workspace_config(params: Any) -> list:
-        """处理 workspace/configuration 请求，返回空配置对象。"""
+        """处理 workspace/configuration 请求。"""
         items = params.get("items", []) if isinstance(params, dict) else []
         return [{}] * len(items)
 
@@ -171,10 +171,11 @@ class LspManager:
         # 检查已有客户端是否仍可用
         if lang_id in self._clients:
             client = self._clients[lang_id]
-            if client._connected:
+            if client._connected and client.is_alive:
                 return client
-            # 连接已断开，移除并重新启动
-            logger.info("LSP client for %s disconnected, restarting", lang_id)
+            # 连接已断开或进程已退出，移除并重新启动
+            logger.info("LSP client for %s unavailable (connected=%s, alive=%s), restarting",
+                        lang_id, client._connected, client.is_alive)
             self._clients.pop(lang_id, None)
 
         if lang_id in self._starting:
