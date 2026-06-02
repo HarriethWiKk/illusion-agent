@@ -271,9 +271,5 @@ class LspClient:
                 line = self._proc.stderr.readline()
                 if not line:
                     break
-                text = line.decode("utf-8", errors="replace").strip()
-                if text:
-                    import sys
-                    print(f"[LSP-STDERR] {text}", file=sys.stderr, flush=True)
         except Exception:
             pass

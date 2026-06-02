@@ -240,7 +240,6 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
         all_results: list[dict] = []
         query_lower = query.lower()
-        manager = _get_manager()
 
         # 收集项目中的所有源文件
         source_files: list[tuple[Path, str]] = []
@@ -314,67 +313,6 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         if not all_results:
             return ToolResult(output=f"No symbols matching '{query}' found in workspace.")
         return ToolResult(output=format_workspace_symbol(all_results, root))
-
-    @staticmethod
-    async def _open_first_file(client: Any, lang_id: str, root: Path) -> None:
-        """打开工作区中的一个源文件。"""
-        ext_map = {".py": "python", ".ts": "typescript", ".go": "go", ".rs": "rust", ".c": "cpp"}
-        target_ext = None
-        for ext, lid in ext_map.items():
-            if lid == lang_id:
-                target_ext = ext
-                break
-        if not target_ext:
-            return
-
-        search_dirs = [root / "src", root / "lib", root / "app", root]
-        target_file = None
-        for search_dir in search_dirs:
-            if not search_dir.is_dir():
-                continue
-            try:
-                for f in search_dir.iterdir():
-                    if f.is_file() and f.suffix == target_ext:
-                        target_file = f
-                        break
-                    if f.is_dir() and not f.name.startswith(".") and f.name not in ("node_modules", "__pycache__", "venv", ".venv"):
-                        for sub in f.iterdir():
-                            if sub.is_file() and sub.suffix == target_ext:
-                                target_file = sub
-                                break
-                        if target_file:
-                            break
-            except OSError:
-                continue
-            if target_file:
-                break
-
-        if not target_file:
-            return
-
-        try:
-            content = target_file.read_text(encoding="utf-8", errors="replace")
-            file_uri = target_file.as_uri()
-
-            diag_event = asyncio.Event()
-            def _on_diag(params: dict) -> None:
-                if params.get("uri") == file_uri:
-                    diag_event.set()
-            client.on_notification("textDocument/publishDiagnostics", _on_diag)
-
-            await client.notify("textDocument/didOpen", {
-                "textDocument": {
-                    "uri": file_uri, "languageId": lang_id, "version": 1, "text": content,
-                },
-            })
-            _opened_files[file_uri] = lang_id
-
-            try:
-                await asyncio.wait_for(diag_event.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                pass
-        except Exception:
-            pass
 
     async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
