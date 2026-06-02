@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import tempfile
-from collections import defaultdict
 from pathlib import Path
 
 from illusion.commands.types import CommandContext, CommandResult
@@ -23,8 +22,7 @@ from illusion.commands.init.analysis.architecture import analyze_architecture
 from illusion.commands.init.analysis.conventions import detect_conventions
 from illusion.commands.init.analysis.dependencies import analyze_dependencies
 from illusion.commands.init.analysis.key_modules import identify_key_modules
-from illusion.commands.init.extraction.enhanced_scan import scan_non_python
-from illusion.commands.init.extraction.python_ast import analyze_python_project
+from illusion.commands.init.extraction.lsp_symbols import extract_symbols_sync
 from illusion.commands.init.extraction.readme import extract_readme
 from illusion.commands.init.extraction.scanner import scan_project
 from illusion.commands.init.generation.claudemd import generate_claude_md, update_claude_md
@@ -87,18 +85,8 @@ def _run_extraction(root: Path) -> ProjectData:
         data.readme_summary = readme_summary
     data.readme_sections = readme_sections
 
-    # Python AST 分析
-    py_files = [root / f.path for f in data.files if f.language == "Python"]
-    if py_files:
-        data.python_modules = analyze_python_project(root, py_files)
-
-    # 非 Python 语言扫描
-    files_by_lang: dict[str, list[Path]] = defaultdict(list)
-    for f in data.files:
-        if f.language != "Python":
-            files_by_lang[f.language].append(root / f.path)
-    if files_by_lang:
-        data.non_python_overviews = scan_non_python(root, dict(files_by_lang))
+    # 通过 LSP 提取所有语言的符号
+    data.modules = extract_symbols_sync(root, data.languages)
 
     return data
 

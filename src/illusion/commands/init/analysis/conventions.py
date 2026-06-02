@@ -43,12 +43,16 @@ def detect_conventions(data: ProjectData) -> ConventionInfo:
 
 def _detect_naming_style(data: ProjectData) -> str:
     """检测命名风格：snake_case / camelCase / mixed"""
+    from illusion.services.lsp.types import SymbolKind
+
     snake = 0
     camel = 0
 
-    for mod in data.python_modules:
-        for func in mod.functions:
-            name = func.name
+    for mod in data.modules:
+        for sym in mod.symbols:
+            if sym.kind not in (SymbolKind.FUNCTION, SymbolKind.METHOD):
+                continue
+            name = sym.name
             if name.startswith("_"):
                 name = name.lstrip("_")
             if "_" in name and name == name.lower():
@@ -56,13 +60,8 @@ def _detect_naming_style(data: ProjectData) -> str:
             elif name[0].islower() and any(c.isupper() for c in name):
                 camel += 1
 
-        for cls in mod.classes:
-            # PascalCase 类名不算 camelCase
-            pass
-
     total = snake + camel
     if total < 5:
-        # 没有足够的样本，检查文件名
         return _detect_naming_from_filenames(data)
 
     if snake / total >= 0.8:
@@ -95,7 +94,7 @@ def _detect_import_style(data: ProjectData) -> str:
     relative = 0
     absolute = 0
 
-    for mod in data.python_modules:
+    for mod in data.modules:
         for imp in mod.imports:
             if imp.startswith("."):
                 relative += 1
@@ -114,15 +113,26 @@ def _detect_import_style(data: ProjectData) -> str:
 
 
 def _detect_docstring_style(data: ProjectData) -> str | None:
-    """检测 docstring 风格"""
-    from illusion.commands.init.extraction.python_ast import detect_docstring_style_from_modules
-    return detect_docstring_style_from_modules(data.python_modules)
+    """检测 docstring 风格（从配置文件推断）"""
+    # 从 pyproject.toml 或配置文件推断
+    pyproject = data.pyproject_data
+    if pyproject:
+        tool = pyproject.get("tool", {})
+        # ruff 使用 numpy docstring
+        if tool.get("ruff", {}).get("docstring-code-line-length"):
+            return "numpy"
+    return None
 
 
 def _detect_type_hints(data: ProjectData) -> bool:
-    """检测是否广泛使用类型注解"""
-    from illusion.commands.init.extraction.python_ast import detect_type_hints_usage
-    return detect_type_hints_usage(data.python_modules)
+    """检测是否广泛使用类型注解（从配置推断）"""
+    pyproject = data.pyproject_data
+    if pyproject:
+        # mypy/pyright 配置暗示使用类型注解
+        tool = pyproject.get("tool", {})
+        if "mypy" in tool or "pyright" in tool:
+            return True
+    return False
 
 
 def _detect_line_length(data: ProjectData) -> int | None:

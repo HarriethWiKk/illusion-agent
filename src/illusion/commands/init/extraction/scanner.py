@@ -169,8 +169,7 @@ def scan_project(root: Path) -> ProjectData:
         config_files=config_files,
         pyproject_data=pyproject,
         package_json_data=package_json,
-        python_modules=[],
-        non_python_overviews={},
+        modules=[],
     )
 
 

@@ -94,9 +94,9 @@ def _rule_project_structure(analysis: AnalysisResult, data: ProjectData) -> str:
         lines.append("")
 
     # 模块组织建议
-    if data.python_modules:
+    if data.modules:
         # 检测是否使用 src/ layout
-        has_src = any("src" in str(mod.path) for mod in data.python_modules)
+        has_src = any("src" in str(mod.path) for mod in data.modules)
         if has_src:
             lines.append("- Source code lives under `src/`")
         else:

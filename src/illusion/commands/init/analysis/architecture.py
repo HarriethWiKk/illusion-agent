@@ -162,23 +162,19 @@ def _detect_patterns(data: ProjectData) -> list[str]:
     if (root / "lib").is_dir() and (root / "bin").is_dir():
         notes.append("lib/ + bin/ structure")
 
-    # Module relationships（基于 Python import 分析）
-    if data.python_modules:
-        import_counts: Counter[str] = Counter()
-        for mod in data.python_modules:
-            for imp in mod.imports:
-                # 只统计项目内部导入
-                for other_mod in data.python_modules:
-                    other_name = other_mod.path.stem
-                    if other_name == "__init__":
-                        parts = other_mod.path.parent.parts
-                        other_name = parts[-1] if parts else ""
-                    if imp == other_name or imp.endswith(f".{other_name}"):
-                        import_counts[other_name] += 1
+    # Module relationships（基于符号数量分析）
+    if data.modules:
+        from illusion.services.lsp.types import SymbolKind
 
-        if import_counts:
-            core_modules = [name for name, count in import_counts.most_common(3) if count >= 2]
+        symbol_counts: Counter[str] = Counter()
+        for mod in data.modules:
+            count = len([s for s in mod.symbols if s.kind in (SymbolKind.CLASS, SymbolKind.FUNCTION, SymbolKind.METHOD)])
+            if count > 0:
+                symbol_counts[str(mod.path.stem)] += count
+
+        if symbol_counts:
+            core_modules = [name for name, _ in symbol_counts.most_common(3)]
             if core_modules:
-                notes.append(f"Core modules (most imported): {', '.join(core_modules)}")
+                notes.append(f"Core modules (most symbols): {', '.join(core_modules)}")
 
     return notes
