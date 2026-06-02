@@ -91,6 +91,7 @@ class LspClient:
             "window/workDoneProgress/create": lambda params: None,
         }
 
+        # 创建 LspEndpoint（不启动线程 — pylspclient.LspClient.initialize() 会自动启动）
         self._endpoint = pylspclient.LspEndpoint(
             json_rpc_endpoint,
             method_callbacks=method_callbacks,
@@ -98,9 +99,8 @@ class LspClient:
             timeout=60,
         )
         self._endpoint.daemon = True
-        self._endpoint.start()
 
-        # 创建 LSP 客户端
+        # 创建 LSP 客户端（initialize() 会调用 endpoint.start()）
         self._lsp_client = pylspclient.LspClient(self._endpoint)
 
         # stderr 日志
