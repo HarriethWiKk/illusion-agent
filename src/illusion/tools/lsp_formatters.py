@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 
 def resolve_path(base: Path, candidate: str) -> Path:
@@ -210,10 +211,15 @@ def format_outgoing_calls(results: list[dict[str, Any]], root: Path) -> str:
 
 
 def _uri_to_path(uri: str) -> Path:
-    """将 file:// URI 转换为 Path。"""
+    """将 file:// URI 转换为 Path，正确处理 Windows 路径和百分号编码。"""
     if uri.startswith("file://"):
-        return Path(uri[7:])
-    return Path(uri)
+        parsed = urlparse(uri)
+        path_str = unquote(parsed.path)
+        # Windows: file:///E:/path -> /E:/path，去掉前导 /
+        if len(path_str) >= 2 and path_str[0] == "/" and path_str[2] == ":":
+            path_str = path_str[1:]
+        return Path(path_str)
+    return Path(unquote(uri))
 
 
 def _symbol_kind_name(kind: int) -> str:

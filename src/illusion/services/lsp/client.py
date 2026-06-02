@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
+import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -83,13 +85,24 @@ class LspClient:
         if self._process is not None:
             raise RuntimeError("Client already started")
 
+        kwargs: dict[str, Any] = {
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+        }
+        if options and options.get("env"):
+            kwargs["env"] = options["env"]
+
+        # Windows: 隐藏控制台窗口
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            kwargs["startupinfo"] = startupinfo
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
         self._process = await asyncio.create_subprocess_exec(
-            command,
-            *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=options.get("env") if options else None,
+            command, *args, **kwargs,
         )
         self._connected = True
         self._reader_task = asyncio.create_task(self._read_loop())

@@ -13,6 +13,7 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from illusion.services.lsp.config import load_lsp_config
 from illusion.services.lsp.manager import LspManager
@@ -99,7 +100,14 @@ def _group_symbols_to_modules(
         if not uri:
             continue
 
-        file_path = Path(uri[7:]) if uri.startswith("file://") else Path(uri)
+        if uri.startswith("file://"):
+            parsed = urlparse(uri)
+            path_str = unquote(parsed.path)
+            if len(path_str) >= 2 and path_str[0] == "/" and path_str[2] == ":":
+                path_str = path_str[1:]
+            file_path = Path(path_str)
+        else:
+            file_path = Path(unquote(uri))
         try:
             file_path = file_path.relative_to(root)
         except ValueError:

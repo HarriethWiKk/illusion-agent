@@ -70,6 +70,24 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
     input_model = LspToolInput
 
+    @staticmethod
+    def _find_workspace_root(file_path: Path, cwd: Path) -> Path:
+        """查找文件的工作区根目录。
+
+        按优先级尝试：
+        1. 向上查找包含 .git 的目录
+        2. 向上查找包含 pyproject.toml/package.json/go.mod/Cargo.toml 的目录
+        3. 使用 cwd
+        """
+        current = file_path.parent
+        for marker in (".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml"):
+            check = current
+            while check != check.parent:
+                if (check / marker).exists():
+                    return check
+                check = check.parent
+        return cwd
+
     def is_read_only(self, arguments: LspToolInput) -> bool:
         del arguments
         return True
@@ -112,9 +130,10 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
-        # 初始化 LSP 服务器（使用工作区根目录）
+        # 初始化 LSP 服务器（使用文件所在目录的最近父目录作为工作区根目录）
         if not client.is_initialized:
-            await manager.initialize_client(lang_id, root.as_uri())
+            workspace_root = self._find_workspace_root(file_path, root)
+            await manager.initialize_client(lang_id, workspace_root.as_uri())
 
         # LSP 位置参数（0-based）
         position = {"line": arguments.line - 1, "character": arguments.character - 1}
@@ -156,7 +175,13 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         except TimeoutError:
             return ToolResult(output=f"LSP operation '{op}' timed out.", is_error=True)
         except RuntimeError as e:
-            return ToolResult(output=f"LSP error: {e}", is_error=True)
+            msg = str(e)
+            if "Unhandled method" in msg:
+                return ToolResult(
+                    output=f"The LSP server for {lang_id} does not support the '{op}' operation.",
+                    is_error=True,
+                )
+            return ToolResult(output=f"LSP error: {msg}", is_error=True)
 
     async def _go_to_definition(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
