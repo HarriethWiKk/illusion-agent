@@ -8,6 +8,7 @@ LSP 代码智能工具
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +151,8 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                     "text": content,
                 },
             })
+            # 等待服务器分析文件
+            await asyncio.sleep(1)
         except Exception:
             pass  # 非致命错误
 
