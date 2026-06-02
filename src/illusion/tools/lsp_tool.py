@@ -240,37 +240,25 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
         all_results: list[dict] = []
         for lang_id in manager._configs:
-            # 重试逻辑：崩溃后重启并重试
-            for attempt in range(2):
-                client = await manager.get_client_for_language(lang_id)
-                if client is None:
-                    break
+            client = await manager.get_client_for_language(lang_id)
+            if client is None:
+                continue
 
-                if not client.is_initialized:
-                    await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
+            if not client.is_initialized:
+                await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
 
-                if lang_id not in _opened_files.values():
-                    await self._open_first_file(client, lang_id, root)
+            # 必须先打开文件才能使用 workspace/symbol
+            if lang_id not in _opened_files.values():
+                await self._open_first_file(client, lang_id, root)
 
-                try:
-                    result = await client.request("workspace/symbol", query=query, timeout=15)
-                    if result:
-                        # 按符号名过滤：只保留名称包含查询词的符号（忽略大小写）
-                        query_lower = query.lower()
-                        filtered = [
-                            s for s in result
-                            if query_lower in s.get("name", "").lower()
-                        ]
-                        all_results.extend(filtered[:10])
-                    break  # 成功
-                except RuntimeError as e:
-                    if "connection lost" in str(e).lower():
-                        manager._clients.pop(lang_id, None)
-                        if attempt == 0:
-                            continue  # 重试
-                    break
-                except Exception:
-                    break
+            try:
+                result = await client.request("workspace/symbol", query=query, timeout=15)
+                if result:
+                    query_lower = query.lower()
+                    filtered = [s for s in result if query_lower in s.get("name", "").lower()]
+                    all_results.extend(filtered[:10])
+            except Exception:
+                continue
 
         return ToolResult(output=format_workspace_symbol(all_results, root))
 
