@@ -54,6 +54,11 @@ class LspToolInput(BaseModel):
         description="The absolute or relative path to the file",
     )
 
+    query: str = Field(
+        default="",
+        description="Search query for workspaceSymbol operation",
+    )
+
     line: int = Field(
         default=0,
         description="The line number (1-based, as shown in editors)",
