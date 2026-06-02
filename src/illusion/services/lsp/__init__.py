@@ -6,8 +6,12 @@ LSP 服务模块
 """
 
 from illusion.services.lsp.config import LspServerConfig, load_lsp_config
+from illusion.services.lsp.types import ModuleInfo, SymbolInfo, SymbolKind
 
 __all__ = [
     "LspServerConfig",
+    "ModuleInfo",
+    "SymbolInfo",
+    "SymbolKind",
     "load_lsp_config",
 ]

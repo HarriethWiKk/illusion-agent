@@ -37,18 +37,6 @@ class FileInfo:
 
 
 @dataclass
-class PythonModuleInfo:
-    """Python 模块的 AST 分析结果"""
-
-    path: Path
-    docstring: str | None
-    classes: list[SymbolInfo]
-    functions: list[SymbolInfo]
-    imports: list[str]
-    constants: list[tuple[str, str]]  # (name, type_hint_or_value)
-
-
-@dataclass
 class ProjectData:
     """提取阶段的原始数据"""
 
@@ -68,8 +56,7 @@ class ProjectData:
     config_files: dict[str, str]  # filename -> content excerpt
     pyproject_data: dict[str, Any] | None
     package_json_data: dict[str, Any] | None
-    python_modules: list[PythonModuleInfo]
-    non_python_overviews: dict[str, list[str]]  # lang -> key symbols
+    modules: list  # list[ModuleInfo] from illusion.services.lsp.types
 
 
 @dataclass
