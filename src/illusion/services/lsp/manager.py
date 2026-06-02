@@ -89,24 +89,73 @@ class LspManager:
         self._clients.clear()
         self._starting.clear()
 
-    async def initialize_client(self, lang_id: str, root_uri: str) -> None:
+    async def initialize_client(self, lang_id: str, root_uri: str, root_path: str | None = None) -> None:
         """初始化指定语言的 LSP 客户端（如果尚未初始化）。"""
         client = self._clients.get(lang_id)
         if client is None or client.is_initialized:
             return
+
+        # 注册 workspace/configuration 请求处理器
+        # 某些服务器（如 pyright、tsserver）会发送此请求，即使客户端未声明支持
+        client.on_request("workspace/configuration", self._handle_workspace_config)
+
+        import os
         await client.initialize(
             root_uri=root_uri,
+            root_path=root_path,
+            process_id=os.getpid(),
             capabilities={
+                "workspace": {
+                    "configuration": False,
+                    "workspaceFolders": False,
+                },
                 "textDocument": {
-                    "definition": {"dynamicRegistration": False},
-                    "references": {"dynamicRegistration": False},
-                    "hover": {"dynamicRegistration": False},
-                    "documentSymbol": {"dynamicRegistration": False},
-                    "implementation": {"dynamicRegistration": False},
-                    "callHierarchy": {"dynamicRegistration": False},
+                    "synchronization": {
+                        "dynamicRegistration": False,
+                        "willSave": False,
+                        "willSaveWaitUntil": False,
+                        "didSave": True,
+                    },
+                    "publishDiagnostics": {
+                        "relatedInformation": True,
+                        "tagSupport": {"valueSet": [1, 2]},
+                        "versionSupport": False,
+                        "codeDescriptionSupport": True,
+                        "dataSupport": False,
+                    },
+                    "hover": {
+                        "dynamicRegistration": False,
+                        "contentFormat": ["markdown", "plaintext"],
+                    },
+                    "definition": {
+                        "dynamicRegistration": False,
+                        "linkSupport": True,
+                    },
+                    "references": {
+                        "dynamicRegistration": False,
+                    },
+                    "documentSymbol": {
+                        "dynamicRegistration": False,
+                        "hierarchicalDocumentSymbolSupport": True,
+                    },
+                    "implementation": {
+                        "dynamicRegistration": False,
+                    },
+                    "callHierarchy": {
+                        "dynamicRegistration": False,
+                    },
+                },
+                "general": {
+                    "positionEncodings": ["utf-16"],
                 },
             },
         )
+
+    @staticmethod
+    def _handle_workspace_config(params: Any) -> list:
+        """处理 workspace/configuration 请求，返回空配置。"""
+        items = params.get("items", []) if isinstance(params, dict) else []
+        return [None] * len(items)
 
     async def _get_or_start_client(self, lang_id: str) -> LspClient | None:
         """获取或启动指定语言的 LSP 客户端。"""

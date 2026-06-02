@@ -74,6 +74,7 @@ class LspClient:
         self._stderr_task: asyncio.Task | None = None
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._notification_handlers: dict[str, list] = {}
+        self._request_handlers: dict[str, Any] = {}  # 服务器->客户端请求处理器
         self._buffer: bytes = b""
         self._next_id: int = 1
         self._connected: bool = False
@@ -108,13 +109,47 @@ class LspClient:
         self._reader_task = asyncio.create_task(self._read_loop())
         self._stderr_task = asyncio.create_task(self._stderr_loop())
 
-    async def initialize(self, root_uri: str, capabilities: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def initialize(
+        self,
+        root_uri: str,
+        capabilities: dict[str, Any] | None = None,
+        root_path: str | None = None,
+        process_id: int | None = None,
+        initialization_options: Any = None,
+        workspace_folders: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """发送 initialize 请求。"""
-        params = {
-            "processId": None,
+        import os
+        from pathlib import Path
+
+        params: dict[str, Any] = {
+            "processId": process_id or os.getpid(),
             "rootUri": root_uri,
             "capabilities": capabilities or {},
         }
+
+        # 兼容性字段（某些旧服务器需要）
+        if root_path:
+            params["rootPath"] = root_path
+        else:
+            # 从 root_uri 推断 root_path
+            if root_uri.startswith("file://"):
+                uri_path = root_uri[7:]
+                if len(uri_path) >= 2 and uri_path[0] == "/" and uri_path[2] == ":":
+                    uri_path = uri_path[1:]
+                params["rootPath"] = uri_path
+
+        if initialization_options is not None:
+            params["initializationOptions"] = initialization_options
+
+        # LSP 3.16+ workspaceFolders
+        if workspace_folders:
+            params["workspaceFolders"] = workspace_folders
+        else:
+            params["workspaceFolders"] = [{
+                "uri": root_uri,
+                "name": Path(params.get("rootPath", "")).name or "workspace",
+            }]
         result = await self.request("initialize", params)
         self.capabilities = result.get("capabilities", {})
         self.is_initialized = True
@@ -169,6 +204,10 @@ class LspClient:
     def on_notification(self, method: str, handler: Any) -> None:
         """注册通知处理器。"""
         self._notification_handlers.setdefault(method, []).append(handler)
+
+    def on_request(self, method: str, handler: Any) -> None:
+        """注册服务器->客户端请求处理器。"""
+        self._request_handlers[method] = handler
 
     async def stop(self) -> None:
         """关闭连接并终止子进程。"""
@@ -231,15 +270,49 @@ class LspClient:
         self._pending.clear()
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
-        """分发消息到对应的 future 或通知处理器。"""
+        """分发消息到对应的 future、通知处理器或请求处理器。"""
         if "id" in msg and "method" not in msg:
+            # 响应消息（客户端请求的回复）
             future = self._pending.pop(msg["id"], None)
             if future and not future.done():
                 future.set_result(msg)
+        elif "id" in msg and "method" in msg:
+            # 服务器->客户端请求（需要回复）
+            handler = self._request_handlers.get(msg["method"])
+            if handler:
+                try:
+                    result = handler(msg.get("params", {}))
+                    self._send_response(msg["id"], result)
+                except Exception as e:
+                    self._send_error_response(msg["id"], -32603, str(e))
+            else:
+                # 未注册的请求方法，回复空结果
+                self._send_response(msg["id"], None)
         elif "method" in msg:
+            # 通知消息
             handlers = self._notification_handlers.get(msg["method"], [])
             for handler in handlers:
                 try:
                     handler(msg.get("params"))
                 except Exception:
                     logger.exception("Notification handler error for %s", msg["method"])
+
+    def _send_response(self, msg_id: int, result: Any) -> None:
+        """发送响应消息（回复服务器->客户端请求）。"""
+        if self._process is None or self._process.stdin is None:
+            return
+        msg = {"jsonrpc": "2.0", "id": msg_id, "result": result}
+        try:
+            self._process.stdin.write(encode_message(msg))
+        except (BrokenPipeError, ConnectionResetError):
+            self._connected = False
+
+    def _send_error_response(self, msg_id: int, code: int, message: str) -> None:
+        """发送错误响应消息。"""
+        if self._process is None or self._process.stdin is None:
+            return
+        msg = {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
+        try:
+            self._process.stdin.write(encode_message(msg))
+        except (BrokenPipeError, ConnectionResetError):
+            self._connected = False

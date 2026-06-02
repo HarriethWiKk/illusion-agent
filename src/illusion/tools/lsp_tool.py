@@ -30,6 +30,8 @@ from illusion.tools.lsp_schemas import LspToolInput
 
 # 全局 LSP 管理器实例（延迟初始化）
 _manager: LspManager | None = None
+# 跟踪已打开的文件 URI -> language_id
+_opened_files: dict[str, str] = {}
 
 
 def _get_manager() -> LspManager:
@@ -134,27 +136,34 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         # 初始化 LSP 服务器（使用文件所在目录的最近父目录作为工作区根目录）
         if not client.is_initialized:
             workspace_root = self._find_workspace_root(file_path, root)
-            await manager.initialize_client(lang_id, workspace_root.as_uri())
+            await manager.initialize_client(
+                lang_id,
+                workspace_root.as_uri(),
+                root_path=str(workspace_root),
+            )
 
         # LSP 位置参数（0-based）
         position = {"line": arguments.line - 1, "character": arguments.character - 1}
         text_doc = {"uri": file_path.as_uri()}
 
-        # 通知 LSP 服务器文件已打开
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
-            await client.notify("textDocument/didOpen", {
-                "textDocument": {
-                    "uri": text_doc["uri"],
-                    "languageId": lang_id,
-                    "version": 1,
-                    "text": content,
-                },
-            })
-            # 等待服务器分析文件
-            await asyncio.sleep(1)
-        except Exception:
-            pass  # 非致命错误
+        # 通知 LSP 服务器文件已打开（仅首次）
+        file_uri = text_doc["uri"]
+        if _opened_files.get(file_uri) != lang_id:
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="replace")
+                await client.notify("textDocument/didOpen", {
+                    "textDocument": {
+                        "uri": file_uri,
+                        "languageId": lang_id,
+                        "version": 1,
+                        "text": content,
+                    },
+                })
+                _opened_files[file_uri] = lang_id
+                # 等待服务器分析文件
+                await asyncio.sleep(1)
+            except Exception:
+                pass  # 非致命错误
 
         try:
             if op == "goToDefinition":
