@@ -294,13 +294,15 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                     if symbols:
                         for sym in symbols:
                             name = sym.get("name", "")
+                            if not name or name.startswith("<"):
+                                continue
                             if query_lower in name.lower():
                                 range_ = sym.get("range", {})
                                 all_results.append({
                                     "name": name,
                                     "kind": sym.get("kind", 0),
                                     "location": {"uri": file_uri, "range": range_},
-                                    "containerName": sym.get("detail", ""),
+                                    "containerName": sym.get("containerName", ""),
                                 })
                                 if len(all_results) >= 10:
                                     break
