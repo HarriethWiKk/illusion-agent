@@ -261,11 +261,28 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             if lang_id not in _opened_files.values():
                 await self._open_first_file(client, lang_id, root)
 
+            # 用 documentSymbol 作为"探针"确认服务器就绪
+            # 如果探针失败，说明服务器还在索引，等待后重试
+            probe_uri = next((uri for uri, lid in _opened_files.items() if lid == lang_id), None)
+            if probe_uri:
+                for attempt in range(3):
+                    try:
+                        probe = await client.request(
+                            "textDocument/documentSymbol",
+                            {"textDocument": {"uri": probe_uri}},
+                            timeout=10,
+                        )
+                        if probe is not None:
+                            break  # 服务器就绪
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2)  # 等待索引
+
+            # 发送 workspace/symbol 请求
             try:
                 result = await client.request("workspace/symbol", {"query": query}, timeout=15)
                 if result:
-                    # 过滤有意义的符号类型（参考 opencode）
-                    interesting_kinds = {5, 6, 11, 12, 13, 14, 23, 10}  # Class, Method, Interface, Function, Variable, Constant, Struct, Enum
+                    interesting_kinds = {5, 6, 11, 12, 13, 14, 23, 10}
                     filtered = [s for s in result if s.get("kind", 0) in interesting_kinds]
                     all_results.extend(filtered[:10])
             except Exception:
