@@ -58,7 +58,9 @@ class LspClient:
     async def start(self, command: str, args: list[str], options: dict[str, Any] | None = None) -> None:
         """启动 LSP 服务器子进程。"""
         if self._process is not None:
-            raise RuntimeError("Client already started")
+            return  # 已启动，静默返回
+        if self._endpoint is not None:
+            return  # 已启动，静默返回
 
         kwargs: dict[str, Any] = {
             "stdin": subprocess.PIPE,
