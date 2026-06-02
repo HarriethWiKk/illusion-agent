@@ -231,6 +231,9 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         return ToolResult(output=format_document_symbol(result or [], root))
 
     async def _workspace_symbol(self, manager: Any, root: Path, arguments: LspToolInput) -> ToolResult:
+        import logging
+        logger = logging.getLogger(__name__)
+
         query = arguments.query or arguments.filePath or ""
         if not query:
             return ToolResult(
@@ -242,22 +245,32 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         for lang_id in manager._configs:
             client = await manager.get_client_for_language(lang_id)
             if client is None:
+                logger.debug("workspaceSymbol: no client for %s", lang_id)
                 continue
+
+            logger.debug("workspaceSymbol: lang=%s, initialized=%s, alive=%s, connected=%s",
+                        lang_id, client.is_initialized, client.is_alive, client._connected)
 
             if not client.is_initialized:
                 await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
+                logger.debug("workspaceSymbol: after init, alive=%s", client.is_alive)
 
-            # 必须先打开文件才能使用 workspace/symbol
             if lang_id not in _opened_files.values():
                 await self._open_first_file(client, lang_id, root)
+                logger.debug("workspaceSymbol: after open_first_file, alive=%s, opened=%s",
+                            client.is_alive, list(_opened_files.values()))
 
             try:
+                logger.debug("workspaceSymbol: sending request, query=%s", query)
                 result = await client.request("workspace/symbol", query=query, timeout=15)
+                logger.debug("workspaceSymbol: got result: %d items, alive=%s",
+                            len(result) if result else 0, client.is_alive)
                 if result:
                     query_lower = query.lower()
                     filtered = [s for s in result if query_lower in s.get("name", "").lower()]
                     all_results.extend(filtered[:10])
-            except Exception:
+            except Exception as e:
+                logger.error("workspaceSymbol error: %s, alive=%s", e, client.is_alive)
                 continue
 
         return ToolResult(output=format_workspace_symbol(all_results, root))
