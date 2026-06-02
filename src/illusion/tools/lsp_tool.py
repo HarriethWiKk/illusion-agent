@@ -231,9 +231,6 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         return ToolResult(output=format_document_symbol(result or [], root))
 
     async def _workspace_symbol(self, manager: Any, root: Path, arguments: LspToolInput) -> ToolResult:
-        import logging
-        logger = logging.getLogger(__name__)
-
         query = arguments.query or arguments.filePath or ""
         if not query:
             return ToolResult(
@@ -241,38 +238,39 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
+        import sys
+        print(f"[LSP-DEBUG] workspaceSymbol start, query={query!r}", file=sys.stderr)
+
         all_results: list[dict] = []
         for lang_id in manager._configs:
             client = await manager.get_client_for_language(lang_id)
             if client is None:
-                logger.debug("workspaceSymbol: no client for %s", lang_id)
+                print(f"[LSP-DEBUG] {lang_id}: no client (not installed)", file=sys.stderr)
                 continue
 
-            logger.debug("workspaceSymbol: lang=%s, initialized=%s, alive=%s, connected=%s",
-                        lang_id, client.is_initialized, client.is_alive, client._connected)
+            print(f"[LSP-DEBUG] {lang_id}: init={client.is_initialized} alive={client.is_alive} connected={client._connected}", file=sys.stderr)
 
             if not client.is_initialized:
                 await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
-                logger.debug("workspaceSymbol: after init, alive=%s", client.is_alive)
+                print(f"[LSP-DEBUG] {lang_id}: after init, alive={client.is_alive}", file=sys.stderr)
 
             if lang_id not in _opened_files.values():
                 await self._open_first_file(client, lang_id, root)
-                logger.debug("workspaceSymbol: after open_first_file, alive=%s, opened=%s",
-                            client.is_alive, list(_opened_files.values()))
+                print(f"[LSP-DEBUG] {lang_id}: after open_file, alive={client.is_alive}", file=sys.stderr)
 
             try:
-                logger.debug("workspaceSymbol: sending request, query=%s", query)
+                print(f"[LSP-DEBUG] {lang_id}: sending workspace/symbol...", file=sys.stderr)
                 result = await client.request("workspace/symbol", query=query, timeout=15)
-                logger.debug("workspaceSymbol: got result: %d items, alive=%s",
-                            len(result) if result else 0, client.is_alive)
+                print(f"[LSP-DEBUG] {lang_id}: got {len(result) if result else 0} results, alive={client.is_alive}", file=sys.stderr)
                 if result:
                     query_lower = query.lower()
                     filtered = [s for s in result if query_lower in s.get("name", "").lower()]
                     all_results.extend(filtered[:10])
             except Exception as e:
-                logger.error("workspaceSymbol error: %s, alive=%s", e, client.is_alive)
+                print(f"[LSP-DEBUG] {lang_id}: ERROR {e}, alive={client.is_alive}", file=sys.stderr)
                 continue
 
+        print(f"[LSP-DEBUG] workspaceSymbol done, total={len(all_results)}", file=sys.stderr)
         return ToolResult(output=format_workspace_symbol(all_results, root))
 
     @staticmethod
