@@ -105,8 +105,10 @@ def format_document_symbol(results: list[dict[str, Any]], root: Path, indent: in
         lines.append("Symbols:")
 
     for sym in results:
-        kind_name = _symbol_kind_name(sym.get("kind", 0))
         name = sym.get("name", "")
+        if not name or name.startswith("<"):
+            continue
+        kind_name = _symbol_kind_name(sym.get("kind", 0))
         range_ = sym.get("range", {})
         start = range_.get("start", {})
         prefix = "  " * (indent + 1)
@@ -125,11 +127,13 @@ def format_workspace_symbol(results: list[dict[str, Any]], root: Path) -> str:
 
     by_file: dict[str, list[str]] = {}
     for sym in results:
+        name = sym.get("name", "")
+        if not name or name.startswith("<"):
+            continue
         location = sym.get("location", {})
         uri = location.get("uri", "")
         path = display_path(_uri_to_path(uri), root)
         kind_name = _symbol_kind_name(sym.get("kind", 0))
-        name = sym.get("name", "")
         container = sym.get("containerName", "")
         label = f"{kind_name} {name}"
         if container:
