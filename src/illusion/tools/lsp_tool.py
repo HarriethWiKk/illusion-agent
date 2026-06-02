@@ -151,6 +151,14 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         if _opened_files.get(file_uri) != lang_id:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
+
+                # 设置诊断等待事件
+                diag_event = asyncio.Event()
+                def _on_diag(params: dict) -> None:
+                    if params.get("uri") == file_uri:
+                        diag_event.set()
+                client.on_notification("textDocument/publishDiagnostics", _on_diag)
+
                 await client.notify("textDocument/didOpen", {
                     "textDocument": {
                         "uri": file_uri,
@@ -160,8 +168,12 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                     },
                 })
                 _opened_files[file_uri] = lang_id
-                # 等待服务器分析文件
-                await asyncio.sleep(1)
+
+                # 等待服务器分析完成（publishDiagnostics 通知），最长 10 秒
+                try:
+                    await asyncio.wait_for(diag_event.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    pass  # 超时后继续尝试
             except Exception:
                 pass  # 非致命错误
 
@@ -246,19 +258,62 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             if not client.is_initialized:
                 await manager.initialize_client(lang_id, root.as_uri(), root_path=str(root))
 
+            # 确保至少打开过一个文件以触发工作区索引
+            if lang_id not in _opened_files.values():
+                await self._open_first_file(client, lang_id, root)
+
             try:
                 result = await client.request("workspace/symbol", {"query": query}, timeout=15)
                 if result:
                     all_results.extend(result)
             except RuntimeError as e:
                 if "connection lost" in str(e).lower():
-                    # 服务器崩溃，移除并跳过
                     manager._clients.pop(lang_id, None)
                 continue
             except Exception:
                 continue
 
         return ToolResult(output=format_workspace_symbol(all_results, root))
+
+    @staticmethod
+    async def _open_first_file(client: Any, lang_id: str, root: Path) -> None:
+        """打开工作区中的第一个源文件，等待索引完成。"""
+        ext_map = {".py": "python", ".ts": "typescript", ".go": "go", ".rs": "rust", ".c": "cpp"}
+        target_ext = None
+        for ext, lid in ext_map.items():
+            if lid == lang_id:
+                target_ext = ext
+                break
+        if not target_ext:
+            return
+
+        try:
+            for f in root.rglob(f"*{target_ext}"):
+                if f.is_file() and not any(p.startswith(".") for p in f.relative_to(root).parts):
+                    content = f.read_text(encoding="utf-8", errors="replace")
+                    file_uri = f.as_uri()
+
+                    # 等待诊断通知
+                    diag_event = asyncio.Event()
+                    def _on_diag(params: dict) -> None:
+                        if params.get("uri") == file_uri:
+                            diag_event.set()
+                    client.on_notification("textDocument/publishDiagnostics", _on_diag)
+
+                    await client.notify("textDocument/didOpen", {
+                        "textDocument": {
+                            "uri": file_uri, "languageId": lang_id, "version": 1, "text": content,
+                        },
+                    })
+                    _opened_files[file_uri] = lang_id
+
+                    try:
+                        await asyncio.wait_for(diag_event.wait(), timeout=10)
+                    except asyncio.TimeoutError:
+                        pass
+                    return
+        except Exception:
+            pass
 
     async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
         result = await client.request(
