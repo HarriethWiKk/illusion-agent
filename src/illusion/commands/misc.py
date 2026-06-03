@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from illusion._version import __version__
+from illusion import __version__
 
 import httpx
 from illusion.commands.helpers import copy_to_clipboard, last_message_text

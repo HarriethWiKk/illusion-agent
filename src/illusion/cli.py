@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Optional  # 类型注解
 
 import typer  # CLI 框架
 
-from illusion._version import __version__  # 应用程序版本
+from illusion import __version__  # 应用程序版本
 
 if TYPE_CHECKING:
     from illusion.commands.types import CommandResult
