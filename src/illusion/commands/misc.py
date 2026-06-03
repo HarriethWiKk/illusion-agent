@@ -36,7 +36,7 @@ async def version_handler(_: str, context: CommandContext) -> CommandResult:
     try:
         version = importlib.metadata.version("illusion")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.1"
+        version = "0.1.2"
     return CommandResult(message=f"IllusionCode {version}")
 
 
