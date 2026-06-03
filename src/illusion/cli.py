@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING, Any, Optional  # 类型注解
 
 import typer  # CLI 框架
 
+from illusion._version import __version__  # 应用程序版本
+
 if TYPE_CHECKING:
     from illusion.commands.types import CommandResult
 
@@ -42,9 +44,6 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-# 应用程序版本
-__version__ = "0.1.2"
 
 
 def _version_callback(value: bool) -> None:

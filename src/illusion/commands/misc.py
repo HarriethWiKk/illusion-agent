@@ -14,6 +14,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from illusion._version import __version__
+
 import httpx
 from illusion.commands.helpers import copy_to_clipboard, last_message_text
 from illusion.commands.types import CommandContext, CommandResult
@@ -34,9 +36,9 @@ async def version_handler(_: str, context: CommandContext) -> CommandResult:
     """显示版本号"""
     del context
     try:
-        version = importlib.metadata.version("illusion")
+        version = importlib.metadata.version("illusion-code")
     except importlib.metadata.PackageNotFoundError:
-        version = "0.1.2"
+        version = __version__
     return CommandResult(message=f"IllusionCode {version}")
 
 
@@ -181,9 +183,9 @@ def _get_current_version() -> str:
         str: 当前版本号
     """
     try:
-        return importlib.metadata.version("illusion")
+        return importlib.metadata.version("illusion-code")
     except importlib.metadata.PackageNotFoundError:
-        return "0.1.1"
+        return __version__
 
 
 def _run_pip_upgrade(packages: list[str]) -> tuple[bool, str]:
