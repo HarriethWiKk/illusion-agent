@@ -39,7 +39,6 @@ def _get_manager() -> LspManager:
     global _manager
     if _manager is None:
         from illusion.config.paths import get_config_file_path
-        from illusion.config.settings import load_settings
 
         settings_path = get_config_file_path()
         configs = load_lsp_config(settings_path)

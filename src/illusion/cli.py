@@ -30,9 +30,12 @@ from __future__ import annotations
 import json  # JSON 解析和序列化
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
-from typing import Any, Optional  # 类型注解
+from typing import TYPE_CHECKING, Any, Optional  # 类型注解
 
 import typer  # CLI 框架
+
+if TYPE_CHECKING:
+    from illusion.commands.types import CommandResult
 
 # 确保 Windows 上 stdout/stderr 使用 UTF-8，防止通过 tsx 继承 stdio 管道时的 UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
@@ -947,9 +950,6 @@ def update_cmd(
     """
     import asyncio
 
-    from illusion.commands.types import CommandResult
-    from illusion.config.i18n import t
-
     async def _run() -> None:
         result = await _update_cli("--deps" if deps else "")
         if result.message:
@@ -965,6 +965,7 @@ async def _update_cli(args: str) -> "CommandResult":
         _get_current_version,
         _run_pip_upgrade,
     )
+    from illusion.commands.types import CommandResult
     from illusion.config.i18n import t
     from pathlib import Path
 

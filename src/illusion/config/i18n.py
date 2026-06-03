@@ -37,7 +37,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "codex_open_url": {"zh-CN": "请在浏览器中打开以下 URL 完成授权:", "en-US": "Open the following URL in your browser to authorize:"},
     "codex_enter_code": {"zh-CN": "并输入代码: {code}", "en-US": "and enter code: {code}"},
     "codex_waiting": {"zh-CN": "等待 ChatGPT 授权中...", "en-US": "Waiting for ChatGPT authorization..."},
-    "codex_auth_success": {"zh-CN": "Codex OAuth 授权成功 (用户: {user})", "en-US": "Codex OAuth authorized (user: {user})"},
+    "codex_oauth_success": {"zh-CN": "Codex OAuth 授权成功 (用户: {user})", "en-US": "Codex OAuth authorized (user: {user})"},
     "codex_device_expired": {"zh-CN": "设备码已过期，请重新运行登录", "en-US": "Device code expired, please retry login"},
     "codex_auth_denied": {"zh-CN": "授权被拒绝", "en-US": "Authorization denied"},
     "codex_no_subscription": {"zh-CN": "未订阅 ChatGPT Plus/Pro，请先在 OpenAI 上订阅", "en-US": "No ChatGPT Plus/Pro subscription found, please subscribe on OpenAI first"},
