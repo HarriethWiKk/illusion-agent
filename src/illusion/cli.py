@@ -653,34 +653,60 @@ def _copilot_login(manager: Any) -> None:
 
 
 def _codex_login(manager: Any) -> None:
-    """Codex 外部 CLI 凭据读取流程
+    """Codex OAuth 设备码认证流程
 
-    从 ~/.codex/auth.json 读取已由 Codex CLI 管理的认证信息。
+    使用 OpenAI Device Code 流程让用户通过浏览器授权 ChatGPT 账号。
 
     Args:
         manager: AuthManager 实例
     """
-    from illusion.auth.external import default_binding_for_provider, load_external_credential
+    from illusion.auth.codex_oauth import CodexOAuth
 
-    # 1. 检查 Codex CLI 认证是否存在
-    binding = default_binding_for_provider("openai_codex")
+    codex = CodexOAuth()
+
+    # 1. 启动设备码流程
     try:
-        cred = load_external_credential(binding)
-    except (ValueError, FileNotFoundError):
-        print(_t("codex_not_found"), file=sys.stderr)
+        flow = codex.start_device_flow()
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         raise typer.Exit(1)
 
-    username = cred.profile_label or cred.value[:8] + "..."
+    # 2. 显示用户码和验证 URL
+    print(_t("codex_open_url"))
+    print(f"  {flow['verification_uri']}")
+    print(_t("codex_enter_code", code=flow["user_code"]))
+    print()
+    print(_t("codex_waiting"))
+
+    # 3. 轮询等待授权
+    try:
+        success = codex.poll_for_token(flow["device_code"])
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "过期" in msg or "expired" in msg.lower():
+            print(_t("codex_device_expired"), file=sys.stderr)
+        elif "拒绝" in msg or "denied" in msg.lower():
+            print(_t("codex_auth_denied"), file=sys.stderr)
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        raise typer.Exit(1)
+
+    if not success:
+        print(_t("codex_device_expired"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    status = codex.get_status()
+    username = status.get("username") or ""
     print(_t("codex_auth_success", user=username))
 
-    # 2. 输入模型名称
+    # 4. 输入模型名称
     default_model = _DEFAULT_MODELS.get("codex", "codex-mini")
     prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
     model_name = input(prompt_text).strip()
     if not model_name:
         model_name = default_model
 
-    # 3. 分配 env_N 并保存
+    # 5. 分配 env_N 并保存
     envs = manager.list_envs()
     if envs:
         existing_nums = []

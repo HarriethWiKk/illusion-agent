@@ -384,6 +384,14 @@ class OpenAICompatibleClient:
         openai_messages = _convert_messages_to_openai(request.messages, request.system_prompt)
         openai_tools = _convert_tools_to_openai(request.tools) if request.tools else None
 
+        # 检测是否为 Codex 模型（使用 chatgpt.com/backend-api 或模型名包含 codex）
+        # 如果是 Codex 模型，直接走 responses API，避免先尝试 chat/completions 再回退
+        if self._is_codex_model(request.model):
+            log.info("Detected Codex model %s, using responses API directly", request.model)
+            async for event in self._stream_via_responses_api(request, openai_messages, openai_tools):
+                yield event
+            return
+
         params: dict[str, Any] = {
             "model": request.model,
             "messages": openai_messages,
@@ -418,12 +426,6 @@ class OpenAICompatibleClient:
                 raise RequestFailure(
                     f"当前模型不支持推理强度 '{request.effort.value}'，请尝试使用其他推理强度级别（如 low/medium/high）"
                 ) from exc
-            # 某些模型（如 gpt-5.2-codex）不支持 /chat/completions，自动回退到 /responses
-            if self._is_chat_endpoint_error(exc):
-                log.info("Model %s does not support chat/completions, falling back to responses API", request.model)
-                async for event in self._stream_via_responses_api(request, openai_messages, openai_tools):
-                    yield event
-                return
             raise
         async for chunk in stream:
             if not chunk.choices:
@@ -521,14 +523,21 @@ class OpenAICompatibleClient:
         )
 
     @staticmethod
-    def _is_chat_endpoint_error(exc: Exception) -> bool:
-        """检查是否为 chat/completions 端点不支持的错误（需回退到 responses API）"""
-        error_msg = str(getattr(exc, "message", "")) or str(exc)
-        return (
-            getattr(exc, "status_code", None) == 400
-            and "chat/completions" in error_msg
-            and "not accessible" in error_msg.lower()
-        )
+    def _is_codex_model(model: str) -> bool:
+        """检测是否为 Codex 模型（需要直接走 responses API）
+
+        Codex 模型的特征：
+        - 模型名包含 "codex"（如 codex-mini、gpt-5.2-codex）
+        - 模型名以 "gpt-5" 开头（GPT-5 系列默认使用 responses API）
+
+        Args:
+            model: 模型名称
+
+        Returns:
+            bool: 是否为 Codex 模型
+        """
+        model_lower = model.lower()
+        return "codex" in model_lower or model_lower.startswith("gpt-5")
 
     @staticmethod
     def _is_media_related_error(exc: Exception) -> bool:
