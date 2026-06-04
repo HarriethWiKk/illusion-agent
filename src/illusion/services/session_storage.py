@@ -123,10 +123,12 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
                         summary = " ".join(texts).strip()[:80]
                         if summary:
                             break
+            messages = data.get("messages", [])
             sessions.append({
                 "session_id": sid,
                 "summary": summary,
-                "message_count": data.get("message_count", len(data.get("messages", []))),
+                "message_count": data.get("message_count", len(messages)),
+                "turn_count": count_turns(messages),
                 "model": data.get("model", ""),
                 "created_at": data.get("created_at", path.stat().st_mtime),
             })
@@ -150,10 +152,12 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
                             summary = " ".join(texts).strip()[:80]
                             if summary:
                                 break
+                messages = data.get("messages", [])
                 sessions.append({
                     "session_id": sid,
                     "summary": summary or "(latest session)",
-                    "message_count": data.get("message_count", len(data.get("messages", []))),
+                    "message_count": data.get("message_count", len(messages)),
+                    "turn_count": count_turns(messages),
                     "model": data.get("model", ""),
                     "created_at": data.get("created_at", latest_path.stat().st_mtime),
                 })
@@ -235,3 +239,36 @@ def export_session_markdown(
                 parts.append(f"\n```tool-result\n{block.content}\n```")
     path.write_text("\n".join(parts).strip() + "\n", encoding="utf-8")
     return path
+
+
+def count_turns(messages: list[dict[str, Any]]) -> int:
+    """统计消息列表中的轮次数
+
+    一个轮次定义为一个非空的、非斜杠命令的用户消息。
+    这与 /rewind 命令的定义一致。
+
+    Args:
+        messages: 消息列表
+
+    Returns:
+        int: 轮次数
+    """
+    turn_count = 0
+    for msg in messages:
+        if msg.get("role") == "user":
+            # 获取消息文本
+            text = ""
+            if isinstance(msg.get("text"), str):
+                text = msg["text"].strip()
+            elif isinstance(msg.get("content"), list):
+                # 从 content 数组中提取文本
+                for block in msg["content"]:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text += block.get("text", "")
+                text = text.strip()
+
+            # 统计非空的、非斜杠命令的用户消息
+            if text and not text.startswith("/"):
+                turn_count += 1
+
+    return turn_count

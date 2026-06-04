@@ -671,25 +671,48 @@ class ReactBackendHost:
         from illusion.services.session_storage import list_session_snapshots
         import time as _time
 
-        assert self._bundle is not None
-        locale = str(self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language)
-        zh = locale.lower().startswith("zh")
-        sessions = list_session_snapshots(self._bundle.cwd, limit=10)
-        options = []
-        for s in sessions:
-            ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
-            summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
-            options.append({
-                "value": s["session_id"],
-                "label": f"{ts}  {s['message_count']}msg  {summary}",
-            })
-        await self._emit(
-            BackendEvent(
-                type="select_request",
-                modal={"kind": "select", "title": "恢复会话" if zh else "Resume Session", "command": "resume"},
-                select_options=options,
+        try:
+            assert self._bundle is not None
+            locale = str(self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language)
+            zh = locale.lower().startswith("zh")
+            sessions = list_session_snapshots(self._bundle.cwd, limit=10)
+            if not sessions:
+                await self._emit(BackendEvent(
+                    type="command_result",
+                    command_result_data={
+                        "message": "没有已保存的会话。" if zh else "No saved sessions found.",
+                        "type": "info",
+                    },
+                ))
+                return
+            options = []
+            for s in sessions:
+                ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
+                summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
+                turn_count = s.get("turn_count", 0)
+                options.append({
+                    "value": s["session_id"],
+                    "label": f"#{len(options)+1}  {ts}  {turn_count}轮  {summary}",
+                })
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": "恢复会话" if zh else "Resume Session", "command": "resume"},
+                    select_options=options,
+                )
             )
-        )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Error listing sessions: %s", exc, exc_info=True)
+            await self._emit(
+                BackendEvent(
+                    type="command_result",
+                    command_result_data={
+                        "message": f"Error listing sessions: {exc}",
+                        "type": "error",
+                    },
+                )
+            )
 
     async def _handle_select_command(self, command_name: str) -> None:
         """处理选择命令请求。"""
@@ -873,7 +896,13 @@ class ReactBackendHost:
                 if msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
             ]
             if not user_msgs:
-                await self._emit(BackendEvent(type="error", message=("没有可回退的消息。" if zh else "No messages to rewind to.")))
+                await self._emit(BackendEvent(
+                    type="command_result",
+                    command_result_data={
+                        "message": "没有可回退的消息。" if zh else "No messages to rewind to.",
+                        "type": "info",
+                    },
+                ))
                 return
             options = []
             total = len(user_msgs)
@@ -898,30 +927,50 @@ class ReactBackendHost:
             from illusion.services.session_storage import list_session_snapshots
             import time as _time
 
-            sessions = list_session_snapshots(self._bundle.cwd, limit=10)
-            if not sessions:
-                await self._emit(BackendEvent(type="error", message=("没有已保存的会话。" if zh else "No saved sessions found.")))
-                return
-            options = []
-            for s in sessions:
-                ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
-                summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
+            try:
+                sessions = list_session_snapshots(self._bundle.cwd, limit=10)
+                if not sessions:
+                    await self._emit(BackendEvent(
+                        type="command_result",
+                        command_result_data={
+                            "message": "没有已保存的会话。" if zh else "No saved sessions found.",
+                            "type": "info",
+                        },
+                    ))
+                    return
+                options = []
+                for i, s in enumerate(sessions, 1):
+                    ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
+                    summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
+                    turn_count = s.get("turn_count", 0)
+                    options.append({
+                        "value": s["session_id"],
+                        "label": f"#{i}  {ts}  {turn_count}轮  {summary}",
+                    })
                 options.append({
-                    "value": s["session_id"],
-                    "label": f"{ts}  {s['message_count']}msg  {summary}",
+                    "value": "__all__",
+                    "label": ("清除所有会话" if zh else "Delete all sessions"),
+                    "description": ("删除全部已保存的会话快照" if zh else "Remove all saved session snapshots"),
                 })
-            options.append({
-                "value": "__all__",
-                "label": ("清除所有会话" if zh else "Delete all sessions"),
-                "description": ("删除全部已保存的会话快照" if zh else "Remove all saved session snapshots"),
-            })
-            await self._emit(
-                BackendEvent(
-                    type="select_request",
-                    modal={"kind": "select", "title": "删除会话" if zh else "Delete Session", "command": "delete"},
-                    select_options=options,
+                await self._emit(
+                    BackendEvent(
+                        type="select_request",
+                        modal={"kind": "select", "title": "删除会话" if zh else "Delete Session", "command": "delete"},
+                        select_options=options,
+                    )
                 )
-            )
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error("Error listing sessions for delete: %s", exc, exc_info=True)
+                await self._emit(
+                    BackendEvent(
+                        type="command_result",
+                        command_result_data={
+                            "message": f"Error listing sessions: {exc}",
+                            "type": "error",
+                        },
+                    )
+                )
             return
 
         if command == "rules":

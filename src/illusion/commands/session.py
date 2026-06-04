@@ -151,9 +151,17 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
 
     tokens = args.strip().split()
 
-    # /resume <session_id>
+    # /resume <session_id> or /resume #<turn_number>
     if tokens:
         sid = tokens[0]
+        # 支持轮次编号引用（如 #1, #2）
+        if sid.startswith("#") and sid[1:].isdigit():
+            turn_num = int(sid[1:])
+            sessions = list_session_snapshots(context.cwd, limit=20)
+            if 1 <= turn_num <= len(sessions):
+                sid = sessions[turn_num - 1]["session_id"]
+            else:
+                return CommandResult(message=f"Invalid turn number: {sid}. Use /resume to see available sessions.")
         snapshot = load_session_by_id(context.cwd, sid)
         if snapshot is None:
             return CommandResult(message=f"Session not found: {sid}")
@@ -190,12 +198,13 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
 
     import time
     lines = ["Saved sessions:"]
-    for s in sessions:
+    for i, s in enumerate(sessions, 1):
         ts = time.strftime("%m/%d %H:%M", time.localtime(s["created_at"]))
         summary = s["summary"][:50] or "(no summary)"
-        lines.append(f"  {s['session_id']}  {ts}  {s['message_count']}msg  {summary}")
+        turn_count = s.get("turn_count", 0)
+        lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
     lines.append("")
-    lines.append("Use /resume <session_id> to restore a specific session.")
+    lines.append("Usage: /resume #1 or /resume <session_id>")
     return CommandResult(message="\n".join(lines))
 
 
@@ -250,13 +259,14 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message="No saved sessions found for this project.")
         import time
         lines = ["Saved sessions:"]
-        for s in sessions:
+        for i, s in enumerate(sessions, 1):
             ts = time.strftime("%m/%d %H:%M", time.localtime(s["created_at"]))
             summary = s["summary"][:50] or "(no summary)"
-            lines.append(f"  {s['session_id']}  {ts}  {s['message_count']}msg  {summary}")
+            turn_count = s.get("turn_count", 0)
+            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
         lines.append("")
-        lines.append("Usage: /delete <session_id>  — delete a specific session")
-        lines.append("       /delete all           — delete all sessions")
+        lines.append("Usage: /delete #1 or /delete <session_id>  — delete a specific session")
+        lines.append("       /delete all                        — delete all sessions")
         return CommandResult(message="\n".join(lines))
 
     # /delete all
@@ -270,8 +280,16 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             reset_session=True,
         )
 
-    # /delete <session_id>
+    # /delete <session_id> or /delete #<turn_number>
     sid = tokens[0]
+    # 支持轮次编号引用（如 #1, #2）
+    if sid.startswith("#") and sid[1:].isdigit():
+        turn_num = int(sid[1:])
+        sessions = list_session_snapshots(context.cwd, limit=20)
+        if 1 <= turn_num <= len(sessions):
+            sid = sessions[turn_num - 1]["session_id"]
+        else:
+            return CommandResult(message=f"Invalid turn number: {sid}. Use /delete to see available sessions.")
     if delete_session_by_id(context.cwd, sid):
         cleanup_file_history(sid)
         if sid == context.session_id:

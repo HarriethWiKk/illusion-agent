@@ -27,6 +27,7 @@ import {useBackendSession} from './hooks/useBackendSession.js';
 import {normalizeLanguage, t} from './i18n.js';
 import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
+import {VERSION} from './version.js';
 
 /**
  * 是否使用原始回车提交模式
@@ -387,7 +388,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// /version → 显示版本信息（前端处理，不发送到后端）
 		if (trimmed === '/version') {
 			session.setCommandResult({
-				text: 'IllusionCode 0.1.3',
+				text: `IllusionCode ${VERSION}`,
 				type: 'info',
 			});
 			return true;

@@ -32,6 +32,9 @@ class CustomBuildHook(BuildHookInterface):
                 "to build the frontend assets."
             )
 
+        # 同步版本号
+        self._sync_version(root)
+
         self._build_frontend(root, npm, "terminal")
         self._build_frontend(root, npm, "web")
 
@@ -55,6 +58,22 @@ class CustomBuildHook(BuildHookInterface):
 
         # npm run build
         self._run([npm, "run", "build"], frontend_dir)
+
+    def _sync_version(self, root: Path) -> None:
+        """同步版本号到前端文件。"""
+        sync_script = root / "scripts" / "sync_version.py"
+        if sync_script.exists():
+            print("hatch_build: syncing version...")
+            result = subprocess.run(
+                [sys.executable, str(sync_script)],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                print(f"Warning: Version sync failed: {result.stderr}")
+            else:
+                print(result.stdout.strip())
 
     @staticmethod
     def _resolve_cmd(cmd: list[str]) -> list[str]:
