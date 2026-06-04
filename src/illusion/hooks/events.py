@@ -41,20 +41,3 @@ class HookEvent(str, Enum):
     INSTRUCTIONS_LOADED = "InstructionsLoaded"
     CWD_CHANGED = "CwdChanged"
     FILE_CHANGED = "FileChanged"
-
-
-# 旧 snake_case 名称到新 PascalCase 的映射（用于向后兼容）
-_LEGACY_EVENT_MAP: dict[str, HookEvent] = {
-    "session_start": HookEvent.SESSION_START,
-    "session_end": HookEvent.SESSION_END,
-    "pre_tool_use": HookEvent.PRE_TOOL_USE,
-    "post_tool_use": HookEvent.POST_TOOL_USE,
-}
-
-
-def resolve_event(name: str) -> HookEvent | None:
-    """将事件名字符串解析为 HookEvent，支持旧 snake_case 和新 PascalCase。"""
-    try:
-        return HookEvent(name)
-    except ValueError:
-        return _LEGACY_EVENT_MAP.get(name)

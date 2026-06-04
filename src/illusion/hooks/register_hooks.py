@@ -8,7 +8,7 @@ Frontmatter 钩子注册
 
 from __future__ import annotations
 
-from illusion.hooks.events import HookEvent, resolve_event
+from illusion.hooks.events import HookEvent
 from illusion.hooks.schemas import HookMatcherDefinition
 from illusion.hooks.session_hooks import SessionHookStore
 
@@ -25,8 +25,9 @@ def register_frontmatter_hooks(
     当 is_agent=True 时，将 Stop 事件转换为 SubagentStop（因为子代理触发的是 SubagentStop）。
     """
     for event_name, matchers in hooks_settings.items():
-        event = resolve_event(event_name)
-        if event is None:
+        try:
+            event = HookEvent(event_name)
+        except ValueError:
             continue
         target_event = event
         if is_agent and event == HookEvent.STOP:
@@ -48,8 +49,9 @@ def register_skill_hooks(
     对齐 Claude Code 的 registerSkillHooks.ts。
     """
     for event_name, matchers in hooks_settings.items():
-        event = resolve_event(event_name)
-        if event is None:
+        try:
+            event = HookEvent(event_name)
+        except ValueError:
             continue
         for matcher_def in matchers:
             for hook in matcher_def.hooks:

@@ -375,6 +375,29 @@ async def run_query(
                     messages.append(ConversationMessage.from_user_text(notification_text))
                     yield StatusEvent(message=_t("bg_agent_resuming"), bg_agent=True), None
                     continue
+
+            # 执行 Stop 钩子（对齐 Claude Code）
+            if context.hook_executor is not None:
+                last_msg_text = final_message.text if final_message else ""
+                stop_result = await context.hook_executor.execute(
+                    HookEvent.STOP,
+                    {"stop_hook_active": False, "last_assistant_message": last_msg_text},
+                )
+                # blockingError 注入为用户消息继续对话
+                if stop_result.blocked:
+                    messages.append(ConversationMessage.from_user_text(
+                        f"[Hook] {stop_result.reason}"
+                    ))
+                    continue
+                # preventContinuation 停止循环
+                if stop_result.prevent_continuation:
+                    return
+                # additionalContext 注入
+                for ctx in stop_result.additional_contexts:
+                    if ctx:
+                        messages.append(ConversationMessage.from_user_text(
+                            _wrap_in_system_reminder(ctx)
+                        ))
             return
 
         tool_calls = final_message.tool_uses
@@ -386,10 +409,11 @@ async def run_query(
             if len(tool_calls) == 1:
                 # 单个工具：顺序执行
                 tc = tool_calls[0]
-                # 始终发送带完整 tool_input 的 ToolExecutionStarted，
-                # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
-                result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                # 注入钩子 additionalContext 为独立的 user message
+                for ctx in hook_ctxs:
+                    messages.append(ConversationMessage.from_user_text(_wrap_in_system_reminder(ctx)))
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
                     output=result.text_content,
@@ -407,8 +431,8 @@ async def run_query(
                 async def _safe_run(idx: int, tc):
                     """并发执行单个工具，捕获非权限异常转为错误结果。"""
                     try:
-                        result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
-                        return idx, result
+                        result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                        return idx, result, hook_ctxs
                     except PermissionDenied:
                         raise
                     except Exception as exc:
@@ -416,14 +440,17 @@ async def run_query(
                             tool_use_id=tc.id,
                             content=f"Tool {tc.name} failed: {exc}",
                             is_error=True,
-                        )
+                        ), []
 
                 # 并发执行所有工具调用，每个工具完成后立即发送完成事件
                 tool_results: list[ToolResultBlock] = [None] * len(tool_calls)
                 for coro in asyncio.as_completed(
                     [_safe_run(i, tc) for i, tc in enumerate(tool_calls)]
                 ):
-                    idx, result = await coro
+                    idx, result, hook_ctxs = await coro
+                    # 注入钩子 additionalContext
+                    for ctx in hook_ctxs:
+                        messages.append(ConversationMessage.from_user_text(_wrap_in_system_reminder(ctx)))
                     tool_results[idx] = result
                     yield ToolExecutionCompleted(
                         tool_name=tool_calls[idx].name,
@@ -458,20 +485,14 @@ async def _execute_tool_call(
     tool_name: str,
     tool_use_id: str,
     tool_input: dict[str, object],
-) -> ToolResultBlock:
+) -> tuple[ToolResultBlock, list[str]]:
     """执行单个工具调用。
 
-    执行权限检查、参数验证和钩子处理，然后调用工具并返回结果。
-
-    Args:
-        context: 查询上下文
-        tool_name: 工具名称
-        tool_use_id: 工具调用ID
-        tool_input: 工具输入参数
-
     Returns:
-        ToolResultBlock: 工具执行结果
+        (工具执行结果, additionalContexts 列表)
     """
+    hook_additional_contexts: list[str] = []
+
     # 执行预工具钩子（对齐 Claude Code PreToolUse 输入格式）
     if context.hook_executor is not None:
         pre_hooks = await context.hook_executor.execute(
@@ -483,7 +504,12 @@ async def _execute_tool_call(
                 tool_use_id=tool_use_id,
                 content=pre_hooks.reason or f"PreToolUse hook blocked {tool_name}",
                 is_error=True,
-            )
+            ), hook_additional_contexts
+        # updatedInput：钩子可修改工具输入
+        if pre_hooks.updated_input:
+            tool_input = pre_hooks.updated_input
+        # 收集 additionalContext
+        hook_additional_contexts.extend(pre_hooks.additional_contexts)
 
     # 从注册表获取工具
     tool = context.tool_registry.get(tool_name)
@@ -492,7 +518,7 @@ async def _execute_tool_call(
             tool_use_id=tool_use_id,
             content=f"Unknown tool: {tool_name}",
             is_error=True,
-        )
+        ), hook_additional_contexts
 
     # 验证工具输入参数
     try:
@@ -502,7 +528,7 @@ async def _execute_tool_call(
             tool_use_id=tool_use_id,
             content=f"Invalid input for {tool_name}: {exc}",
             is_error=True,
-        )
+        ), hook_additional_contexts
 
     # 在权限检查前规范化通用工具输入，以便路径规则一致地应用于使用 `file_path` 或 `path` 的内置工具
     _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
@@ -521,7 +547,7 @@ async def _execute_tool_call(
                 tool_use_id=tool_use_id,
                 content=f"[Permission blocked] {decision.reason or f'{tool_name} is not allowed in current mode'}",
                 is_error=True,
-            )
+            ), hook_additional_contexts
         # 需要用户确认
         if decision.requires_confirmation and context.permission_prompt is not None:
             confirmed = await context.permission_prompt(tool_name, decision.reason)
@@ -556,10 +582,11 @@ async def _execute_tool_call(
         content=_build_tool_result_content(result.output, result.metadata),
         is_error=result.is_error,
     )
-    # 执行后工具钩子（对齐 Claude Code PostToolUse 输入格式）
+    # 执行后工具钩子（对齐 Claude Code PostToolUse/PostToolUseFailure）
     if context.hook_executor is not None:
-        await context.hook_executor.execute(
-            HookEvent.POST_TOOL_USE,
+        hook_event = HookEvent.POST_TOOL_USE_FAILURE if tool_result.is_error else HookEvent.POST_TOOL_USE
+        post_hooks = await context.hook_executor.execute(
+            hook_event,
             {
                 "tool_name": tool_name,
                 "tool_input": tool_input,
@@ -567,7 +594,8 @@ async def _execute_tool_call(
                 "tool_use_id": tool_use_id,
             },
         )
-    return tool_result
+        hook_additional_contexts.extend(post_hooks.additional_contexts)
+    return tool_result, hook_additional_contexts
 
 
 def _resolve_permission_file_path(
@@ -634,3 +662,9 @@ def _extract_permission_command(
         return value
 
     return None
+
+
+def _wrap_in_system_reminder(content: str) -> str:
+    """向后兼容别名。"""
+    from illusion.hooks.utils import wrap_in_system_reminder
+    return wrap_in_system_reminder(content)

@@ -89,9 +89,10 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
         skills.extend(_load_plugin_skills(commands_dir, manifest.name, path))
 
     # 从 plugin agents/ 目录发现智能体
+    # 安全限制：插件 agent 禁止解析 hooks（对齐 Claude Code loadPluginAgents.ts）
     agents_dir = path / "agents"
     if agents_dir.exists():
-        skills.extend(_load_plugin_skills(agents_dir, manifest.name, path))
+        skills.extend(_load_plugin_skills(agents_dir, manifest.name, path, parse_hooks=False))
 
     # 从 hooks/ 目录或根 hooks.json 发现钩子（新格式：dict[str, list[HookMatcherDefinition]]）
     hooks = _load_plugin_hooks(path / manifest.hooks_file, path)
@@ -119,6 +120,8 @@ def _load_plugin_skills(
     path: Path,
     plugin_name: str,
     plugin_root: Path,
+    *,
+    parse_hooks: bool = True,
 ) -> list[SkillDefinition]:
     """从目录加载技能，支持 SKILL.md 目录格式和命名空间。
 
@@ -146,7 +149,7 @@ def _load_plugin_skills(
                     path=str(skill_md),
                     allowed_tools=skill.allowed_tools,
                     model=skill.model,
-                    hooks=skill.hooks,
+                    hooks=skill.hooks if parse_hooks else None,
                     context=skill.context,
                     agent=skill.agent,
                     disable_model_invocation=skill.disable_model_invocation,
@@ -157,7 +160,7 @@ def _load_plugin_skills(
                 # 遍历目录中的文件
                 for f in sorted(item.iterdir()):
                     if f.suffix == ".md":
-                        skills.append(_load_md_skill(f, plugin_name, str(plugin_root)))
+                        skills.append(_load_md_skill(f, plugin_name, str(plugin_root), parse_hooks=parse_hooks))
                     elif f.suffix in (".yaml", ".yml"):
                         from illusion.skills.loader import _load_yaml_skill
                         sk = _load_yaml_skill(f, source="plugin")
@@ -187,7 +190,13 @@ def _load_plugin_skills(
     return skills
 
 
-def _load_md_skill(path: Path, plugin_name: str, plugin_root: str) -> SkillDefinition:
+def _load_md_skill(
+    path: Path,
+    plugin_name: str,
+    plugin_root: str,
+    *,
+    parse_hooks: bool = True,
+) -> SkillDefinition:
     """加载单个 .md 技能文件。"""
     from illusion.skills.loader import parse_skill_markdown
     content = path.read_text(encoding="utf-8")
@@ -200,7 +209,7 @@ def _load_md_skill(path: Path, plugin_name: str, plugin_root: str) -> SkillDefin
         path=str(path),
         allowed_tools=skill.allowed_tools,
         model=skill.model,
-        hooks=skill.hooks,
+        hooks=skill.hooks if parse_hooks else None,
         context=skill.context,
         agent=skill.agent,
         disable_model_invocation=skill.disable_model_invocation,
@@ -246,9 +255,10 @@ def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, li
 
 
 def _substitute_plugin_vars_in_hooks(data: Any, plugin_root: Path) -> Any:
-    """递归替换钩子配置中的插件变量。"""
+    """递归替换钩子配置中的插件变量。路径统一使用正斜杠。"""
     if isinstance(data, str):
-        data = data.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root))
+        root_str = str(plugin_root).replace("\\", "/")
+        data = data.replace("${CLAUDE_PLUGIN_ROOT}", root_str)
         return data
     elif isinstance(data, dict):
         return {k: _substitute_plugin_vars_in_hooks(v, plugin_root) for k, v in data.items()}

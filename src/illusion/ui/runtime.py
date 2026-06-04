@@ -54,14 +54,14 @@ from illusion.api.openai_client import OpenAICompatibleClient
 from illusion.api.provider import auth_status, detect_provider
 from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
-from illusion.config import get_config_file_path, load_settings
+from illusion.config import load_settings
 from illusion.config.settings import Settings
 from illusion.engine import QueryEngine
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
 from illusion.engine.query import MaxTurnsExceeded
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor, load_hook_registry
-from illusion.hooks.hot_reload import HookReloader
+from illusion.hooks.types import AggregatedHookResult
 from illusion.mcp.client import McpClientManager
 from illusion.mcp.config import load_mcp_server_configs
 from illusion.permissions import PermissionChecker
@@ -115,6 +115,8 @@ class RuntimeBundle:
     external_api_client: bool
     session_id: str = ""
     settings_overrides: dict[str, Any] = field(default_factory=dict)
+    # 钩子注入的 additionalContext（在 start_runtime 中设置，每次 handle_line 重建系统提示词后追加）
+    hook_additional_contexts: list[str] = field(default_factory=list)
 
     def current_settings(self):
         """返回会话的有效设置。
@@ -282,15 +284,17 @@ async def build_runtime(
             session_id=session_id,
         )
     )
-    # 创建钩子重载器和执行器
-    hook_reloader = HookReloader(get_config_file_path())
+    # 创建会话钩子存储和钩子执行器
+    from illusion.hooks.session_hooks import SessionHookStore
+    session_hook_store = SessionHookStore()
     hook_executor = HookExecutor(
-        hook_reloader.current_registry() if api_client is None else load_hook_registry(settings, plugins),
+        load_hook_registry(settings, plugins),
         HookExecutionContext(
             cwd=Path(cwd).resolve(),
             api_client=resolved_api_client,
             default_model=settings.active_model_name,
         ),
+        session_hook_store=session_hook_store,
     )
     # 创建查询引擎
     engine = QueryEngine(
@@ -311,6 +315,7 @@ async def build_runtime(
             "bridge_manager": bridge_manager,
             "app_state_store": app_state,
             "session_id": session_id,
+            "session_hook_store": session_hook_store,
         },
         effort=EffortMapper.normalize(settings.effort),
         session_id=session_id,
@@ -341,18 +346,38 @@ async def build_runtime(
     )
 
 
-async def start_runtime(bundle: RuntimeBundle) -> None:
+async def start_runtime(bundle: RuntimeBundle) -> AggregatedHookResult:
     """运行会话开始钩子。
 
-    执行 SESSION_START 钩子事件。
+    执行 SESSION_START 钩子事件，提取 additional_contexts
+    并注入到系统提示词中（对齐 Claude Code 的 SessionStart 钩子行为）。
 
     Args:
         bundle: 运行时数据 bundle
+
+    Returns:
+        AggregatedHookResult: 钩子执行结果
     """
-    await bundle.hook_executor.execute(
+    result = await bundle.hook_executor.execute(
         HookEvent.SESSION_START,
         {"cwd": str(bundle.cwd), "source": "startup"},
     )
+    # 存储 additionalContext，在 handle_line 中每次重建系统提示词后追加
+    bundle.hook_additional_contexts = result.additional_contexts
+    # 首次注入
+    for ctx in result.additional_contexts:
+        if ctx:
+            current_prompt = bundle.engine._system_prompt
+            bundle.engine.set_system_prompt(
+                current_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
+            )
+    return result
+
+
+def _wrap_in_system_reminder(content: str) -> str:
+    """向后兼容别名。"""
+    from illusion.hooks.utils import wrap_in_system_reminder
+    return wrap_in_system_reminder(content)
 
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
@@ -615,6 +640,9 @@ async def handle_line(
                 cwd=bundle.cwd,
                 latest_user_prompt=_last_user_text(bundle.engine.messages),
             )
+            for ctx in bundle.hook_additional_contexts:
+                if ctx:
+                    system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
             bundle.engine.set_system_prompt(system_prompt)
             turns = result.continue_turns if result.continue_turns is not None else bundle.engine.max_turns
             try:
@@ -641,6 +669,10 @@ async def handle_line(
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
     system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line)
+    # 追加钩子注入的 additionalContext
+    for ctx in bundle.hook_additional_contexts:
+        if ctx:
+            system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
     bundle.engine.set_system_prompt(system_prompt)
     try:
         async for event in bundle.engine.submit_message(line):

@@ -2,7 +2,8 @@
 钩子加载器模块
 ==============
 
-从设置和插件加载钩子注册表，支持新旧两种格式。
+从设置和插件加载钩子注册表。
+格式：{ "PreToolUse": [{ "matcher": "Bash", "hooks": [...] }] }
 """
 
 from __future__ import annotations
@@ -10,14 +11,10 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from illusion.hooks.events import HookEvent, resolve_event
+from illusion.hooks.events import HookEvent
 from illusion.hooks.schemas import (
-    AgentHookDefinition,
-    CommandHookDefinition,
     HookDefinition,
     HookMatcherDefinition,
-    HttpHookDefinition,
-    PromptHookDefinition,
     parse_hook_definition,
 )
 
@@ -66,64 +63,51 @@ class HookRegistry:
 def _normalize_hooks_value(value: Any) -> list[HookMatcherDefinition]:
     """将 hooks 值规范化为 HookMatcherDefinition 列表。
 
-    支持两种格式：
-    1. 旧格式：list[dict]（平面钩子列表）
-    2. 新格式：list[{matcher, hooks}]（带 matcher 的结构化格式）
+    格式：list[{ matcher?: string, hooks: HookCommand[] }]
     """
     if not isinstance(value, list):
         return []
     result: list[HookMatcherDefinition] = []
     for item in value:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or "hooks" not in item:
             continue
-        if "hooks" in item:
-            # 新格式：{matcher, hooks}
-            hooks: list[HookDefinition] = []
-            for h in item.get("hooks", []):
-                if isinstance(h, dict):
-                    try:
-                        hooks.append(parse_hook_definition(h))
-                    except ValueError:
-                        continue
-                elif isinstance(h, (CommandHookDefinition, PromptHookDefinition, HttpHookDefinition, AgentHookDefinition)):
-                    hooks.append(h)
-            result.append(HookMatcherDefinition(
-                matcher=item.get("matcher", ""),
-                hooks=hooks,
-            ))
-        else:
-            # 旧格式：直接是钩子定义
-            try:
-                hook = parse_hook_definition(item)
-                result.append(HookMatcherDefinition(matcher="", hooks=[hook]))
-            except ValueError:
-                continue
+        hooks: list[HookDefinition] = []
+        for h in item.get("hooks", []):
+            if isinstance(h, dict):
+                try:
+                    hooks.append(parse_hook_definition(h))
+                except ValueError:
+                    continue
+        result.append(HookMatcherDefinition(
+            matcher=item.get("matcher", ""),
+            hooks=hooks,
+        ))
     return result
 
 
 def load_hook_registry(settings: Any, plugins: Any = None) -> HookRegistry:
     """从设置对象加载钩子注册表。
 
-    支持旧 snake_case 事件名和新 PascalCase 事件名。
-    支持旧平面格式和新 matcher 格式。
+    事件名必须是 PascalCase（如 PreToolUse）。
+    格式必须是 matcher 结构：[{ "matcher": "...", "hooks": [...] }]
     """
     registry = HookRegistry()
 
-    # 从 settings 加载
     for raw_event, hooks_value in settings.hooks.items():
-        event = resolve_event(str(raw_event))
-        if event is None:
+        try:
+            event = HookEvent(str(raw_event))
+        except ValueError:
             continue
         for matcher_def in _normalize_hooks_value(hooks_value):
             registry.register(event, matcher_def)
 
-    # 从插件加载
     for plugin in plugins or []:
         if not plugin.enabled:
             continue
         for raw_event, hooks_value in plugin.hooks.items():
-            event = resolve_event(str(raw_event))
-            if event is None:
+            try:
+                event = HookEvent(str(raw_event))
+            except ValueError:
                 continue
             for matcher_def in _normalize_hooks_value(hooks_value):
                 registry.register(event, matcher_def)

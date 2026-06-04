@@ -17,9 +17,14 @@ def substitute_plugin_variables(
     plugin_root: Path,
     plugin_data: Path,
 ) -> str:
-    """替换 ${CLAUDE_PLUGIN_ROOT} 和 ${CLAUDE_PLUGIN_DATA}。"""
-    result = template.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root))
-    result = result.replace("${CLAUDE_PLUGIN_DATA}", str(plugin_data))
+    """替换 ${CLAUDE_PLUGIN_ROOT} 和 ${CLAUDE_PLUGIN_DATA}。
+
+    路径统一使用正斜杠，避免 Windows 反斜杠在 bash 中被当作转义符。
+    """
+    root_str = str(plugin_root).replace("\\", "/")
+    data_str = str(plugin_data).replace("\\", "/")
+    result = template.replace("${CLAUDE_PLUGIN_ROOT}", root_str)
+    result = result.replace("${CLAUDE_PLUGIN_DATA}", data_str)
     return result
 
 

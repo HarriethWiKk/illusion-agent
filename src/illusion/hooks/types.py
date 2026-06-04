@@ -13,10 +13,7 @@ from typing import Any
 
 @dataclass
 class BaseHookInput:
-    """钩子输入基础字段，对齐 Claude Code BaseHookInput。
-
-    所有钩子事件共享这些字段，事件特定字段通过 create_hook_input() 附加。
-    """
+    """钩子输入基础字段，对齐 Claude Code BaseHookInput。"""
 
     session_id: str
     transcript_path: str
@@ -49,10 +46,7 @@ def create_hook_input(
     base: BaseHookInput,
     **extra: Any,
 ) -> dict[str, Any]:
-    """创建完整的钩子输入字典。
-
-    将 BaseHookInput 序列化为 dict，然后合并事件特定字段。
-    """
+    """创建完整的钩子输入字典。"""
     result: dict[str, Any] = {
         "session_id": base.session_id,
         "transcript_path": base.transcript_path,
@@ -70,35 +64,24 @@ def create_hook_input(
 
 @dataclass(frozen=True)
 class HookResult:
-    """单个钩子执行结果。
-
-    权威字段是 permission_behavior。
-    blocked 和 reason 可以显式传入（向后兼容），也可以从 permission_behavior 派生。
-    """
+    """单个钩子执行结果，对齐 Claude Code processHookJSONOutput 输出。"""
 
     hook_type: str
     success: bool
     output: str = ""
-    # 对齐 Claude Code
+    # 通用字段
     prevent_continuation: bool = False
-    permission_behavior: str | None = None  # "allow" | "deny" | None
+    permission_behavior: str | None = None  # "allow" | "deny" | "ask" | None
     blocking_error: str | None = None
     system_message: str | None = None
     hook_specific_output: dict[str, Any] | None = None
-    # 向后兼容字段
-    blocked: bool = False
-    reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # 如果未显式设置 blocked，从 permission_behavior 派生
-        if not self.blocked and self.permission_behavior == "deny":
-            object.__setattr__(self, "blocked", True)
-        # 如果未显式设置 reason，从其他字段派生
-        if not self.reason and self.blocked:
-            derived = self.blocking_error or self.system_message or self.output
-            if derived:
-                object.__setattr__(self, "reason", derived)
+    # 事件特定字段（由 processHookJSONOutput 按 hookEventName 分发提取）
+    additional_context: str | None = None
+    updated_input: dict[str, Any] | None = None
+    initial_user_message: str | None = None
+    watch_paths: list[str] | None = None
+    stop_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,17 +104,13 @@ class AggregatedHookResult:
 
     @property
     def blocked(self) -> bool:
-        return self.permission_behavior == "deny" or any(r.blocked for r in self.results)
+        return self.permission_behavior == "deny"
 
     @property
     def reason(self) -> str:
-        if self.permission_behavior == "deny":
-            for r in self.results:
-                if r.permission_behavior == "deny":
-                    return r.blocking_error or r.system_message or r.output
         for r in self.results:
-            if r.blocked:
-                return r.reason or r.output
+            if r.permission_behavior == "deny":
+                return r.blocking_error or r.system_message or r.output
         return ""
 
     @property
@@ -146,3 +125,44 @@ class AggregatedHookResult:
             if r.hook_specific_output:
                 outputs.update(r.hook_specific_output)
         return outputs or None
+
+    @property
+    def additional_contexts(self) -> list[str]:
+        """收集所有钩子的 additionalContext。"""
+        return [r.additional_context for r in self.results if r.additional_context]
+
+    @property
+    def updated_input(self) -> dict[str, Any] | None:
+        """返回第一个 updatedInput（PreToolUse 钩子可修改工具输入）。"""
+        for r in self.results:
+            if r.updated_input:
+                return r.updated_input
+        return None
+
+    @property
+    def initial_user_message(self) -> str | None:
+        """返回第一个 initialUserMessage（SessionStart 钩子可注入初始消息）。"""
+        for r in self.results:
+            if r.initial_user_message:
+                return r.initial_user_message
+        return None
+
+    @property
+    def watch_paths(self) -> list[str]:
+        """收集所有 watchPaths。"""
+        paths = []
+        for r in self.results:
+            if r.watch_paths:
+                paths.extend(r.watch_paths)
+        return paths
+
+    @property
+    def prevent_continuation(self) -> bool:
+        return any(r.prevent_continuation for r in self.results)
+
+    @property
+    def stop_reason(self) -> str | None:
+        for r in self.results:
+            if r.stop_reason:
+                return r.stop_reason
+        return None

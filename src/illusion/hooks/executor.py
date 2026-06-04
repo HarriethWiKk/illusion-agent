@@ -31,7 +31,6 @@ from illusion.hooks.loader import HookRegistry
 from illusion.hooks.schemas import (
     AgentHookDefinition,
     CommandHookDefinition,
-    HookDefinition,
     HookMatcherDefinition,
     HttpHookDefinition,
     PromptHookDefinition,
@@ -77,16 +76,19 @@ def matches_pattern(match_query: str, matcher: str) -> bool:
 def process_hook_json_output(text: str, event: HookEvent) -> dict[str, Any]:
     """解析钩子 JSON 输出，对齐 Claude Code processHookJSONOutput()。
 
-    Returns:
-        包含 permission_behavior, prevent_continuation, system_message,
-        hook_specific_output, blocking_error 的字典
+    按 hookEventName 分发提取事件特定字段（additionalContext, updatedInput 等）。
     """
     result: dict[str, Any] = {
         "permission_behavior": None,
         "prevent_continuation": False,
+        "stop_reason": None,
         "system_message": None,
         "hook_specific_output": None,
         "blocking_error": None,
+        "additional_context": None,
+        "updated_input": None,
+        "initial_user_message": None,
+        "watch_paths": None,
     }
     try:
         parsed = json.loads(text)
@@ -98,6 +100,7 @@ def process_hook_json_output(text: str, event: HookEvent) -> dict[str, Any]:
     # continue: false
     if parsed.get("continue") is False:
         result["prevent_continuation"] = True
+        result["stop_reason"] = parsed.get("stopReason")
 
     # decision
     decision = parsed.get("decision")
@@ -111,11 +114,16 @@ def process_hook_json_output(text: str, event: HookEvent) -> dict[str, Any]:
     if "systemMessage" in parsed:
         result["system_message"] = parsed["systemMessage"]
 
-    # hookSpecificOutput
+    # hookSpecificOutput — 按 hookEventName 分发
     hso = parsed.get("hookSpecificOutput")
     if isinstance(hso, dict):
         result["hook_specific_output"] = hso
         hook_event_name = hso.get("hookEventName")
+
+        # 通用 additionalContext（大多数事件都支持）
+        if "additionalContext" in hso:
+            result["additional_context"] = hso["additionalContext"]
+
         if hook_event_name == "PreToolUse":
             pd = hso.get("permissionDecision")
             if pd == "allow":
@@ -123,8 +131,44 @@ def process_hook_json_output(text: str, event: HookEvent) -> dict[str, Any]:
             elif pd == "deny":
                 result["permission_behavior"] = "deny"
                 result["blocking_error"] = hso.get("permissionDecisionReason", "hook denied")
-        elif hook_event_name == "PermissionDenied" and hso.get("retry"):
-            result["hook_specific_output"]["retry"] = True
+            if "updatedInput" in hso:
+                result["updated_input"] = hso["updatedInput"]
+
+        elif hook_event_name == "SessionStart":
+            if "initialUserMessage" in hso:
+                result["initial_user_message"] = hso["initialUserMessage"]
+            if "watchPaths" in hso:
+                result["watch_paths"] = hso["watchPaths"]
+
+        elif hook_event_name == "PermissionDenied":
+            if hso.get("retry"):
+                result["hook_specific_output"]["retry"] = True
+
+        elif hook_event_name == "PermissionRequest":
+            req_decision = hso.get("decision")
+            if req_decision == "allow":
+                result["permission_behavior"] = "allow"
+                if "updatedInput" in hso:
+                    result["updated_input"] = hso["updatedInput"]
+            elif req_decision == "deny":
+                result["permission_behavior"] = "deny"
+                result["blocking_error"] = hso.get("message", "hook denied permission")
+
+        elif hook_event_name == "Elicitation":
+            action = hso.get("action")
+            if action == "decline":
+                result["permission_behavior"] = "deny"
+                result["blocking_error"] = "elicitation declined by hook"
+
+    # 兼容顶层字段（某些钩子直接输出顶层 additionalContext，无 hookSpecificOutput 包裹）
+    if result["additional_context"] is None and "additionalContext" in parsed:
+        result["additional_context"] = parsed["additionalContext"]
+    if result["updated_input"] is None and "updatedInput" in parsed:
+        result["updated_input"] = parsed["updatedInput"]
+    if result["initial_user_message"] is None and "initialUserMessage" in parsed:
+        result["initial_user_message"] = parsed["initialUserMessage"]
+    if result["watch_paths"] is None and "watchPaths" in parsed:
+        result["watch_paths"] = parsed["watchPaths"]
 
     return result
 
@@ -257,8 +301,8 @@ class HookExecutor:
             return HookResult(
                 hook_type=hook.type,
                 success=False,
-                blocked=True,
-                reason=str(exc),
+                permission_behavior="deny",
+                blocking_error=str(exc),
             )
 
         try:
@@ -272,8 +316,8 @@ class HookExecutor:
             return HookResult(
                 hook_type=hook.type,
                 success=False,
-                blocked=True,
-                reason=f"command hook timed out after {timeout}s",
+                permission_behavior="deny",
+                blocking_error=f"command hook timed out after {timeout}s",
             )
 
         stdout_text = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
@@ -284,19 +328,21 @@ class HookExecutor:
         json_output = process_hook_json_output(stdout_text, event)
 
         success = returncode == 0
-        blocked = returncode == 2 or json_output["permission_behavior"] == "deny"
 
         return HookResult(
             hook_type=hook.type,
             success=success,
             output=stdout_text,
             prevent_continuation=json_output["prevent_continuation"],
-            permission_behavior=json_output["permission_behavior"],
+            permission_behavior=json_output["permission_behavior"] or ("deny" if returncode == 2 else None),
             blocking_error=json_output["blocking_error"] or (stderr_text if returncode == 2 else None),
             system_message=json_output["system_message"],
             hook_specific_output=json_output["hook_specific_output"],
-            blocked=blocked,
-            reason=stderr_text if returncode == 2 else stdout_text,
+            additional_context=json_output["additional_context"],
+            updated_input=json_output["updated_input"],
+            initial_user_message=json_output["initial_user_message"],
+            watch_paths=json_output["watch_paths"],
+            stop_reason=json_output["stop_reason"],
             metadata={"returncode": returncode},
         )
 
@@ -325,16 +371,18 @@ class HookExecutor:
                 blocking_error=json_output["blocking_error"],
                 system_message=json_output["system_message"],
                 hook_specific_output=json_output["hook_specific_output"],
-                blocked=json_output["permission_behavior"] == "deny",
-                reason=output,
+                additional_context=json_output["additional_context"],
+                updated_input=json_output["updated_input"],
+                initial_user_message=json_output["initial_user_message"],
+                watch_paths=json_output["watch_paths"],
+                stop_reason=json_output["stop_reason"],
                 metadata={"status_code": response.status_code},
             )
         except Exception as exc:
             return HookResult(
                 hook_type=hook.type,
                 success=False,
-                blocked=True,
-                reason=str(exc),
+                blocking_error=str(exc),
             )
 
     async def _run_prompt_like_hook(
@@ -372,25 +420,23 @@ class HookExecutor:
         if final_event is not None and final_event.message.text:
             text = final_event.message.text
 
-        parsed = _parse_hook_json(text)
-        if parsed["ok"]:
-            return HookResult(hook_type=hook.type, success=True, output=text)
+        json_output = process_hook_json_output(text, event)
+        success = json_output["permission_behavior"] != "deny" and not json_output["prevent_continuation"]
         return HookResult(
             hook_type=hook.type,
-            success=False,
+            success=success,
             output=text,
-            blocked=True,
-            reason=parsed.get("reason", "hook rejected the event"),
+            prevent_continuation=json_output["prevent_continuation"],
+            permission_behavior=json_output["permission_behavior"],
+            blocking_error=json_output["blocking_error"],
+            system_message=json_output["system_message"],
+            hook_specific_output=json_output["hook_specific_output"],
+            additional_context=json_output["additional_context"],
+            updated_input=json_output["updated_input"],
+            initial_user_message=json_output["initial_user_message"],
+            watch_paths=json_output["watch_paths"],
+            stop_reason=json_output["stop_reason"],
         )
-
-
-def _matches_hook(hook: HookDefinition, payload: dict[str, Any]) -> bool:
-    """检查钩子是否与 payload 匹配（向后兼容）。"""
-    matcher = getattr(hook, "matcher", None)
-    if not matcher:
-        return True
-    subject = str(payload.get("tool_name") or payload.get("prompt") or payload.get("event") or "")
-    return matches_pattern(subject, matcher)
 
 
 def _inject_arguments(

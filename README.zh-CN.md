@@ -435,6 +435,8 @@ illusion-code/
 | `MEMORY.md` | 项目根目录 | 项目级 | 记忆入口文件 |
 | `.illusion/mcp/*.json` | 项目根目录 | 项目级 | MCP 服务器配置 |
 | `.illusion/rules/*.md` | 项目根目录 | 项目级 | 项目规则文件 |
+| `.illusion/plugins/*/` | 全局或项目级 | 每个插件 | 插件目录（技能、钩子、MCP） |
+| `.illusion/skills/*/` | 全局或项目级 | 每个技能 | 技能目录（SKILL.md） |
 
 #### 凭据文件 (credentials.json)
 
@@ -987,56 +989,128 @@ illusion mcp remove <name>       # 移除服务器
 
 ### 钩子配置
 
-钩子允许在特定事件发生时执行自定义操作。
+钩子允许在特定事件发生时执行自定义操作。钩子系统与 Claude Code 完全对齐。
 
-#### 支持的钩子类型
+#### 支持的钩子事件（27 个）
 
-| 钩子事件 | 说明 |
-|----------|------|
-| `PRE_TOOL_USE` | 工具执行前 |
-| `POST_TOOL_USE` | 工具执行后 |
-| `USER_PROMPT_SUBMIT` | 用户提交提示词后 |
+| 事件 | 匹配字段 | 说明 |
+|------|----------|------|
+| `PreToolUse` | tool_name | 工具执行前 |
+| `PostToolUse` | tool_name | 工具执行后 |
+| `PostToolUseFailure` | tool_name | 工具执行失败后 |
+| `PermissionDenied` | tool_name | 自动模式分类器拒绝后 |
+| `Notification` | notification_type | 发送通知时 |
+| `UserPromptSubmit` | — | 用户提交提示词时 |
+| `SessionStart` | source | 新会话开始（startup/resume/clear/compact） |
+| `SessionEnd` | reason | 会话结束 |
+| `Stop` | — | Claude 结束响应前 |
+| `StopFailure` | error | 因 API 错误结束回合 |
+| `SubagentStart` | agent_type | 子代理启动 |
+| `SubagentStop` | agent_type | 子代理结束 |
+| `PreCompact` | trigger | 压缩前（manual/auto） |
+| `PostCompact` | trigger | 压缩后 |
+| `PermissionRequest` | tool_name | 权限对话框显示时 |
+| `Setup` | trigger | 仓库设置（init/maintenance） |
+| `ConfigChange` | source | 配置文件变更 |
+| `InstructionsLoaded` | load_reason | 指令文件加载时 |
+| `WorktreeCreate` | — | 创建工作树 |
+| `WorktreeRemove` | — | 移除工作树 |
+| `CwdChanged` | — | 工作目录变更 |
+| `FileChanged` | — | 监视文件变更 |
+| `TaskCreated` | — | 任务创建时 |
+| `TaskCompleted` | — | 任务完成时 |
+| `TeammateIdle` | — | 队友即将空闲 |
+| `Elicitation` | mcp_server_name | MCP 引出请求 |
+| `ElicitationResult` | mcp_server_name | 用户响应引出后 |
 
-#### 钩子配置示例
+#### 钩子配置格式
+
+钩子使用基于 matcher 的结构（与 Claude Code 对齐）：
 
 ```json
 {
   "hooks": {
-    "PRE_TOOL_USE": [
+    "PreToolUse": [
       {
-        "type": "command",
-        "command": "echo 'Tool: $TOOL_NAME' >> /tmp/tool.log",
-        "timeout_seconds": 30,
-        "block_on_failure": false
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Tool: $ARGUMENTS' >> /tmp/tool.log",
+            "timeout": 30
+          }
+        ]
       }
     ],
-    "POST_TOOL_USE": [
+    "PostToolUse": [
       {
-        "type": "http",
-        "url": "https://hooks.example.com/tool-complete",
-        "headers": {"Authorization": "Bearer token"},
-        "timeout_seconds": 10
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://hooks.example.com/tool-complete",
+            "headers": {"Authorization": "Bearer token"}
+          }
+        ]
       }
     ],
-    "USER_PROMPT_SUBMIT": [
+    "UserPromptSubmit": [
       {
-        "type": "prompt",
-        "prompt": "检查用户输入是否包含敏感信息",
-        "block_on_failure": true
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "检查用户输入是否包含敏感信息"
+          }
+        ]
       }
     ]
   }
 }
 ```
 
-#### 钩子类型详解
+#### 匹配器模式
 
-| 类型 | 必填字段 | 可选字段 | 说明 |
-|------|----------|----------|------|
-| `command` | command | timeout_seconds, matcher, block_on_failure | 执行 Shell 命令 |
-| `prompt` | prompt | model, timeout_seconds, matcher, block_on_failure | 使用 LLM 验证 |
-| `http` | url | headers, timeout_seconds, matcher, block_on_failure | 发送 HTTP 请求 |
-| `agent` | prompt | model, timeout_seconds, matcher, block_on_failure | 使用 Agent 验证 |
+`matcher` 字段控制钩子何时运行：
+
+| 模式 | 示例 | 行为 |
+|------|------|------|
+| 空 / `*` | `""` | 匹配所有 |
+| 精确匹配 | `"Bash"` | 匹配精确工具名 |
+| 管道分隔 | `"Write\|Edit"` | 匹配列表中的任意一个 |
+| 正则表达式 | `"^git .*"` | 正则匹配工具名 |
+
+#### 钩子类型
+
+| 类型 | 必填 | 可选 | 说明 |
+|------|------|------|------|
+| `command` | `command` | `if`, `shell`, `timeout`, `statusMessage`, `once`, `async`, `asyncRewake` | 执行 Shell 命令 |
+| `prompt` | `prompt` | `if`, `model`, `timeout`, `statusMessage`, `once` | 使用 LLM 验证 |
+| `http` | `url` | `if`, `timeout`, `headers`, `allowedEnvVars`, `statusMessage`, `once` | 发送 HTTP POST 请求 |
+| `agent` | `prompt` | `if`, `model`, `timeout`, `statusMessage`, `once` | 使用 Agent 验证 |
+
+#### 通用钩子选项
+
+| 选项 | 类型 | 说明 |
+|------|------|------|
+| `if` | string | 权限规则语法过滤（如 `"Bash(git *)"`） |
+| `timeout` | int | 超时秒数 |
+| `once` | bool | 为 true 时钩子执行一次后自动移除 |
+| `statusMessage` | string | 钩子运行时的自定义加载消息 |
+
+#### 命令钩子环境变量
+
+命令钩子接收以下环境变量：
+
+| 变量 | 说明 |
+|------|------|
+| `CLAUDE_PROJECT_DIR` | 当前工作目录 |
+| `CLAUDE_SESSION_ID` | 当前会话 ID |
+| `CLAUDE_PLUGIN_ROOT` | 插件安装目录（来自插件时） |
+| `CLAUDE_PLUGIN_DATA` | 插件数据目录 |
+| `CLAUDE_ENV_FILE` | 写入 bash exports 以应用到后续命令 |
+
+在命令字符串中使用 `$ARGUMENTS` 注入钩子输入 JSON。
 
 ---
 
@@ -1105,22 +1179,114 @@ illusion mcp remove <name>       # 移除服务器
 
 ## 🔌 扩展开发
 
-### 钩子系统
-
-支持多种钩子类型：
-
-- `PRE_TOOL_USE` - 工具执行前
-- `POST_TOOL_USE` - 工具执行后
-- `USER_PROMPT_SUBMIT` - 用户提交提示词后
-
 ### 插件系统
 
-通过 `plugin.json` 清单定义：
+插件通过技能、钩子、命令和 MCP 服务器扩展 IllusionCode。插件格式与 Claude Code 完全对齐。
 
-- 技能 (Skills)
-- 命令 (Commands)
-- 钩子 (Hooks)
-- MCP 服务器
+#### 插件目录结构
+
+```
+my-plugin/
+├── .claude-plugin/
+│   └── plugin.json          # 插件清单
+├── skills/                  # 技能（子目录包含 SKILL.md）
+│   ├── my-skill/
+│   │   └── SKILL.md
+│   └── another-skill.md
+├── commands/                # 斜杠命令（.md 文件）
+├── agents/                  # 智能体定义（.md 文件）
+├── hooks/
+│   └── hooks.json           # 钩子定义
+├── .mcp.json                # MCP 服务器配置
+└── settings.json            # 插件默认设置
+```
+
+#### 插件清单 (plugin.json)
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "我的自定义插件",
+  "enabled_by_default": true,
+  "skills_dir": "skills",
+  "hooks_file": "hooks.json"
+}
+```
+
+#### 插件安装
+
+```bash
+# 从本地路径安装
+illusion plugin install /path/to/my-plugin
+
+# 列出已安装插件
+illusion plugin list
+
+# 启用/禁用
+illusion plugin enable my-plugin
+illusion plugin disable my-plugin
+
+# 卸载
+illusion plugin uninstall my-plugin
+```
+
+插件安装到 `~/.illusion/plugins/`（用户级）或 `.illusion/plugins/`（项目级）。
+
+#### 插件钩子 (hooks/hooks.json)
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/init.cmd\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+插件钩子支持 `${CLAUDE_PLUGIN_ROOT}` 和 `${CLAUDE_PLUGIN_DATA}` 变量替换。
+
+#### 技能 Frontmatter
+
+SKILL.md 文件中的技能支持以下 frontmatter 字段：
+
+```yaml
+---
+description: 技能描述
+allowed-tools: Bash, Read, Write
+model: claude-sonnet-4-6
+context: fork
+effort: high
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: echo check
+---
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `description` | string | 技能描述（显示在技能列表中） |
+| `allowed-tools` | string | 逗号分隔的允许工具列表 |
+| `model` | string | 该技能的模型覆盖 |
+| `context` | string | `inline`（展开到对话）或 `fork`（子代理） |
+| `effort` | string | 推理强度覆盖 |
+| `hooks` | object | 技能调用时注册的钩子 |
+
+### 钩子系统
+
+完整的钩子文档请参阅[钩子配置](#钩子配置)章节，包含 27 个事件和基于 matcher 的格式。
 
 ---
 

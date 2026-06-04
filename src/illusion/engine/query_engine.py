@@ -36,7 +36,7 @@ from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
 from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, PermissionPrompt, PlanApprovalPrompt, QueryContext, run_query
 from illusion.engine.stream_events import StreamEvent
-from illusion.hooks import HookExecutor
+from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
 from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot
@@ -262,6 +262,31 @@ class QueryEngine:
 
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))
+
+        # 执行 UserPromptSubmit 钩子（对齐 Claude Code）
+        if self._hook_executor is not None:
+            ups_result = await self._hook_executor.execute(
+                HookEvent.USER_PROMPT_SUBMIT,
+                {"prompt": prompt},
+            )
+            # 阻止处理
+            if ups_result.blocked:
+                from illusion.hooks.utils import wrap_in_system_reminder
+                error_msg = ups_result.reason or "UserPromptSubmit hook blocked"
+                self._messages.append(ConversationMessage.from_user_text(
+                    wrap_in_system_reminder(f"Hook blocked: {error_msg}")
+                ))
+                return
+            # preventContinuation
+            if ups_result.prevent_continuation:
+                return
+            # 注入 additionalContext
+            for ctx in ups_result.additional_contexts:
+                if ctx:
+                    from illusion.hooks.utils import wrap_in_system_reminder
+                    self._messages.append(ConversationMessage.from_user_text(
+                        wrap_in_system_reminder(ctx)
+                    ))
 
         # 为这条用户消息创建文件历史快照（用消息列表长度作为 ID）
         make_snapshot(self._file_history, str(len(self._messages)))

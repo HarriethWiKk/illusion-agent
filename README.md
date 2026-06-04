@@ -435,6 +435,8 @@ Built-in 7 specialized Agents:
 | `MEMORY.md` | Project root | Project-level | Memory entry file |
 | `.illusion/mcp/*.json` | Project root | Project-level | MCP server configuration |
 | `.illusion/rules/*.md` | Project root | Project-level | Project rule files |
+| `.illusion/plugins/*/` | Global or project | Per-plugin | Plugin directories with skills, hooks, MCP |
+| `.illusion/skills/*/` | Global or project | Per-skill | Skill directories with SKILL.md |
 
 #### Credentials File (credentials.json)
 
@@ -987,56 +989,128 @@ MCP servers from plugins are registered with the format `plugin_name:server_name
 
 ### Hook Configuration
 
-Hooks allow executing custom operations when specific events occur.
+Hooks allow executing custom operations when specific events occur. The hook system is fully aligned with Claude Code.
 
-#### Supported Hook Types
+#### Supported Hook Events (27 events)
 
-| Hook Event | Description |
-|------------|-------------|
-| `PRE_TOOL_USE` | Before tool execution |
-| `POST_TOOL_USE` | After tool execution |
-| `USER_PROMPT_SUBMIT` | After user prompt submission |
+| Event | Matcher Field | Description |
+|-------|---------------|-------------|
+| `PreToolUse` | tool_name | Before tool execution |
+| `PostToolUse` | tool_name | After tool execution |
+| `PostToolUseFailure` | tool_name | After tool execution fails |
+| `PermissionDenied` | tool_name | After auto mode classifier denies |
+| `Notification` | notification_type | When notifications are sent |
+| `UserPromptSubmit` | — | When user submits a prompt |
+| `SessionStart` | source | New session started (startup/resume/clear/compact) |
+| `SessionEnd` | reason | Session ending |
+| `Stop` | — | Before Claude concludes response |
+| `StopFailure` | error | Turn ends due to API error |
+| `SubagentStart` | agent_type | Subagent started |
+| `SubagentStop` | agent_type | Subagent concludes |
+| `PreCompact` | trigger | Before compaction (manual/auto) |
+| `PostCompact` | trigger | After compaction |
+| `PermissionRequest` | tool_name | Permission dialog displayed |
+| `Setup` | trigger | Repo setup (init/maintenance) |
+| `ConfigChange` | source | Configuration file changes |
+| `InstructionsLoaded` | load_reason | Instruction file loaded |
+| `WorktreeCreate` | — | Create worktree |
+| `WorktreeRemove` | — | Remove worktree |
+| `CwdChanged` | — | Working directory changes |
+| `FileChanged` | — | Watched file changes |
+| `TaskCreated` | — | Task being created |
+| `TaskCompleted` | — | Task being completed |
+| `TeammateIdle` | — | Teammate about to idle |
+| `Elicitation` | mcp_server_name | MCP elicitation request |
+| `ElicitationResult` | mcp_server_name | After user responds to elicitation |
 
-#### Hook Configuration Example
+#### Hook Configuration Format
+
+Hooks use a matcher-based structure (aligned with Claude Code):
 
 ```json
 {
   "hooks": {
-    "PRE_TOOL_USE": [
+    "PreToolUse": [
       {
-        "type": "command",
-        "command": "echo 'Tool: $TOOL_NAME' >> /tmp/tool.log",
-        "timeout_seconds": 30,
-        "block_on_failure": false
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Tool: $ARGUMENTS' >> /tmp/tool.log",
+            "timeout": 30
+          }
+        ]
       }
     ],
-    "POST_TOOL_USE": [
+    "PostToolUse": [
       {
-        "type": "http",
-        "url": "https://hooks.example.com/tool-complete",
-        "headers": {"Authorization": "Bearer token"},
-        "timeout_seconds": 10
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://hooks.example.com/tool-complete",
+            "headers": {"Authorization": "Bearer token"}
+          }
+        ]
       }
     ],
-    "USER_PROMPT_SUBMIT": [
+    "UserPromptSubmit": [
       {
-        "type": "prompt",
-        "prompt": "Check if user input contains sensitive information",
-        "block_on_failure": true
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if user input contains sensitive information"
+          }
+        ]
       }
     ]
   }
 }
 ```
 
-#### Hook Type Details
+#### Matcher Patterns
 
-| Type | Required Fields | Optional Fields | Description |
-|------|-----------------|-----------------|-------------|
-| `command` | command | timeout_seconds, matcher, block_on_failure | Execute Shell command |
-| `prompt` | prompt | model, timeout_seconds, matcher, block_on_failure | Use LLM for verification |
-| `http` | url | headers, timeout_seconds, matcher, block_on_failure | Send HTTP request |
-| `agent` | prompt | model, timeout_seconds, matcher, block_on_failure | Use Agent for verification |
+The `matcher` field filters when hooks run:
+
+| Pattern | Example | Behavior |
+|---------|---------|----------|
+| Empty / `*` | `""` | Matches everything |
+| Exact match | `"Bash"` | Matches exact tool name |
+| Pipe-separated | `"Write\|Edit"` | Matches any in list |
+| Regex | `"^git .*"` | Regex match against tool name |
+
+#### Hook Types
+
+| Type | Required | Optional | Description |
+|------|----------|----------|-------------|
+| `command` | `command` | `if`, `shell`, `timeout`, `statusMessage`, `once`, `async`, `asyncRewake` | Execute Shell command |
+| `prompt` | `prompt` | `if`, `model`, `timeout`, `statusMessage`, `once` | Use LLM for verification |
+| `http` | `url` | `if`, `timeout`, `headers`, `allowedEnvVars`, `statusMessage`, `once` | Send HTTP POST request |
+| `agent` | `prompt` | `if`, `model`, `timeout`, `statusMessage`, `once` | Use Agent for verification |
+
+#### Common Hook Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `if` | string | Permission rule syntax filter (e.g. `"Bash(git *)"`) |
+| `timeout` | int | Timeout in seconds |
+| `once` | bool | If true, hook runs once then auto-removes |
+| `statusMessage` | string | Custom spinner message while hook runs |
+
+#### Command Hook Environment Variables
+
+Command hooks receive these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `CLAUDE_PROJECT_DIR` | Current working directory |
+| `CLAUDE_SESSION_ID` | Current session ID |
+| `CLAUDE_PLUGIN_ROOT` | Plugin installation directory (if from plugin) |
+| `CLAUDE_PLUGIN_DATA` | Plugin data directory |
+| `CLAUDE_ENV_FILE` | Write bash exports here to apply env to subsequent commands |
+
+Use `$ARGUMENTS` in the command string to inject the hook input JSON.
 
 ---
 
@@ -1105,22 +1179,114 @@ Supported environment variables:
 
 ## 🔌 Extension Development
 
-### Hook System
-
-Supports multiple hook types:
-
-- `PRE_TOOL_USE` - Before tool execution
-- `POST_TOOL_USE` - After tool execution
-- `USER_PROMPT_SUBMIT` - After user prompt submission
-
 ### Plugin System
 
-Defined through `plugin.json` manifest:
+Plugins extend IllusionCode with skills, hooks, commands, and MCP servers. Plugin format is fully aligned with Claude Code.
 
-- Skills
-- Commands
-- Hooks
-- MCP Servers
+#### Plugin Directory Structure
+
+```
+my-plugin/
+├── .claude-plugin/
+│   └── plugin.json          # Plugin manifest
+├── skills/                  # Skills (subdirs with SKILL.md)
+│   ├── my-skill/
+│   │   └── SKILL.md
+│   └── another-skill.md
+├── commands/                # Slash commands (.md files)
+├── agents/                  # Agent definitions (.md files)
+├── hooks/
+│   └── hooks.json           # Hook definitions
+├── .mcp.json                # MCP server configuration
+└── settings.json            # Plugin default settings
+```
+
+#### Plugin Manifest (plugin.json)
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "My custom plugin",
+  "enabled_by_default": true,
+  "skills_dir": "skills",
+  "hooks_file": "hooks.json"
+}
+```
+
+#### Plugin Installation
+
+```bash
+# Install from local path
+illusion plugin install /path/to/my-plugin
+
+# List installed plugins
+illusion plugin list
+
+# Enable/disable
+illusion plugin enable my-plugin
+illusion plugin disable my-plugin
+
+# Uninstall
+illusion plugin uninstall my-plugin
+```
+
+Plugins are installed to `~/.illusion/plugins/` (user-level) or `.illusion/plugins/` (project-level).
+
+#### Plugin Hooks (hooks/hooks.json)
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/init.cmd\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Plugin hooks support `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` variable substitution.
+
+#### Skill Frontmatter
+
+Skills defined in SKILL.md files support these frontmatter fields:
+
+```yaml
+---
+description: What this skill does
+allowed-tools: Bash, Read, Write
+model: claude-sonnet-4-6
+context: fork
+effort: high
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: echo check
+---
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | Skill description (shown in skill list) |
+| `allowed-tools` | string | Comma-separated list of allowed tools |
+| `model` | string | Model override for this skill |
+| `context` | string | `inline` (expand into conversation) or `fork` (sub-agent) |
+| `effort` | string | Reasoning effort override |
+| `hooks` | object | Hooks to register when skill is invoked |
+
+### Hook System
+
+See [Hook Configuration](#hook-configuration) for the full hook documentation with 27 events and matcher-based format.
 
 ## 🧪 Development & Testing
 
