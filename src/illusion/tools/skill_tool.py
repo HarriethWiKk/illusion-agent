@@ -2,14 +2,8 @@
 技能内容读取工具
 ================
 
-本模块提供读取已加载技能内容的功能，用于执行斜杠命令和自定义技能。
-
-主要组件：
-    - SkillTool: 读取技能内容的工具
-
-使用示例：
-    >>> from illusion.tools import SkillTool
-    >>> tool = SkillTool()
+本模块提供读取已加载技能内容的功能，对齐 Claude Code 的 SkillTool。
+支持 frontmatter 字段（hooks 注册、变量替换等）。
 """
 
 from __future__ import annotations
@@ -21,21 +15,20 @@ from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
 class SkillToolInput(BaseModel):
-    """技能查找参数。
-
-    属性：
-        name: 技能名称
-        args: 技能的可选参数
-    """
+    """技能查找参数。"""
 
     name: str = Field(description="Skill name")
     args: str | None = Field(default=None, description="Optional arguments for the skill")
 
 
 class SkillTool(BaseTool):
-    """返回已加载技能的内容。
+    """返回已加载技能的内容，对齐 Claude Code SkillTool。
 
-    用于执行斜杠命令（/command）或调用自定义技能。
+    支持：
+    - frontmatter 字段（allowed_tools, model, hooks, context 等）
+    - $ARGUMENTS 变量替换
+    - ${CLAUDE_PLUGIN_ROOT} 等插件变量替换
+    - 技能钩子注册到会话
     """
 
     name = "skill"
@@ -50,11 +43,6 @@ When users reference a "slash command" or "/<something>" (e.g., "/commit", "/rev
 How to use:
 - Call this tool with the skill name and optional arguments
 - The tool returns the skill's instructions — you then execute them
-- Examples:
-  - `skill: "pdf"` — loads the pdf skill's instructions
-  - `skill: "commit", args: "-m 'Fix bug'"` — loads with arguments
-  - `skill: "review-pr", args: "123"` — loads with arguments
-  - `skill: "ms-office-suite:pdf"` — loads using fully qualified name
 
 Important:
 - Available skills are listed in <system-reminder> messages in the conversation
@@ -70,17 +58,59 @@ Important:
         return True
 
     async def execute(self, arguments: SkillToolInput, context: ToolExecutionContext) -> ToolResult:
-        # 加载技能注册表
         registry = load_skill_registry(context.cwd)
         # 尝试多种名称格式匹配
-        skill = registry.get(arguments.name) or registry.get(arguments.name.lower()) or registry.get(arguments.name.title())
+        skill = (
+            registry.get(arguments.name)
+            or registry.get(arguments.name.lower())
+            or registry.get(arguments.name.title())
+            or registry.get(arguments.name.replace("-", "_"))
+            or registry.get(arguments.name.replace("_", "-"))
+        )
         if skill is None:
             return ToolResult(output=f"Skill not found: {arguments.name}", is_error=True)
 
-        # 获取技能内容
         content = skill.content
-        # 如果提供了参数，替换 $ARGUMENTS 占位符
+
+        # 变量替换
         if arguments.args and "$ARGUMENTS" in content:
             content = content.replace("$ARGUMENTS", arguments.args)
+
+        # 插件变量替换
+        if skill.skill_root:
+            content = content.replace("${CLAUDE_PLUGIN_ROOT}", skill.skill_root)
+            content = content.replace("${CLAUDE_SKILL_DIR}", skill.skill_root)
+
+        # 注册技能钩子到会话（如果有的话）
+        if skill.hooks:
+            try:
+                from illusion.hooks.register_hooks import register_skill_hooks
+                session_id = context.metadata.get("session_id", "")
+                if session_id:
+                    from illusion.hooks.session_hooks import SessionHookStore
+                    from illusion.hooks.schemas import HookMatcherDefinition, parse_hook_definition
+                    # 将 skill.hooks 转换为 HookMatcherDefinition 格式
+                    hooks_settings = {}
+                    for event_name, matchers_data in skill.hooks.items():
+                        matchers = []
+                        for m in matchers_data:
+                            if isinstance(m, dict):
+                                hook_list = []
+                                for h in m.get("hooks", []):
+                                    if isinstance(h, dict):
+                                        try:
+                                            hook_list.append(parse_hook_definition(h))
+                                        except ValueError:
+                                            continue
+                                matchers.append(HookMatcherDefinition(
+                                    matcher=m.get("matcher", ""),
+                                    hooks=hook_list,
+                                ))
+                        hooks_settings[event_name] = matchers
+                    store = context.metadata.get("session_hook_store")
+                    if store and isinstance(store, SessionHookStore):
+                        register_skill_hooks(store, session_id, hooks_settings, skill.name, skill.skill_root)
+            except Exception:
+                pass  # 钩子注册失败不影响技能加载
 
         return ToolResult(output=content)

@@ -351,7 +351,7 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
     """
     await bundle.hook_executor.execute(
         HookEvent.SESSION_START,
-        {"cwd": bundle.cwd, "event": HookEvent.SESSION_START.value},
+        {"cwd": str(bundle.cwd), "source": "startup"},
     )
 
 
@@ -371,7 +371,7 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     # 执行会话结束钩子
     await bundle.hook_executor.execute(
         HookEvent.SESSION_END,
-        {"cwd": bundle.cwd, "event": HookEvent.SESSION_END.value},
+        {"cwd": str(bundle.cwd), "reason": "other"},
     )
 
 

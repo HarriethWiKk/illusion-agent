@@ -203,7 +203,7 @@ class Settings(BaseModel):
     max_tokens: int = 16384
     max_turns: int = 200
     permission: PermissionSettings = Field(default_factory=PermissionSettings)
-    hooks: dict[str, list[HookDefinition]] = Field(default_factory=dict)
+    hooks: dict[str, Any] = Field(default_factory=dict)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)

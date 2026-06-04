@@ -1,0 +1,40 @@
+"""
+插件变量替换
+============
+
+替换钩子命令和技能内容中的插件变量。
+对齐 Claude Code 的 pluginOptionsStorage.ts。
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+
+def substitute_plugin_variables(
+    template: str,
+    plugin_root: Path,
+    plugin_data: Path,
+) -> str:
+    """替换 ${CLAUDE_PLUGIN_ROOT} 和 ${CLAUDE_PLUGIN_DATA}。"""
+    result = template.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_root))
+    result = result.replace("${CLAUDE_PLUGIN_DATA}", str(plugin_data))
+    return result
+
+
+def substitute_user_config_variables(
+    template: str,
+    user_config: dict[str, str],
+) -> str:
+    """替换 ${user_config.KEY} 变量。
+
+    缺少的 key 会抛出 KeyError。
+    """
+    def replacer(match: re.Match) -> str:
+        key = match.group(1)
+        if key not in user_config:
+            raise KeyError(f"Missing user_config variable: {key}")
+        return user_config[key]
+
+    return re.sub(r'\$\{user_config\.(\w+)\}', replacer, template)

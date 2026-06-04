@@ -2,132 +2,130 @@
 钩子加载器模块
 ==============
 
-本模块提供从设置和插件加载钩子注册表的功能。
-
-主要功能：
-    - HookRegistry: 按事件分组存储钩子
-    - load_hook_registry: 从设置对象加载钩子注册表
-
-使用示例：
-    >>> from illusion.hooks.loader import HookRegistry, load_hook_registry
-    >>> registry = load_hook_registry(settings, plugins)
+从设置和插件加载钩子注册表，支持新旧两种格式。
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from illusion.hooks.events import HookEvent
-from illusion.hooks.schemas import HookDefinition
+from typing import Any
+
+from illusion.hooks.events import HookEvent, resolve_event
+from illusion.hooks.schemas import (
+    AgentHookDefinition,
+    CommandHookDefinition,
+    HookDefinition,
+    HookMatcherDefinition,
+    HttpHookDefinition,
+    PromptHookDefinition,
+    parse_hook_definition,
+)
 
 
 class HookRegistry:
-    """
-    钩子注册表
-    
-    按事件类型分组存储钩子定义，支持注册、获取和摘要生成。
-    
-    Attributes:
-        _hooks: 事件到钩子列表的映射字典
-    
-    使用示例：
-        >>> registry = HookRegistry()
-        >>> registry.register(HookEvent.PRE_TOOL_USE, hook_def)
-        >>> hooks = registry.get(HookEvent.PRE_TOOL_USE)
-    """
+    """钩子注册表，按事件存储 HookMatcherDefinition 列表。"""
 
     def __init__(self) -> None:
-        # 初始化钩子字典，使用 defaultdict 自动创建空列表
-        self._hooks: dict[HookEvent, list[HookDefinition]] = defaultdict(list)
+        self._hooks: dict[HookEvent, list[HookMatcherDefinition]] = defaultdict(list)
 
-    def register(self, event: HookEvent, hook: HookDefinition) -> None:
-        """
-        注册一个钩子
-        
-        Args:
-            event: 钩子触发事件
-            hook: 钩子定义
-        """
-        # 将钩子添加到对应事件的列表中
-        self._hooks[event].append(hook)
+    def register(self, event: HookEvent, matcher: HookMatcherDefinition) -> None:
+        """注册一个钩子匹配器。"""
+        self._hooks[event].append(matcher)
 
-    def get(self, event: HookEvent) -> list[HookDefinition]:
-        """
-        获取指定事件的所有钩子
-        
-        Args:
-            event: 钩子触发事件
-        
-        Returns:
-            list[HookDefinition]: 钩子定义列表
-        """
-        # 返回事件对应的钩子列表的副本
+    def register_hook(self, event: HookEvent, hook: HookDefinition, matcher: str = "") -> None:
+        """注册单个钩子（便捷方法）。"""
+        self._hooks[event].append(HookMatcherDefinition(matcher=matcher, hooks=[hook]))
+
+    def get(self, event: HookEvent) -> list[HookMatcherDefinition]:
+        """获取指定事件的所有匹配器。"""
         return list(self._hooks.get(event, []))
 
+    def get_hooks_flat(self, event: HookEvent) -> list[HookDefinition]:
+        """获取指定事件的所有钩子（扁平列表）。"""
+        hooks = []
+        for matcher in self.get(event):
+            hooks.extend(matcher.hooks)
+        return hooks
+
     def summary(self) -> str:
-        """
-        生成人类可读的钩子摘要
-        
-        Returns:
-            str: 格式化的钩子摘要字符串
-        """
-        lines: list[str] = []  # 存储摘要行
-        # 遍历所有事件类型
+        """生成人类可读的钩子摘要。"""
+        lines: list[str] = []
         for event in HookEvent:
-            hooks = self.get(event)  # 获取事件对应的钩子
-            if not hooks:
-                continue  # 跳过没有钩子的事件
-            lines.append(f"{event.value}:")  # 添加事件名称
-            # 遍历每个钩子
-            for hook in hooks:
-                # 获取匹配器属性
-                matcher = getattr(hook, "matcher", None)
-                # 获取详情属性（command/prompt/url 之一）
-                detail = getattr(hook, "command", None) or getattr(hook, "prompt", None) or getattr(hook, "url", None) or ""
-                suffix = f" matcher={matcher}" if matcher else ""  # 匹配器后缀
-                lines.append(f"  - {hook.type}{suffix}: {detail}")  # 添加钩子详情
-        return "\n".join(lines)  # 拼接所有行
+            matchers = self.get(event)
+            if not matchers:
+                continue
+            lines.append(f"{event.value}:")
+            for m in matchers:
+                for hook in m.hooks:
+                    detail = getattr(hook, "command", None) or getattr(hook, "prompt", None) or getattr(hook, "url", None) or ""
+                    suffix = f" matcher={m.matcher}" if m.matcher else ""
+                    lines.append(f"  - {hook.type}{suffix}: {detail}")
+        return "\n".join(lines)
 
 
-def load_hook_registry(settings, plugins=None) -> HookRegistry:
+def _normalize_hooks_value(value: Any) -> list[HookMatcherDefinition]:
+    """将 hooks 值规范化为 HookMatcherDefinition 列表。
+
+    支持两种格式：
+    1. 旧格式：list[dict]（平面钩子列表）
+    2. 新格式：list[{matcher, hooks}]（带 matcher 的结构化格式）
     """
-    从设置对象加载钩子注册表
-    
-    从主设置和插件中收集钩子定义，构建完整的注册表。
-    
-    Args:
-        settings: 包含 hooks 属性的设置对象
-        plugins: 可选的插件列表
-    
-    Returns:
-        HookRegistry: 加载完成的钩子注册表
-    
-    使用示例：
-        >>> registry = load_hook_registry(settings, plugins)
+    if not isinstance(value, list):
+        return []
+    result: list[HookMatcherDefinition] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        if "hooks" in item:
+            # 新格式：{matcher, hooks}
+            hooks: list[HookDefinition] = []
+            for h in item.get("hooks", []):
+                if isinstance(h, dict):
+                    try:
+                        hooks.append(parse_hook_definition(h))
+                    except ValueError:
+                        continue
+                elif isinstance(h, (CommandHookDefinition, PromptHookDefinition, HttpHookDefinition, AgentHookDefinition)):
+                    hooks.append(h)
+            result.append(HookMatcherDefinition(
+                matcher=item.get("matcher", ""),
+                hooks=hooks,
+            ))
+        else:
+            # 旧格式：直接是钩子定义
+            try:
+                hook = parse_hook_definition(item)
+                result.append(HookMatcherDefinition(matcher="", hooks=[hook]))
+            except ValueError:
+                continue
+    return result
+
+
+def load_hook_registry(settings: Any, plugins: Any = None) -> HookRegistry:
+    """从设置对象加载钩子注册表。
+
+    支持旧 snake_case 事件名和新 PascalCase 事件名。
+    支持旧平面格式和新 matcher 格式。
     """
-    registry = HookRegistry()  # 创建新的注册表实例
-    
-    # 遍历设置中的钩子配置
-    for raw_event, hooks in settings.hooks.items():
-        try:
-            # 尝试将字符串转换为 HookEvent 枚举
-            event = HookEvent(raw_event)
-        except ValueError:
-            continue  # 跳过无效的事件名称
-        # 遍历事件中的钩子定义并注册
-        for hook in hooks:
-            registry.register(event, hook)
-    
-    # 遍历插件中的钩子配置
+    registry = HookRegistry()
+
+    # 从 settings 加载
+    for raw_event, hooks_value in settings.hooks.items():
+        event = resolve_event(str(raw_event))
+        if event is None:
+            continue
+        for matcher_def in _normalize_hooks_value(hooks_value):
+            registry.register(event, matcher_def)
+
+    # 从插件加载
     for plugin in plugins or []:
         if not plugin.enabled:
-            continue  # 跳过未启用的插件
-        # 遍历插件的钩子配置
-        for raw_event, hooks in plugin.hooks.items():
-            try:
-                event = HookEvent(raw_event)
-            except ValueError:
-                continue  # 跳过无效的事件名称
-            for hook in hooks:
-                registry.register(event, hook)
-    
-    return registry  # 返回加载完成的注册表
+            continue
+        for raw_event, hooks_value in plugin.hooks.items():
+            event = resolve_event(str(raw_event))
+            if event is None:
+                continue
+            for matcher_def in _normalize_hooks_value(hooks_value):
+                registry.register(event, matcher_def)
+
+    return registry

@@ -2,17 +2,8 @@
 钩子事件定义模块
 ================
 
-本模块定义 IllusionCode 支持的钩子事件类型。
-
-支持的事件：
-    - SESSION_START: 会话开始时触发
-    - SESSION_END: 会话结束时触发
-    - PRE_TOOL_USE: 工具使用前触发
-    - POST_TOOL_USE: 工具使用后触发
-
-使用示例：
-    >>> from illusion.hooks.events import HookEvent
-    >>> event = HookEvent.PRE_TOOL_USE
+定义 Illusion Code 支持的全部 27 个钩子事件，与 Claude Code 完全对齐。
+事件值使用 PascalCase 格式。
 """
 
 from __future__ import annotations
@@ -21,23 +12,49 @@ from enum import Enum
 
 
 class HookEvent(str, Enum):
-    """
-    钩子事件枚举
-    
-    定义可以触发钩子的所有事件类型。
-    
-    枚举值：
-        SESSION_START: 会话开始事件
-        SESSION_END: 会话结束事件
-        PRE_TOOL_USE: 工具使用前事件
-        POST_TOOL_USE: 工具使用后事件
-    
-    使用示例：
-        >>> event = HookEvent.PRE_TOOL_USE
-        >>> print(event.value)  # 输出: "pre_tool_use"
-    """
+    """钩子事件枚举，与 Claude Code HOOK_EVENTS 完全对齐。"""
 
-    SESSION_START = "session_start"  # 会话开始
-    SESSION_END = "session_end"  # 会话结束
-    PRE_TOOL_USE = "pre_tool_use"  # 工具使用前
-    POST_TOOL_USE = "post_tool_use"  # 工具使用后
+    PRE_TOOL_USE = "PreToolUse"
+    POST_TOOL_USE = "PostToolUse"
+    POST_TOOL_USE_FAILURE = "PostToolUseFailure"
+    PERMISSION_DENIED = "PermissionDenied"
+    NOTIFICATION = "Notification"
+    USER_PROMPT_SUBMIT = "UserPromptSubmit"
+    SESSION_START = "SessionStart"
+    SESSION_END = "SessionEnd"
+    STOP = "Stop"
+    STOP_FAILURE = "StopFailure"
+    SUBAGENT_START = "SubagentStart"
+    SUBAGENT_STOP = "SubagentStop"
+    PRE_COMPACT = "PreCompact"
+    POST_COMPACT = "PostCompact"
+    PERMISSION_REQUEST = "PermissionRequest"
+    SETUP = "Setup"
+    TEAMMATE_IDLE = "TeammateIdle"
+    TASK_CREATED = "TaskCreated"
+    TASK_COMPLETED = "TaskCompleted"
+    ELICITATION = "Elicitation"
+    ELICITATION_RESULT = "ElicitationResult"
+    CONFIG_CHANGE = "ConfigChange"
+    WORKTREE_CREATE = "WorktreeCreate"
+    WORKTREE_REMOVE = "WorktreeRemove"
+    INSTRUCTIONS_LOADED = "InstructionsLoaded"
+    CWD_CHANGED = "CwdChanged"
+    FILE_CHANGED = "FileChanged"
+
+
+# 旧 snake_case 名称到新 PascalCase 的映射（用于向后兼容）
+_LEGACY_EVENT_MAP: dict[str, HookEvent] = {
+    "session_start": HookEvent.SESSION_START,
+    "session_end": HookEvent.SESSION_END,
+    "pre_tool_use": HookEvent.PRE_TOOL_USE,
+    "post_tool_use": HookEvent.POST_TOOL_USE,
+}
+
+
+def resolve_event(name: str) -> HookEvent | None:
+    """将事件名字符串解析为 HookEvent，支持旧 snake_case 和新 PascalCase。"""
+    try:
+        return HookEvent(name)
+    except ValueError:
+        return _LEGACY_EVENT_MAP.get(name)

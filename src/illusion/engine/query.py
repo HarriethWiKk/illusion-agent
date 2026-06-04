@@ -472,16 +472,16 @@ async def _execute_tool_call(
     Returns:
         ToolResultBlock: 工具执行结果
     """
-    # 执行预工具钩子
+    # 执行预工具钩子（对齐 Claude Code PreToolUse 输入格式）
     if context.hook_executor is not None:
         pre_hooks = await context.hook_executor.execute(
             HookEvent.PRE_TOOL_USE,
-            {"tool_name": tool_name, "tool_input": tool_input, "event": HookEvent.PRE_TOOL_USE.value},
+            {"tool_name": tool_name, "tool_input": tool_input, "tool_use_id": tool_use_id},
         )
         if pre_hooks.blocked:
             return ToolResultBlock(
                 tool_use_id=tool_use_id,
-                content=pre_hooks.reason or f"pre_tool_use hook blocked {tool_name}",
+                content=pre_hooks.reason or f"PreToolUse hook blocked {tool_name}",
                 is_error=True,
             )
 
@@ -556,16 +556,15 @@ async def _execute_tool_call(
         content=_build_tool_result_content(result.output, result.metadata),
         is_error=result.is_error,
     )
-    # 执行后工具钩子
+    # 执行后工具钩子（对齐 Claude Code PostToolUse 输入格式）
     if context.hook_executor is not None:
         await context.hook_executor.execute(
             HookEvent.POST_TOOL_USE,
             {
                 "tool_name": tool_name,
                 "tool_input": tool_input,
-                "tool_output": tool_result.text_content,
-                "tool_is_error": tool_result.is_error,
-                "event": HookEvent.POST_TOOL_USE.value,
+                "tool_response": tool_result.text_content,
+                "tool_use_id": tool_use_id,
             },
         )
     return tool_result

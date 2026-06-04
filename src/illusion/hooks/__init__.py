@@ -2,19 +2,7 @@
 钩子模块
 ========
 
-本模块提供 IllusionCode 钩子系统功能。
-
-主要组件：
-    - HookEvent: 钩子事件
-    - HookExecutionContext: 钩子执行上下文
-    - HookExecutor: 钩子执行器
-    - HookRegistry: 钩子注册表
-    - HookResult: 钩子结果
-    - AggregatedHookResult: 聚合钩子结果
-    - load_hook_registry: 加载钩子注册表
-
-使用示例：
-    >>> from illusion.hooks import HookRegistry, HookExecutor
+本模块提供 IllusionCode 钩子系统功能，与 Claude Code 完全对齐。
 """
 
 from __future__ import annotations
@@ -25,43 +13,47 @@ if TYPE_CHECKING:  # pragma: no cover
     from illusion.hooks.events import HookEvent
     from illusion.hooks.executor import HookExecutionContext, HookExecutor
     from illusion.hooks.loader import HookRegistry
-    from illusion.hooks.types import AggregatedHookResult, HookResult
+    from illusion.hooks.register_hooks import register_frontmatter_hooks, register_skill_hooks
+    from illusion.hooks.schemas import HookMatcherDefinition
+    from illusion.hooks.session_hooks import SessionHookStore
+    from illusion.hooks.types import AggregatedHookResult, BaseHookInput, HookResult
 
 __all__ = [
     "AggregatedHookResult",
+    "BaseHookInput",
     "HookEvent",
     "HookExecutionContext",
     "HookExecutor",
+    "HookMatcherDefinition",
     "HookRegistry",
     "HookResult",
+    "SessionHookStore",
     "load_hook_registry",
+    "register_frontmatter_hooks",
+    "register_skill_hooks",
 ]
 
 
 def __getattr__(name: str):
     if name == "HookEvent":
         from illusion.hooks.events import HookEvent
-
         return HookEvent
     if name in {"HookExecutionContext", "HookExecutor"}:
         from illusion.hooks.executor import HookExecutionContext, HookExecutor
-
-        return {
-            "HookExecutionContext": HookExecutionContext,
-            "HookExecutor": HookExecutor,
-        }[name]
+        return {"HookExecutionContext": HookExecutionContext, "HookExecutor": HookExecutor}[name]
     if name in {"HookRegistry", "load_hook_registry"}:
         from illusion.hooks.loader import HookRegistry, load_hook_registry
-
-        return {
-            "HookRegistry": HookRegistry,
-            "load_hook_registry": load_hook_registry,
-        }[name]
-    if name in {"AggregatedHookResult", "HookResult"}:
-        from illusion.hooks.types import AggregatedHookResult, HookResult
-
-        return {
-            "AggregatedHookResult": AggregatedHookResult,
-            "HookResult": HookResult,
-        }[name]
+        return {"HookRegistry": HookRegistry, "load_hook_registry": load_hook_registry}[name]
+    if name in {"AggregatedHookResult", "BaseHookInput", "HookResult"}:
+        from illusion.hooks.types import AggregatedHookResult, BaseHookInput, HookResult
+        return {"AggregatedHookResult": AggregatedHookResult, "BaseHookInput": BaseHookInput, "HookResult": HookResult}[name]
+    if name == "HookMatcherDefinition":
+        from illusion.hooks.schemas import HookMatcherDefinition
+        return HookMatcherDefinition
+    if name == "SessionHookStore":
+        from illusion.hooks.session_hooks import SessionHookStore
+        return SessionHookStore
+    if name in {"register_frontmatter_hooks", "register_skill_hooks"}:
+        from illusion.hooks.register_hooks import register_frontmatter_hooks, register_skill_hooks
+        return {"register_frontmatter_hooks": register_frontmatter_hooks, "register_skill_hooks": register_skill_hooks}[name]
     raise AttributeError(name)

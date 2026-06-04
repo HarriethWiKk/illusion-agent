@@ -2,120 +2,128 @@
 钩子配置模式定义
 ================
 
-本模块定义钩子的配置数据模型，使用 Pydantic 进行验证。
+定义钩子的配置数据模型，与 Claude Code 的 Zod schema 对齐。
 
 支持的钩子类型：
-    - CommandHookDefinition: 执行 Shell 命令的钩子
-    - PromptHookDefinition: 使用模型验证条件的钩子
-    - HttpHookDefinition: 发送 HTTP 请求的钩子
-    - AgentHookDefinition: 使用 Agent 进行深度验证的钩子
+    - CommandHookDefinition: 执行 Shell 命令
+    - PromptHookDefinition: 使用模型验证条件
+    - HttpHookDefinition: 发送 HTTP 请求
+    - AgentHookDefinition: 使用 Agent 深度验证
 
-使用示例：
-    >>> from illusion.hooks.schemas import CommandHookDefinition
-    >>> hook = CommandHookDefinition(type="command", command="echo hello")
+新增结构：
+    - HookMatcherDefinition: 带 matcher 的钩子组（对齐 Claude Code HookMatcherSchema）
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class CommandHookDefinition(BaseModel):
-    """
-    命令钩子定义
-    
-    执行 Shell 命令的钩子类型。
-    
-    Attributes:
-        type: 钩子类型，固定为 "command"
-        command: 要执行的 shell 命令
-        timeout_seconds: 超时时间（秒），默认30秒，范围1-600
-        matcher: 可选的匹配器，用于过滤 payload
-        block_on_failure: 失败时是否阻止后续操作，默认 False
-    """
+    """命令钩子定义，对齐 Claude Code BashCommandHookSchema。"""
 
-    type: Literal["command"] = "command"  # 钩子类型标识
-    command: str  # 要执行的命令
-    timeout_seconds: int = Field(default=30, ge=1, le=600)  # 超时时间（秒）
-    matcher: str | None = None  # payload 匹配器
-    block_on_failure: bool = False  # 失败时是否阻塞
+    type: Literal["command"] = "command"
+    command: str
+    if_field: str | None = Field(default=None, alias="if")
+    shell: Literal["bash", "powershell"] | None = None
+    timeout: int | None = None
+    status_message: str | None = Field(default=None, alias="statusMessage")
+    once: bool | None = None
+    async_: bool | None = Field(default=None, alias="async")
+    async_rewake: bool | None = Field(default=None, alias="asyncRewake")
+    matcher: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class PromptHookDefinition(BaseModel):
-    """
-    提示词钩子定义
-    
-    使用大语言模型验证条件的钩子类型。
-    
-    Attributes:
-        type: 钩子类型，固定为 "prompt"
-        prompt: 验证提示词
-        model: 可选的模型名称，默认使用上下文中的模型
-        timeout_seconds: 超时时间（秒），默认30秒，范围1-600
-        matcher: 可选的匹配器，用于过滤 payload
-        block_on_failure: 失败时是否阻止后续操作，默认 True
-    """
+    """提示词钩子定义，对齐 Claude Code PromptHookSchema。"""
 
-    type: Literal["prompt"] = "prompt"  # 钩子类型标识
-    prompt: str  # 验证提示词
-    model: str | None = None  # 可选的模型名称
-    timeout_seconds: int = Field(default=30, ge=1, le=600)  # 超时时间（秒）
-    matcher: str | None = None  # payload 匹配器
-    block_on_failure: bool = True  # 失败时是否阻塞
+    type: Literal["prompt"] = "prompt"
+    prompt: str
+    if_field: str | None = Field(default=None, alias="if")
+    timeout: int | None = None
+    model: str | None = None
+    status_message: str | None = Field(default=None, alias="statusMessage")
+    once: bool | None = None
+    matcher: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class HttpHookDefinition(BaseModel):
-    """
-    HTTP 钩子定义
-    
-    向 HTTP 端点发送事件载荷的钩子类型。
-    
-    Attributes:
-        type: 钩子类型，固定为 "http"
-        url: 请求目标 URL
-        headers: 可选的请求头字典
-        timeout_seconds: 超时时间（秒），默认30秒，范围1-600
-        matcher: 可选的匹配器，用于过滤 payload
-        block_on_failure: 失败时是否阻止后续操作，默认 False
-    """
+    """HTTP 钩子定义，对齐 Claude Code HttpHookSchema。"""
 
-    type: Literal["http"] = "http"  # 钩子类型标识
-    url: str  # 请求 URL
-    headers: dict[str, str] = Field(default_factory=dict)  # 请求头
-    timeout_seconds: int = Field(default=30, ge=1, le=600)  # 超时时间（秒）
-    matcher: str | None = None  # payload 匹配器
-    block_on_failure: bool = False  # 失败时是否阻塞
+    type: Literal["http"] = "http"
+    url: str
+    if_field: str | None = Field(default=None, alias="if")
+    timeout: int | None = None
+    headers: dict[str, str] | None = None
+    allowed_env_vars: list[str] | None = Field(default=None, alias="allowedEnvVars")
+    status_message: str | None = Field(default=None, alias="statusMessage")
+    once: bool | None = None
+    matcher: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class AgentHookDefinition(BaseModel):
-    """
-    Agent 钩子定义
-    
-    使用 Agent 进行深度模型验证的钩子类型。
-    
-    Attributes:
-        type: 钩子类型，固定为 "agent"
-        prompt: 验证提示词
-        model: 可选的模型名称，默认使用上下文中的模型
-        timeout_seconds: 超时时间（秒），默认60秒，范围1-1200
-        matcher: 可选的匹配器，用于过滤 payload
-        block_on_failure: 失败时是否阻止后续操作，默认 True
-    """
+    """Agent 钩子定义，对齐 Claude Code AgentHookSchema。"""
 
-    type: Literal["agent"] = "agent"  # 钩子类型标识
-    prompt: str  # 验证提示词
-    model: str | None = None  # 可选的模型名称
-    timeout_seconds: int = Field(default=60, ge=1, le=1200)  # 超时时间（秒）
-    matcher: str | None = None  # payload 匹配器
-    block_on_failure: bool = True  # 失败时是否阻塞
+    type: Literal["agent"] = "agent"
+    prompt: str
+    if_field: str | None = Field(default=None, alias="if")
+    timeout: int | None = None
+    model: str | None = None
+    status_message: str | None = Field(default=None, alias="statusMessage")
+    once: bool | None = None
+    matcher: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
-# 联合类型：所有钩子定义的联合
 HookDefinition = (
     CommandHookDefinition
     | PromptHookDefinition
     | HttpHookDefinition
     | AgentHookDefinition
 )
+
+
+@dataclass
+class HookMatcherDefinition:
+    """带 matcher 的钩子组，对齐 Claude Code HookMatcherSchema。
+
+    格式：{ matcher?: string, hooks: HookCommand[] }
+    在配置中表示为：{ "PreToolUse": [{ "matcher": "Bash", "hooks": [...] }] }
+    """
+
+    matcher: str = ""
+    hooks: list[HookDefinition] = field(default_factory=list)
+
+
+def parse_hook_definition(data: dict[str, Any]) -> HookDefinition:
+    """从字典解析钩子定义。
+
+    Args:
+        data: 包含 type 字段的钩子定义字典
+
+    Returns:
+        解析后的钩子定义对象
+
+    Raises:
+        ValueError: 未知的钩子类型
+    """
+    hook_type = data.get("type")
+    if hook_type == "command":
+        return CommandHookDefinition.model_validate(data)
+    elif hook_type == "prompt":
+        return PromptHookDefinition.model_validate(data)
+    elif hook_type == "http":
+        return HttpHookDefinition.model_validate(data)
+    elif hook_type == "agent":
+        return AgentHookDefinition.model_validate(data)
+    raise ValueError(f"Unknown hook type: {hook_type}")
