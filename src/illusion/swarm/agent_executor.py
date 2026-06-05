@@ -679,7 +679,7 @@ async def run_agent_in_process(
                     try:
                         queued = ctx.message_queue.get_nowait()
                         logger.debug("[agent_executor] %s: injecting message from %s", agent_id, queued.from_agent)
-                        messages.append(ConversationMessage(role="user", content=queued.text))
+                        messages.append(ConversationMessage.from_user_text(queued.text))
                     except asyncio.QueueEmpty:
                         break
 
