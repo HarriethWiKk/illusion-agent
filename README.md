@@ -545,17 +545,29 @@ settings.json uses the `env_N` grouped format to manage multiple environment/pro
   "sandbox": {
     "enabled": false,
     "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
+    "excluded_commands": [],
     "network": {
       "allowed_domains": [],
-      "denied_domains": []
+      "denied_domains": [],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
     },
     "filesystem": {
       "allow_read": [],
       "deny_read": [],
       "allow_write": ["."],
       "deny_write": []
-    }
+    },
+    "ignore_violations": {},
+    "enable_weaker_nested_sandbox": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false
   },
   "enabled_plugins": {},
   "mcp_servers": {},
@@ -1155,25 +1167,194 @@ Supported environment variables:
 
 ### Sandbox Configuration
 
+The sandbox system provides OS-level isolation for shell commands, restricting filesystem and network access. Built with a Python-native runtime, it supports three platforms:
+
+| Platform | Isolation Mechanism | Dependencies |
+|----------|-------------------|--------------|
+| Linux / WSL | bubblewrap (bwrap) + optional seccomp | `bwrap`, `socat` (for network isolation) |
+| macOS | Apple Seatbelt (sandbox-exec) | Built-in |
+| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+#### Basic Configuration
+
 ```json
 {
   "sandbox": {
     "enabled": true,
     "fail_if_unavailable": false,
-    "enabled_platforms": ["linux", "darwin"],
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": []
+  }
+}
+```
+
+#### Main Settings Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Enable sandbox. When enabled, shell commands run in an isolated environment with filesystem and network access constrained by `filesystem` and `network` settings |
+| `fail_if_unavailable` | `bool` | `false` | Exit with error if sandbox cannot start. When `true`, the program exits if dependencies like `bwrap`/`sandbox-exec`/`pywin32` are missing, instead of running without sandbox |
+| `auto_allow_bash_if_sandboxed` | `bool` | `true` | Auto-allow bash commands when sandboxed. When `false`, each bash command requires manual user confirmation |
+| `allow_unsandboxed_commands` | `bool` | `true` | Allow LLM to use `dangerouslyDisableSandbox: true` to bypass sandbox. When `false`, the LLM cannot bypass sandbox restrictions |
+| `enabled_platforms` | `list[str]` | `[]` | Restrict sandbox to specific platforms (empty list = all platforms). Options: `linux`, `macos`, `windows`, `wsl`. Example: `["linux", "wsl"]` enables sandbox only on Linux and WSL |
+| `excluded_commands` | `list[str]` | `[]` | Command patterns to exclude from sandboxing. Matched commands skip sandbox wrapping and execute directly (see excluded commands section below) |
+| `ignore_violations` | `dict` | `{}` | Violation ignore rules. Format: `{"command_pattern": ["path1", "path2"]}`. Matching violations are not recorded or reported |
+| `enable_weaker_nested_sandbox` | `bool` | `false` | Set to `true` when running inside Docker containers to skip `--proc /proc` mount and avoid nested sandbox conflicts |
+| `mandatory_deny_search_depth` | `int` | `3` | Max directory depth for searching dangerous files (e.g., `.bashrc`, `.gitconfig`) in project subdirectories. Range 1-10, only effective when `deny_write`/`deny_read` are configured |
+| `allow_git_config` | `bool` | `false` | Allow writes to `.git/config` files. By default, `.git/config` is protected to prevent malicious git configuration changes |
+
+#### Network Configuration
+
+```json
+{
+  "sandbox": {
     "network": {
-      "allowed_domains": ["api.anthropic.com"],
-      "denied_domains": ["internal.company.com"]
-    },
-    "filesystem": {
-      "allow_read": ["./src", "./docs"],
-      "deny_read": ["./secrets"],
-      "allow_write": ["./output"],
-      "deny_write": ["./.git"]
+      "allowed_domains": ["api.anthropic.com", "*.github.com"],
+      "denied_domains": ["malicious.example.com"],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
     }
   }
 }
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allowed_domains` | `list[str]` | `[]` | Allowed domains for network access (supports `*.example.com` wildcards). Unmatched domains trigger a confirmation prompt. On Linux, enforced via HTTP/SOCKS5 proxy + `--unshare-net`; on macOS via Seatbelt `allow network*` |
+| `denied_domains` | `list[str]` | `[]` | Denied domains for network access. Matched domains are blocked immediately without confirmation. Takes priority over `allowed_domains` |
+| `allow_unix_sockets` | `list[str]` | `[]` | macOS only: list of allowed Unix socket paths. Used to allow specific inter-process communication |
+| `allow_all_unix_sockets` | `bool` | `false` | Allow all Unix socket connections. Setting to `true` disables seccomp AF_UNIX blocking on Linux, allowing processes inside the sandbox to create Unix sockets freely |
+| `allow_local_binding` | `bool` | `false` | Allow processes inside the sandbox to bind to local ports. By default, sandbox blocks all port binding to prevent port conflicts and security risks |
+| `http_proxy_port` | `int?` | `null` | Use an external HTTP proxy port instead of starting a local proxy. Useful in environments with existing proxy infrastructure |
+| `socks_proxy_port` | `int?` | `null` | Use an external SOCKS5 proxy port instead of starting a local proxy |
+
+> **Domain validation rules**:
+> - Rejects overly broad patterns like `*` or `*.com`
+> - `*.example.com` requires at least 2 dot-separated parts after `*.`
+> - Rejects patterns containing `://`, `/`, or `:`
+> - `localhost` is always allowed
+
+#### Filesystem Configuration
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "allow_write": [".", "./output"],
+      "deny_write": [".git/hooks", ".env"],
+      "deny_read": ["./secrets"],
+      "allow_read": ["./secrets/public"]
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allow_write` | `list[str]` | `["."]` | Paths allowed for writing. On Linux/macOS, enforced at OS level via bwrap `--bind`/Seatbelt `allow file-write*`; on Windows, only checked at application layer |
+| `deny_write` | `list[str]` | `[]` | Paths denied for writing, takes priority over `allow_write`. Shows three-option confirmation dialog on match. On Linux, blocked via `--ro-bind /dev/null` mount; on macOS, blocked via Seatbelt `deny file-write*` |
+| `deny_read` | `list[str]` | `[]` | Paths denied for reading. Shows three-option confirmation dialog (Allow / Allow for session / Deny) on match. Affects `read_file`, `grep`, `glob`, `lsp` and other tools |
+| `allow_read` | `list[str]` | `[]` | Paths re-allowed for reading within denied regions. Example: `deny_read: ["~/.ssh"]` + `allow_read: ["~/.ssh/known_hosts"]` allows reading the known_hosts file |
+
+#### Excluded Commands
+
+`excluded_commands` supports three matching patterns:
+
+```json
+{
+  "sandbox": {
+    "excluded_commands": [
+      "npm test",
+      "make:*",
+      "git status"
+    ]
+  }
+}
+```
+
+| Pattern | Example | Matches |
+|---------|---------|---------|
+| Exact match | `"npm test"` | `npm test` |
+| Wildcard | `"make:*"` | `make:build`, `make:clean` |
+| Prefix match | `"git push"` | `git push origin main` |
+
+The system automatically splits compound commands (`&&`, `||`, `;`, `|`) and strips environment variable prefixes (`FOO=bar cmd` → `cmd`) and safe wrappers (`sudo`, `env`, `time`) to prevent bypass via `safe_cmd && evil_cmd`.
+
+#### Sandbox Blocking Behavior
+
+When an LLM operation triggers a sandbox restriction (e.g., reading a file in `deny_read`), the system shows a three-option confirmation dialog:
+
+```
+┌─────────────────────────────────────────────┐
+│ Allow access to 'E:\PyCode\API.txt'?       │
+│                                             │
+│  1. Allow              (single operation)   │
+│  2. Allow for session  (resets on restart)  │
+│  3. Deny               (block operation)    │
+└─────────────────────────────────────────────┘
+```
+
+| Option | Effect | Persistence |
+|--------|--------|-------------|
+| Allow | Allow this single operation | One-time only |
+| Allow for session | Allow this path for the current session | Resets on restart |
+| Deny | Block the operation, return error to LLM | None |
+
+> **Difference from `permission.denied_tools`**:
+> - `sandbox.filesystem.deny_read` → Shows three-option confirmation dialog, user can choose to allow
+> - `permission.denied_tools` → Hard deny, terminates operation immediately with no confirmation
+
+#### Filesystem Restriction Effects
+
+| Field | Affected Tools | Enforcement Level |
+|-------|---------------|-------------------|
+| `deny_read` | `read_file`, `grep`, `glob`, `lsp` | Permission checker (application layer) |
+| `deny_write` | `edit`, `write`, `bash` (write ops) | Permission checker + OS-level sandbox |
+| `allow_write` | `bash` (write ops) | OS-level sandbox (bwrap/Seatbelt) |
+
+- **Linux/macOS**: `deny_write` is enforced at both application layer and OS level (bwrap `--ro-bind`, Seatbelt `deny file-write*`)
+- **Windows**: Only enforced at application layer (Job Objects don't provide filesystem isolation)
+
+#### Full Example
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "fail_if_unavailable": true,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "excluded_commands": ["git status", "git log", "git diff"],
+    "network": {
+      "allowed_domains": ["*.github.com", "*.npmjs.org", "pypi.org", "*.pypi.org"]
+    },
+    "filesystem": {
+      "allow_write": ["."],
+      "deny_write": [".git/hooks", ".env", ".env.*"],
+      "deny_read": ["~/.ssh", "~/.gnupg"]
+    }
+  }
+}
+```
+
+#### Environment Variable Overrides
+
+| Environment Variable | Overrides |
+|---------------------|-----------|
+| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled` (`1`/`true`/`yes`/`on` = true) |
+| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |
+
+#### /sandbox Command
+
+| Command | Description |
+|---------|-------------|
+| `/sandbox` or `/sandbox status` | Show current sandbox status |
+| `/sandbox exclude <pattern>` | Add an excluded command pattern |
 
 ---
 

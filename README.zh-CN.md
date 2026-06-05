@@ -545,17 +545,29 @@ settings.json 使用 `env_N` 分组格式管理多个环境/提供商配置。�
   "sandbox": {
     "enabled": false,
     "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
+    "excluded_commands": [],
     "network": {
       "allowed_domains": [],
-      "denied_domains": []
+      "denied_domains": [],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
     },
     "filesystem": {
       "allow_read": [],
       "deny_read": [],
       "allow_write": ["."],
       "deny_write": []
-    }
+    },
+    "ignore_violations": {},
+    "enable_weaker_nested_sandbox": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false
   },
   "enabled_plugins": {},
   "mcp_servers": {},
@@ -1155,25 +1167,194 @@ illusion mcp remove <name>       # 移除服务器
 
 ### 沙箱配置
 
+沙箱系统为 shell 命令提供操作系统级隔离，限制文件系统和网络访问。采用 Python 原生实现，支持三平台：
+
+| 平台 | 隔离机制 | 依赖 |
+|------|---------|------|
+| Linux / WSL | bubblewrap (bwrap) + 可选 seccomp | `bwrap`、`socat`（网络隔离时） |
+| macOS | Apple Seatbelt (sandbox-exec) | 内置 |
+| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+#### 基础配置
+
 ```json
 {
   "sandbox": {
     "enabled": true,
     "fail_if_unavailable": false,
-    "enabled_platforms": ["linux", "darwin"],
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": []
+  }
+}
+```
+
+#### 主配置字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | `bool` | `false` | 启用沙箱。开启后，shell 命令将在隔离环境中执行，文件读写和网络访问受 `filesystem` 和 `network` 配置约束 |
+| `fail_if_unavailable` | `bool` | `false` | 沙箱不可用时是否报错退出。设为 `true` 时，如果缺少 `bwrap`/`sandbox-exec`/`pywin32` 等依赖，程序会直接退出而非降级运行 |
+| `auto_allow_bash_if_sandboxed` | `bool` | `true` | 沙箱启用时自动允许 bash 命令。设为 `false` 时，每条 bash 命令都需要用户手动确认 |
+| `allow_unsandboxed_commands` | `bool` | `true` | 允许 LLM 使用 `dangerouslyDisableSandbox: true` 跳过沙箱。设为 `false` 时，LLM 无法绕过沙箱限制 |
+| `enabled_platforms` | `list[str]` | `[]` | 限制沙箱生效的平台（空列表 = 全部平台生效）。可选值：`linux`、`macos`、`windows`、`wsl`。例如 `["linux", "wsl"]` 表示仅在 Linux 和 WSL 上启用沙箱 |
+| `excluded_commands` | `list[str]` | `[]` | 排除沙箱的命令模式列表。匹配的命令将跳过沙箱包装直接执行（见下方排除命令说明） |
+| `ignore_violations` | `dict` | `{}` | 违规忽略规则。格式为 `{"命令模式": ["路径1", "路径2"]}`，匹配的违规事件不会被记录或报告 |
+| `enable_weaker_nested_sandbox` | `bool` | `false` | Docker 容器内运行时设为 `true`，跳过 `--proc /proc` 挂载以避免嵌套沙箱冲突 |
+| `mandatory_deny_search_depth` | `int` | `3` | 在项目子目录中搜索危险文件（如 `.bashrc`、`.gitconfig`）的最大深度。范围 1-10，仅在配置了 `deny_write`/`deny_read` 后生效 |
+| `allow_git_config` | `bool` | `false` | 允许写入 `.git/config` 文件。默认情况下 `.git/config` 被保护以防止恶意修改 git 配置 |
+
+#### 网络配置
+
+```json
+{
+  "sandbox": {
     "network": {
-      "allowed_domains": ["api.anthropic.com"],
-      "denied_domains": ["internal.company.com"]
-    },
-    "filesystem": {
-      "allow_read": ["./src", "./docs"],
-      "deny_read": ["./secrets"],
-      "allow_write": ["./output"],
-      "deny_write": ["./.git"]
+      "allowed_domains": ["api.anthropic.com", "*.github.com"],
+      "denied_domains": ["malicious.example.com"],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
     }
   }
 }
 ```
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `allowed_domains` | `list[str]` | `[]` | 允许访问的域名列表（支持 `*.example.com` 通配符）。未匹配的域名会弹出确认框询问用户。Linux 上通过 HTTP/SOCKS5 代理 + `--unshare-net` 实现；macOS 上通过 Seatbelt `allow network*` 实现 |
+| `denied_domains` | `list[str]` | `[]` | 拒绝访问的域名列表。匹配的域名直接阻止，不弹确认框。优先级高于 `allowed_domains` |
+| `allow_unix_sockets` | `list[str]` | `[]` | macOS 专用：允许的 Unix socket 路径列表。用于允许特定进程间通信 |
+| `allow_all_unix_sockets` | `bool` | `false` | 允许所有 Unix socket 连接。设为 `true` 会禁用 Linux 上的 seccomp AF_UNIX 阻断，允许沙箱内进程自由创建 Unix socket |
+| `allow_local_binding` | `bool` | `false` | 允许沙箱内进程绑定本地端口。默认情况下沙箱阻止所有端口绑定以防止端口冲突和安全风险 |
+| `http_proxy_port` | `int?` | `null` | 使用外部 HTTP 代理端口，而非启动本地代理。适用于已有代理基础设施的环境 |
+| `socks_proxy_port` | `int?` | `null` | 使用外部 SOCKS5 代理端口，而非启动本地代理 |
+
+> **域名验证规则**：
+> - 拒绝 `*`、`*.com` 等过于宽泛的模式
+> - `*.example.com` 要求 `*.` 后至少有 2 个点分段
+> - 拒绝包含 `://`、`/`、`:` 的模式
+> - `localhost` 始终允许
+
+#### 文件系统配置
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "allow_write": [".", "./output"],
+      "deny_write": [".git/hooks", ".env"],
+      "deny_read": ["./secrets"],
+      "allow_read": ["./secrets/public"]
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `allow_write` | `list[str]` | `["."]` | 允许写入的路径列表。Linux/macOS 上通过 bwrap `--bind`/Seatbelt `allow file-write*` 在 OS 级强制执行；Windows 上仅在应用层检查 |
+| `deny_write` | `list[str]` | `[]` | 拒绝写入的路径列表，优先级高于 `allow_write`。匹配时弹出三选项确认框。Linux 上通过 `--ro-bind /dev/null` 挂载阻止；macOS 上通过 Seatbelt `deny file-write*` 阻止 |
+| `deny_read` | `list[str]` | `[]` | 拒绝读取的路径列表。匹配时弹出三选项确认框（允许/当前会话允许/拒绝）。影响 `read_file`、`grep`、`glob`、`lsp` 等工具 |
+| `allow_read` | `list[str]` | `[]` | 在拒绝区域内重新允许读取的路径。例如 `deny_read: ["~/.ssh"]` + `allow_read: ["~/.ssh/known_hosts"]` 允许读取已知主机文件 |
+
+#### 排除命令
+
+`excluded_commands` 支持三种匹配模式：
+
+```json
+{
+  "sandbox": {
+    "excluded_commands": [
+      "npm test",
+      "make:*",
+      "git status"
+    ]
+  }
+}
+```
+
+| 模式 | 示例 | 匹配 |
+|------|------|------|
+| 精确匹配 | `"npm test"` | `npm test` |
+| 通配符 | `"make:*"` | `make:build`、`make:clean` |
+| 前缀匹配 | `"git push"` | `git push origin main` |
+
+系统会自动拆分复合命令（`&&`、`||`、`;`、`|`）并剥离环境变量前缀（`FOO=bar cmd` → `cmd`）和安全包装器（`sudo`、`env`、`time`），防止通过 `safe_cmd && evil_cmd` 绕过。
+
+#### 沙箱拦截行为
+
+当 LLM 操作触发沙箱限制时（如读取 `deny_read` 中的文件），系统会弹出三选项确认框：
+
+```
+┌─────────────────────────────────────────────┐
+│ 允许访问「E:\PyCode\API.txt」？            │
+│                                             │
+│  1. 允许              (允许本次操作)        │
+│  2. 当前会话允许      (重启后失效)          │
+│  3. 拒绝              (阻止此操作)          │
+└─────────────────────────────────────────────┘
+```
+
+| 选项 | 效果 | 持久性 |
+|------|------|--------|
+| 允许 | 放行本次操作 | 仅本次 |
+| 当前会话允许 | 该路径在当前会话内不再拦截 | 重启后重新询问 |
+| 拒绝 | 阻止操作，返回错误给 LLM | 无 |
+
+> **与 `permission.denied_tools` 的区别**：
+> - `sandbox.filesystem.deny_read` → 弹出三选项确认框，用户可选择允许
+> - `permission.denied_tools` → 硬拒绝，直接终止操作，无确认框
+
+#### 文件系统限制的效果
+
+| 字段 | 影响的工具 | 执行层级 |
+|------|-----------|---------|
+| `deny_read` | `read_file`、`grep`、`glob`、`lsp` | 权限检查器（应用层） |
+| `deny_write` | `edit`、`write`、`bash`（写操作） | 权限检查器（应用层）+ OS 级沙箱 |
+| `allow_write` | `bash`（写操作） | OS 级沙箱（bwrap/Seatbelt） |
+
+- **Linux/macOS**：`deny_write` 同时在应用层和 OS 级生效（bwrap `--ro-bind`、Seatbelt `deny file-write*`）
+- **Windows**：仅在应用层生效（Job Objects 不提供文件系统隔离）
+
+#### 完整示例
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "fail_if_unavailable": true,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "excluded_commands": ["git status", "git log", "git diff"],
+    "network": {
+      "allowed_domains": ["*.github.com", "*.npmjs.org", "pypi.org", "*.pypi.org"]
+    },
+    "filesystem": {
+      "allow_write": ["."],
+      "deny_write": [".git/hooks", ".env", ".env.*"],
+      "deny_read": ["~/.ssh", "~/.gnupg"]
+    }
+  }
+}
+```
+
+#### 环境变量覆盖
+
+| 环境变量 | 覆盖字段 |
+|---------|---------|
+| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled`（`1`/`true`/`yes`/`on` = true） |
+| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |
+
+#### /sandbox 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/sandbox` 或 `/sandbox status` | 显示当前沙箱状态 |
+| `/sandbox exclude <模式>` | 添加排除命令模式 |
 
 ---
 
