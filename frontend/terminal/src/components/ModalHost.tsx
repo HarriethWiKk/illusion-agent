@@ -41,6 +41,8 @@ type QuestionItem = {
 	options?: QuestionOption[];
 	/** 是否多选（可选） */
 	multiSelect?: boolean;
+	/** 禁用手动输入（可选） */
+	noCustomInput?: boolean;
 };
 
 /**
@@ -91,8 +93,10 @@ function QuestionModal({
 	const allOptions = useMemo(() => {
 		if (!hasOptions) return [] as OptionEntry[];
 		const result: OptionEntry[] = options.map((opt) => ({type: 'option' as const, label: opt.label, description: opt.description}));
-		// 多选模式下不追加"其他"选项
+		// 多选模式或指定 noCustomInput 时不追加"其他"选项
 		if (isMultiSelect) return result;
+		const noCustom = firstQuestion?.noCustomInput === true;
+		if (noCustom) return result;
 		const hasOtherAlready = options.some((opt) => {
 			const lbl = opt.label.toLowerCase();
 			return lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他');

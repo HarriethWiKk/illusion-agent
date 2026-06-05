@@ -572,6 +572,7 @@ async def _execute_tool_call(
                             {"label": "拒绝", "description": "阻止此操作"},
                         ],
                         "multiSelect": False,
+                        "noCustomInput": True,
                     }
                 ]
             else:
@@ -590,6 +591,7 @@ async def _execute_tool_call(
                             {"label": "Deny", "description": "Block this operation"},
                         ],
                         "multiSelect": False,
+                        "noCustomInput": True,
                     }
                 ]
             answer = await context.ask_user_prompt(question_text, questions_data)
