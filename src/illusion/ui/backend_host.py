@@ -46,6 +46,7 @@ from illusion.engine.stream_events import (
     ToolChainStarted,
     ToolExecutionCompleted,
     ToolExecutionStarted,
+    ToolProgressEvent,
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
@@ -451,6 +452,17 @@ class ReactBackendHost:
                     )
                 )
                 return
+            # 工具进度消息
+            if isinstance(event, ToolProgressEvent):
+                await self._emit(
+                    BackendEvent(
+                        type="tool_progress",
+                        tool_use_id=event.tool_use_id or None,
+                        message=event.message,
+                        progress_type=event.progress_type,
+                    )
+                )
+                return
             # 工具执行完成
             if isinstance(event, ToolExecutionCompleted):
                 tool_use_id = getattr(event, "tool_use_id", "") or ""
@@ -461,6 +473,9 @@ class ReactBackendHost:
                         output=event.output,
                         is_error=event.is_error,
                         tool_use_id=tool_use_id or None,
+                        structured_output=event.structured_output,
+                        output_type=event.output_type,
+                        tool_metadata=event.tool_metadata,
                         item=TranscriptItem(
                             role="tool_result",
                             text=event.output,

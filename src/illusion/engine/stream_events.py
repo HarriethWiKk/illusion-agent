@@ -104,6 +104,10 @@ class ToolExecutionCompleted:
     output: str
     is_error: bool = False
     tool_use_id: str = ""
+    # 结构化输出数据（可选，用于前端丰富渲染）
+    structured_output: dict | None = None
+    output_type: str | None = None
+    tool_metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,23 @@ class StatusEvent:
 
 
 @dataclass(frozen=True)
+class ToolProgressEvent:
+    """工具执行过程中的进度消息。
+
+    在工具执行过程中产生，用于向前端推送中间状态。
+
+    Attributes:
+        tool_use_id: 工具调用ID
+        message: 进度消息内容
+        progress_type: 进度类型（stdout/status/custom）
+    """
+
+    tool_use_id: str
+    message: str
+    progress_type: str = "status"
+
+
+@dataclass(frozen=True)
 class ToolChainStarted:
     """一批工具执行即将开始。
 
@@ -162,6 +183,7 @@ StreamEvent = (
     | AssistantTurnComplete
     | ToolExecutionStarted
     | ToolExecutionCompleted
+    | ToolProgressEvent
     | ErrorEvent
     | StatusEvent
     | ToolChainStarted

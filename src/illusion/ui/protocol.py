@@ -98,6 +98,10 @@ class TranscriptItem(BaseModel):
     is_error: bool | None = None
     reasoning: str | None = None
     tool_use_id: str | None = None
+    # 新增：并行分组支持
+    message_id: str | None = None
+    # 新增：会话快照恢复标记
+    session_snapshot: bool = False
 
 
 class TaskSnapshot(BaseModel):
@@ -182,6 +186,10 @@ class BackendEvent(BaseModel):
         "tool_completed",
         "tool_chain_started",
         "tool_chain_completed",
+        "tool_progress",
+        "tool_queued",
+        "tool_reset",
+        "session_rewind",
         "clear_transcript",
         "replace_transcript",
         "modal_request",
@@ -219,6 +227,14 @@ class BackendEvent(BaseModel):
     reasoning: str | None = None
     command_result_data: dict[str, Any] | None = None
     items: list[TranscriptItem] | None = None
+    # 新增：结构化输出支持
+    structured_output: dict[str, Any] | None = None
+    output_type: str | None = None
+    tool_metadata: dict[str, Any] | None = None
+    # 新增：进度消息
+    progress_type: str | None = None
+    # 新增：会话回退
+    rewind_to_index: int | None = None
 
     @classmethod
     def ready(

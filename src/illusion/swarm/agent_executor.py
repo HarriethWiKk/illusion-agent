@@ -514,6 +514,7 @@ async def run_agent_in_process(
     *,
     is_async: bool = False,
     existing_context: AgentExecutionContext | None = None,
+    on_progress: "Callable[[str], Awaitable[None]] | None" = None,
 ) -> AgentResult:
     """在当前进程中运行代理。
 
@@ -529,7 +530,7 @@ async def run_agent_in_process(
         AgentResult: 代理执行结果。
     """
     from illusion.engine.query import QueryContext
-    from illusion.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent
+    from illusion.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent, ToolExecutionCompleted
 
     # 解析代理定义
     agent_def = config.agent_definition
@@ -655,6 +656,14 @@ async def run_agent_in_process(
                         "[agent_executor] %s: turn complete (tool_uses=%d)",
                         agent_id, len(event.message.tool_uses),
                     )
+
+                # 转发工具事件为进度消息
+                if on_progress is not None:
+                    with contextlib.suppress(Exception):
+                        if isinstance(event, ToolExecutionCompleted):
+                            await on_progress(f"✓ {event.tool_name}")
+                        elif hasattr(event, "tool_name"):
+                            await on_progress(f"Running {event.tool_name}...")
 
                 with contextlib.suppress(AttributeError, TypeError):
                     if getattr(event, "type", None) in ("tool_use", "tool_call", "ToolExecutionCompleted"):
