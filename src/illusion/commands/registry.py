@@ -222,6 +222,9 @@ def create_default_command_registry() -> CommandRegistry:
     # --- 记忆 ---
     from illusion.commands.memory import memory_handler
 
+    # --- 沙箱 ---
+    from illusion.commands.sandbox import sandbox_handler
+
     # --- 规则 ---
     from illusion.commands.rules import rules_handler
 
@@ -280,6 +283,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", privacy_settings_handler))
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
+    registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
     registry.register(SlashCommand("update", "Check for and install IllusionCode updates", update_handler))
 
     # /help 需要引用 registry 实例

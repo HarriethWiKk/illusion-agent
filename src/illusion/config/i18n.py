@@ -336,6 +336,18 @@ _COMMAND_EXACT: dict[str, str] = {
     "- backend host: available": "- 后端宿主：可用",
     "- network: enabled only for provider and explicit web/MCP calls": "- 网络：仅用于提供商和显式 web/MCP 调用",
     "- storage: local files under ~/.illusion and project .illusion": "- 存储：本地文件位于 ~/.illusion 和项目 .illusion",
+    # 沙箱
+    "Sandbox status: enabled": "沙箱状态：已启用",
+    "Sandbox status: disabled": "沙箱状态：已禁用",
+    "Use /config set sandbox.enabled true to enable": "使用 /config set sandbox.enabled true 启用",
+    "  Fail if unavailable: yes": "  失败时退出：是",
+    "  Fail if unavailable: no": "  失败时退出：否",
+    "  Auto-allow bash: yes": "  自动允许 bash：是",
+    "  Auto-allow bash: no": "  自动允许 bash：否",
+    "  Allow unsandboxed: yes": "  允许禁用沙箱：是",
+    "  Allow unsandboxed: no": "  允许禁用沙箱：否",
+    "  Enabled platforms: all": "  限制平台：无（全部平台）",
+    "  Excluded commands: none": "  排除命令：无",
 }
 
 # 命令消息正则替换表（pattern, replacement）
@@ -500,6 +512,24 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^- session_dir: (.+)$", r"- 会话目录：\1"),
     (r"^- feedback_log: (.+)$", r"- 反馈日志：\1"),
     (r"^- api_base_url: (.+)$", r"- API 基础 URL：\1"),
+    # 沙箱
+    (r"^Sandbox status: (.+)$", r"沙箱状态：\1"),
+    (r"^  Enabled platforms: (.+)$", r"  限制平台：\1"),
+    (r"^  Excluded commands \((\d+)\):$", r"  排除命令（\1）："),
+    (r"^  Allow write: (.+)$", r"  允许写入：\1"),
+    (r"^  Deny write: (.+)$", r"  拒绝写入：\1"),
+    (r"^  Deny read: (.+)$", r"  拒绝读取：\1"),
+    (r"^  Allowed domains: (.+)$", r"  允许域名：\1"),
+    (r"^  Denied domains: (.+)$", r"  拒绝域名：\1"),
+    (r"^Added excluded command: (.+)$", r"已添加排除命令：\1"),
+    (r"^Current excluded list: (.+)$", r"当前排除列表：\1"),
+    (r"^Removed excluded command: (.+)$", r"已移除排除命令：\1"),
+    (r"^Command pattern '(.+)' is already in the excluded list$", r"命令模式「\1」已在排除列表中"),
+    (r"^Command pattern '(.+)' is not in the excluded list$", r"命令模式「\1」不在排除列表中"),
+    (r"^Sandbox restriction: '(.+)' is blocked by sandbox configuration\.$", r"沙箱限制：「\1」被沙箱配置阻止。"),
+    (r"^Tool: (.+)$", r"工具：\1"),
+    (r"^Do you want to allow this operation\?$", r"是否允许此操作？"),
+    (r"^Sandbox denied: (.+)$", r"沙箱已拒绝：\1"),
 ]
 
 

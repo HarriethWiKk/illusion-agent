@@ -269,7 +269,9 @@ async def permissions_handler(args: str, context: CommandContext) -> CommandResu
     if tokens[0] == "set" and len(tokens) == 2:
         settings.permission.mode = PermissionMode(tokens[1])
         save_settings(settings)
-        context.engine.set_permission_checker(PermissionChecker(settings.permission))
+        checker = PermissionChecker(settings.permission)
+        checker.sync_sandbox_restrictions(settings.sandbox)
+        context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         label = _MODE_LABELS.get(tokens[1], tokens[1])
@@ -284,14 +286,18 @@ async def plan_handler(args: str, context: CommandContext) -> CommandResult:
     if mode in {"on", "enter"}:
         settings.permission.mode = PermissionMode.PLAN
         save_settings(settings)
-        context.engine.set_permission_checker(PermissionChecker(settings.permission))
+        checker = PermissionChecker(settings.permission)
+        checker.sync_sandbox_restrictions(settings.sandbox)
+        context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         return CommandResult(message="Plan mode enabled.")
     if mode in {"off", "exit"}:
         settings.permission.mode = PermissionMode.DEFAULT
         save_settings(settings)
-        context.engine.set_permission_checker(PermissionChecker(settings.permission))
+        checker = PermissionChecker(settings.permission)
+        checker.sync_sandbox_restrictions(settings.sandbox)
+        context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         return CommandResult(message="Plan mode disabled.")
