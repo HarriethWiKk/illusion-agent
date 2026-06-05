@@ -167,7 +167,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
     # 预设环境配置以匹配 env:model 格式
-    from illusion.config.settings import load_settings, save_settings, Settings
+    from illusion.config.settings import save_settings, Settings
     save_settings(
         Settings().model_copy(
             update={

@@ -5,8 +5,7 @@
 - 降级提示翻译测试
 """
 
-import pytest
-from illusion.config.i18n import translate_command_message, _COMMAND_EXACT, _COMMAND_SUBSTITUTIONS
+from illusion.config.i18n import translate_command_message
 
 
 class TestI18nEffort:

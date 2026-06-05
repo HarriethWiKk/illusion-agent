@@ -16,7 +16,6 @@ from illusion.engine.query_engine import QueryEngine
 from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig
 from illusion.permissions import PermissionChecker
 from illusion.state import AppState, AppStateStore
-from illusion.tasks import get_task_manager
 from illusion.tools import create_default_tool_registry
 
 
@@ -189,7 +188,7 @@ async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatc
     command, args = registry.lookup("/config set model env_1.model_1")
     assert command is not None
 
-    result = await command.handler(args, context)
+    await command.handler(args, context)
 
     loaded = load_settings()
     assert loaded.model == "env_1.model_1"

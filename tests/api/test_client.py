@@ -6,7 +6,6 @@
 - effort 字段序列化测试
 """
 
-import pytest
 from illusion.api.client import ApiMessageRequest
 from illusion.api.effort import EffortLevel
 from illusion.engine.messages import ConversationMessage

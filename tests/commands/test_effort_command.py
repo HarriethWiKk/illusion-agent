@@ -7,9 +7,8 @@
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from illusion.commands.registry import CommandContext, CommandResult
-from illusion.api.effort import EffortLevel
+from unittest.mock import MagicMock
+from illusion.commands.registry import CommandContext
 
 
 class TestEffortCommand:

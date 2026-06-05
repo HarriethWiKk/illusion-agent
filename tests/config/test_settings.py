@@ -6,9 +6,7 @@
 - effort 字段验证测试
 """
 
-import pytest
 from illusion.config.settings import Settings
-from illusion.api.effort import EffortLevel
 
 
 class TestSettingsEffort:

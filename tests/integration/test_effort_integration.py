@@ -6,8 +6,6 @@
 - 用户提示显示测试
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from illusion.api.effort import EffortLevel, EffortMapper
 from illusion.api.client import ApiMessageRequest
 from illusion.engine.messages import ConversationMessage

@@ -6,11 +6,6 @@
 - effort 错误检测测试
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from illusion.api.client import AnthropicApiClient, ApiMessageRequest
-from illusion.api.effort import EffortLevel, EffortMapper
-from illusion.engine.messages import ConversationMessage
 
 
 class TestAnthropicClientEffort:

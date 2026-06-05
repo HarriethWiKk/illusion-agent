@@ -6,12 +6,6 @@
 - effort 错误检测测试
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from illusion.api.openai_client import OpenAICompatibleClient
-from illusion.api.client import ApiMessageRequest
-from illusion.api.effort import EffortLevel, EffortMapper
-from illusion.engine.messages import ConversationMessage
 
 
 class TestOpenAIClientEffort:

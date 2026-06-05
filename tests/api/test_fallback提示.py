@@ -5,8 +5,7 @@
 - 降级提示显示测试
 """
 
-import pytest
-from illusion.api.effort import EffortLevel, EffortMapper
+from illusion.api.effort import EffortLevel
 
 
 class TestFallback提示:

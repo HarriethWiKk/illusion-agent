@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 
-import pytest
 
 from illusion.swarm.agent_executor import (
     AgentAbortController,
     AgentExecutionContext,
-    AgentResult,
-    AgentSpawnConfig,
     TaskNotification,
     TeammateMessage,
     _register_agent,

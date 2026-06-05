@@ -6,10 +6,8 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 
-import pytest
 
 # 直接加载脚本模块
 script_path = Path(__file__).parent.parent.parent / "scripts" / "sync_version.py"

@@ -143,7 +143,7 @@ def test_external_binding_for_codex_without_switching(monkeypatch, tmp_path: Pat
     )
 
     binding = default_binding_for_provider(CODEX_PROVIDER)
-    credential = load_external_credential(binding)
+    load_external_credential(binding)
     store_external_binding(
         ExternalAuthBinding(
             provider=CODEX_PROVIDER,
@@ -188,7 +188,7 @@ def test_external_binding_for_claude_without_switching(monkeypatch, tmp_path: Pa
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
     binding = default_binding_for_provider(CLAUDE_PROVIDER)
-    credential = load_external_credential(binding)
+    load_external_credential(binding)
     store_external_binding(
         ExternalAuthBinding(
             provider=CLAUDE_PROVIDER,

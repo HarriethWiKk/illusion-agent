@@ -1,8 +1,6 @@
 """marker 章节管理工具测试"""
 
 from illusion.commands.init.generation.sections import (
-    MARKER_END,
-    MARKER_START,
     has_section,
     replace_section,
     wrap_section,

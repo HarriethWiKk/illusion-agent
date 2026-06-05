@@ -197,7 +197,7 @@ def test_compact_messages_preserves_alternation():
 
 def test_safe_split_preserves_tool_pairs():
     """测试安全分割不会切断 tool_use/tool_result 对。"""
-    from illusion.services.compact import _find_safe_split_index, _remove_orphaned_tool_results
+    from illusion.services.compact import _find_safe_split_index
 
     # 构造消息：assistant 含 tool_use → user 含 tool_result
     messages = [

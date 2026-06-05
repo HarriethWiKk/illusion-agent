@@ -12,8 +12,6 @@ from illusion.swarm.agent_executor import (
     AgentAbortController,
     get_agent_context,
     set_agent_context,
-    get_active_agent,
-    get_active_agent_by_name,
 )
 from illusion.swarm.in_process import InProcessBackend
 from illusion.swarm.types import TeammateMessage, TeammateSpawnConfig

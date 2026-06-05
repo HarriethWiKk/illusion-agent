@@ -8,8 +8,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from illusion.engine.query_engine import QueryEngine
-from illusion.api.client import ApiMessageRequest
-from illusion.api.effort import EffortLevel
 
 
 class TestQueryEngineEffort:

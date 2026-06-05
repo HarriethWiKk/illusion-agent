@@ -12,7 +12,6 @@ from illusion.tools.bash_tool import BashTool, BashToolInput
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.config_tool import ConfigTool, ConfigToolInput
 from illusion.tools.enter_worktree_tool import EnterWorktreeTool, EnterWorktreeToolInput
-from illusion.tools.exit_worktree_tool import ExitWorktreeTool, ExitWorktreeToolInput
 from illusion.tools.file_edit_tool import FileEditTool, FileEditToolInput, mark_file_read
 from illusion.tools.file_read_tool import FileReadTool, FileReadToolInput
 from illusion.tools.file_write_tool import FileWriteTool, FileWriteToolInput

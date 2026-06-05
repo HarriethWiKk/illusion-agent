@@ -32,23 +32,8 @@ def test_swarm_module_exports():
         AgentExecutionContext,
         AgentResult,
         AgentSpawnConfig,
-        BackendType,
-        InProcessBackend,
-        SpawnResult,
-        SubprocessBackend,
         TaskNotification,
-        TeammateExecutor,
         TeammateMessage,
-        TeammateSpawnConfig,
-        format_task_notification,
-        get_active_agent,
-        get_active_agent_by_name,
-        get_agent_context,
-        list_active_agents,
-        parse_task_notification,
-        resolve_agent_tools,
-        run_agent_in_process,
-        run_agent_subprocess,
     )
 
     # Verify types exist

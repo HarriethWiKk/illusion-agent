@@ -55,7 +55,6 @@ async def test_ensure_ripgrep_integration():
 
 def test_grep_tool_no_pathlib():
     """验证 grep_tool.py 中不包含 pathlib"""
-    import ast
     with open("src/illusion/tools/grep_tool.py", "r", encoding="utf-8") as f:
         content = f.read()
     # 检查是否包含 pathlib 导入

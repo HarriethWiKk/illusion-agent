@@ -1,6 +1,5 @@
 """管道编排器集成测试"""
 
-import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -100,7 +99,7 @@ async def test_run_init_updates_claudemd(tmp_path: Path, monkeypatch):
     claudemd.write_text(content, encoding="utf-8")
 
     # 第二次运行
-    result = await run_init(context)
+    await run_init(context)
 
     # CLAUDE.md 应该被更新
     updated = claudemd.read_text(encoding="utf-8")
