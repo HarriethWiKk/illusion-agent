@@ -34,7 +34,7 @@ from dataclasses import dataclass  # 导入 dataclass 用于创建不可变数�
 from pathlib import Path  # 导入 Path 用于路径处理
 from typing import Any  # 导入 Any 类型用于泛型
 
-from pydantic import BaseModel, Field  # 导入 pydantic 模型基类
+from pydantic import BaseModel, Field, field_validator  # 导入 pydantic 模型基类和验证器
 
 from illusion.mcp.types import McpServerConfig  # 导入 MCP 服务器配置
 from illusion.permissions.modes import PermissionMode  # 导入权限模式
@@ -92,16 +92,49 @@ class MemorySettings(BaseModel):
 
 class SandboxNetworkSettings(BaseModel):
     """沙箱网络限制配置
-    
+
     传递给沙箱运行时的操作系统级网络限制配置。
-    
+
     Attributes:
-        allowed_domains: 允许访问的域名列表
+        allowed_domains: 允许访问的域名列表（支持 *.example.com 通配符）
         denied_domains: 拒绝访问的域名列表
+        allow_unix_sockets: macOS: 允许的 Unix socket 路径
+        allow_all_unix_sockets: 允许所有 Unix socket（禁用 seccomp 阻断）
+        allow_local_binding: 允许绑定本地端口
+        http_proxy_port: 使用外部 HTTP 代理端口
+        socks_proxy_port: 使用外部 SOCKS 代理端口
     """
 
     allowed_domains: list[str] = Field(default_factory=list)  # 允许的域名
     denied_domains: list[str] = Field(default_factory=list)  # 拒绝的域名
+    allow_unix_sockets: list[str] = Field(default_factory=list)  # macOS: 允许的 Unix socket 路径
+    allow_all_unix_sockets: bool = False  # 允许所有 Unix socket
+    allow_local_binding: bool = False  # 允许绑定本地端口
+    http_proxy_port: int | None = None  # 外部 HTTP 代理端口
+    socks_proxy_port: int | None = None  # 外部 SOCKS 代理端口
+
+    @field_validator("allowed_domains", "denied_domains")
+    @classmethod
+    def validate_domain_patterns(cls, v: list[str]) -> list[str]:
+        """验证域名模式格式，防止过于宽泛的通配符"""
+        for pattern in v:
+            if pattern == "localhost":
+                continue
+            if "://" in pattern or "/" in pattern or ":" in pattern:
+                raise ValueError(f"域名不能包含 ://、/ 或 :，收到: {pattern}")
+            if pattern == "*":
+                raise ValueError("不允许使用 * 通配符")
+            if pattern.startswith("*."):
+                suffix = pattern[2:]
+                parts = suffix.split(".")
+                if len(parts) < 2:
+                    raise ValueError(f"通配符域名需要至少 2 个点分段: {pattern}")
+            elif "*" not in pattern:
+                if "." not in pattern:
+                    raise ValueError(f"域名必须包含至少一个点: {pattern}")
+                if pattern.startswith(".") or pattern.endswith("."):
+                    raise ValueError(f"域名不能以点开头或结尾: {pattern}")
+        return v
 
 
 class SandboxFilesystemSettings(BaseModel):
@@ -124,22 +157,36 @@ class SandboxFilesystemSettings(BaseModel):
 
 class SandboxSettings(BaseModel):
     """沙箱运行时集成配置
-    
+
     配置与沙箱运行时的集成选项。
-    
+
     Attributes:
         enabled: 是否启用沙箱
         fail_if_unavailable: 沙箱不可用时是否失败
+        auto_allow_bash_if_sandboxed: 沙箱启用时自动允许 bash 命令
+        allow_unsandboxed_commands: 允许 dangerouslyDisableSandbox
         enabled_platforms: 启用的平台列表
+        excluded_commands: 排除沙箱的命令模式列表
         network: 网络限制配置
         filesystem: 文件系统限制配置
+        ignore_violations: 命令模式 → 忽略的路径列表
+        enable_weaker_nested_sandbox: Docker 环境跳过 --proc /proc
+        mandatory_deny_search_depth: 搜索危险文件的最大目录深度
+        allow_git_config: 允许写入 .git/config
     """
 
     enabled: bool = False  # 默认不启用沙箱
     fail_if_unavailable: bool = False  # 沙箱不可用时不失败
+    auto_allow_bash_if_sandboxed: bool = True  # 沙箱启用时自动允许 bash
+    allow_unsandboxed_commands: bool = True  # 允许 dangerouslyDisableSandbox
     enabled_platforms: list[str] = Field(default_factory=list)  # 启用的平台
+    excluded_commands: list[str] = Field(default_factory=list)  # 排除沙箱的命令模式
     network: SandboxNetworkSettings = Field(default_factory=SandboxNetworkSettings)  # 网络配置
     filesystem: SandboxFilesystemSettings = Field(default_factory=SandboxFilesystemSettings)  # 文件系统配置
+    ignore_violations: dict[str, list[str]] = Field(default_factory=dict)  # 命令 → 忽略路径
+    enable_weaker_nested_sandbox: bool = False  # Docker: 跳过 --proc /proc
+    mandatory_deny_search_depth: int = Field(default=3, ge=1, le=10)  # 搜索深度
+    allow_git_config: bool = False  # 允许写入 .git/config
 
 
 @dataclass(frozen=True)
