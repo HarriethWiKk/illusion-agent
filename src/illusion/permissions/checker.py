@@ -27,6 +27,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from illusion.config.settings import PermissionSettings
 from illusion.permissions.modes import PermissionMode
@@ -45,12 +46,16 @@ class PermissionDecision:
         requires_confirmation: 是否需要用户确认
         reason: 决策原因说明
         auto_blocked: 是否为系统自动阻止（如计划模式），而非用户显式拒绝
+        sandbox_blocked: 是否被沙箱限制阻止（需要用户三选项确认）
+        sandbox_denied_path: 被沙箱拒绝的路径（用于会话级允许）
     """
 
     allowed: bool  # 是否允许执行
     requires_confirmation: bool = False  # 是否需要用户确认
     reason: str = ""  # 决策原因
     auto_blocked: bool = False  # 系统自动阻止（计划模式等）
+    sandbox_blocked: bool = False  # 被沙箱限制阻止
+    sandbox_denied_path: str = ""  # 被沙箱拒绝的路径
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,10 @@ class PermissionChecker:
         self._pre_plan_mode: PermissionMode | None = None
         # 当前计划文件路径（plan mode 下豁免写入限制）
         self._plan_file_path: str | None = None
+        # 沙箱文件系统限制规则（通过 sync_sandbox_restrictions 设置）
+        self._sandbox_path_rules: list[PathRule] = []
+        # 会话级沙箱允许路径（不持久化，重启后清除）
+        self._session_allowed_paths: set[str] = set()
         # 从设置中解析路径规则
         self._path_rules: list[PathRule] = []
         for rule in getattr(settings, "path_rules", []):
@@ -141,6 +150,41 @@ class PermissionChecker:
         from pathlib import Path
         self._plan_file_path = str(Path(file_path).expanduser().resolve())
 
+    def sync_sandbox_restrictions(self, sandbox_settings: Any) -> None:
+        """将沙箱文件系统限制同步到权限规则
+
+        使文件工具（Read/Edit/Write/Grep/Glob）也受沙箱路径限制约束。
+
+        Args:
+            sandbox_settings: SandboxSettings 对象
+        """
+        self._sandbox_path_rules: list[PathRule] = []
+        if not getattr(sandbox_settings, "enabled", False):
+            return
+
+        fs = getattr(sandbox_settings, "filesystem", None)
+        if fs is None:
+            return
+
+        for path in getattr(fs, "deny_write", []):
+            if path:
+                self._sandbox_path_rules.append(PathRule(pattern=path, allow=False))
+        for path in getattr(fs, "deny_read", []):
+            if path:
+                self._sandbox_path_rules.append(PathRule(pattern=path, allow=False))
+
+    def allow_sandbox_path_for_session(self, path: str) -> None:
+        """将路径添加到会话级沙箱允许列表（不持久化）
+
+        Args:
+            path: 要允许的路径
+        """
+        self._session_allowed_paths.add(path)
+
+    def clear_session_allowed_paths(self) -> None:
+        """清空会话级沙箱允许列表"""
+        self._session_allowed_paths.clear()
+
     def evaluate(
         self,
         tool_name: str,
@@ -179,6 +223,20 @@ class PermissionChecker:
                             allowed=False,
                             reason=f"Path {file_path} matches deny rule: {rule.pattern}",
                         )
+
+        # 检查沙箱文件系统限制
+        if file_path and self._sandbox_path_rules:
+            # 检查会话级允许列表
+            if file_path not in self._session_allowed_paths:
+                for rule in self._sandbox_path_rules:
+                    if fnmatch.fnmatch(file_path, rule.pattern):
+                        if not rule.allow:
+                            return PermissionDecision(
+                                allowed=False,
+                                reason=f"sandbox_restriction: {file_path}",
+                                sandbox_blocked=True,
+                                sandbox_denied_path=file_path,
+                            )
 
         # 检查命令拒绝模式（例如拒绝 "rm -rf /"）
         if command:

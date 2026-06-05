@@ -548,8 +548,64 @@ async def _execute_tool_call(
                 content=f"[Permission blocked] {decision.reason or f'{tool_name} is not allowed in current mode'}",
                 is_error=True,
             ), hook_additional_contexts
+        # 沙箱限制阻止：向用户询问三选项确认
+        if decision.sandbox_blocked and context.ask_user_prompt is not None:
+            from illusion.config.i18n import _is_zh
+            from illusion.config.settings import load_settings as _load_settings
+            _locale = _load_settings().ui_language or "en"
+            _is_cn = _is_zh(_locale)
+
+            denied_path = decision.sandbox_denied_path or "unknown"
+            if _is_cn:
+                question_text = (
+                    f"沙箱限制：「{denied_path}」被沙箱配置阻止。\n"
+                    f"工具：{tool_name}\n"
+                    f"是否允许此操作？"
+                )
+                questions_data = [
+                    {
+                        "question": f"允许访问「{denied_path}」？",
+                        "header": "沙箱",
+                        "options": [
+                            {"label": "允许", "description": "允许本次操作"},
+                            {"label": "当前会话允许", "description": "允许此路径在当前会话中访问（重启后失效）"},
+                            {"label": "拒绝", "description": "阻止此操作"},
+                        ],
+                        "multiSelect": False,
+                    }
+                ]
+            else:
+                question_text = (
+                    f"Sandbox restriction: '{denied_path}' is blocked by sandbox configuration.\n"
+                    f"Tool: {tool_name}\n"
+                    f"Do you want to allow this operation?"
+                )
+                questions_data = [
+                    {
+                        "question": f"Allow access to '{denied_path}'?",
+                        "header": "Sandbox",
+                        "options": [
+                            {"label": "Allow", "description": "Allow this single operation"},
+                            {"label": "Allow for session", "description": "Allow this path for the current session (not persistent)"},
+                            {"label": "Deny", "description": "Block this operation"},
+                        ],
+                        "multiSelect": False,
+                    }
+                ]
+            answer = await context.ask_user_prompt(question_text, questions_data)
+            # 解析用户选择
+            answer_str = str(answer).strip() if answer else ""
+            if "Allow for session" in answer_str or "当前会话允许" in answer_str:
+                # 会话级允许
+                context.permission_checker.allow_sandbox_path_for_session(denied_path)
+            elif "Allow" in answer_str or "允许" in answer_str:
+                # 单次允许（不做任何持久化）
+                pass
+            else:
+                # 拒绝
+                raise PermissionDenied(tool_name, f"Sandbox denied: {denied_path}")
         # 需要用户确认
-        if decision.requires_confirmation and context.permission_prompt is not None:
+        elif decision.requires_confirmation and context.permission_prompt is not None:
             confirmed = await context.permission_prompt(tool_name, decision.reason)
             if not confirmed:
                 raise PermissionDenied(tool_name, f"Permission denied for {tool_name}")

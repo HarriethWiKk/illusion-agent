@@ -34,10 +34,10 @@ import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from illusion.config import Settings, load_settings
 from illusion.platforms import PlatformName, get_platform
-from illusion.sandbox import wrap_command_for_sandbox
 
 
 def resolve_shell_command(
@@ -117,11 +117,14 @@ async def create_shell_subprocess(
     """
     resolved_settings = settings or load_settings()
     argv = resolve_shell_command(command)
+
     # 使用沙箱包装命令（如果配置启用且未显式禁用）
-    if disable_sandbox:
-        cleanup_path = None
-    else:
-        argv, cleanup_path = wrap_command_for_sandbox(argv, settings=resolved_settings)
+    sandbox_manager = None
+    if not disable_sandbox:
+        from illusion.sandbox import SandboxManager
+        sandbox_manager = SandboxManager()
+        if sandbox_manager.should_use_sandbox(command, settings=resolved_settings):
+            argv = sandbox_manager.wrap_command(argv, shell=argv[0])
 
     try:
         kwargs: dict = {}
@@ -137,29 +140,34 @@ async def create_shell_subprocess(
             **kwargs,
         )
     except Exception:
-        # 发生异常时清理沙箱临时文件
-        if cleanup_path is not None:
-            cleanup_path.unlink(missing_ok=True)
+        # 发生异常时清理沙箱
+        if sandbox_manager:
+            sandbox_manager.cleanup_after_command()
         raise
 
-    # 进程结束后异步清理沙箱临时文件
-    if cleanup_path is not None:
-        asyncio.create_task(_cleanup_after_exit(process, cleanup_path))
+    # 进程结束后异步清理沙箱
+    if sandbox_manager:
+        asyncio.create_task(_cleanup_sandbox_after_exit(process, sandbox_manager))
     return process
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:
-    """
-    进程退出后清理沙箱临时文件
-    
-    Args:
-        process: 要监控的子进程
-        cleanup_path: 需要清理的文件路径
-    """
+    """进程退出后清理沙箱临时文件（向后兼容）"""
     try:
         await process.wait()
     finally:
         cleanup_path.unlink(missing_ok=True)
+
+
+async def _cleanup_sandbox_after_exit(
+    process: asyncio.subprocess.Process,
+    manager: Any,
+) -> None:
+    """进程退出后清理沙箱资源"""
+    try:
+        await process.wait()
+    finally:
+        manager.cleanup_after_command()
 
 
 def _resolve_windows_bash() -> str | None:

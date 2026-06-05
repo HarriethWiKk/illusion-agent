@@ -296,11 +296,15 @@ async def build_runtime(
         ),
         session_hook_store=session_hook_store,
     )
+    # 创建权限检查器并同步沙箱限制
+    permission_checker = PermissionChecker(settings.permission)
+    permission_checker.sync_sandbox_restrictions(settings.sandbox)
+
     # 创建查询引擎
     engine = QueryEngine(
         api_client=resolved_api_client,
         tool_registry=tool_registry,
-        permission_checker=PermissionChecker(settings.permission),
+        permission_checker=permission_checker,
         cwd=cwd,
         model=settings.active_model_name,
         system_prompt=build_runtime_system_prompt(settings, cwd=cwd, latest_user_prompt=prompt),
