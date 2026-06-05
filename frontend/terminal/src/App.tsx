@@ -14,6 +14,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
+import {getActivityDescription} from './tools/registry.js';
 import {CommandPicker} from './components/CommandPicker.js';
 import {ConversationView} from './components/ConversationView.js';
 import {ModalHost} from './components/ModalHost.js';
@@ -180,12 +181,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const currentToolName = useMemo(() => {
 		// 优先检查 pendingToolCalls（工具调用刚开始，参数尚未到达）
 		if (session.pendingToolCalls.length > 0) {
-			return session.pendingToolCalls[session.pendingToolCalls.length - 1].tool_name;
+			const last = session.pendingToolCalls[session.pendingToolCalls.length - 1];
+			return getActivityDescription(last.tool_name, last.tool_input);
 		}
 		for (let i = session.staticItems.length - 1; i >= 0; i--) {
 			const item = session.staticItems[i];
 			if (item.role === 'tool') {
-				return item.tool_name ?? 'tool';
+				return getActivityDescription(item.tool_name ?? 'tool', item.tool_input);
 			}
 			if (item.role === 'tool_result' || item.role === 'assistant') {
 				break;

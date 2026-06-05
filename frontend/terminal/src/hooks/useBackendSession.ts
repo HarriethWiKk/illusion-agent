@@ -489,6 +489,9 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					tool_input: event.item.tool_input ?? undefined,
 					tool_use_id: event.item.tool_use_id ?? event.tool_use_id ?? undefined,
 					is_error: event.item.is_error ?? event.is_error ?? undefined,
+					structured_output: event.structured_output ?? undefined,
+					output_type: event.output_type ?? undefined,
+					tool_metadata: event.tool_metadata ?? undefined,
 				};
 				pushStatic(enrichedItem);
 			}
@@ -503,6 +506,48 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 					: p,
 			);
 			setPendingToolCalls(pendingToolCallsRef.current);
+			return;
+		}
+		if (event.type === 'tool_progress') {
+			// 流式进度消息，更新对应 pendingToolCall 的 progressMessages
+			const toolUseId = event.tool_use_id;
+			if (toolUseId) {
+				pendingToolCallsRef.current = pendingToolCallsRef.current.map(p =>
+					p.tool_use_id === toolUseId
+						? {
+							...p,
+							progressMessages: [
+								...(p.progressMessages ?? []),
+								event.message ?? '',
+							].slice(-10),
+						}
+						: p,
+				);
+				setPendingToolCalls(pendingToolCallsRef.current);
+			}
+			return;
+		}
+		if (event.type === 'tool_reset') {
+			// 清理前端工具状态
+			const toolUseId = event.tool_use_id;
+			if (toolUseId) {
+				pendingToolCallsRef.current = pendingToolCallsRef.current.filter(
+					(p) => p.tool_use_id !== toolUseId,
+				);
+			} else {
+				pendingToolCallsRef.current = [];
+			}
+			setPendingToolCalls(pendingToolCallsRef.current);
+			return;
+		}
+		if (event.type === 'session_rewind') {
+			// 会话回退，清空指定位置之后的所有 items
+			const rewindToIndex = event.rewind_to_index ?? 0;
+			setStaticItems((prev) => prev.slice(0, rewindToIndex));
+			setClearCount((c) => c + 1);
+			clearAssistantDelta();
+			pendingToolCallsRef.current = [];
+			setPendingToolCalls([]);
 			return;
 		}
 		if (event.type === 'clear_transcript') {
