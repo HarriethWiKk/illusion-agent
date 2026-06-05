@@ -23,6 +23,8 @@ export type PendingToolCall = {
 	tool_use_id: string;
 	/** 工具输入参数（可选，可能尚未到达） */
 	tool_input?: Record<string, unknown>;
+	/** 流式进度消息列表 */
+	progressMessages?: string[];
 };
 
 /**
@@ -67,6 +69,14 @@ export type TranscriptItem = {
 	reasoning?: string;
 	/** 工具调用的唯一标识符（仅在 role 为 'tool' 或 'tool_result' 时存在） */
 	tool_use_id?: string;
+	/** 所属 assistant message ID，用于并行工具分组 */
+	message_id?: string;
+	/** 结构化输出数据（仅在 role 为 'tool_result' 时存在） */
+	structured_output?: Record<string, unknown>;
+	/** 输出类型：text/diff/search_results/file_list/error */
+	output_type?: string;
+	/** 工具特定元数据 */
+	tool_metadata?: Record<string, unknown>;
 };
 
 /**
@@ -243,6 +253,16 @@ export type BackendEvent = {
 	output?: string | null;
 	/** 是否为错误（可选） */
 	is_error?: boolean | null;
+	/** 结构化输出数据（可选，用于 tool_completed 事件） */
+	structured_output?: Record<string, unknown> | null;
+	/** 输出类型（可选） */
+	output_type?: string | null;
+	/** 工具特定元数据（可选） */
+	tool_metadata?: Record<string, unknown> | null;
+	/** 进度消息类型（可选，用于 tool_progress 事件） */
+	progress_type?: string | null;
+	/** 回退位置索引（可选，用于 session_rewind 事件） */
+	rewind_to_index?: number | null;
 	// 新事件载荷
 	/** 待办事项列表快照（可选） */
 	todo_items?: TodoItemSnapshot[] | null;
