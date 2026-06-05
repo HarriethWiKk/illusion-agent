@@ -66,14 +66,14 @@ async def test_plugin_install_load_and_uninstall_flow(tmp_path: Path, monkeypatc
     plugins = load_plugins(settings, project)
     assert len(plugins) == 1
     assert plugins[0].manifest.name == "fixture-plugin"
-    assert plugins[0].skills[0].name == "FixtureSkill"
+    assert plugins[0].skills[0].name == "fixture-plugin:FixtureSkill"
 
     manager = McpClientManager(load_mcp_server_configs(settings, plugins))
     async with manager:
         registry = create_default_tool_registry(manager)
         skill_tool = registry.get("skill")
         skill_result = await skill_tool.execute(
-            skill_tool.input_model.model_validate({"name": "FixtureSkill"}),
+            skill_tool.input_model.model_validate({"name": "fixture-plugin:FixtureSkill"}),
             ToolExecutionContext(cwd=project),
         )
         assert "Fixture skill content" in skill_result.output

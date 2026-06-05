@@ -31,8 +31,8 @@ def _write_plugin(root: Path) -> None:
     (plugin_dir / "hooks.json").write_text(
         json.dumps(
             {
-                "session_start": [
-                    {"type": "command", "command": "printf start"}
+                "SessionStart": [
+                    {"matcher": "", "hooks": [{"type": "command", "command": "printf start"}]}
                 ]
             }
         ),
@@ -62,8 +62,8 @@ def test_load_plugins_from_project_dir(tmp_path: Path, monkeypatch):
     assert len(plugins) == 1
     plugin = plugins[0]
     assert plugin.manifest.name == "example"
-    assert plugin.skills[0].name == "Deploy"
-    assert "session_start" in plugin.hooks
+    assert plugin.skills[0].name == "example:Deploy"
+    assert "SessionStart" in plugin.hooks
     assert "demo" in plugin.mcp_servers
 
 
@@ -75,8 +75,8 @@ def test_plugin_skills_and_hooks_are_merged(tmp_path: Path, monkeypatch):
     _write_plugin(plugins_root)
 
     skills = load_skill_registry(project).list_skills()
-    assert any(skill.name == "Deploy" and skill.source == "plugin" for skill in skills)
+    assert any(skill.name == "example:Deploy" and skill.source == "plugin" for skill in skills)
 
     plugins = load_plugins(Settings(), project)
     hooks = load_hook_registry(Settings(), plugins)
-    assert "session_start" in hooks.summary()
+    assert "SessionStart" in hooks.summary()
