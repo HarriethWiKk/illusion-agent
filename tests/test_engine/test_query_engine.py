@@ -255,9 +255,10 @@ async def test_query_engine_respects_pre_tool_hook_blocks(tmp_path: Path):
     sample = tmp_path / "hello.txt"
     sample.write_text("alpha\n", encoding="utf-8")
     registry = HookRegistry()
-    registry.register(
+    registry.register_hook(
         HookEvent.PRE_TOOL_USE,
         PromptHookDefinition(prompt="reject", matcher="read_file"),
+        matcher="read_file",
     )
 
     engine = QueryEngine(
@@ -294,7 +295,7 @@ async def test_query_engine_respects_pre_tool_hook_blocks(tmp_path: Path):
             registry,
             HookExecutionContext(
                 cwd=tmp_path,
-                api_client=StaticApiClient('{"ok": false, "reason": "no reading"}'),
+                api_client=StaticApiClient('{"decision": "block", "reason": "no reading"}'),
                 default_model="claude-test",
             ),
         ),

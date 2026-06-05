@@ -79,7 +79,6 @@ def main() -> None:
         print("\nTo publish, run without --dry-run")
         return
 
-    repo = "--repository testpypi" if args.test else ""
     repo_name = "TestPyPI" if args.test else "PyPI"
     print(f"\n=== Uploading to {repo_name} ===")
     cmd = [sys.executable, "-m", "twine", "upload"]

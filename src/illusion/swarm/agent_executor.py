@@ -514,7 +514,7 @@ async def run_agent_in_process(
     *,
     is_async: bool = False,
     existing_context: AgentExecutionContext | None = None,
-    on_progress: "Callable[[str], Awaitable[None]] | None" = None,
+    on_progress: Any | None = None,
 ) -> AgentResult:
     """在当前进程中运行代理。
 

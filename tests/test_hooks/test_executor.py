@@ -33,7 +33,7 @@ class FakeApiClient:
 @pytest.mark.asyncio
 async def test_command_hook_executes(tmp_path: Path):
     registry = HookRegistry()
-    registry.register(
+    registry.register_hook(
         HookEvent.SESSION_START,
         CommandHookDefinition(command="printf 'booted'"),
     )
@@ -51,15 +51,16 @@ async def test_command_hook_executes(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_prompt_hook_can_block(tmp_path: Path):
     registry = HookRegistry()
-    registry.register(
+    registry.register_hook(
         HookEvent.PRE_TOOL_USE,
         PromptHookDefinition(prompt="Check tool call", matcher="bash"),
+        matcher="bash",
     )
     executor = HookExecutor(
         registry,
         HookExecutionContext(
             cwd=tmp_path,
-            api_client=FakeApiClient('{"ok": false, "reason": "blocked by policy"}'),
+            api_client=FakeApiClient('{"decision": "block", "reason": "blocked by policy"}'),
             default_model="claude-test",
         ),
     )
@@ -98,7 +99,7 @@ def test_inject_arguments_shell_escape_wraps_in_single_quotes():
 async def test_command_hook_escapes_shell_metacharacters(tmp_path: Path):
     """$ARGUMENTS in command hooks must be shell-escaped to prevent injection."""
     registry = HookRegistry()
-    registry.register(
+    registry.register_hook(
         HookEvent.PRE_TOOL_USE,
         CommandHookDefinition(command="echo $ARGUMENTS"),
     )

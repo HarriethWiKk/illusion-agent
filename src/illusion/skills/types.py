@@ -7,7 +7,7 @@ Skill 数据模型模块
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 

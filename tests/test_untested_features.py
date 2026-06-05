@@ -118,7 +118,7 @@ async def test_hooks_command_block():
         block_on_failure=True,
         timeout_seconds=5,
     )
-    registry.register(HookEvent.PRE_TOOL_USE, hook)
+    registry.register_hook(HookEvent.PRE_TOOL_USE, hook, matcher="bash")
     print(f"  Registered pre_tool_use hook: {hook}")
 
     from illusion.api.client import AnthropicApiClient
@@ -159,7 +159,7 @@ async def test_hooks_post_tool_use():
         command="echo POST_HOOK_FIRED",
         timeout_seconds=5,
     )
-    registry.register(HookEvent.POST_TOOL_USE, hook)
+    registry.register_hook(HookEvent.POST_TOOL_USE, hook)
 
     from illusion.api.client import AnthropicApiClient
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
@@ -200,13 +200,11 @@ async def test_hooks_in_agent_loop():
 
     # Set up hook that blocks bash commands containing 'rm'
     hook_reg = HookRegistry()
-    hook_reg.register(HookEvent.PRE_TOOL_USE, CommandHookDefinition(
+    hook_reg.register_hook(HookEvent.PRE_TOOL_USE, CommandHookDefinition(
         type="command",
         command='echo "$TOOL_INPUT" | grep -q "rm " && exit 1 || exit 0',
         matcher="bash",
-        block_on_failure=True,
-        timeout_seconds=5,
-    ))
+    ), matcher="bash")
     hook_executor = HookExecutor(hook_reg, HookExecutionContext(cwd=WORKSPACE, api_client=api, default_model=MODEL))
     reg = ToolRegistry()
     reg.register(BashTool())
@@ -672,8 +670,8 @@ async def test_combined_hooks_skills_agent():
 
     # Hooks — log every tool use
     hook_reg = HookRegistry()
-    hook_reg.register(HookEvent.POST_TOOL_USE, CommandHookDefinition(
-        type="command", command="echo HOOK_LOGGED", timeout_seconds=5,
+    hook_reg.register_hook(HookEvent.POST_TOOL_USE, CommandHookDefinition(
+        type="command", command="echo HOOK_LOGGED",
     ))
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
     hook_exec = HookExecutor(hook_reg, HookExecutionContext(cwd=WORKSPACE, api_client=api, default_model=MODEL))

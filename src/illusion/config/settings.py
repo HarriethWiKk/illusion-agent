@@ -36,7 +36,6 @@ from typing import Any  # 导入 Any 类型用于泛型
 
 from pydantic import BaseModel, Field  # 导入 pydantic 模型基类
 
-from illusion.hooks.schemas import HookDefinition  # 导入钩子定义
 from illusion.mcp.types import McpServerConfig  # 导入 MCP 服务器配置
 from illusion.permissions.modes import PermissionMode  # 导入权限模式
 
