@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 try:
@@ -72,6 +71,31 @@ export const VERSION = '{version}';
     print(f"Generated: {output_path}")
 
 
+def update_init_version(init_path: Path, version: str) -> None:
+    """更新 __init__.py 中的 __version__"""
+    if not init_path.exists():
+        print(f"Warning: {init_path} not found, skipping")
+        return
+
+    content = init_path.read_text(encoding="utf-8")
+    import re
+    new_content, count = re.subn(
+        r'__version__\s*=\s*["\'][^"\']+["\']',
+        f'__version__ = "{version}"',
+        content,
+    )
+    if count == 0:
+        print(f"Warning: __version__ not found in {init_path}, skipping")
+        return
+
+    if content == new_content:
+        print(f"Version already up to date: {init_path}")
+        return
+
+    init_path.write_text(new_content, encoding="utf-8")
+    print(f"Updated version in: {init_path}")
+
+
 def update_package_json_version(package_path: Path, version: str) -> None:
     """更新 package.json 中的版本号"""
     if not package_path.exists():
@@ -101,8 +125,9 @@ def main() -> None:
     generate_terminal_version_file(version)
     generate_web_version_file(version)
 
-    # 更新 package.json 版本号
+    # 更新 __init__.py 和 package.json 版本号
     root = Path(__file__).parent.parent
+    update_init_version(root / "src" / "illusion" / "__init__.py", version)
     update_package_json_version(root / "frontend" / "web" / "package.json", version)
     update_package_json_version(root / "frontend" / "terminal" / "package.json", version)
 
