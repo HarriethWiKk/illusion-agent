@@ -23,6 +23,9 @@ const HIDE_DELAY_MS = 5000;
 /** 最近完成任务的高亮时间（毫秒） */
 const RECENT_COMPLETED_TTL_MS = 30_000;
 
+/** 最大显示待办事项数量 */
+const MAX_TODO_DISPLAY = 4;
+
 /**
  * 待办事项面板组件
  *
@@ -92,6 +95,10 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 		return order(a, aRecent) - order(b, bRecent);
 	});
 
+	const truncated = sorted.length > MAX_TODO_DISPLAY;
+	const display = truncated ? sorted.slice(0, MAX_TODO_DISPLAY) : sorted;
+	const remaining = sorted.length - MAX_TODO_DISPLAY;
+
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			<Box marginBottom={0}>
@@ -101,9 +108,14 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 				{inProgress > 0 ? <Text color={theme.colors.info}>{` ${theme.icons.middleDot} ${inProgress} active`}</Text> : null}
 				{pending > 0 ? <Text dimColor>{` ${theme.icons.middleDot} ${pending} open`}</Text> : null}
 			</Box>
-			{sorted.map((item, i) => (
+			{display.map((item, i) => (
 				<TodoRow key={i} item={item} theme={theme} now={now} completionTimes={completionTimeRef.current} />
 			))}
+			{truncated ? (
+				<Box>
+					<Text dimColor>{`  … +${remaining} more`}</Text>
+				</Box>
+			) : null}
 		</Box>
 	);
 }

@@ -13,7 +13,7 @@
  * @module ConversationView
  */
 
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useMemo} from 'react';
 import {Box, Static, Text} from 'ink';
 
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
@@ -25,15 +25,11 @@ import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 import {stringWidth, wrapText} from '../utils/markdown.js';
 import {renderAssistantText, stripThinkTags, extractThinkContent, hasThinkTags, stripToolCallArtifacts, mergeReasoning} from '../utils/thinking.js';
-import {MarkdownContent, renderInlineMarkdown} from './MarkdownContent.js';
+import {MarkdownContent} from './MarkdownContent.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
+import {useBlink} from '../hooks/useBlink.js';
+import {getTool} from '../tools/registry.js';
 
-/** 工具结果最大显示行数 */
-const MAX_RESULT_LINES = 2;
-/** 命令摘要最大显示行数 */
-const MAX_COMMAND_LINES = 2;
-/** 命令摘要最大字符数 */
-const MAX_COMMAND_CHARS = 160;
 /** 流式尾部最大显示行数 */
 const STREAMING_TAIL_LINES = 10;
 /** 最小换行宽度 */
@@ -151,24 +147,14 @@ function BlinkingToolIndicator({
 	theme: ThemeConfig;
 	terminalWidth: number;
 }): React.JSX.Element {
-	const [visible, setVisible] = useState(true);
-	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const isVisible = useBlink(true);
 
-	useEffect(() => {
-		intervalRef.current = setInterval(() => {
-			setVisible((v) => !v);
-		}, 500);
-		return () => {
-			if (intervalRef.current) {
-				clearInterval(intervalRef.current);
-			}
-		};
-	}, []);
-
+	const tool = getTool(pending.tool_name);
+	const displayName = tool.displayName(pending.tool_input) || pending.tool_name;
 	const summary = pending.tool_input
-		? summarizeInput(pending.tool_name, pending.tool_input, pending.tool_name)
-		: null;
-	const content = summary ? `${pending.tool_name} (${summary})` : pending.tool_name;
+		? tool.renderToolUseMessage(pending.tool_input)
+		: '';
+	const content = summary ? `${displayName}(${summary})` : displayName;
 	const prefix = `${theme.icons.tool} `;
 	const continuationPrefix = ' '.repeat(stringWidth(prefix));
 	const wrapped = wrapForPrefix(content, terminalWidth, prefix);
@@ -180,7 +166,7 @@ function BlinkingToolIndicator({
 					{i === 0 ? (
 						<Text>
 							<Text color={theme.colors.info}>
-								{visible ? theme.icons.tool : ' '}
+								{isVisible ? theme.icons.tool : ' '}
 								{' '}
 							</Text>
 							<Text bold>{line}</Text>
@@ -190,6 +176,14 @@ function BlinkingToolIndicator({
 					)}
 				</Box>
 			))}
+			{/* 流式进度消息 */}
+			{pending.progressMessages && pending.progressMessages.length > 0 ? (
+				<Box marginLeft={2} flexDirection="column">
+					{pending.progressMessages.slice(-3).map((msg, i) => (
+						<Text key={i} dimColor>{msg}</Text>
+					))}
+				</Box>
+			) : null}
 		</Box>
 	);
 }
@@ -342,13 +336,14 @@ function ToolGroupRow({
 	terminalWidth: number;
 }): React.JSX.Element {
 	const toolName = toolItem.tool_name ?? 'tool';
-	const summary = summarizeInput(toolName, toolItem.tool_input, toolItem.text);
+	const tool = getTool(toolName);
+	const displayName = tool.displayName(toolItem.tool_input) || toolName;
+	const summary = tool.renderToolUseMessage(toolItem.tool_input);
 	const needsGap = prevRole !== undefined && prevRole !== 'tool' && prevRole !== 'tool_result';
 	const prefix = `${theme.icons.tool} `;
 	const continuationPrefix = ' '.repeat(stringWidth(prefix));
-	const content = summary ? `${toolName} (${summary})` : toolName;
+	const content = summary ? `${displayName}(${summary})` : displayName;
 	const wrapped = wrapForPrefix(content, terminalWidth, prefix);
-	const continuationDim = false;
 
 	return (
 		<Box flexDirection="column" marginTop={needsGap ? 1 : 0}>
@@ -360,7 +355,7 @@ function ToolGroupRow({
 							<Text bold>{line}</Text>
 						</Text>
 					) : (
-						<Text dimColor={continuationDim}>{continuationPrefix}{line}</Text>
+						<Text>{continuationPrefix}{line}</Text>
 					)}
 				</Box>
 			))}
@@ -368,6 +363,9 @@ function ToolGroupRow({
 	);
 }
 
+/**
+ * 将多行文本按行渲染，每行独立 Box 以正确处理换行和截断
+ */
 function ToolResultBlock({
 	item,
 	theme,
@@ -377,7 +375,14 @@ function ToolResultBlock({
 	theme: ThemeConfig;
 	terminalWidth: number;
 }): React.JSX.Element {
-	const lines = item.text.split('\n').filter((l) => l.trim() !== '');
+	const MAX_RESULT_LINES = 15;
+
+	// 使用工具专用渲染器获取摘要文本，回退到 item.text
+	const tool = getTool(item.tool_name ?? 'tool');
+	const rendered = tool.renderToolResultMessage(item.text, item.tool_input, false, item.structured_output);
+	const displayText = rendered || item.text;
+
+	const lines = displayText.split('\n').filter((l) => l.trim() !== '');
 	const truncated = lines.length > MAX_RESULT_LINES;
 	const display = truncated
 		? [...lines.slice(0, MAX_RESULT_LINES), `… +${lines.length - MAX_RESULT_LINES} lines`]
@@ -404,7 +409,6 @@ function ToolResultBlock({
 	return (
 		<Box flexDirection="column">
 			{display.map((line, i) => {
-				// 差异行着色：+行绿色，-行红色，@@行青色
 				let lineColor: string | undefined = undefined;
 				let lineDim = !isError;
 				const trimmedLine = line.trimStart();
@@ -418,22 +422,21 @@ function ToolResultBlock({
 					lineColor = theme.colors.info;
 					lineDim = false;
 				}
-				// 逐行截断到终端宽度加省略号，避免长行换行破坏预览截断效果
-					const width = i === 0 ? firstWidth : continuationWidth;
-					const displayLine = truncateToDisplayWidth(line, width);
-					const showLeadingIcon = i === 0;
+				const width = i === 0 ? firstWidth : continuationWidth;
+				const displayLine = truncateToDisplayWidth(line, width);
+				const showLeadingIcon = i === 0;
 
-					return (
-						<Box key={i}>
-							<Text dimColor>{showLeadingIcon ? firstPrefixText : continuationPrefix}</Text>
-							{showLeadingIcon ? (
-								<Text color={iconColor}>{icon} </Text>
-							) : null}
-							<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
-								{displayLine}
-							</Text>
-						</Box>
-					);
+				return (
+					<Box key={i}>
+						<Text dimColor>{showLeadingIcon ? firstPrefixText : continuationPrefix}</Text>
+						{showLeadingIcon ? (
+							<Text color={iconColor}>{icon} </Text>
+						) : null}
+						<Text color={isError ? theme.colors.error : lineColor} dimColor={isError ? false : lineDim}>
+							{displayLine}
+						</Text>
+					</Box>
+				);
 			})}
 		</Box>
 	);
@@ -704,96 +707,3 @@ function isTextSubsetOrEqual(a: string, b: string): boolean {
 	return normA === normB || normA.includes(normB) || normB.includes(normA);
 }
 
-function summarizeInput(toolName: string, toolInput?: Record<string, unknown>, fallback?: string): string {
-	if (!toolInput) {
-		return truncateCommand(fallback ?? '');
-	}
-
-	const lower = toolName.toLowerCase();
-
-	if ((lower === 'bash' || lower === 'powershell') && toolInput.command) {
-		return truncateCommand(String(toolInput.command));
-	}
-	if ((lower === 'read' || lower === 'fileread' || lower === 'read_file') && (toolInput.path || toolInput.file_path)) {
-		return String(toolInput.path ?? toolInput.file_path);
-	}
-	if ((lower === 'write' || lower === 'filewrite' || lower === 'write_file') && (toolInput.path || toolInput.file_path)) {
-		return String(toolInput.path ?? toolInput.file_path);
-	}
-	if ((lower === 'edit' || lower === 'fileedit' || lower === 'edit_file') && (toolInput.path || toolInput.file_path)) {
-		return String(toolInput.path ?? toolInput.file_path);
-	}
-	if (lower === 'grep' && toolInput.pattern) {
-		return `/${String(toolInput.pattern)}/`;
-	}
-	if (lower === 'glob' && toolInput.pattern) {
-		return String(toolInput.pattern);
-	}
-	if (lower === 'agent' && toolInput.description) {
-		return truncateCommand(String(toolInput.description));
-	}
-	if (lower === 'todowrite' || lower === 'todo_write') {
-		const todos = toolInput.todos;
-		if (Array.isArray(todos)) {
-			const total = todos.length;
-			const completed = todos.filter((t: {status: string}) => t.status === 'completed').length;
-			return `${completed}/${total} tasks`;
-		}
-	}
-	if (lower === 'ask_user_question') {
-		const questions = toolInput.questions;
-		if (Array.isArray(questions) && questions.length > 0) {
-			const q = questions[0] as Record<string, unknown>;
-			return truncateCommand(String(q.question ?? ''));
-		}
-	}
-
-	const entries = Object.entries(toolInput);
-	if (entries.length > 0) {
-		const [key, val] = entries[0];
-		return truncateCommand(`${key}=${String(val)}`);
-	}
-
-	return truncateCommand(fallback ?? '');
-}
-
-// 参考 claude-code 的截断策略：先按行截断，再按字符截断
-function truncateCommand(str: string): string {
-	// 1. 按行分割
-	const lines = str.split('\n');
-
-	// 2. 移除每行首尾空格，过滤空行
-	const cleanedLines = lines.map(l => l.trim()).filter(l => l.length > 0);
-
-	// 3. 按行截断（最多 MAX_COMMAND_LINES 行）
-	const truncatedLines = cleanedLines.length > MAX_COMMAND_LINES
-		? [...cleanedLines.slice(0, MAX_COMMAND_LINES)]
-		: cleanedLines;
-
-	// 4. 合并为单行
-	let result = truncatedLines.join(' ');
-
-	// 5. 按字符截断
-	const needsCharTruncation = result.length > MAX_COMMAND_CHARS || cleanedLines.length > MAX_COMMAND_LINES;
-	if (needsCharTruncation && result.length > MAX_COMMAND_CHARS) {
-		result = result.slice(0, MAX_COMMAND_CHARS);
-		// 优先在分号处截断（命令分隔符）
-		const lastSemicolon = result.lastIndexOf(';');
-		if (lastSemicolon > MAX_COMMAND_CHARS * 0.3) {
-			result = result.slice(0, lastSemicolon + 1);
-		} else {
-			// 其次在空格处截断
-			const lastSpace = result.lastIndexOf(' ');
-			if (lastSpace > MAX_COMMAND_CHARS * 0.5) {
-				result = result.slice(0, lastSpace);
-			}
-		}
-	}
-
-	// 6. 添加省略号
-	if (needsCharTruncation) {
-		result += '…';
-	}
-
-	return result;
-}
