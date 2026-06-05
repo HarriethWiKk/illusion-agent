@@ -1,115 +1,118 @@
-"""Tests for sandbox runtime adapter behavior."""
-
-from __future__ import annotations
-
-import asyncio
-import json
-import shutil
-import tempfile
-from pathlib import Path
-
+"""沙箱适配器测试 — 测试新的 SandboxManager API"""
+from unittest.mock import patch, MagicMock
+from illusion.sandbox.adapter import SandboxManager, SandboxAvailability, SandboxUnavailableError
+from illusion.config.settings import SandboxSettings, SandboxNetworkSettings, SandboxFilesystemSettings, Settings
 import pytest
 
-from illusion.config.settings import SandboxSettings, Settings
-from illusion.sandbox.adapter import (
-    SandboxUnavailableError,
-    build_sandbox_runtime_config,
-    get_sandbox_availability,
-    wrap_command_for_sandbox,
-)
-from illusion.utils.shell import create_shell_subprocess
+
+def test_manager_singleton():
+    """SandboxManager 是单例"""
+    m1 = SandboxManager()
+    m2 = SandboxManager()
+    assert m1 is m2
 
 
-def test_build_sandbox_runtime_config_maps_settings():
-    settings = Settings(
-        sandbox=SandboxSettings(
-            enabled=True,
-            network={"allowed_domains": ["github.com"], "denied_domains": ["example.com"]},
-            filesystem={"allow_write": [".", "/tmp"], "deny_read": ["~/.ssh"]},
-        )
-    )
-
-    config = build_sandbox_runtime_config(settings)
-
-    assert config["network"]["allowedDomains"] == ["github.com"]
-    assert config["network"]["deniedDomains"] == ["example.com"]
-    assert config["filesystem"]["allowWrite"] == [".", "/tmp"]
-    assert config["filesystem"]["denyRead"] == ["~/.ssh"]
+def test_availability_disabled():
+    """沙箱禁用时返回 unavailable"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(enabled=False))
+    avail = manager.get_availability(settings)
+    assert avail.enabled is False
+    assert avail.active is False
 
 
-def test_sandbox_availability_reports_native_windows_unsupported(monkeypatch):
+def test_availability_enabled():
+    """沙箱启用且运行时就绪时返回 active"""
+    manager = SandboxManager()
+    manager.reset()
     settings = Settings(sandbox=SandboxSettings(enabled=True))
-    monkeypatch.setattr("illusion.sandbox.adapter.get_platform", lambda: "windows")
-
-    availability = get_sandbox_availability(settings)
-
-    assert availability.available is False
-    assert "native Windows" in (availability.reason or "")
-
-
-def test_wrap_command_for_sandbox_returns_original_when_disabled():
-    command, settings_path = wrap_command_for_sandbox(["bash", "-lc", "echo hi"], settings=Settings())
-    assert command == ["bash", "-lc", "echo hi"]
-    assert settings_path is None
+    # Mock 运行时为已启用状态
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        avail = manager.get_availability(settings)
+        assert avail.enabled is True
+        assert avail.active is True
 
 
-def test_wrap_command_for_sandbox_writes_settings_file(monkeypatch):
+def test_should_use_sandbox_disabled():
+    """沙箱禁用时不应使用沙箱"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(enabled=False))
+    assert manager.should_use_sandbox("echo hello", settings=settings) is False
+
+
+def test_should_use_sandbox_enabled():
+    """沙箱启用且运行时就绪时应使用沙箱"""
+    manager = SandboxManager()
+    manager.reset()
     settings = Settings(sandbox=SandboxSettings(enabled=True))
-
-    def fake_which(name: str) -> str | None:
-        mapping = {
-            "srt": "/usr/local/bin/srt",
-            "bwrap": "/usr/bin/bwrap",
-        }
-        return mapping.get(name)
-
-    monkeypatch.setattr("illusion.sandbox.adapter.get_platform", lambda: "linux")
-    monkeypatch.setattr("illusion.sandbox.adapter.shutil.which", fake_which)
-
-    command, settings_path = wrap_command_for_sandbox(["bash", "-lc", "echo hi"], settings=settings)
-
-    assert command[:4] == ["/usr/local/bin/srt", "--settings", str(settings_path), "-c"]
-    assert command[4] == "bash -lc 'echo hi'"
-    assert settings_path is not None and settings_path.exists()
-    payload = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert payload["filesystem"]["allowWrite"] == ["."]
-    settings_path.unlink(missing_ok=True)
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        assert manager.should_use_sandbox("echo hello", settings=settings) is True
 
 
-def test_wrap_command_for_sandbox_raises_when_required(monkeypatch):
-    settings = Settings(sandbox=SandboxSettings(enabled=True, fail_if_unavailable=True))
-    monkeypatch.setattr("illusion.sandbox.adapter.get_platform", lambda: "linux")
-    monkeypatch.setattr("illusion.sandbox.adapter.shutil.which", lambda name: None)
+def test_should_use_sandbox_dangerously_disable():
+    """dangerously_disable=True 时跳过沙箱"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(enabled=True, allow_unsandboxed_commands=True))
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        assert manager.should_use_sandbox("echo hello", dangerously_disable=True, settings=settings) is False
 
-    with pytest.raises(SandboxUnavailableError):
-        wrap_command_for_sandbox(["bash", "-lc", "echo hi"], settings=settings)
+
+def test_excluded_command_matching():
+    """排除命令匹配"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(
+        enabled=True,
+        excluded_commands=["npm test", "make:*"],
+    ))
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        assert manager.should_use_sandbox("npm test", settings=settings) is False
+        assert manager.should_use_sandbox("make:build", settings=settings) is False
+        assert manager.should_use_sandbox("rm -rf /", settings=settings) is True
 
 
-@pytest.mark.skipif(shutil.which("srt") is None or shutil.which("bwrap") is None, reason="Needs local sandbox runtime")
-def test_create_shell_subprocess_preserves_exit_code_with_sandbox(monkeypatch):
-    import illusion.config.paths as config_paths
+def test_excluded_command_with_env_prefix():
+    """排除命令匹配（带环境变量前缀）"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(
+        enabled=True,
+        excluded_commands=["npm test"],
+    ))
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        assert manager.should_use_sandbox("NODE_ENV=production npm test", settings=settings) is False
 
-    async def _run() -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = Path(tmpdir) / "settings.json"
-            from illusion.config.settings import save_settings
 
-            save_settings(Settings(sandbox=SandboxSettings(enabled=True, fail_if_unavailable=True)), cfg)
-            orig = config_paths.get_config_file_path
-            monkeypatch.setattr(config_paths, "get_config_file_path", lambda: cfg)
-            try:
-                process = await create_shell_subprocess(
-                    "exit 7",
-                    cwd=Path("/home/tangjiabin/IllusionCode-new"),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await process.communicate()
-            finally:
-                monkeypatch.setattr(config_paths, "get_config_file_path", orig)
+def test_excluded_command_compound():
+    """复合命令中排除命令匹配"""
+    manager = SandboxManager()
+    manager.reset()
+    settings = Settings(sandbox=SandboxSettings(
+        enabled=True,
+        excluded_commands=["echo safe"],
+    ))
+    with patch.object(manager, "_runtime") as mock_runtime:
+        mock_runtime.is_enabled.return_value = True
+        # 复合命令中包含排除命令的子命令
+        assert manager.should_use_sandbox("echo safe && rm -rf /", settings=settings) is False
 
-        assert process.returncode == 7
-        assert stdout == b""
-        assert stderr == b""
 
-    asyncio.run(_run())
+def test_build_sandbox_runtime_config():
+    """配置转换正确性"""
+    manager = SandboxManager()
+    settings = Settings(sandbox=SandboxSettings(
+        enabled=True,
+        network=SandboxNetworkSettings(allowed_domains=["*.github.com"]),
+        filesystem=SandboxFilesystemSettings(deny_write=[".git/hooks"]),
+    ))
+    config = manager._settings_to_config(settings.sandbox)
+    assert config["network"]["allowed_domains"] == ["*.github.com"]
+    assert config["filesystem"]["deny_write"] == [".git/hooks"]
