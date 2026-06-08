@@ -577,6 +577,62 @@ class WebBackendHost:
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
 
+    # rewind 两步选择的中间状态
+    _rewind_target_idx: int | None = None
+
+    async def _handle_rewind_message_selected(self, value: str) -> bool:
+        """rewind 第一步：用户选择了要回退的消息，弹出模式选择。"""
+        if self._bundle is None:
+            return True
+        try:
+            target_idx = int(value)
+        except ValueError:
+            return True
+        self._rewind_target_idx = target_idx
+        state = self._bundle.app_state.get()
+        zh = str(state.ui_language or "zh-CN").lower().startswith("zh")
+        options = [
+            {
+                "value": "both",
+                "label": "回退代码与对话" if zh else "Rewind code & conversation",
+                "description": "撤销文件修改并移除对话" if zh else "Revert files and remove conversation",
+            },
+            {
+                "value": "conversation",
+                "label": "仅回退对话" if zh else "Rewind conversation only",
+                "description": "只移除对话，保留文件修改" if zh else "Remove conversation, keep files",
+            },
+            {
+                "value": "code",
+                "label": "仅回退代码" if zh else "Rewind code only",
+                "description": "只撤销文件修改，保留对话" if zh else "Revert files, keep conversation",
+            },
+        ]
+        await self._emit(BackendEvent(
+            type="select_request",
+            modal={"kind": "select", "title": "回退方式" if zh else "Rewind mode", "command": "rewind_mode"},
+            select_options=options,
+        ))
+        return True
+
+    async def _handle_rewind_mode_selected(self, value: str) -> bool:
+        """rewind 第二步：用户选择了回退模式，执行回退。"""
+        if self._bundle is None or self._rewind_target_idx is None:
+            return True
+        target_idx = self._rewind_target_idx
+        self._rewind_target_idx = None
+        mode = value.strip()
+        if mode not in ("both", "conversation", "code"):
+            return True
+        messages = self._bundle.engine.messages
+        turns = sum(
+            1 for i, msg in enumerate(messages)
+            if i >= target_idx and msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
+        )
+        if turns <= 0:
+            return True
+        return await self._process_line(f"/rewind {turns} {mode}", transcript_line="/rewind")
+
     async def _apply_select_command(self, command_name: str, value: str) -> bool:
         """应用选择的命令值。"""
         command = command_name.strip().lstrip("/").lower()
@@ -598,6 +654,12 @@ class WebBackendHost:
                 return await self._process_line(f"/context set {answer}", transcript_line="/context")
             await self._emit(BackendEvent(type="line_complete"))
             return True
+        # rewind 两步选择：第一步（选消息）→ 存储目标，弹出模式选择
+        if command == "rewind":
+            return await self._handle_rewind_message_selected(selected)
+        # rewind 两步选择：第二步（选模式）→ 执行回退
+        if command == "rewind_mode":
+            return await self._handle_rewind_mode_selected(selected)
         line = self._build_select_command_line(command, selected)
         if line is None:
             await self._emit(BackendEvent(type="error", message=f"Unknown select command: {command_name}"))
@@ -629,20 +691,6 @@ class WebBackendHost:
             return f"/language {value}"
         if command == "model":
             return f"/model set {value}"
-        if command == "rewind":
-            # value is the message index to rewind to (before that message)
-            if self._bundle is None:
-                return None
-            try:
-                target_idx = int(value)
-            except ValueError:
-                return None
-            messages = self._bundle.engine.messages
-            turns = sum(
-                1 for i, msg in enumerate(messages)
-                if i >= target_idx and msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
-            )
-            return f"/rewind {turns}" if turns > 0 else None
         if command == "delete":
             if value == "__all__":
                 return "/delete all"

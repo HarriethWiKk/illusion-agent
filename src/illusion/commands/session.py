@@ -209,34 +209,61 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
 
 
 async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
-    """回退对话回合"""
+    """回退对话回合
+
+    支持三种模式：
+    - both（默认）：同时回退对话和文件
+    - conversation：仅回退对话
+    - code：仅回退文件修改
+
+    用法：/rewind [TURNS] [both|conversation|code]
+    """
+    parts = args.strip().split()
     turns = 1
-    if args.strip():
+    mode = "both"
+    if parts:
         try:
-            turns = max(1, int(args.strip()))
+            turns = max(1, int(parts[0]))
         except ValueError:
-            return CommandResult(message="Usage: /rewind [TURNS]")
-    before = len(context.engine.messages)
-    updated = rewind_turns(context.engine.messages, turns)
-    removed = before - len(updated)
+            return CommandResult(message="Usage: /rewind [TURNS] [both|conversation|code]")
+        if len(parts) > 1:
+            mode = parts[1].lower()
+            if mode not in ("both", "conversation", "code"):
+                return CommandResult(message="Usage: /rewind [TURNS] [both|conversation|code]")
 
+    # 回退对话
+    removed = 0
+    updated = context.engine.messages
+    if mode in ("both", "conversation"):
+        before = len(context.engine.messages)
+        updated = rewind_turns(context.engine.messages, turns)
+        removed = before - len(updated)
+
+    # 回退文件
     reverted_count = 0
-    fh = context.engine.file_history
-    if fh is not None and fh.snapshots:
-        from illusion.services.file_history import rewind_to
-        target_index = max(0, len(fh.snapshots) - turns)
-        reverted_files = rewind_to(fh, target_index)
-        reverted_count = len(reverted_files)
+    if mode in ("both", "code"):
+        fh = context.engine.file_history
+        if fh is not None and fh.snapshots:
+            from illusion.services.file_history import rewind_to
+            target_index = max(0, len(fh.snapshots) - turns)
+            reverted_files = rewind_to(fh, target_index)
+            reverted_count = len(reverted_files)
 
-    context.engine.load_messages(updated)
+    # 应用对话变更
+    if mode in ("both", "conversation"):
+        context.engine.load_messages(updated)
 
-    lines = [f"Rewound {turns} turn(s); removed {removed} message(s)."]
+    lines = []
+    if removed > 0:
+        lines.append(f"Rewound {turns} turn(s); removed {removed} message(s).")
     if reverted_count > 0:
         lines.append(f"Reverted {reverted_count} file(s).")
+    if not lines:
+        lines.append("Nothing to rewind.")
 
     return CommandResult(
         clear_screen=True,
-        replay_messages=list(updated),
+        replay_messages=list(updated) if mode in ("both", "conversation") else None,
         message="\n".join(lines),
     )
 

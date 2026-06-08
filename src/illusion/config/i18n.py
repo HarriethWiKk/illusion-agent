@@ -307,7 +307,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
     "Usage: /memory add TITLE :: CONTENT": "用法：/memory add 标题 :: 内容",
     "Usage: /memory [list|show NAME|add TITLE :: CONTENT|remove NAME]": "用法：/memory [list|show 名称|add 标题 :: 内容|remove 名称]",
-    "Usage: /rewind [TURNS]": "用法：/rewind [轮数]",
+    "Usage: /rewind [TURNS] [both|conversation|code]": "用法：/rewind [轮数] [both|conversation|code]",
     "Usage: /config [show|set KEY VALUE]": "用法：/config [show|set 键 值]",
     "Usage: /fast [show|on|off|toggle]": "用法：/fast [show|on|off|toggle]",
     "Usage: /thinking [show|on|off|toggle]": "用法：/thinking [show|on|off|toggle]",
@@ -402,6 +402,8 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Copied (\d+) characters to the clipboard\.$", r"已复制 \1 个字符到剪贴板。"),
     (r"^Clipboard unavailable\. Saved copied text to (.+)$", r"剪贴板不可用，已保存到 \1"),
     (r"^Rewound (\d+) turn\(s\); removed (\d+) message\(s\)\.$", r"已回退 \1 轮，移除 \2 条消息。"),
+    (r"^Reverted (\d+) file\(s\)\.$", r"已恢复 \1 个文件。"),
+    (r"^Nothing to rewind\.$", r"没有需要回退的内容。"),
     # 任务
     (r"^Started task (.+)$", r"已启动任务 \1"),
     (r"^Stopped task (.+)$", r"已停止任务 \1"),
