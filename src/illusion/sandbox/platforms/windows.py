@@ -7,11 +7,9 @@
 """
 from __future__ import annotations
 import ctypes
-import subprocess
 import sys
 from ctypes import wintypes
 from dataclasses import dataclass
-from typing import Any
 from .base import SandboxPlatform, SandboxPlatformConfig
 
 
