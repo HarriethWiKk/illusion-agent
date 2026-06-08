@@ -22,4 +22,4 @@ def test_windows_capabilities_disable_swarm_mailbox_and_sandbox():
     capabilities = get_platform_capabilities("windows")
     assert capabilities.supports_native_windows_shell is True
     assert capabilities.supports_swarm_mailbox is False
-    assert capabilities.supports_sandbox_runtime is False
+    assert capabilities.supports_sandbox_runtime is True
