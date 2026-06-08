@@ -18,7 +18,7 @@ rewind 时从备份恢复。不依赖 git，可跟踪任意路径的文件。
     >>> state = FileHistoryState(session_id="abc123", cwd="/project")
     >>> track_edit(state, "/project/file.py")
     >>> make_snapshot(state, "msg-uuid-1")
-    >>> rewind_to(state, "msg-uuid-1")
+    >>> rewind_to(state, 0)
 """
 
 from __future__ import annotations
@@ -146,37 +146,40 @@ def make_snapshot(state: FileHistoryState, message_id: str) -> None:
         _cleanup_evicted(state, evicted)
 
 
-def rewind_to(state: FileHistoryState, turn_index: int) -> list[str]:
-    """撤销指定轮次的所有文件修改，并移除该轮及之后的快照。
+def rewind_to(state: FileHistoryState, snapshot_index: int) -> list[str]:
+    """撤销从指定位置开始到末尾的所有快照的文件修改。
 
-    快照的备份记录的是工具执行前的文件状态，所以用目标快照自身的备份
-    来恢复文件，就能撤销该轮工具对文件的修改。
+    使用快照列表位置而非 turn_index 值来定位目标，确保在回退→继续→
+    再回退的场景下仍然正确工作。只恢复被撤销的快照中实际跟踪的文件，
+    不影响其他轮次的文件。
 
     Args:
         state: 文件历史状态
-        turn_index: 要撤销的轮次索引（0-based）
+        snapshot_index: 快照列表中的起始位置（0-based）
 
     Returns:
         list[str]: 被恢复的文件路径列表
     """
-    # 找到目标快照（turn_index 匹配的最后一个）
-    target = None
-    target_idx = -1
-    for i, snap in enumerate(state.snapshots):
-        if snap.turn_index == turn_index:
-            target = snap
-            target_idx = i
-    if target is None:
+    if snapshot_index < 0 or snapshot_index >= len(state.snapshots):
         return []
 
+    # 收集被撤销范围内所有快照中跟踪的文件（不遍历全局 tracked_files）
+    removed_snapshots = state.snapshots[snapshot_index:]
+    files_to_restore: set[str] = set()
+    for snap in removed_snapshots:
+        files_to_restore.update(snap.tracked_backups.keys())
+
     changed: list[str] = []
-    for tracking_key in state.tracked_files:
-        backup = target.tracked_backups.get(tracking_key)
+    for tracking_key in files_to_restore:
+        # 在被撤销的快照中找到该文件最早的备份（即修改前的状态）
+        backup = None
+        for snap in removed_snapshots:
+            if tracking_key in snap.tracked_backups:
+                backup = snap.tracked_backups[tracking_key]
+                break
+
         if backup is None:
-            # 目标快照没有此文件的备份，找最早的备份
-            backup = _find_first_backup(state, tracking_key)
-            if backup is None:
-                continue
+            continue
 
         if backup.backup_name is None:
             # 文件当时不存在：删除
@@ -197,9 +200,12 @@ def rewind_to(state: FileHistoryState, turn_index: int) -> list[str]:
                     changed.append(tracking_key)
 
     # 移除目标快照及之后的所有快照
-    evicted = state.snapshots[target_idx:]
-    state.snapshots = state.snapshots[:target_idx]
+    evicted = state.snapshots[snapshot_index:]
+    state.snapshots = state.snapshots[:snapshot_index]
     _cleanup_evicted(state, evicted)
+
+    # 重置轮次计数器，保持后续快照的 turn_index 连续
+    state._turn_counter = len(state.snapshots)
 
     return changed
 

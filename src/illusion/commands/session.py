@@ -224,8 +224,8 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
     fh = context.engine.file_history
     if fh is not None and fh.snapshots:
         from illusion.services.file_history import rewind_to
-        target_turn = max(0, len(fh.snapshots) - turns)
-        reverted_files = rewind_to(fh, target_turn)
+        target_index = max(0, len(fh.snapshots) - turns)
+        reverted_files = rewind_to(fh, target_index)
         reverted_count = len(reverted_files)
 
     context.engine.load_messages(updated)
