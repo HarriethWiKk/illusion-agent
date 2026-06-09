@@ -132,7 +132,6 @@ class ReactBackendHost:
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str]] = {}      # 用户问答
-        self._plan_approval_requests: dict[str, asyncio.Future[tuple[bool, str]]] = {}  # 计划审批请求
         self._always_allowed_tools: set[str] = set()                # 总是允许的工具
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
@@ -224,14 +223,6 @@ class ReactBackendHost:
                         except (json.JSONDecodeError, TypeError):
                             pass
                         self._question_requests[request.request_id].set_result(answer)
-                    await self._emit(BackendEvent(type="modal_request", modal=None))
-                    continue
-                # 计划审批响应
-                if request.type == "plan_approval_response":
-                    if request.request_id in self._plan_approval_requests:
-                        self._plan_approval_requests[request.request_id].set_result(
-                            (bool(request.allowed), request.feedback or "")
-                        )
                     await self._emit(BackendEvent(type="modal_request", modal=None))
                     continue
                 # 列出会话
@@ -335,14 +326,6 @@ class ReactBackendHost:
             if request.type == "question_response":
                 if request.request_id in self._question_requests:
                     self._question_requests[request.request_id].set_result(request.answer or "")
-                await self._emit(BackendEvent(type="modal_request", modal=None))
-                continue
-            # 计划审批响应
-            if request.type == "plan_approval_response":
-                if request.request_id in self._plan_approval_requests:
-                    self._plan_approval_requests[request.request_id].set_result(
-                        (bool(request.allowed), request.feedback or "")
-                    )
                 await self._emit(BackendEvent(type="modal_request", modal=None))
                 continue
 
@@ -1173,10 +1156,7 @@ class ReactBackendHost:
             )
         )
         try:
-            return await asyncio.wait_for(future, timeout=300)
-        except asyncio.TimeoutError:
-            log.warning("Permission request %s timed out after 300s, denying", request_id)
-            return False
+            return await future
         finally:
             self._permission_requests.pop(request_id, None)
 
@@ -1216,8 +1196,8 @@ class ReactBackendHost:
     async def _ask_plan_approval(self, plan: str) -> tuple[bool, str]:
         """向用户展示计划并等待审批。
 
-        先将计划内容作为 assistant 消息写入对话流（复用 Markdown 渲染），
-        再弹出轻量审批模态让用户选择批准或拒绝。
+        先将计划内容作为 plan 消息写入对话流，再复用 question 模态让用户选择批准或拒绝。
+        用户可通过"其他"选项输入反馈文字。
 
         Args:
             plan: 计划内容（Markdown 格式）
@@ -1225,33 +1205,55 @@ class ReactBackendHost:
         Returns:
             tuple[bool, str]: (是否批准, 用户反馈)
         """
-        # 将计划写入对话流（role=plan，不注入 LLM 上下文，不显示"助手回复"标题）
+        # 将计划写入对话流
         await self._emit(
             BackendEvent(
                 type="transcript_item",
                 item=TranscriptItem(role="plan", text=plan),
             )
         )
-        # 弹出轻量审批模态（仅选项，不含计划内容）
+        # 复用 question 模态，提供批准/拒绝选项
+        from illusion.config.i18n import t as _t
         request_id = uuid4().hex
-        future: asyncio.Future[tuple[bool, str]] = asyncio.get_running_loop().create_future()
-        self._plan_approval_requests[request_id] = future
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._question_requests[request_id] = future
+        approve_label = _t("plan_approve")
+        reject_label = _t("plan_reject")
+        modal_payload: dict = {
+            "kind": "question",
+            "request_id": request_id,
+            "question": _t("plan_approval"),
+            "questions": [
+                {
+                    "question": _t("plan_approve_question"),
+                    "header": "approval",
+                    "options": [
+                        {"label": approve_label, "description": _t("plan_start_impl")},
+                        {"label": reject_label, "description": _t("plan_return_mode")},
+                    ],
+                    "multiSelect": False,
+                }
+            ],
+        }
         await self._emit(
             BackendEvent(
                 type="modal_request",
-                modal={
-                    "kind": "plan_approval",
-                    "request_id": request_id,
-                },
+                modal=modal_payload,
             )
         )
         try:
-            return await asyncio.wait_for(future, timeout=300)
-        except asyncio.TimeoutError:
-            log.warning("Plan approval request %s timed out after 300s, rejecting", request_id)
-            return False, "Plan approval timed out"
+            answer = await future
+            # 解析用户回答
+            answer = str(answer).strip()
+            if answer == f"1. {approve_label}" or answer == approve_label:
+                return True, ""
+            elif answer == f"2. {reject_label}" or answer == reject_label:
+                return False, ""
+            else:
+                # 用户通过"其他"输入的反馈文字
+                return False, answer
         finally:
-            self._plan_approval_requests.pop(request_id, None)
+            self._question_requests.pop(request_id, None)
 
     async def _stop_active_line(self) -> None:
         task = self._active_line_task

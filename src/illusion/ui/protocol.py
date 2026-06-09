@@ -60,7 +60,6 @@ class FrontendRequest(BaseModel):
         "stop",
         "permission_response",
         "question_response",
-        "plan_approval_response",
         "list_sessions",
         "select_command",
         "apply_select_command",
