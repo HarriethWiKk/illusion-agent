@@ -285,8 +285,16 @@ async def run_rg(args: list[str], cwd: str | None = None,
                 process.communicate(), timeout=timeout
             )
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            # 双重终止机制：先优雅终止，再强制杀死
+            try:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await asyncio.wait_for(process.wait(), timeout=3)
+            except (ProcessLookupError, OSError):
+                pass  # 进程已退出
             raise RipgrepError(f"rg 执行超时（{timeout}秒）")
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
