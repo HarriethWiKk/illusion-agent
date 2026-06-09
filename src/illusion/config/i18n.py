@@ -170,6 +170,13 @@ MESSAGES: dict[str, dict[str, str]] = {
     "update_deps_available": {"zh-CN": "以下依赖可升级:", "en-US": "The following dependencies can be upgraded:"},
     "update_deps_confirm": {"zh-CN": "按回车更新依赖，Ctrl+C 取消", "en-US": "Press Enter to update dependencies, Ctrl+C to cancel"},
     "update_deps_success": {"zh-CN": "依赖更新完成", "en-US": "Dependencies updated successfully"},
+    # 计划审批
+    "plan_approval": {"zh-CN": "计划审批", "en-US": "Plan approval"},
+    "plan_approve_question": {"zh-CN": "是否批准此计划？", "en-US": "Do you approve this plan?"},
+    "plan_approve": {"zh-CN": "批准", "en-US": "Approve"},
+    "plan_reject": {"zh-CN": "拒绝", "en-US": "Reject"},
+    "plan_start_impl": {"zh-CN": "开始执行", "en-US": "Start implementation"},
+    "plan_return_mode": {"zh-CN": "返回计划模式", "en-US": "Return to plan mode"},
 }
 
 # --- 命令描述翻译 ---

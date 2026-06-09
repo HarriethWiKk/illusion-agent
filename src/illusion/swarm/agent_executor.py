@@ -577,16 +577,7 @@ async def run_agent_in_process(
     # 使用父级的权限检查器（agent 继承父级权限设置）
     permission_checker = query_context.permission_checker
 
-    # 为 agent 创建无操作的回调（agent 无法与用户交互）
-    async def _noop_permission_prompt(tool_name: str, reason: str) -> bool:
-        logger.debug("[agent_executor] %s: auto-approving %s (reason: %s)", agent_id, tool_name, reason)
-        return True
-
-    async def _noop_ask_user(question: str, questions_data: object = None) -> str:
-        logger.debug("[agent_executor] %s: auto-answering: %s", agent_id, question)
-        return ""
-
-    # 创建代理专用的 QueryContext
+    # 创建代理专用的 QueryContext（继承父级的权限和问答回调）
     agent_query_context = QueryContext(
         api_client=query_context.api_client,
         tool_registry=agent_tools,
@@ -595,8 +586,8 @@ async def run_agent_in_process(
         model=model,
         system_prompt=system_prompt,
         max_tokens=query_context.max_tokens,
-        permission_prompt=_noop_permission_prompt,
-        ask_user_prompt=_noop_ask_user,
+        permission_prompt=query_context.permission_prompt,
+        ask_user_prompt=query_context.ask_user_prompt,
         max_turns=agent_def.max_turns if agent_def and agent_def.max_turns else query_context.max_turns,
         hook_executor=None,  # agent 不执行 hooks
         effort=query_context.effort,
