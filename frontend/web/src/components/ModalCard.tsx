@@ -8,7 +8,7 @@
  * @module ModalCard
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 /**
@@ -131,7 +131,12 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   const questions: QuestionItem[] = Array.isArray(modal.questions) ? (modal.questions as QuestionItem[]) : [];
   const firstQuestion = questions.length > 0 ? questions[0]! : null;
   const options = firstQuestion?.options ?? [];
-  const hasOptions = options.length > 0;
+  // 过滤掉LLM返回的"其他"选项，保留工具自动添加的
+  const filteredOptions = useMemo(() => options.filter((opt) => {
+    const lbl = opt.label.toLowerCase();
+    return !(lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他'));
+  }), [options]);
+  const hasOptions = filteredOptions.length > 0;
   const isMultiSelect = firstQuestion?.multiSelect === true && hasOptions;
 
   const [isCustomInput, setIsCustomInput] = useState(false);
@@ -142,7 +147,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
     setIsCustomInput(false);
     setCustomText('');
     setSelectedIndices(new Set());
-  }, [hasOptions, options.length, isMultiSelect]);
+  }, [hasOptions, filteredOptions.length, isMultiSelect]);
 
   const handleOptionClick = useCallback(
     (idx: number, label: string) => {
@@ -160,11 +165,11 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   );
 
   const handleMultiConfirm = useCallback(() => {
-    const selected = options.filter((_, i) => selectedIndices.has(i)).map((o) => o.label);
+    const selected = filteredOptions.filter((_, i) => selectedIndices.has(i)).map((o) => o.label);
     if (selected.length === 0) return;
     const header = firstQuestion?.header ?? 'answer';
     onRespond(requestId, JSON.stringify({ [header]: selected }));
-  }, [selectedIndices, options, firstQuestion, requestId, onRespond]);
+  }, [selectedIndices, filteredOptions, firstQuestion, requestId, onRespond]);
 
   const handleCustomSubmit = useCallback(() => {
     const text = customText.trim();
@@ -195,7 +200,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
 
         {hasOptions && !isCustomInput ? (
           <div className="space-y-1.5 mb-3">
-            {options.map((opt, i) => {
+            {filteredOptions.map((opt, i) => {
               const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
               return (
                 <button

@@ -89,16 +89,6 @@ const PERMISSION_PROMPT_OPTIONS: SelectOption[] = [
 ];
 
 /**
- * 计划审批选项列表
- * 当 AI 生成执行计划后，用户可以选择批准或拒绝该计划
- */
-const PLAN_APPROVAL_OPTIONS: SelectOption[] = [
-	{value: 'approve', label: 'Approve', description: 'Approve plan and start implementation'},
-	{value: 'reject', label: 'Reject', description: 'Reject plan and provide feedback'},
-];
-
-
-/**
  * 应用程序根组件
  *
  * 作为整个应用的入口点，包裹 ThemeProvider 以提供主题上下文。
@@ -141,24 +131,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [selectIndex, setSelectIndex] = useState(0);
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
-	const [planApprovalIndex, setPlanApprovalIndex] = useState(0);
-	const [planFeedbackMode, setPlanFeedbackMode] = useState(false);
-	const [planFeedback, setPlanFeedback] = useState('');
 	const [cursorReset, setCursorReset] = useState(0);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
-	const isPlanApprovalModal = session.modal?.kind === 'plan_approval';
 	const language = normalizeLanguage(session.status.ui_language);
 	const permissionRequestId =
 		isPermissionModal && typeof session.modal?.request_id === 'string' ? String(session.modal.request_id) : '';
-	const planApprovalRequestId =
-		isPlanApprovalModal && typeof session.modal?.request_id === 'string' ? String(session.modal.request_id) : '';
-	const localizedPlanApprovalOptions = PLAN_APPROVAL_OPTIONS.map((opt) => {
-		if (opt.value === 'approve') {
-			return {...opt, label: t(language, 'approve')};
-		}
-		return {...opt, label: t(language, 'reject')};
-	});
 	const localizedPermissionOptions = PERMISSION_PROMPT_OPTIONS.map((opt) => {
 		if (opt.value === 'allow') {
 			return {...opt, label: t(language, 'allow')};
@@ -266,18 +244,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPermissionIndex(1);
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
-
-	useEffect(() => {
-		if (!isPlanApprovalModal) {
-			setPlanApprovalIndex(0);
-			setPlanFeedbackMode(false);
-			setPlanFeedback('');
-			return;
-		}
-		setPlanApprovalIndex(0);
-		setPlanFeedbackMode(false);
-		setPlanFeedback('');
-	}, [planApprovalRequestId, isPlanApprovalModal]);
 
 	/**
 	 * 拦截需要交互式界面的特殊命令
@@ -530,78 +496,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- 计划审批模态对话框（必须在忙碌状态检查之前 — 模态框在忙碌时也会出现） ---
-		if (isPlanApprovalModal) {
-			// 反馈输入模式
-			if (planFeedbackMode) {
-				if (key.return) {
-					// 提交拒绝并附带反馈
-					if (planApprovalRequestId) {
-						session.sendRequest({
-							type: 'plan_approval_response',
-							request_id: planApprovalRequestId,
-							allowed: false,
-							feedback: planFeedback,
-						});
-					}
-					setPlanFeedbackMode(false);
-					setPlanFeedback('');
-					return;
-				}
-				if (key.escape) {
-					// 取消反馈，返回选项界面
-					setPlanFeedbackMode(false);
-					setPlanFeedback('');
-					return;
-				}
-				if (key.backspace || key.delete) {
-					setPlanFeedback((f) => f.slice(0, -1));
-					return;
-				}
-				// 追加可打印字符
-				if (chunk && !key.ctrl && !key.meta) {
-					setPlanFeedback((f) => f + chunk);
-				}
-				return;
-			}
-			if (key.upArrow || key.downArrow) {
-				setPlanApprovalIndex((i) => {
-					if (key.upArrow) return i <= 0 ? localizedPlanApprovalOptions.length - 1 : i - 1;
-					return i >= localizedPlanApprovalOptions.length - 1 ? 0 : i + 1;
-				});
-				return;
-			}
-			if (key.return) {
-				if (!planApprovalRequestId) {
-					return;
-				}
-				const selected = localizedPlanApprovalOptions[planApprovalIndex]?.value;
-				if (selected === 'approve') {
-					session.sendRequest({
-						type: 'plan_approval_response',
-						request_id: planApprovalRequestId,
-						allowed: true,
-					});
-				} else {
-					// 进入反馈模式以拒绝计划
-					setPlanFeedbackMode(true);
-				}
-				return;
-			}
-			if (key.escape) {
-				// ESC = 不带反馈直接拒绝
-				if (planApprovalRequestId) {
-					session.sendRequest({
-						type: 'plan_approval_response',
-						request_id: planApprovalRequestId,
-						allowed: false,
-					});
-				}
-				return;
-			}
-			return;
-		}
-
 		// --- 问题模态对话框（在忙碌时也会出现） ---
 		if (session.modal?.kind === 'question') {
 			return;
@@ -730,7 +624,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					clearCount={session.clearCount}
 					assistantBuffer={session.assistantBuffer}
 					showWelcome={session.ready}
-					showThinking={session.showThinking && !isPlanApprovalModal}
+					showThinking={session.showThinking}
 					language={language}
 					pendingToolCalls={session.pendingToolCalls}
 					commandPickerOpen={showPicker}
@@ -738,40 +632,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			</Box>
 
 			<Box flexDirection="column" paddingX={1}>
-			{/* 计划审批模态框 — 轻量级，计划内容在对话区域渲染 */}
-			{isPlanApprovalModal ? (
-				<Box flexDirection="column" marginTop={1} paddingX={1}>
-					{planFeedbackMode ? (
-						<Box flexDirection="column">
-							<Text color={theme.colors.warning}>{t(language, 'planFeedbackPrompt')}</Text>
-							<Box marginTop={1}>
-								<Text color={theme.colors.muted}>{'>'} </Text>
-								<Text>{planFeedback}</Text>
-								<Text color={theme.colors.muted}>{'_'}</Text>
-							</Box>
-						</Box>
-					) : (
-						<Box flexDirection="column">
-							{localizedPlanApprovalOptions.map((opt, i) => (
-								<Box key={opt.value}>
-									<Text color={i === planApprovalIndex ? theme.colors.info : theme.colors.muted}>
-										{i === planApprovalIndex ? theme.icons.check : ' '} {opt.label}
-									</Text>
-									<Text dimColor> - {opt.description}</Text>
-								</Box>
-							))}
-							<Box marginTop={1}>
-								<Text dimColor>
-									<Text color={theme.colors.muted}>enter</Text> {t(language, 'approve')}
-									<Text> {theme.icons.middleDot} </Text>
-									<Text color={theme.colors.muted}>esc</Text> {t(language, 'reject')}
-								</Text>
-							</Box>
-						</Box>
-					)}
-				</Box>
-			) : null}
-
 			{/* 权限确认模态框 */}
 			{isPermissionModal ? (
 				<SelectModal
@@ -782,7 +642,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : null}
 
 			{/* 后端模态框（问答、MCP 认证） */}
-			{session.modal && !isPermissionModal && !isPlanApprovalModal ? (
+			{session.modal && !isPermissionModal ? (
 				<ModalHost
 					modal={session.modal}
 					modalInput={modalInput}
@@ -816,17 +676,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : null}
 
 			{/* 待办面板 — 计划审批期间隐藏 */}
-			{!isPlanApprovalModal && session.ready && session.todoItems.length > 0 ? (
+			{session.ready && session.todoItems.length > 0 ? (
 				<TodoPanel items={session.todoItems} />
 			) : null}
 
-			{/* 群体协作面板 — 计划审批期间隐藏 */}
-			{!isPlanApprovalModal && session.ready && (session.swarmTeammates.length > 0 || session.swarmNotifications.length > 0) ? (
+			{/* 群体协作面板 */}
+			{session.ready && (session.swarmTeammates.length > 0 || session.swarmNotifications.length > 0) ? (
 				<SwarmPanel teammates={session.swarmTeammates} notifications={session.swarmNotifications} />
 			) : null}
 
-			{/* 状态栏 — 计划审批期间隐藏 */}
-			{!isPlanApprovalModal && session.ready ? (
+			{/* 状态栏 */}
+			{session.ready ? (
 				<StatusBar status={session.status} tasks={session.tasks} />
 			) : null}
 
