@@ -79,7 +79,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 ### 环境要求
 
 - Python >= 3.10
-- Node.js (用于前端 TUI)
+- Node.js 18+
 - 支持 Windows、macOS、Linux
 - Windows 用户：自动查找 Git，无需手动配置 PATH
 
@@ -93,7 +93,7 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 pip install illusion-code
 ```
 
-无需克隆仓库或安装 Node.js，所有内容已包含在包中。
+无需克隆仓库，所有内容已包含在包中。
 
 #### 备选方式：从源码安装
 

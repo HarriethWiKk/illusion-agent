@@ -79,7 +79,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 ### Requirements
 
 - Python >= 3.10
-- Node.js (for frontend TUI)
+- Node.js 18+
 - Supports Windows, macOS, Linux
 - Windows users: Auto-detect Git, no manual PATH configuration needed
 
@@ -93,7 +93,7 @@ The simplest way to install IllusionCode. Automatically installs both frontends 
 pip install illusion-code
 ```
 
-No git clone or Node.js required — everything is included in the package.
+No git clone required — everything is included in the package.
 
 #### Alternative: pip install from source
 
