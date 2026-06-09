@@ -255,10 +255,12 @@ class PermissionChecker:
         if is_read_only:
             return PermissionDecision(allowed=True, reason="read-only tools are allowed")
 
-        # 计划模式：阻止变更工具（自动阻止，不终止查询循环），但豁免计划文件和退出工具
+        # 计划模式：阻止变更工具（自动阻止，不终止查询循环），但豁免计划文件、退出工具和agent工具
         if self._settings.mode == PermissionMode.PLAN:
             if tool_name == "exit_plan_mode":
                 return PermissionDecision(allowed=True, reason="ExitPlanMode is always allowed in plan mode")
+            if tool_name == "agent":
+                return PermissionDecision(allowed=True, reason="Agent tool is allowed in plan mode")
             if file_path and self._plan_file_path and file_path == self._plan_file_path:
                 return PermissionDecision(allowed=True, reason="Plan file is writable in plan mode")
             return PermissionDecision(
