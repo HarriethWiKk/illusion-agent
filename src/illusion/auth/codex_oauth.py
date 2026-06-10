@@ -345,8 +345,8 @@ class CodexOAuth:
 
         device_auth_id = data.get("device_auth_id", "")
         user_code = data.get("user_code", "")
-        expires_in = data.get("expires_in", 900)
-        interval = data.get("interval", 5)
+        expires_in = int(data.get("expires_in", 900))
+        interval = int(data.get("interval", 5))
 
         log.info("获取 Device Code 成功，user_code: %s", user_code)
 
@@ -449,7 +449,7 @@ class CodexOAuth:
             raise RuntimeError("无法从 token 中提取 account_id")
 
         # 计算过期时间
-        expires_in = data.get("expires_in", 3600)
+        expires_in = int(data.get("expires_in", 3600))
         expires_at = time.time() + expires_in
 
         # 缓存 access_token
@@ -542,7 +542,7 @@ class CodexOAuth:
 
         access_token = data.get("access_token", "")
         new_refresh_token = data.get("refresh_token", "")
-        expires_in = data.get("expires_in", 3600)
+        expires_in = int(data.get("expires_in", 3600))
 
         if not access_token:
             raise RuntimeError("Refresh 响应中缺少 access_token")
