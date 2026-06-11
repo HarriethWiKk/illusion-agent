@@ -8,7 +8,7 @@
  * @module ModalCard
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 /**
@@ -33,6 +33,8 @@ interface QuestionItem {
   options?: QuestionOption[];
   /** 是否多选（可选） */
   multiSelect?: boolean;
+  /** 禁用手动输入（可选，如沙箱权限对话框） */
+  noCustomInput?: boolean;
 }
 
 // ---- 权限请求卡片 ----
@@ -138,20 +140,43 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   }), [options]);
   const hasOptions = filteredOptions.length > 0;
   const isMultiSelect = firstQuestion?.multiSelect === true && hasOptions;
+  const noCustomInput = firstQuestion?.noCustomInput === true;
+  /** "其他"选项在 filteredOptions 之后的索引 */
+  const otherIdx = filteredOptions.length;
 
-  const [isCustomInput, setIsCustomInput] = useState(false);
-  const [customText, setCustomText] = useState('');
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  /** "其他"选项的输入内容 */
+  const [otherText, setOtherText] = useState('');
+  /** "其他"选项是否聚焦（输入框可见） */
+  const [isOtherFocused, setIsOtherFocused] = useState(false);
+  const otherInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setIsCustomInput(false);
-    setCustomText('');
     setSelectedIndices(new Set());
+    setOtherText('');
+    setIsOtherFocused(false);
   }, [hasOptions, filteredOptions.length, isMultiSelect]);
 
   const handleOptionClick = useCallback(
     (idx: number, label: string) => {
       if (isMultiSelect) {
+        if (idx === otherIdx) {
+          // 多选"其他"：切换选中并聚焦输入框
+          setSelectedIndices((prev) => {
+            const next = new Set(prev);
+            if (next.has(idx)) {
+              next.delete(idx);
+              setIsOtherFocused(false);
+              setOtherText('');
+            } else {
+              next.add(idx);
+              setIsOtherFocused(true);
+              setTimeout(() => otherInputRef.current?.focus(), 0);
+            }
+            return next;
+          });
+          return;
+        }
         setSelectedIndices((prev) => {
           const next = new Set(prev);
           if (next.has(idx)) next.delete(idx); else next.add(idx);
@@ -159,23 +184,40 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         });
         return;
       }
+      // 单选"其他"选项：聚焦输入框
+      if (idx === otherIdx) {
+        setIsOtherFocused(true);
+        setTimeout(() => otherInputRef.current?.focus(), 0);
+        return;
+      }
       onRespond(requestId, `${idx + 1}. ${label}`);
     },
-    [isMultiSelect, requestId, onRespond],
+    [isMultiSelect, requestId, onRespond, otherIdx],
   );
 
   const handleMultiConfirm = useCallback(() => {
-    const selected = filteredOptions.filter((_, i) => selectedIndices.has(i)).map((o) => o.label);
+    const selected = filteredOptions
+      .filter((_, i) => selectedIndices.has(i))
+      .map((o) => o.label);
+    // 如果选中了"其他"且有输入内容，加入结果
+    if (selectedIndices.has(otherIdx) && otherText.trim()) {
+      selected.push(otherText.trim());
+    }
     if (selected.length === 0) return;
     const header = firstQuestion?.header ?? 'answer';
     onRespond(requestId, JSON.stringify({ [header]: selected }));
-  }, [selectedIndices, filteredOptions, firstQuestion, requestId, onRespond]);
+  }, [selectedIndices, filteredOptions, otherIdx, otherText, firstQuestion, requestId, onRespond]);
 
-  const handleCustomSubmit = useCallback(() => {
-    const text = customText.trim();
+  const handleOtherSubmit = useCallback(() => {
+    if (isMultiSelect) {
+      handleMultiConfirm();
+      return;
+    }
+    // 单选"其他"提交
+    const text = otherText.trim();
     if (!text) return;
     onRespond(requestId, text);
-  }, [customText, requestId, onRespond]);
+  }, [isMultiSelect, otherText, handleMultiConfirm, requestId, onRespond]);
 
   const questionText = firstQuestion?.question ?? String(modal.question ?? 'Question');
   const hintText = isMultiSelect
@@ -186,7 +228,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
     <div className="my-3 rounded-xl border border-border-light overflow-hidden shadow-soft">
       <div className="bg-surface-main px-4 py-3">
         <div className="text-sm font-medium text-content-primary">{questionText}</div>
-        {hasOptions && !isCustomInput && (
+        {hasOptions && (
           <div className="text-xs text-content-disabled mt-0.5">{hintText}</div>
         )}
       </div>
@@ -198,7 +240,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
           </div>
         )}
 
-        {hasOptions && !isCustomInput ? (
+        {hasOptions ? (
           <div className="space-y-1.5 mb-3">
             {filteredOptions.map((opt, i) => {
               const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
@@ -232,26 +274,84 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                 </button>
               );
             })}
-            {!isMultiSelect && (
-              <button
-                onClick={() => setIsCustomInput(true)}
-                className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-disabled hover:bg-surface-hover transition-colors cursor-pointer border border-border-light border-dashed"
+            {/* "其他"选项：内联输入框，带序号与普通选项格式一致，沙箱等 noCustomInput 场景不显示 */}
+            {!noCustomInput && (
+              <div
+                className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-start gap-2.5 ${
+                  isMultiSelect && selectedIndices.has(otherIdx)
+                    ? 'bg-primary-light border border-primary/20'
+                    : isOtherFocused
+                      ? 'bg-white border border-primary/30'
+                      : 'text-content-disabled hover:bg-surface-hover border border-border-light border-dashed'
+                }`}
+                onClick={() => handleOptionClick(otherIdx, lang === 'zh-CN' ? '其他' : 'Other')}
               >
-                {lang === 'zh-CN' ? '其他（手动输入）' : 'Other (type your answer)'}
-              </button>
+                {isMultiSelect ? (
+                  <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 text-xs transition-colors ${
+                    selectedIndices.has(otherIdx) ? 'bg-primary border-primary text-white' : 'border-border-light'
+                  }`}>
+                    {selectedIndices.has(otherIdx) ? '✓' : ''}
+                  </span>
+                ) : (
+                  <span className="mt-0.5 w-4 h-4 rounded-full border border-border-light shrink-0 flex items-center justify-center">
+                    <span className="w-2 h-2 rounded-full bg-transparent" />
+                  </span>
+                )}
+                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                  <span className={`text-sm font-medium shrink-0 ${isMultiSelect && selectedIndices.has(otherIdx) ? 'text-primary' : ''}`}>
+                    {otherIdx + 1}. {lang === 'zh-CN' ? '其他' : 'Other'}
+                  </span>{' '}
+                  {isOtherFocused ? (
+                    <input
+                      ref={otherInputRef}
+                      type="text"
+                      value={otherText}
+                      onChange={(e) => setOtherText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleOtherSubmit();
+                        }
+                        if (e.key === 'Escape') {
+                          setIsOtherFocused(false);
+                          setOtherText('');
+                          if (isMultiSelect) {
+                            setSelectedIndices((prev) => {
+                              const next = new Set(prev);
+                              next.delete(otherIdx);
+                              return next;
+                            });
+                          }
+                        }
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder={lang === 'zh-CN' ? '请输入...' : 'Type something...'}
+                      className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-content-primary placeholder:text-content-disabled"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="text-sm text-content-disabled">
+                      {otherText || (lang === 'zh-CN' ? '...' : '...')}
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         ) : null}
 
-        {(isCustomInput || !hasOptions) && (
+        {/* 无选项时的输入框 */}
+        {!hasOptions && (
           <div className="flex gap-2 items-end">
             <textarea
-              value={customText}
-              onChange={(e) => setCustomText(e.target.value)}
+              value={otherText}
+              onChange={(e) => setOtherText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  handleCustomSubmit();
+                  const text = otherText.trim();
+                  if (text) onRespond(requestId, text);
                 }
               }}
               placeholder={lang === 'zh-CN' ? '输入你的回答...' : 'Type your answer...'}
@@ -259,7 +359,10 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
               className="flex-1 resize-none bg-white border border-border-light rounded-lg px-3 py-2 text-sm outline-none focus:border-content-disabled transition-colors"
             />
             <button
-              onClick={handleCustomSubmit}
+              onClick={() => {
+                const text = otherText.trim();
+                if (text) onRespond(requestId, text);
+              }}
               className="px-3 py-2 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer shrink-0"
             >
               {t(lang, 'send')}

@@ -74,7 +74,10 @@ function QuestionModal({
 	const theme = useTheme();
 	const [extraLines, setExtraLines] = useState<string[]>([]);
 	const [optionIndex, setOptionIndex] = useState(0);
-	const [isCustomInput, setIsCustomInput] = useState(false);
+	/** "其他"选项是否处于输入状态（聚焦在输入框上） */
+	const [isOtherFocused, setIsOtherFocused] = useState(false);
+	/** "其他"选项的输入内容 */
+	const [otherInput, setOtherInput] = useState('');
 	const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
 	const questions: QuestionItem[] = useMemo(() => {
@@ -98,32 +101,59 @@ function QuestionModal({
 			return !(lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他'));
 		});
 		const result: OptionEntry[] = filteredOpts.map((opt) => ({type: 'option' as const, label: opt.label, description: opt.description}));
-		// 多选模式或指定 noCustomInput 时不追加"其他"选项
-		if (isMultiSelect) return result;
+		// 指定 noCustomInput 时不追加"其他"选项（如沙箱权限对话框）
 		const noCustom = firstQuestion?.noCustomInput === true;
 		if (noCustom) return result;
-		// 始终添加工具自动的"其他"选项
-		result.push({type: 'other' as const, label: language === 'zh-CN' ? '其他（手动输入）' : 'Other (type your answer)', description: undefined});
+		// 始终添加工具自动的"其他"选项（单选和多选均适用）
+		result.push({type: 'other' as const, label: language === 'zh-CN' ? '其他' : 'Other', description: undefined});
 		return result;
-	}, [options, hasOptions, isMultiSelect, language]);
+	}, [options, hasOptions, language, firstQuestion?.noCustomInput]);
+
+	const otherIdx = allOptions.findIndex((o) => o.type === 'other');
+	const isOtherOption = otherIdx >= 0 && optionIndex === otherIdx;
 
 	useEffect(() => {
 		setOptionIndex(0);
-		setIsCustomInput(false);
+		setIsOtherFocused(false);
+		setOtherInput('');
 		setSelectedIndices(new Set());
 	}, [hasOptions, allOptions.length, isMultiSelect]);
 
 	useInput((_chunk, key) => {
-		// ---- 自定义输入模式 ----
-		if (isCustomInput) {
-			if (key.shift && key.return) {
-				setExtraLines((lines) => [...lines, modalInput]);
-				setModalInput('');
-			}
+		// ---- "其他"选项输入模式 ----
+		// 只拦截特殊键（Escape、箭头、Enter），字符输入交给 TextInput 处理
+		if (isOtherFocused) {
 			if (key.escape) {
-				setIsCustomInput(false);
-				setModalInput('');
+				setIsOtherFocused(false);
+				setOtherInput('');
+				// 多选模式下取消选中"其他"
+				if (isMultiSelect && otherIdx >= 0) {
+					setSelectedIndices((prev) => {
+						const next = new Set(prev);
+						next.delete(otherIdx);
+						return next;
+					});
+				}
+				return;
 			}
+			// 上下箭头：退出输入模式并导航选项
+			if (key.upArrow) {
+				setIsOtherFocused(false);
+				setOptionIndex((i) => Math.max(0, i - 1));
+				return;
+			}
+			if (key.downArrow) {
+				setIsOtherFocused(false);
+				setOptionIndex((i) => Math.min(allOptions.length - 1, i + 1));
+				return;
+			}
+			// Shift+Enter 换行
+			if (key.shift && key.return) {
+				setExtraLines((lines) => [...lines, otherInput]);
+				setOtherInput('');
+				return;
+			}
+			// Enter 和字符输入都交给 TextInput.onSubmit 处理，不做拦截
 			return;
 		}
 
@@ -138,50 +168,94 @@ function QuestionModal({
 				return;
 			}
 			if (key.return) {
-				// 收集所有选中项
+				// 收集所有选中项（不含"其他"）
 				const selected = allOptions
-					.filter((_, i) => selectedIndices.has(i))
+					.filter((opt, i) => opt.type !== 'other' && selectedIndices.has(i))
 					.map((opt) => opt.label);
+				// 如果选中了"其他"且有输入内容，加入结果
+				const allOtherLines = [...extraLines, otherInput].filter(Boolean);
+				if (otherIdx >= 0 && selectedIndices.has(otherIdx) && allOtherLines.length > 0) {
+					selected.push(allOtherLines.join('\n'));
+				}
 				// 如果什么都没选，默认选中当前高亮的选项
 				if (selected.length === 0) {
-					selected.push(allOptions[optionIndex]!.label);
+					const highlighted = allOptions[optionIndex];
+					if (highlighted?.type === 'other') {
+						// 聚焦到"其他"输入框
+						setIsOtherFocused(true);
+						return;
+					} else if (highlighted) {
+						selected.push(highlighted.label);
+					}
 				}
+				if (selected.length === 0) return;
 				const header = firstQuestion?.header ?? 'answer';
 				onSubmit(JSON.stringify({[header]: selected}));
 				return;
 			}
 			if (_chunk === ' ') {
 				// Space 切换选中/取消
-				setSelectedIndices((prev) => {
-					const next = new Set(prev);
-					if (next.has(optionIndex)) {
-						next.delete(optionIndex);
-					} else {
-						next.add(optionIndex);
-					}
-					return next;
-				});
+				if (isOtherOption) {
+					setSelectedIndices((prev) => {
+						const next = new Set(prev);
+						if (next.has(optionIndex)) {
+							next.delete(optionIndex);
+							setIsOtherFocused(false);
+							setOtherInput('');
+						} else {
+							next.add(optionIndex);
+							setIsOtherFocused(true);
+						}
+						return next;
+					});
+				} else {
+					setSelectedIndices((prev) => {
+						const next = new Set(prev);
+						if (next.has(optionIndex)) {
+							next.delete(optionIndex);
+						} else {
+							next.add(optionIndex);
+						}
+						return next;
+					});
+				}
 				return;
 			}
 			// 数字键也切换选中（不立即提交）
 			const num = parseInt(_chunk, 10);
 			if (num >= 1 && num <= allOptions.length) {
-				setSelectedIndices((prev) => {
-					const next = new Set(prev);
-					const idx = num - 1;
-					if (next.has(idx)) {
-						next.delete(idx);
-					} else {
-						next.add(idx);
-					}
-					return next;
-				});
+				const targetIdx = num - 1;
+				if (targetIdx === otherIdx) {
+					setSelectedIndices((prev) => {
+						const next = new Set(prev);
+						if (next.has(targetIdx)) {
+							next.delete(targetIdx);
+							setIsOtherFocused(false);
+							setOtherInput('');
+						} else {
+							next.add(targetIdx);
+							setIsOtherFocused(true);
+							setOptionIndex(targetIdx);
+						}
+						return next;
+					});
+				} else {
+					setSelectedIndices((prev) => {
+						const next = new Set(prev);
+						if (next.has(targetIdx)) {
+							next.delete(targetIdx);
+						} else {
+							next.add(targetIdx);
+						}
+						return next;
+					});
+				}
 				return;
 			}
 			return;
 		}
 
-		// ---- 单选模式（原逻辑） ----
+		// ---- 单选模式 ----
 		if (hasOptions && allOptions.length > 0) {
 			if (key.upArrow) {
 				setOptionIndex((i) => Math.max(0, i - 1));
@@ -194,7 +268,7 @@ function QuestionModal({
 			if (key.return) {
 				const selected = allOptions[optionIndex];
 				if (selected?.type === 'other') {
-					setIsCustomInput(true);
+					setIsOtherFocused(true);
 				} else if (selected) {
 					const idx = optionIndex + 1;
 					onSubmit(`${idx}. ${selected.label}`);
@@ -205,7 +279,8 @@ function QuestionModal({
 			if (num >= 1 && num <= allOptions.length) {
 				const target = allOptions[num - 1];
 				if (target?.type === 'other') {
-					setIsCustomInput(true);
+					setOptionIndex(num - 1);
+					setIsOtherFocused(true);
 				} else if (target) {
 					onSubmit(`${num}. ${target.label}`);
 				}
@@ -220,13 +295,6 @@ function QuestionModal({
 	});
 
 	const handleSubmit = (value: string): void => {
-		if (isCustomInput) {
-			const allLines = [...extraLines, value];
-			setExtraLines([]);
-			setIsCustomInput(false);
-			onSubmit(allLines.join('\n'));
-			return;
-		}
 		if (hasOptions) {
 			return;
 		}
@@ -267,11 +335,63 @@ function QuestionModal({
 				</Box>
 			) : null}
 
-			{hasOptions && !isCustomInput ? (
+			{hasOptions ? (
 				<Box flexDirection="column" marginTop={1}>
 					{allOptions.map((opt, i) => {
 						const isCurrent = i === optionIndex;
 						const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
+						if (opt.type === 'other') {
+							// "其他"选项：内联输入框，带序号与普通选项格式一致
+							const isActive = isOtherFocused;
+							return (
+								<Box key={i}>
+									<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+										{isCurrent ? `${theme.icons.pointer} ` : '  '}
+									</Text>
+									{isMultiSelect && (
+										<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
+											[{isSelected ? 'x' : ' '}]
+										</Text>
+									)}
+									<Text color={isActive ? theme.colors.suggestion : (isCurrent ? theme.colors.suggestion : undefined)} bold={isCurrent && !isMultiSelect} dimColor={!isCurrent && !isActive}>
+										{`${i + 1}. `}
+										{opt.label}
+									</Text>
+									{isActive ? (
+										// 聚焦状态：显示内联输入框
+										<Text>
+											<Text> </Text>
+											<TextInput
+												value={otherInput}
+												onChange={setOtherInput}
+												placeholder={language === 'zh-CN' ? '请输入...' : 'Type something...'}
+												focus={true}
+												showCursor={true}
+												onSubmit={(v) => {
+													if (isMultiSelect) {
+														// 多选：退出输入模式，保留选中状态，等 Enter 提交全部
+														setIsOtherFocused(false);
+														return;
+													}
+													// 单选：直接提交
+													const allLines = [...extraLines, v].filter(Boolean);
+													setExtraLines([]);
+													setIsOtherFocused(false);
+													if (allLines.length > 0) {
+														onSubmit(allLines.join('\n'));
+													}
+												}}
+											/>
+										</Text>
+									) : otherInput ? (
+										// 非聚焦但有内容：显示已输入的文本
+										<Text> {otherInput}</Text>
+									) : null}
+									{isCurrent && !isMultiSelect ? <Text dimColor>{' [enter]'}</Text> : null}
+								</Box>
+							);
+						}
+						// 普通选项
 						return (
 							<Box key={i}>
 								<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
@@ -320,14 +440,8 @@ function QuestionModal({
 				</Box>
 			) : null}
 
-			{(isCustomInput || !hasOptions) ? (
+			{!hasOptions ? (
 				<>
-					{isCustomInput ? (
-						<Box marginTop={1}>
-							<Text dimColor>{`  ${theme.icons.resultPrefix} `}</Text>
-							<Text dimColor>{language === 'zh-CN' ? '请输入您的回答：' : 'Type your answer:'}</Text>
-						</Box>
-					) : null}
 					{extraLines.length > 0 && (
 						<Box flexDirection="column" marginTop={1}>
 							{extraLines.map((line, i) => (
