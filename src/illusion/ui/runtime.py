@@ -733,6 +733,16 @@ async def _render_command_result(
 		from illusion.engine.messages import ToolUseBlock, ToolResultBlock
 
 		tool_uses_by_id: dict[str, dict] = {}
+		# 第一遍：收集所有 tool_use_id 和 tool_result 的 tool_use_id
+		all_tool_use_ids: set[str] = set()
+		all_tool_result_ids: set[str] = set()
+		for msg in result.replay_messages:
+			for block in msg.content:
+				if isinstance(block, ToolUseBlock):
+					all_tool_use_ids.add(block.id)
+				elif isinstance(block, ToolResultBlock):
+					all_tool_result_ids.add(block.tool_use_id)
+
 		replay_items: list[dict] = []
 		for msg in result.replay_messages:
 			if msg.role == "user":
@@ -751,13 +761,19 @@ async def _render_command_result(
 			elif msg.role == "assistant":
 				reasoning = msg.thinking_text.strip()
 				assistant_text = msg.text.strip()
-				if assistant_text or reasoning:
+				has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
+				# 如果 assistant 消息后面跟着 tool_use，跳过 assistant 文本，
+				# 因为 tool_started 事件会在新回合中添加流式文本，避免重复显示
+				if not has_tool_use and (assistant_text or reasoning):
 					item = {"role": "assistant", "text": assistant_text}
 					if reasoning:
 						item["reasoning"] = reasoning
 					replay_items.append(item)
 				for block in msg.content:
 					if isinstance(block, ToolUseBlock):
+						# 跳过孤立的 tool_use（没有对应 tool_result 的）
+						if block.id not in all_tool_result_ids:
+							continue
 						tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
 						replay_items.append({
 							"role": "tool",
@@ -778,6 +794,13 @@ async def _render_command_result(
 			from illusion.engine.messages import ToolUseBlock, ToolResultBlock
 
 			await clear_output()
+			# 收集所有 tool_use_id 和 tool_result 的 tool_use_id，用于过滤孤立 tool_use
+			all_tool_result_ids: set[str] = set()
+			for msg in result.replay_messages:
+				for block in msg.content:
+					if isinstance(block, ToolResultBlock):
+						all_tool_result_ids.add(block.tool_use_id)
+
 			tool_uses_by_id: dict[str, dict] = {}
 			for msg in result.replay_messages:
 				if msg.role == "user":
@@ -799,15 +822,22 @@ async def _render_command_result(
 				elif msg.role == "assistant":
 					reasoning = msg.thinking_text.strip()
 					assistant_text = msg.text.strip()
-					if replay_transcript_item is not None and (assistant_text or reasoning):
-						item = {"role": "assistant", "text": assistant_text}
-						if reasoning:
-							item["reasoning"] = reasoning
-						await replay_transcript_item(item)
-					elif assistant_text:
-						await render_event(AssistantTurnComplete(message=msg, usage=UsageSnapshot()))
+					has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
+					# 如果 assistant 消息后面跟着 tool_use，跳过 assistant 文本，
+					# 因为 tool_started 事件会在新回合中添加流式文本，避免重复显示
+					if not has_tool_use:
+						if replay_transcript_item is not None and (assistant_text or reasoning):
+							item = {"role": "assistant", "text": assistant_text}
+							if reasoning:
+								item["reasoning"] = reasoning
+							await replay_transcript_item(item)
+						elif assistant_text:
+							await render_event(AssistantTurnComplete(message=msg, usage=UsageSnapshot()))
 					for block in msg.content:
 						if isinstance(block, ToolUseBlock):
+							# 跳过孤立的 tool_use（没有对应 tool_result 的）
+							if block.id not in all_tool_result_ids:
+								continue
 							tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
 							if replay_transcript_item is not None:
 								await replay_transcript_item({
