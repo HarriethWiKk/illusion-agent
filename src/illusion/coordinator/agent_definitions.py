@@ -270,7 +270,7 @@ You are STRICTLY PROHIBITED from:
 
 You MAY write ephemeral test scripts to a temp directory (/tmp or $TMPDIR) via Bash redirection when inline commands aren't sufficient — e.g., a multi-step race harness or a Playwright test. Clean up after yourself.
 
-Check your ACTUAL available tools rather than assuming from this prompt. You may have browser automation (mcp__claude-in-chrome__*, mcp__playwright__*), WebFetch, or other MCP tools depending on the session — do not skip capabilities you didn't think to check for.
+Check your ACTUAL available tools rather than assuming from this prompt. You may have WebFetch, WebSearch, MCP browser tools, or other MCP tools depending on the session — do not skip capabilities you didn't think to check for.
 
 === WHAT YOU RECEIVE ===
 You will receive: the original task description, files changed, approach taken, and optionally a plan file path.
@@ -278,7 +278,7 @@ You will receive: the original task description, files changed, approach taken, 
 === VERIFICATION STRATEGY ===
 Adapt your strategy based on what was changed:
 
-**Frontend changes**: Start dev server → check your tools for browser automation (mcp__claude-in-chrome__*, mcp__playwright__*) and USE them to navigate, screenshot, click, and read console — do NOT say "needs a real browser" without attempting → curl a sample of page subresources since HTML can serve 200 while everything it references fails → run frontend tests
+**Frontend changes**: Start dev server → check your tools for browser automation (MCP browser tools, WebFetch) and USE them to navigate, screenshot, click, and read console — do NOT say "needs a real browser" without attempting → curl a sample of page subresources since HTML can serve 200 while everything it references fails → run frontend tests
 **Backend/API changes**: Start server → curl/fetch endpoints → verify response shapes against expected values (not just status codes) → test error handling → check edge cases
 **CLI/script changes**: Run with representative inputs → verify stdout/stderr/exit codes → test edge inputs (empty, malformed, boundary) → verify --help / usage output is accurate
 **Infrastructure/config changes**: Validate syntax → dry-run where possible (terraform plan, kubectl apply --dry-run=server, docker build, nginx -t) → check env vars / secrets are actually referenced, not just defined
@@ -307,7 +307,7 @@ You will feel the urge to skip checks. These are the exact excuses you reach for
 - "The implementer's tests already pass" — the implementer is an LLM. Verify independently.
 - "This is probably fine" — probably is not verified. Run it.
 - "Let me start the server and check the code" — no. Start the server and hit the endpoint.
-- "I don't have a browser" — did you actually check for mcp__claude-in-chrome__* / mcp__playwright__*? If present, use them. If an MCP tool fails, troubleshoot (server running? selector right?). The fallback exists so you don't invent your own "can't do this" story.
+- "I don't have a browser" — did you actually check for MCP browser tools or WebFetch? If present, use them. If an MCP tool fails, troubleshoot (server running? selector right?). The fallback exists so you don't invent your own "can't do this" story.
 - "This would take too long" — not your call.
 If you catch yourself writing an explanation instead of a command, stop. Run the command.
 
@@ -385,8 +385,8 @@ _VERIFICATION_CRITICAL_REMINDER = (
 _WORKER_SYSTEM_PROMPT = (
     "You are an implementation-focused worker agent. Execute the assigned task precisely "
     "and efficiently. Write clean, well-structured code that follows the conventions already "
-    "present in the codebase. When finished, run relevant tests and typecheck, then commit "
-    "your changes and report the commit hash."
+    "present in the codebase. When finished, run relevant tests and typecheck, then report "
+    "what you changed and any test results."
 )
 
 # 状态行设置代理系统提示词
@@ -573,7 +573,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         name="statusline-setup",  # 状态行设置
         description="Use this agent to configure the user's Illusion Code status line setting.",  # 使用说明
-        tools=["Read", "Edit"],  # 允许的工具
+        tools=["read_file", "edit_file"],  # 允许的工具
         system_prompt=_STATUSLINE_SYSTEM_PROMPT,  # 系统提示词
         color="orange",  # 颜色
         subagent_type="statusline-setup",  # 代理类型
@@ -589,7 +589,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
             "**IMPORTANT:** Before spawning a new agent, check if there is already a running "
             "or recently completed illusion-guide agent that you can continue via SendMessage."
         ),
-        tools=["Glob", "Grep", "Read", "WebFetch", "WebSearch"],  # 允许的工具
+        tools=["glob", "grep", "read_file", "web_fetch", "web_search"],  # 允许的工具
         system_prompt=_ILLUSION_CODE_GUIDE_SYSTEM_PROMPT,  # 系统提示词
         permission_mode="dontAsk",  # 权限模式
         subagent_type="illusion-guide",  # 代理类型
@@ -607,7 +607,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
             "moderate exploration, or \"very thorough\" for comprehensive analysis across "
             "multiple locations and naming conventions."  # 使用说明
         ),
-        disallowed_tools=["agent", "exit_plan_mode", "file_edit", "file_write", "notebook_edit"],  # 禁止的工具
+        disallowed_tools=["edit_file", "write_file", "notebook_edit"],  # 禁止的工具
         system_prompt=_EXPLORE_SYSTEM_PROMPT,  # 系统提示词
         omit_claude_md=True,  # 跳过CLAUDE.md
         subagent_type="Explore",  # 代理类型
@@ -621,7 +621,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
             "need to plan the implementation strategy for a task. Returns step-by-step plans, "
             "identifies critical files, and considers architectural trade-offs."  # 使用说明
         ),
-        disallowed_tools=["agent", "exit_plan_mode", "file_edit", "file_write", "notebook_edit"],  # 禁止的工具
+        disallowed_tools=["edit_file", "write_file", "notebook_edit"],  # 禁止的工具
         system_prompt=_PLAN_SYSTEM_PROMPT,  # 系统提示词
         model="inherit",  # 模型
         omit_claude_md=True,  # 跳过CLAUDE.md
@@ -650,7 +650,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
             "changed, and approach taken. The agent runs builds, tests, linters, and checks "
             "to produce a PASS/FAIL/PARTIAL verdict with evidence."  # 使用说明
         ),
-        disallowed_tools=["agent", "exit_plan_mode", "file_edit", "file_write", "notebook_edit"],  # 禁止的工具
+        disallowed_tools=["edit_file", "write_file", "notebook_edit"],  # 禁止的工具
         system_prompt=_VERIFICATION_SYSTEM_PROMPT,  # 系统提示词
         critical_system_reminder=_VERIFICATION_CRITICAL_REMINDER,  # 关键提醒
         color="red",  # 颜色
