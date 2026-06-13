@@ -187,7 +187,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
     "status": "显示会话状态",
-    "context": "显示系统提示词或管理上下文窗口",
+    "context": "显示上下文使用量或管理上下文窗口",
     "summary": "总结对话历史",
     "compact": "压缩较早对话历史",
     "memory": "查看和管理项目记忆",
@@ -308,7 +308,7 @@ _COMMAND_EXACT: dict[str, str] = {
     # 上下文窗口
     "Error: context window must be positive": "错误：上下文窗口必须为正数",
     "Error: invalid number": "错误：无效的数字",
-    "Usage: /context [prompt|window|set N]": "用法：/context [prompt|window|set N]",
+    "Usage: /context [usage|window|set N]": "用法：/context [usage|window|set N]",
     # 用法提示
     "Usage: /summary [MAX_MESSAGES]": "用法：/summary [最大消息数]",
     "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",

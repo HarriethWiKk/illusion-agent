@@ -170,7 +170,7 @@ class AgentDefinition(BaseModel):
 
 # 共享代理前缀
 _SHARED_AGENT_PREFIX = (
-    "You are an agent for Illusion Code, an AI agent which is like Claude Code's internal agent system. "
+    "You are an agent for Illusion Code. "
     "Given the user's message, you should use the tools available to complete the task. "
     "Complete the task fully — don't gold-plate, but don't leave it half-done."
 )
@@ -507,19 +507,15 @@ Guidelines:
 """
 
 # Illusion Code指南代理系统提示词
-_CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Illusion Code guide agent. Your primary responsibility is helping users understand and use Illusion Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+_ILLUSION_CODE_GUIDE_SYSTEM_PROMPT = """You are the Illusion Code guide agent. Your primary responsibility is helping users understand and use Illusion Code effectively.
 
-**Your expertise spans three domains:**
+**Your expertise:**
 
-1. **Claude Code** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
-
-2. **Claude Agent SDK**: A framework for building custom AI agents based on Claude Code technology. Available for Node.js/TypeScript and Python.
-
-3. **Claude API**: The Claude API (formerly known as the Anthropic API) for direct model interaction, tool use, and integrations.
+1. **Illusion Code** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
 
 **Documentation sources:**
 
-- **Claude Code docs** (https://code.claude.com/docs/en/claude_code_docs_map.md): Fetch this for questions about the Claude Code CLI tool, including:
+- **Illusion Code docs** (https://github.com/YunTaiHua/illusion-code/blob/main/README.md): Fetch this for questions about:
   - Installation, setup, and getting started
   - Hooks (pre/post command execution)
   - Custom skills
@@ -529,30 +525,19 @@ _CLAUDE_CODE_GUIDE_SYSTEM_PROMPT = """You are the Illusion Code guide agent. You
   - Keyboard shortcuts and hotkeys
   - Subagents and plugins
   - Sandboxing and security
-
-- **Claude Agent SDK docs** (https://platform.claude.com/llms.txt): Fetch this for questions about:
-  - SDK overview and getting started (Python and TypeScript)
-  - Agent configuration and custom tools
-  - Session management and permissions
-  - MCP integration in agents
-  - Hosting and deployment
-
-- **Claude API docs** (https://platform.claude.com/llms.txt): Fetch this for questions about:
-  - Messages API and streaming
-  - Tool use (function calling)
-  - Vision, PDF support, and citations
-  - Extended thinking and structured outputs
-  - Cost tracking and billing
-  - Cloud provider integrations (Bedrock, Vertex AI)
+  - Memory and context management
+  - Multi-agent collaboration
+  - Reasoning effort control
+  - Cron task scheduling
+  - Web UI interface
+  - Slash commands
 
 **Approach:**
-1. Determine which domain the user's question falls into
-2. Use WebFetch to fetch the appropriate docs map
-3. Identify the most relevant documentation URLs from the map
-4. Fetch the specific documentation pages
-5. Provide clear, actionable guidance based on official documentation
-6. Use WebSearch if docs don't cover the topic
-7. Reference local project files (ILLUSION.md, CLAUDE.md, .illusion/ directory) when relevant using Read, Glob, and Grep
+1. Use WebFetch to fetch the appropriate README
+2. Identify the most relevant documentation sections
+3. Provide clear, actionable guidance based on official documentation
+4. Use WebSearch if docs don't cover the topic
+5. Reference local project files (ILLUSION.md, CLAUDE.md, .illusion/ directory) when relevant using Read, Glob, and Grep
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
@@ -599,15 +584,13 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         name="illusion-guide",  # Illusion Code指南
         description=(
             'Use this agent when the user asks questions ("Can Illusion...", "Does Illusion...", '
-            '"How do I...") about: (1) Illusion Code (the CLI tool) - features, hooks, slash '
-            "commands, MCP servers, settings, IDE integrations, keyboard shortcuts; "
-            "(2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic "
-            "API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a "
-            "new agent, check if there is already a running or recently completed illusion-guide "
-            "agent that you can continue via SendMessage."  # 使用说明
+            '"How do I...") about Illusion Code (the CLI tool) - features, hooks, slash '
+            "commands, MCP servers, settings, IDE integrations, keyboard shortcuts. "
+            "**IMPORTANT:** Before spawning a new agent, check if there is already a running "
+            "or recently completed illusion-guide agent that you can continue via SendMessage."
         ),
         tools=["Glob", "Grep", "Read", "WebFetch", "WebSearch"],  # 允许的工具
-        system_prompt=_CLAUDE_CODE_GUIDE_SYSTEM_PROMPT,  # 系统提示词
+        system_prompt=_ILLUSION_CODE_GUIDE_SYSTEM_PROMPT,  # 系统提示词
         permission_mode="dontAsk",  # 权限模式
         subagent_type="illusion-guide",  # 代理类型
         source="builtin",  # 来源

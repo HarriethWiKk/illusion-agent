@@ -38,7 +38,7 @@ async def login_handler(args: str, context: CommandContext) -> CommandResult:
     env_key = settings._active_env_key
     env = settings._active_env
     env.api_key = api_key
-    settings.model_extra[env_key] = env.model_dump()
+    settings.model_extra[env_key] = env.model_dump(exclude_none=True)
     save_settings(settings)
     return CommandResult(message="Stored API key in ~/.illusion/settings.json")
 
@@ -50,6 +50,6 @@ async def logout_handler(_: str, context: CommandContext) -> CommandResult:
     env_key = settings._active_env_key
     env = settings._active_env
     env.api_key = ""
-    settings.model_extra[env_key] = env.model_dump()
+    settings.model_extra[env_key] = env.model_dump(exclude_none=True)
     save_settings(settings)
     return CommandResult(message="Cleared stored API key.")

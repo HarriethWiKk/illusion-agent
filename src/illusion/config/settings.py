@@ -507,7 +507,9 @@ def _apply_env_overrides(settings: Settings) -> Settings:
 
     model = os.environ.get("ANTHROPIC_MODEL")
     if model:
-        env.model = model
+        # 修改当前活跃的 model_N 字段，而不是写入 env.model
+        model_key = settings._active_model_key
+        env = env.model_copy(update={model_key: model})
         env_modified = True
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -586,6 +588,12 @@ def load_settings(config_path: Path | None = None) -> Settings:
         # 兼容 mcpServers（camelCase）键，映射到 mcp_servers（snake_case）
         if "mcpServers" in raw and "mcp_servers" not in raw:
             raw["mcp_servers"] = raw.pop("mcpServers")
+
+        # 清理 env_N 中不该存在的 model 字段
+        for key in list(raw.keys()):
+            if key.startswith("env_") and isinstance(raw[key], dict):
+                raw[key].pop("model", None)
+
         settings = Settings.model_validate(raw)
         return _apply_env_overrides(settings)
 
@@ -608,6 +616,14 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
 
     # 序列化并重排字段，env_N 置顶
     data = settings.model_dump()
+
+    # 清理 env_N 中的 model 字段和 system_prompt: null
+    for key in data:
+        if key.startswith("env_") and isinstance(data[key], dict):
+            data[key].pop("model", None)
+            if data[key].get("system_prompt") is None:
+                data[key].pop("system_prompt", None)
+
     ordered: dict[str, object] = {}
     for key in sorted(data):
         if key.startswith("env_"):

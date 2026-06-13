@@ -51,17 +51,12 @@ async def status_handler(_: str, context: CommandContext) -> CommandResult:
 
 
 async def context_handler(args: str, context: CommandContext) -> CommandResult:
-    """显示系统提示词或管理上下文窗口"""
+    """显示上下文使用量或管理上下文窗口"""
     settings = load_settings()
     tokens = args.split(maxsplit=1)
-    subcommand = tokens[0] if tokens else "prompt"
+    subcommand = tokens[0] if tokens else "usage"
 
-    if subcommand == "prompt":
-        prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
-        return CommandResult(message=prompt)
-    if subcommand == "window" or subcommand == "show":
-        return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
-    if subcommand == "__usage__":
+    if subcommand in ("usage", "show", "__usage__"):
         from illusion.services.compact import estimate_conversation_tokens, get_context_window
         estimated = estimate_conversation_tokens(context.engine.messages)
         usage = context.engine.total_usage
@@ -77,6 +72,8 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
                 f"Messages: {len(context.engine.messages)}"
             )
         )
+    if subcommand == "window":
+        return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
     if subcommand == "set" and len(tokens) == 2:
         try:
             value = int(tokens[1])
@@ -87,7 +84,7 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message=f"Context window set to {value:,} tokens")
         except ValueError:
             return CommandResult(message="Error: invalid number")
-    return CommandResult(message="Usage: /context [prompt|window|set N]")
+    return CommandResult(message="Usage: /context [usage|window|set N]")
 
 
 async def summary_handler(args: str, context: CommandContext) -> CommandResult:

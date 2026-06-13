@@ -95,7 +95,10 @@ class TestLoadSaveSettings:
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
 
-    def test_load_existing_file(self, tmp_path: Path):
+    def test_load_existing_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({
             "model": "env_1.model_1",
@@ -109,7 +112,10 @@ class TestLoadSaveSettings:
         assert s.fast_mode is True
         assert s.api_key == ""
 
-    def test_save_and_load_roundtrip(self, tmp_path: Path):
+    def test_save_and_load_roundtrip(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         original = Settings(
             env_1={"api_format": "anthropic", "api_key": "sk-roundtrip", "model_1": "claude-opus-4-20250514"},
@@ -158,7 +164,8 @@ class TestLoadSaveSettings:
         s = load_settings(path)
 
         # env overrides go into the active env config
-        assert s._active_env.model == "from-env-model"
+        # ANTHROPIC_MODEL now updates model_N field instead of env.model
+        assert s._active_env.get_model("model_1") == "from-env-model"
         assert s._active_env.base_url == "https://env.example/anthropic"
         assert s._active_env.api_key == "sk-env-override"
         # global overrides
@@ -189,8 +196,11 @@ class TestLoadSaveSettings:
         assert s.sandbox.filesystem.allow_write == [".", "/tmp"]
         assert s.sandbox.filesystem.deny_write == [".env"]
 
-    def test_load_with_env_config(self, tmp_path: Path):
+    def test_load_with_env_config(self, tmp_path: Path, monkeypatch):
         """Test loading a file that uses the new env_N format."""
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         path.write_text(
             json.dumps(
@@ -211,8 +221,11 @@ class TestLoadSaveSettings:
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.provider == "anthropic"
 
-    def test_save_preserves_env_config(self, tmp_path: Path):
+    def test_save_preserves_env_config(self, tmp_path: Path, monkeypatch):
         """Test that save/load roundtrip preserves env_N config."""
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         original = Settings(
             model="env_1.model_2",

@@ -896,7 +896,7 @@ def auth_add_model(
     model_key = f"model_{next_num}"
 
     # 写入配置
-    env_config = env.model_dump()
+    env_config = env.model_dump(exclude_none=True)
     env_config[model_key] = model_name
     setattr(manager.settings, env_key, env_config)
     manager.save_settings()
