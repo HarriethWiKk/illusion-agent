@@ -29,6 +29,40 @@ def test_plan_mode_blocks_mutating_tools():
     assert "plan mode" in decision.reason
 
 
+def test_plan_mode_plan_file_is_writable(tmp_path):
+    """计划模式下，已注册的计划文件路径可写。"""
+    plan_file = str(tmp_path / "my-plan.md")
+    checker = PermissionChecker(PermissionSettings(mode=PermissionMode.DEFAULT))
+    checker.set_mode(PermissionMode.PLAN)
+    checker.set_plan_file(plan_file)
+    decision = checker.evaluate("write_file", is_read_only=False, file_path=plan_file)
+    assert decision.allowed is True
+
+
+def test_plan_mode_rejection_re_registers_plan_file(tmp_path):
+    """用户拒绝计划后切回计划模式，计划文件仍可写（模拟 ExitPlanModeTool 拒绝流程）。"""
+    plan_file = str(tmp_path / "my-plan.md")
+    checker = PermissionChecker(PermissionSettings(mode=PermissionMode.DEFAULT))
+    # 进入计划模式并注册计划文件
+    checker.set_mode(PermissionMode.PLAN)
+    checker.set_plan_file(plan_file)
+
+    # 模拟 ExitPlanModeTool 的拒绝流程：restore_mode + set_mode + set_plan_file
+    checker.restore_mode()
+    checker.set_mode(PermissionMode.PLAN)
+    checker.set_plan_file(plan_file)
+
+    # 计划文件应仍可写
+    decision = checker.evaluate("write_file", is_read_only=False, file_path=plan_file)
+    assert decision.allowed is True
+
+    # 其他文件仍应被阻止
+    other_file = str(tmp_path / "other.py")
+    decision = checker.evaluate("write_file", is_read_only=False, file_path=other_file)
+    assert decision.allowed is False
+    assert decision.auto_blocked is True
+
+
 def test_full_auto_allows_mutating_tools():
     checker = PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO))
     decision = checker.evaluate("bash", is_read_only=False)

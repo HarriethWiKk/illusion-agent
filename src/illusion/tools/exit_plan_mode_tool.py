@@ -110,11 +110,12 @@ Ensure your plan is complete and unambiguous:
                 )
             )
         else:
-            # 用户拒绝：切回计划模式
+            # 用户拒绝：切回计划模式，重新注册计划文件路径以便继续修改
             settings = load_settings()
             settings.permission.mode = PermissionMode.PLAN
             save_settings(settings)
             if checker:
                 checker.set_mode(PermissionMode.PLAN)
+                checker.set_plan_file(plan_path)
             reason = feedback or _t("User rejected the plan.")
             return ToolResult(output=reason, is_error=True)
