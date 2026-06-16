@@ -44,10 +44,10 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 <div align="center">
   <p>Demo video</p>
-  <a href="https://www.youtube.com/watch?v=Hongxz0vhrg">
-    <img src="docs/images/image1.png" alt="Click to watch demo video" width="720" />
+  <a href="https://www.youtube.com/watch?v=ExrzKVjWPls">
+    <img src="docs/images/IllusionCode.png" alt="Click to watch demo video" width="720" />
   </a>
-  <p><a href="https://www.youtube.com/watch?v=Hongxz0vhrg">📺 Watch demo on YouTube</a></p>
+  <p><a href="https://www.youtube.com/watch?v=ExrzKVjWPls">📺 Watch demo on YouTube</a></p>
 </div>
 
 ### Design Origins & Innovations
