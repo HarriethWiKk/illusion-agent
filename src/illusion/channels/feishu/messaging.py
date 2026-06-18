@@ -308,10 +308,11 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
 
 
 def build_card_content(text: str) -> str:
-    """构造飞书交互卡片 content JSON
+    """构造飞书交互卡片 content JSON（JSON 2.0 结构）
 
-    用单个 markdown 元素承载完整文本，飞书客户端渲染 markdown
-    （支持表格、代码块、列表、标题等，JSON 2.0 markdown 组件能力）。
+    必须显式声明 schema:"2.0"，飞书才按 2.0 解析——否则默认 1.0，
+    而 1.0 的 markdown 标签不支持标题/表格/代码块渲染。
+    2.0 的 markdown 组件支持 CommonMark 标准语法（含表格/代码块/列表/标题）。
 
     Args:
         text: 完整文本（可含 markdown）
@@ -320,9 +321,12 @@ def build_card_content(text: str) -> str:
         str: 卡片 content JSON 字符串
     """
     card = {
-        "elements": [
-            {"tag": "markdown", "content": text},
-        ],
+        "schema": "2.0",  # 必须显式声明，否则默认 1.0（不支持表格/标题/代码块）
+        "body": {
+            "elements": [
+                {"tag": "markdown", "content": text},
+            ],
+        },
     }
     return json.dumps(card, ensure_ascii=False)
 
