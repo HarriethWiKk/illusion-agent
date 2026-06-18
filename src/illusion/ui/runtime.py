@@ -180,6 +180,7 @@ async def build_runtime(
     restore_session_id: str | None = None,
     effort: str | None = None,
     is_interactive: bool = True,
+    channel_tools: list | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -257,7 +258,7 @@ async def build_runtime(
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
     await mcp_manager.connect_all()
     # 创建工具注册器
-    tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive)
+    tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
     # 检测提供者
     provider = detect_provider(settings)
     # 获取桥接管理器

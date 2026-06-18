@@ -57,12 +57,17 @@ from illusion.tools.web_fetch_tool import WebFetchTool
 from illusion.tools.web_search_tool import WebSearchTool
 
 
-def create_default_tool_registry(mcp_manager=None, is_interactive: bool = True) -> ToolRegistry:
+def create_default_tool_registry(
+    mcp_manager=None,
+    is_interactive: bool = True,
+    channel_tools: list[BaseTool] | None = None,
+) -> ToolRegistry:
     """返回默认内置工具注册表
 
     Args:
         mcp_manager: MCP 管理器（可选）
         is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
+        channel_tools: 渠道内置工具列表（可选，渠道启用时由调用方传入）
 
     Returns:
         ToolRegistry: 工具注册表
@@ -114,6 +119,10 @@ def create_default_tool_registry(mcp_manager=None, is_interactive: bool = True) 
         registry.register(ReadMcpResourceTool(mcp_manager))
         for tool_info in mcp_manager.list_tools():
             registry.register(McpToolAdapter(mcp_manager, tool_info))
+    # 注册渠道内置工具（飞书文档/云盘等，渠道启用时由调用方传入）
+    if channel_tools:
+        for tool in channel_tools:
+            registry.register(tool)
     return registry
 
 
