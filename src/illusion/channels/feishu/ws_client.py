@@ -68,11 +68,15 @@ class FeishuWSClient:
 
         event_handler = self._event_handler
 
-        # 构造事件分发器：注册 im.message.receive_v1（消息接收）事件
+        # 构造事件分发器：注册消息接收事件 + 忽略已读回执事件
         # 注意：register_p2_im_message_receive_v1 的回调是单参数 (event)，直接传强类型对象
-        dispatcher = lark.EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(
-            lambda event: event_handler(event)
-        ).build()
+        # message_read_v1（已读回执）注册空处理器，避免 "processor not found" 噪音日志
+        dispatcher = (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(lambda event: event_handler(event))
+            .register_p2_im_message_message_read_v1(lambda _event: None)
+            .build()
+        )
 
         self._client = WsClient(
             app_id=self._app_id,
