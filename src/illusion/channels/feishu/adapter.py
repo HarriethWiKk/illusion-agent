@@ -235,14 +235,34 @@ class FeishuChannel(Channel):
                 continue
 
     async def send_text(self, chat_id: str, text: str, *, reply_to: str = "") -> str:
-        """发送文本消息"""
-        from illusion.channels.feishu.messaging import send_text as _send
-        return await _send(self._client, self.config, chat_id, text, reply_to=reply_to)
+        """发送交互卡片消息（统一用卡片承载，支持 markdown 渲染）
+
+        卡片内用 markdown 元素，飞书客户端渲染表格/代码块/列表等。
+        卡片可通过 edit_message（patch）无限次更新，适合流式输出。
+
+        Args:
+            chat_id: 目标会话
+            text: 文本内容（可含 markdown）
+            reply_to: 要回复的消息 ID（可选）
+
+        Returns:
+            str: 新消息 ID
+        """
+        from illusion.channels.feishu.messaging import send_card
+        return await send_card(self._client, chat_id, text, reply_to=reply_to)
 
     async def edit_message(self, chat_id: str, message_id: str, text: str) -> None:
-        """编辑消息"""
-        from illusion.channels.feishu.messaging import edit_message as _edit
-        await _edit(self._client, chat_id, message_id, text)
+        """更新卡片内容（流式编辑）
+
+        卡片用 message.patch 更新，无编辑次数限制（不像 text 的 230072）。
+
+        Args:
+            chat_id: 会话标识（卡片 patch 不需要，保留接口兼容）
+            message_id: 要更新的卡片消息 ID
+            text: 新的卡片内容（markdown）
+        """
+        from illusion.channels.feishu.messaging import patch_card
+        await patch_card(self._client, message_id, text)
 
     async def send_file(self, chat_id: str, file_path: str) -> None:
         """发送文件"""

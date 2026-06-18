@@ -300,7 +300,88 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
     )
     resp = client.im.v1.message.update(req)
     if not resp.success():
-        logger.warning("飞书编辑消息失败（可能限流）: code=%s msg=%s", resp.code, resp.msg)
+        # 230072 = 编辑次数超限（飞书硬限制），属预期，finalize 会新建消息补全
+        if resp.code == 230072:
+            logger.info("飞书消息编辑次数超限（230072），等待 finalize 补全")
+        else:
+            logger.warning("飞书编辑消息失败（可能限流）: code=%s msg=%s", resp.code, resp.msg)
+
+
+def build_card_content(text: str) -> str:
+    """构造飞书交互卡片 content JSON
+
+    用单个 markdown 元素承载完整文本，飞书客户端渲染 markdown
+    （支持表格、代码块、列表、标题等，JSON 2.0 markdown 组件能力）。
+
+    Args:
+        text: 完整文本（可含 markdown）
+
+    Returns:
+        str: 卡片 content JSON 字符串
+    """
+    card = {
+        "elements": [
+            {"tag": "markdown", "content": text},
+        ],
+    }
+    return json.dumps(card, ensure_ascii=False)
+
+
+async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "") -> str:
+    """发送交互卡片消息，返回新消息 ID
+
+    卡片用 markdown 元素渲染，支持表格/代码块等富文本。
+    卡片可通过 patch_card 无限次更新（无 230072 限制），适合流式输出。
+
+    Args:
+        client: lark 客户端
+        chat_id: 目标会话
+        text: 卡片内容（markdown）
+        reply_to: 要回复的消息 ID（可选）
+
+    Returns:
+        str: 新消息 ID
+    """
+    from lark_oapi.api.im.v1 import CreateMessageRequest
+
+    receive_id, receive_id_type = resolve_receive_id(chat_id)
+    content = build_card_content(text)
+    body = {"receive_id": receive_id, "msg_type": "interactive", "content": content}
+    req = (
+        CreateMessageRequest.builder()
+        .receive_id_type(receive_id_type)
+        .request_body(body)
+        .build()
+    )
+    resp = client.im.v1.message.create(req)
+    if not resp.success():
+        raise RuntimeError(f"飞书卡片发送失败: code={resp.code} msg={resp.msg}")
+    return resp.data.message_id  # type: ignore[union-attr]
+
+
+async def patch_card(client: Any, message_id: str, text: str) -> None:
+    """更新已发送的卡片内容（流式编辑核心）
+
+    卡片的 message.patch 接口无编辑次数限制（不像 text 的 230072），
+    适合流式输出过程中反复更新。
+
+    Args:
+        client: lark 客户端
+        message_id: 要更新的卡片消息 ID
+        text: 新的卡片内容（markdown）
+    """
+    from lark_oapi.api.im.v1 import PatchMessageRequest
+
+    content = build_card_content(text)
+    req = (
+        PatchMessageRequest.builder()
+        .message_id(message_id)
+        .request_body({"content": content})
+        .build()
+    )
+    resp = client.im.v1.message.patch(req)
+    if not resp.success():
+        logger.warning("飞书卡片更新失败: code=%s msg=%s", resp.code, resp.msg)
 
 
 async def send_file(client: Any, cfg: "FeishuChannelConfig", chat_id: str, file_path: str) -> None:
