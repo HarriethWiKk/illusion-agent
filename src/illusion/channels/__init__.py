@@ -241,7 +241,16 @@ class ChannelRunner:
             )
             await editor.finalize()
             # 持久化飞书会话历史
-            self.session_store.save(key, _serialize_messages(bundle.engine.messages))
+            # bundle.engine 是 QueryEngine，其 messages property 返回 ConversationMessage 列表
+            engine = getattr(bundle, "engine", None)
+            msgs = getattr(engine, "messages", None)
+            if msgs is not None and hasattr(msgs, "__iter__"):
+                try:
+                    self.session_store.save(session, _serialize_messages(list(msgs)))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("飞书会话持久化失败: %s", exc)
+            else:
+                logger.warning("无法从 bundle.engine 获取会话历史，跳过持久化")
         finally:
             await close_runtime(bundle)
 

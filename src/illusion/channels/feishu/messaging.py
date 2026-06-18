@@ -78,33 +78,42 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         cfg: 渠道配置
         chat_id: 目标会话
         text: 文本内容
-        reply_to: 要回复的消息 ID
+        reply_to: 要回复的消息 ID（可选）
 
     Returns:
         str: 新消息 ID
     """
     import json  # JSON 构造
     from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
-        CreateMessageRequest, CreateMessageRequestBody,
+        CreateMessageRequest,
     )
 
     receive_id, receive_id_type = resolve_receive_id(chat_id)
 
-    # 判断是否含 markdown，构造对应消息格式
-    if _has_markdown(text):
-        msg_type, content = _build_post_content(text)
-    else:
-        msg_type = "text"
-        content = json.dumps({"text": text}, ensure_ascii=False)
+    # 空内容直接拒绝（飞书会返回 230001），由调用方保证非空
+    if not text or not text.strip():
+        raise ValueError("飞书消息内容为空")
 
-    body = CreateMessageRequestBody(
-        receive_id=receive_id,
-        msg_type=msg_type,
-        content=content,
-    )
-    req = CreateMessageRequest(
-        receive_id_type=receive_id_type,
-        request_body=body,
+    # 始终用纯 text 格式发送：流式编辑场景下内容可能是片段，
+    # post 富文本格式对残缺/特殊内容校验严格（code=230001），
+    # 且纯文本在飞书客户端中也能正常显示，避免复杂的格式构造与校验
+    # 清理可能引发飞书校验失败的控制字符（保留换行 tab）
+    import re
+    clean_text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    msg_type = "text"
+    content = json.dumps({"text": clean_text}, ensure_ascii=False)
+
+    # lark-oapi 用 builder 模式构造请求，body 通过 dict 传入
+    body = {
+        "receive_id": receive_id,
+        "msg_type": msg_type,
+        "content": content,
+    }
+    req = (
+        CreateMessageRequest.builder()
+        .receive_id_type(receive_id_type)
+        .request_body(body)
+        .build()
     )
     resp = client.im.v1.message.create(req)
     if not resp.success():
@@ -151,9 +160,12 @@ def _build_post_content(text: str) -> tuple[str, str]:
 
 
 async def edit_message(client: Any, chat_id: str, message_id: str, text: str) -> None:
-    """编辑已发送消息的文本
+    """编辑已发送的 text 消息（用于流式编辑）
 
-    用于流式编辑。失败时记日志（可能限流），不抛异常以免中断流式。
+    飞书 API 规则：text 类型消息用 update 接口编辑（patch 仅用于 card 消息，
+    对 text 消息会返回 code=230001 "This message is NOT a card"）。
+
+    失败时记日志（可能限流），不抛异常以免中断流式。
 
     Args:
         client: lark 客户端
@@ -163,15 +175,18 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
     """
     import json  # JSON 构造
     from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
-        PatchMessageRequest, PatchMessageRequestBody,
+        UpdateMessageRequest,
     )
 
     content = json.dumps({"text": text}, ensure_ascii=False)
-    req = PatchMessageRequest(
-        message_id=message_id,
-        request_body=PatchMessageRequestBody(content=content),
+    # text 消息用 update 接口编辑（需要 msg_type 字段，否则 field validation failed）
+    req = (
+        UpdateMessageRequest.builder()
+        .message_id(message_id)
+        .request_body({"msg_type": "text", "content": content})
+        .build()
     )
-    resp = client.im.v1.message.patch(req)
+    resp = client.im.v1.message.update(req)
     if not resp.success():
         logger.warning("飞书编辑消息失败（可能限流）: code=%s msg=%s", resp.code, resp.msg)
 

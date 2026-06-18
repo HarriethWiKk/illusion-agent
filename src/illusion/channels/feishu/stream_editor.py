@@ -53,11 +53,16 @@ class FeishuStreamEditor:
         """处理一段增量文本
 
         首次创建消息，后续按节流间隔编辑。
+        空增量或累积内容为空时跳过（避免发空消息被飞书拒绝）。
 
         Args:
             delta: 新增文本
         """
+        if not delta:
+            return  # 空增量跳过
         self._buf += delta  # 累积
+        if not self._buf.strip():
+            return  # 累积内容仅空白时跳过，等待实质内容
         now = time.monotonic()  # 当前时间
         if self._msg_id is None:
             # 首次：立即创建消息
