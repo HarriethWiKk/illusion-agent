@@ -3,18 +3,26 @@
 
 封装飞书消息的发送、编辑、文件上传等操作，基于 lark-oapi SDK。
 
+渲染策略（参考 hermes-agent 的 _build_outbound_payload）：
+    - 含 markdown 表格 → 纯 text（飞书 post 的 md tag 无法渲染表格）
+    - 含 markdown 特征 → post 富文本，内含 {tag:md} 元素让飞书客户端渲染
+    - 无 markdown 特征 → 纯 text
+
 所有方法均延迟导入 lark_oapi，确保未安装 SDK 时模块可导入。
 
 函数说明：
     - build_lark_client: 构造飞书 lark 客户端
-    - send_text: 发送文本/post 消息
-    - edit_message: 编辑已发送消息
+    - build_outbound_payload: 渲染决策（text/post）
+    - send_text: 发送文本消息
+    - edit_message: 编辑消息（流式编辑）
     - send_file: 上传并发送文件
     - resolve_receive_id: 解析 chat_id 到 receive_id_type
 """
 from __future__ import annotations
 
+import json  # JSON 构造
 import logging  # 日志
+import re  # markdown 探测
 from pathlib import Path  # 路径
 from typing import TYPE_CHECKING, Any  # 类型
 
@@ -28,6 +36,30 @@ _DOMAINS = {
     "feishu": "https://open.feishu.cn",
     "lark": "https://open.larksuite.com",
 }
+
+# ─── Markdown 探测正则（移植自 hermes feishu.py:153-165）──────────────────
+# markdown 特征：标题/列表/有序列表/分隔线/代码块/行内代码/粗体/删除线/下划线/斜体/链接/引用
+_MARKDOWN_HINT_RE = re.compile(
+    r"(^#{1,6}\s)|(^\s*[-*]\s)|(^\s*\d+\.\s)|(^\s*---+\s*$)|"
+    r"(```)|(`[^`\n]+`)|(\*\*[^*\n].+?\*\*)|(~~[^~\n].+?~~)|"
+    r"(<u>.+?</u>)|(\*[^*\n]+\*)|(\[[^\]]+\]\([^)]+\))|(^>\s)",
+    re.MULTILINE,
+)
+# 表格探测：一行 |...| 紧跟一行分隔符 |---|
+_MARKDOWN_TABLE_RE = re.compile(r"^\|.*\|\n\|[-|: ]+\|", re.MULTILINE)
+# 代码块围栏
+_MARKDOWN_FENCE_OPEN_RE = re.compile(r"^```([^\n`]*)\s*$")
+_MARKDOWN_FENCE_CLOSE_RE = re.compile(r"^```\s*$")
+# post 内容格式错误（降级兜底用）
+_POST_CONTENT_INVALID_RE = re.compile(
+    r"content format of the post type is incorrect", re.IGNORECASE
+)
+# 降级剥离用的正则
+_RE_BOLD = re.compile(r"\*\*([^*\n]+)\*\*")
+_RE_ITALIC_STAR = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_RE_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+_RE_HEADING = re.compile(r"^#{1,6}\s*", re.MULTILINE)
+_RE_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
 def build_lark_client(cfg: "FeishuChannelConfig") -> Any:
@@ -67,11 +99,122 @@ def resolve_receive_id(chat_id: str) -> tuple[str, str]:
     return chat_id, "chat_id"
 
 
+def build_outbound_payload(text: str) -> tuple[str, str]:
+    """渲染决策：根据内容选择 text 或 post 消息类型
+
+    参考自 hermes 的 _build_outbound_payload，三分支决策：
+    1. 含 markdown 表格 → 强制 text（飞书 post md tag 无法渲染表格）
+    2. 含 markdown 特征 → post 富文本（用 md magic tag 让飞书渲染）
+    3. 无 markdown 特征 → 纯 text
+
+    Args:
+        text: 待发送文本
+
+    Returns:
+        tuple[str, str]: (msg_type, content_json)
+    """
+    # 1. 表格优先降级为纯文本（飞书 post 渲染表格会空白）
+    if _MARKDOWN_TABLE_RE.search(text):
+        return "text", json.dumps({"text": text}, ensure_ascii=False)
+    # 2. markdown 特征用 post 富文本
+    if _MARKDOWN_HINT_RE.search(text):
+        return "post", _build_markdown_post_payload(text)
+    # 3. 纯文本
+    return "text", json.dumps({"text": text}, ensure_ascii=False)
+
+
+def _build_markdown_post_payload(content: str) -> str:
+    """构造飞书 post 富文本 payload
+
+    使用飞书 post 的 md magic tag，让飞书客户端自己渲染 markdown。
+    含代码块时按 fence 行切分（否则代码块后的正文会被飞书吞掉）。
+
+    Args:
+        content: markdown 文本
+
+    Returns:
+        str: post content JSON
+    """
+    rows = _build_markdown_post_rows(content)
+    return json.dumps({"zh_cn": {"content": rows}}, ensure_ascii=False)
+
+
+def _build_markdown_post_rows(content: str) -> list[list[dict[str, str]]]:
+    """把 markdown 切分为飞书 post 的行（每行一个 md 元素）
+
+    飞书 post 的 md 元素有一个 bug：当 md 元素内同时含围栏代码块和后续正文时，
+    飞书会把代码块后的内容吞掉。解决：按真实 fence 行切分成多个独立 row。
+
+    Args:
+        content: markdown 文本
+
+    Returns:
+        list[list[dict]]: post content 结构（行的列表，每行是元素列表）
+    """
+    if not content:
+        return [[{"tag": "md", "text": ""}]]
+    # 无代码块：单个 md 元素即可
+    if "```" not in content:
+        return [[{"tag": "md", "text": content}]]
+
+    rows: list[list[dict[str, str]]] = []
+    current: list[str] = []
+    in_code_block = False
+
+    def _flush() -> None:
+        """把累积的行 flush 成一个独立的 row"""
+        if current:
+            text = "\n".join(current)
+            if text.strip():
+                rows.append([{"tag": "md", "text": text}])
+            current.clear()
+
+    for raw_line in content.splitlines():
+        stripped = raw_line.strip()
+        if in_code_block:
+            # 代码块内：检测关闭 fence
+            is_fence = bool(_MARKDOWN_FENCE_CLOSE_RE.match(stripped))
+        else:
+            # 代码块外：检测开启 fence
+            is_fence = bool(_MARKDOWN_FENCE_OPEN_RE.match(stripped))
+
+        if is_fence:
+            if not in_code_block:
+                _flush()  # 代码块前的 prose 独立成 row
+            current.append(raw_line)
+            in_code_block = not in_code_block
+            if not in_code_block:
+                _flush()  # 代码块独立成 row
+            continue
+        current.append(raw_line)
+
+    _flush()  # 收尾
+    return rows or [[{"tag": "md", "text": content}]]
+
+
+def _strip_markdown_to_plain_text(text: str) -> str:
+    """把 markdown 剥离为纯文本（post 降级兜底用）
+
+    Args:
+        text: markdown 文本
+
+    Returns:
+        str: 剥离后的纯文本
+    """
+    text = _RE_BOLD.sub(r"\1", text)  # **粗体** → 粗体
+    text = _RE_ITALIC_STAR.sub(r"\1", text)  # *斜体* → 斜体
+    text = _RE_INLINE_CODE.sub(r"\1", text)  # `代码` → 代码
+    text = _RE_HEADING.sub("", text)  # ## 标题 → 标题
+    text = _RE_LINK.sub(r"\1", text)  # [文本](url) → 文本
+    return text.strip()
+
+
 async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
                     text: str, *, reply_to: str = "") -> str:
     """发送文本消息，返回新消息 ID
 
-    含 markdown 的文本用 post 富文本格式（表格降级为纯文本）。
+    根据内容自动选择 text 或 post 格式（参考 hermes 渲染策略）。
+    post 发送失败（内容格式错误）时自动降级为纯文本。
 
     Args:
         client: lark 客户端
@@ -83,32 +226,21 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     Returns:
         str: 新消息 ID
     """
-    import json  # JSON 构造
     from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
         CreateMessageRequest,
     )
 
     receive_id, receive_id_type = resolve_receive_id(chat_id)
 
-    # 空内容直接拒绝（飞书会返回 230001），由调用方保证非空
+    # 空内容直接拒绝（飞书会返回 230001）
     if not text or not text.strip():
         raise ValueError("飞书消息内容为空")
 
-    # 始终用纯 text 格式发送：流式编辑场景下内容可能是片段，
-    # post 富文本格式对残缺/特殊内容校验严格（code=230001），
-    # 且纯文本在飞书客户端中也能正常显示，避免复杂的格式构造与校验
     # 清理可能引发飞书校验失败的控制字符（保留换行 tab）
-    import re
     clean_text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
-    msg_type = "text"
-    content = json.dumps({"text": clean_text}, ensure_ascii=False)
 
-    # lark-oapi 用 builder 模式构造请求，body 通过 dict 传入
-    body = {
-        "receive_id": receive_id,
-        "msg_type": msg_type,
-        "content": content,
-    }
+    msg_type, content = build_outbound_payload(clean_text)
+    body = {"receive_id": receive_id, "msg_type": msg_type, "content": content}
     req = (
         CreateMessageRequest.builder()
         .receive_id_type(receive_id_type)
@@ -116,54 +248,35 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         .build()
     )
     resp = client.im.v1.message.create(req)
-    if not resp.success():
-        raise RuntimeError(f"飞书发送失败: code={resp.code} msg={resp.msg}")
-    return resp.data.message_id  # type: ignore[union-attr]
+    if resp.success():
+        return resp.data.message_id  # type: ignore[union-attr]
 
+    # post 内容格式错误时降级为纯文本
+    err_msg = str(getattr(resp, "msg", ""))
+    if msg_type == "post" and _POST_CONTENT_INVALID_RE.search(err_msg):
+        logger.info("post 内容格式错误，降级为纯文本重发")
+        plain = _strip_markdown_to_plain_text(clean_text)
+        body = {"receive_id": receive_id, "msg_type": "text",
+                "content": json.dumps({"text": plain}, ensure_ascii=False)}
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(body)
+            .build()
+        )
+        resp = client.im.v1.message.create(req)
+        if resp.success():
+            return resp.data.message_id  # type: ignore[union-attr]
 
-def _has_markdown(text: str) -> bool:
-    """检测文本是否含 markdown 语法
-
-    Args:
-        text: 待检测文本
-
-    Returns:
-        bool: 含 markdown 标记返回 True
-    """
-    markers = ("**", "`", "# ", "- ", "* ", "|", "](")
-    return any(m in text for m in markers)
-
-
-def _build_post_content(text: str) -> tuple[str, str]:
-    """把 markdown 文本构造为飞书 post 富文本内容
-
-    简化实现：按行拆分，每行作为一个 text_run。
-    复杂的表格/图片等降级为纯文本。
-
-    Args:
-        text: markdown 文本
-
-    Returns:
-        tuple[str, str]: (msg_type, content_json)
-    """
-    import json
-    lines = text.split("\n")
-    title = lines[0].lstrip("# ").strip() if lines and lines[0].startswith("#") else ""
-    content_lines = lines[1:] if title else lines
-    post = {
-        "zh_cn": {
-            "title": title or "",
-            "content": [[{"tag": "text", "text": line}] for line in content_lines if line],
-        }
-    }
-    return "post", json.dumps(post, ensure_ascii=False)
+    raise RuntimeError(f"飞书发送失败: code={resp.code} msg={resp.msg}")
 
 
 async def edit_message(client: Any, chat_id: str, message_id: str, text: str) -> None:
-    """编辑已发送的 text 消息（用于流式编辑）
+    """编辑已发送消息（用于流式编辑）
 
-    飞书 API 规则：text 类型消息用 update 接口编辑（patch 仅用于 card 消息，
-    对 text 消息会返回 code=230001 "This message is NOT a card"）。
+    text 类型消息用 update 接口编辑。
+    流式编辑始终用纯 text 格式（避免 post 格式的频繁切换与校验开销），
+    最终完整消息（含 markdown）由 finalize 路径重新发送 post。
 
     失败时记日志（可能限流），不抛异常以免中断流式。
 
@@ -173,13 +286,12 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         message_id: 要编辑的消息 ID
         text: 新文本
     """
-    import json  # JSON 构造
     from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
         UpdateMessageRequest,
     )
 
+    # 流式编辑用纯 text 格式（update 接口只支持 text）
     content = json.dumps({"text": text}, ensure_ascii=False)
-    # text 消息用 update 接口编辑（需要 msg_type 字段，否则 field validation failed）
     req = (
         UpdateMessageRequest.builder()
         .message_id(message_id)
@@ -205,6 +317,5 @@ async def send_file(client: Any, cfg: "FeishuChannelConfig", chat_id: str, file_
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     # 先上传文件拿 file_key，再发消息（实现细节在 lark-oapi SDK）
-    # 此处为框架，实际 file create 调用见 SDK 文档
     logger.info("发送文件到飞书 %s: %s", chat_id, path.name)
     # TODO（实现阶段补全）：im.v1.file.create → 拿 file_key → CreateMessageRequest(msg_type=file/image)

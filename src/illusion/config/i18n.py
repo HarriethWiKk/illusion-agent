@@ -199,12 +199,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_disabled": {"zh-CN": "已禁用 {channel} 渠道", "en-US": "Disabled {channel} channel"},
     "channel_no_creds": {"zh-CN": "未配置凭据，请先运行 'illusion channel login {channel}'", "en-US": "No credentials, run 'illusion channel login {channel}' first"},
     "channel_logout_done": {"zh-CN": "已清除 {channel} 渠道凭据", "en-US": "Cleared {channel} channel credentials"},
-    "channel_daemon_spawned": {"zh-CN": "{channel} 渠道已在后台启动，可用 'illusion channel serve' 前台运行查看日志", "en-US": "{channel} channel started in background, run 'illusion channel serve' for foreground logs"},
     # --- channel serve ---
     "channel_starting": {"zh-CN": "[渠道] 正在启动 {channel} 渠道...", "en-US": "[Channel] Starting {channel} channel..."},
     "channel_feishu_connected": {"zh-CN": "[渠道] 飞书已连接，正在监听消息 (bot: {bot})", "en-US": "[Channel] Feishu connected, listening (bot: {bot})"},
     "channel_press_exit": {"zh-CN": "[渠道] 按 Ctrl+C 退出", "en-US": "[Channel] Press Ctrl+C to exit"},
-    "channel_already_running": {"zh-CN": "渠道守护进程已在运行 (pid={pid})", "en-US": "Channel daemon already running (pid={pid})"},
     "channel_connected": {"zh-CN": "已连接", "en-US": "connected"},
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
     # --- 飞书侧斜杠命令（用户在飞书中看到）---

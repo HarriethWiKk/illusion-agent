@@ -128,12 +128,13 @@ class FeishuDocCreateTool(BaseTool):
         client = build_lark_client(self._cfg)
         try:
             from lark_oapi.api.docx.v1 import (  # type: ignore[import-not-found]
-                CreateDocumentRequest, CreateDocumentRequestBody,
+                CreateDocumentRequest,
             )
         except ImportError:
             return ToolResult(output="lark_oapi docx API not available", is_error=True)
 
-        body = CreateDocumentRequestBody(folder_token=arguments.folder_token, title=arguments.title)
+        # lark-oapi 用 builder + dict 构造请求（RequestBody 类不接受关键字参数）
+        body = {"folder_token": arguments.folder_token, "title": arguments.title}
         req = CreateDocumentRequest.builder().request_body(body).build()
         resp = client.docx.v1.document.create(req)
         if not resp.success():

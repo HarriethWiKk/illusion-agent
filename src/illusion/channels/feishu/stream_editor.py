@@ -76,9 +76,37 @@ class FeishuStreamEditor:
             self._last_edit = now
 
     async def finalize(self) -> None:
-        """轮次结束时做最后一次编辑，确保完整文本落盘
+        """轮次结束时做最终渲染
+
+        若最终内容含 markdown 特征（粗体/代码/列表/标题等），用 post 富文本
+        （飞书 md magic tag 渲染）重新发送一条消息，让用户看到格式化结果；
+        否则对原消息做最后一次 text 编辑确保完整文本。
 
         若从未收到 delta（_msg_id 为 None），则不做任何操作。
         """
-        if self._msg_id and self._buf:
+        if not self._buf:
+            return
+        from illusion.channels.feishu.messaging import (
+            build_outbound_payload, _POST_CONTENT_INVALID_RE,
+        )
+        msg_type, _ = build_outbound_payload(self._buf)
+        if msg_type == "post" and self._msg_id:
+            # 最终内容含 markdown：重新发送 post 富文本（格式化呈现）
+            # 飞书 update 接口不支持把 text 消息改成 post，故新建一条
+            from illusion.channels.feishu.messaging import build_outbound_payload as _bop
+            _, content = _bop(self._buf)
+            receive_id = self._chat_id
+            try:
+                import json as _json
+                import lark_oapi as _lark  # noqa: F401
+                from lark_oapi.api.im.v1 import CreateMessageRequest
+                # 通过 channel 拿到 lark client（send_text 内部已封装）
+                # 这里复用 channel.send_text 走 post 降级兜底
+                await self._channel.send_text(self._chat_id, self._buf, reply_to=self._reply_to)
+            except Exception:  # noqa: BLE001
+                # post 发送失败则回退到 text 编辑完整内容
+                if self._msg_id:
+                    await self._channel.edit_message(self._chat_id, self._msg_id, self._buf)
+        elif self._msg_id:
+            # 纯文本：最后一次 edit 确保完整
             await self._channel.edit_message(self._chat_id, self._msg_id, self._buf)

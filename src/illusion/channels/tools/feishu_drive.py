@@ -137,17 +137,18 @@ class FeishuDriveUploadTool(BaseTool):
         client = build_lark_client(self._cfg)
         try:
             from lark_oapi.api.drive.v1 import (  # type: ignore[import-not-found]
-                UploadAllFileRequest, UploadAllFileRequestBody,
+                UploadAllFileRequest,
             )
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
 
         name = arguments.name or path.name
-        body = UploadAllFileRequestBody(
-            folder_token=arguments.folder_token,
-            file_name=name,
-            file=path.read_bytes(),
-        )
+        # lark-oapi 用 builder + dict 构造请求（RequestBody 类不接受关键字参数）
+        body = {
+            "folder_token": arguments.folder_token,
+            "file_name": name,
+            "file": path.read_bytes(),
+        }
         req = UploadAllFileRequest.builder().request_body(body).build()
         resp = client.drive.v1.file.upload_all(req)
         if not resp.success():
