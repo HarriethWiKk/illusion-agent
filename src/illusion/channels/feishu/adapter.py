@@ -49,6 +49,7 @@ class FeishuChannel(Channel):
         self._client: Any = None  # lark 客户端
         self._ws: Any = None  # WS 包装
         self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()  # 入站队列
+        self._loop: Any = None  # 主事件循环引用（connect 时保存，WS 回调线程用）
         self._bot_open_id: str = ""  # bot 自身 open_id（hydrate 后赋值）
         self._stop_event = asyncio.Event()  # 停止信号
 
@@ -68,16 +69,21 @@ class FeishuChannel(Channel):
             event_handler=self._on_raw_event,
             domain=domain,
         )
+        # 保存当前事件循环引用（WS 回调线程需要用它跨线程投递消息）
+        self._loop = asyncio.get_event_loop()
         # 在 executor 线程跑阻塞的 start()
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, self._ws.start)
+        self._loop.run_in_executor(None, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
 
     def _on_raw_event(self, event: Any) -> None:
-        """处理原始飞书事件（在 WS 客户端线程调用）
+        """处理原始飞书事件（在 WS 客户端的 executor 线程调用）
 
         event 是 lark-oapi 的强类型 P2ImMessageReceiveV1 对象。
         标准化为 InboundMessage 后线程安全地投递到入站队列。
+
+        注意：本方法在子线程调用，必须用 connect() 保存的主 loop 引用
+        （不能在此处 asyncio.get_event_loop()，否则拿到的是子线程的新 loop，
+        消息会投递到错误的 loop 导致 ChannelRunner 收不到）。
 
         Args:
             event: 强类型事件对象（P2ImMessageReceiveV1）
@@ -85,11 +91,11 @@ class FeishuChannel(Channel):
         try:
             msg = self._normalize(event)
             if msg is not None and self._admit(msg, mentioned_bot=self._event_mentions_bot(event)):
-                # 线程安全地投递到 asyncio.Queue
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    return  # 无事件循环，忽略
+                # 用保存的主 loop 线程安全地投递到 asyncio.Queue
+                loop = getattr(self, "_loop", None)
+                if loop is None or loop.is_closed():
+                    logger.warning("事件循环不可用，丢弃飞书消息")
+                    return
                 loop.call_soon_threadsafe(self._queue.put_nowait, msg)
         except Exception as exc:  # noqa: BLE001
             logger.exception("处理飞书事件异常: %s", exc)

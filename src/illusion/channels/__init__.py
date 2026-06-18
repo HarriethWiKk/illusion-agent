@@ -34,9 +34,8 @@ def maybe_spawn_channel_daemon() -> None:
     读取 channels.json，若有 enabled 渠道且守护进程未运行，
     spawn 一个 'illusion channel serve' 子进程。
 
-    子进程独立存活，REPL 退出后不杀。
+    子进程独立存活，REPL 退出后不杀。完全静默，不向主终端打印任何提示。
     """
-    from illusion.config.i18n import t
     from illusion.config.paths import get_channels_data_dir
     from illusion.channels.pid import PidFile
 
@@ -46,21 +45,22 @@ def maybe_spawn_channel_daemon() -> None:
 
     pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
     if pid_file.is_running():
-        pid = pid_file.path.read_text(encoding="utf-8").strip()
-        print(t("channel_already_running", pid=pid))
-        return
+        return  # 已在运行，静默跳过
 
-    # spawn 子进程
+    # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
     creation_flags = 0
     if os.name == "nt":
         # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         creation_flags = 0x00000008 | 0x00000200
 
+    log_path = get_channels_data_dir() / "serve.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "channel", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             creationflags=creation_flags,
             close_fds=True,
@@ -113,7 +113,18 @@ class ChannelRunner:
         async for msg in self.channel.listen():
             if self._stop:
                 break
-            asyncio.create_task(self._handle_message(msg))
+            # 每条消息独立处理，加异常日志回调避免静默失败
+            task = asyncio.create_task(self._handle_message(msg))
+            task.add_done_callback(self._log_task_exception)
+
+    @staticmethod
+    def _log_task_exception(task: asyncio.Task) -> None:
+        """任务完成后记录未捕获异常（避免静默吞掉错误）"""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.exception("处理渠道消息未捕获异常: %s", exc, exc_info=exc)
 
     async def shutdown(self) -> None:
         """关闭渠道"""

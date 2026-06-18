@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio  # 异步
 import logging  # 日志
+import os  # 进程强制退出
 import signal  # 信号处理
 from typing import TYPE_CHECKING, Any  # 类型
 
@@ -27,6 +28,9 @@ def run_channel_serve() -> None:
 
     读取 channels.json，启动所有 enabled 渠道，监听消息直至收到中断信号。
     缺少渠道 SDK 依赖时打印提示并返回（不崩溃）。
+
+    Windows 下 Ctrl+C 通过 KeyboardInterrupt 捕获，关闭后用 os._exit 确保退出
+    （WS executor 线程可能无法干净终止）。
     """
     cfg = load_channels_config()
     settings = _load_settings_safely()
@@ -47,7 +51,18 @@ def run_channel_serve() -> None:
                     deps=", ".join(FEISHU_DEPENDENCIES), channel="feishu"))
             return
 
-    asyncio.run(_serve_async(cfg, settings))
+    # 配置日志：渠道运行时日志也输出到 stdout，便于前台排查
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    try:
+        asyncio.run(_serve_async(cfg, settings))
+    except KeyboardInterrupt:
+        print("\n收到中断信号，正在关闭...")
+        # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
+        _force_shutdown()
 
 
 def _load_settings_safely() -> Any:
@@ -62,6 +77,30 @@ def _load_settings_safely() -> Any:
     except Exception as exc:  # noqa: BLE001
         logger.warning("加载主设置失败: %s", exc)
         return None
+
+
+def _force_shutdown() -> None:
+    """强制关闭渠道守护进程
+
+    尝试关闭所有运行中的渠道，然后用 os._exit 确保进程退出
+    （lark-oapi 的 WS 客户端在 executor 线程阻塞，正常终止可能挂起）。
+    """
+    import threading
+    # 尽力关闭：在守护线程里跑关闭逻辑，主线程不等待
+    def _shutdown():
+        try:
+            # 通过遍历获取 runner 列表（_serve_async 的局部变量，这里无法直接访问）
+            # 实际关闭在 _serve_async 的 finally 里已处理，这里仅兜底退出
+            pass
+        except Exception:  # noqa: BLE001
+            pass
+        os._exit(0)  # 强制退出，不等待 executor 线程
+
+    threading.Thread(target=_shutdown, daemon=True).start()
+    # 给关闭逻辑 1 秒，否则强制退出
+    import time
+    time.sleep(1)
+    os._exit(0)
 
 
 async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
@@ -97,7 +136,7 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
         print(t("channel_none_configured"))
         return
 
-    # 信号处理：优雅退出
+    # 信号处理：Unix 下注册信号，Windows 下依赖 KeyboardInterrupt
     stop_event = asyncio.Event()
 
     def _on_signal(*_: Any) -> None:
@@ -105,11 +144,12 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
 
     loop = asyncio.get_event_loop()
     try:
-        if signal.SIGINT is not None:
-            loop.add_signal_handler(signal.SIGINT, _on_signal)
-            loop.add_signal_handler(signal.SIGTERM, _on_signal)
+        loop.add_signal_handler(signal.SIGINT, _on_signal)
+        loop.add_signal_handler(signal.SIGTERM, _on_signal)
     except (NotImplementedError, RuntimeError, AttributeError):
-        pass  # Windows 下信号处理有限，依赖 KeyboardInterrupt
+        # Windows 不支持 add_signal_handler，Ctrl+C 会触发 KeyboardInterrupt
+        # 在 asyncio.run 层捕获
+        pass
 
     print(t("channel_press_exit"))
 
