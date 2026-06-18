@@ -257,3 +257,27 @@ def get_project_mcp_dir(cwd: str | Path) -> Path:
     path = get_project_config_dir(cwd) / "mcp"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_channels_file_path() -> Path:
+    """返回渠道配置文件路径（~/.illusion/channels.json）
+
+    用于存储各消息渠道（飞书等）的配置信息，与主 settings.json 分离。
+
+    Returns:
+        Path: 渠道配置文件路径
+    """
+    return get_config_dir() / "channels.json"
+
+
+def get_channels_data_dir() -> Path:
+    """返回渠道数据目录（~/.illusion/channels/）
+
+    用于存储渠道运行时数据，如飞书会话历史、守护进程 PID 等。
+
+    Returns:
+        Path: 渠道数据目录路径
+    """
+    d = get_config_dir() / "channels"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
