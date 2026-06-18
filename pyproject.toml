@@ -58,6 +58,11 @@ dev = [
 feishu = [
     "lark-oapi>=1.4.0",
 ]
+weixin = [
+    "aiohttp>=3.9.0",
+    "cryptography>=42.0.0",
+    "qrcode>=7.4.0",
+]
 
 [project.scripts]
 illusion = "illusion.cli:app"

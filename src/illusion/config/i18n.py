@@ -217,6 +217,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "feishu_cmd_model_show": {"zh-CN": "当前飞书会话模型: {model}", "en-US": "Current Feishu session model: {model}"},
     "feishu_cmd_model_set": {"zh-CN": "飞书会话模型已切换为 {model}", "en-US": "Feishu session model set to {model}"},
     "feishu_cmd_unknown": {"zh-CN": "未知命令: {cmd}。输入 /help 查看可用命令。", "en-US": "Unknown command: {cmd}. Type /help for commands."},
+    # --- 微信渠道 ---
+    "channel_weixin_label": {"zh-CN": "微信 / WeChat", "en-US": "WeChat"},
+    "weixin_qr_fetching": {"zh-CN": "正在获取二维码...", "en-US": "Fetching QR code..."},
+    "weixin_qr_browser_opened": {"zh-CN": "浏览器已打开: {url}\n请用微信扫描浏览器中的二维码", "en-US": "Browser opened: {url}\nScan the QR code with WeChat"},
+    "weixin_qr_waiting": {"zh-CN": "等待扫码... (Ctrl+C 取消)", "en-US": "Waiting for scan... (Ctrl+C to cancel)"},
+    "weixin_qr_scanned": {"zh-CN": "→ 已扫码，请在手机上确认", "en-US": "→ Scanned, please confirm on phone"},
+    "weixin_qr_redirect": {"zh-CN": "→ 重定向到最优服务器...", "en-US": "→ Redirecting to optimal server..."},
+    "weixin_qr_expired": {"zh-CN": "二维码已过期，正在刷新...", "en-US": "QR code expired, refreshing..."},
+    "weixin_qr_timeout": {"zh-CN": "扫码超时，请重新运行 illusion channel login", "en-US": "QR scan timed out, run 'illusion channel login' again"},
+    "weixin_login_success": {"zh-CN": "微信登录成功", "en-US": "WeChat login successful"},
+    "weixin_session_expired": {"zh-CN": "微信会话已过期，请重新运行 'illusion channel login'", "en-US": "WeChat session expired, run 'illusion channel login' again"},
+    "channel_starting_weixin": {"zh-CN": "[渠道] 正在启动微信渠道...", "en-US": "[Channel] Starting WeChat channel..."},
 }
 
 # --- 命令描述翻译 ---
