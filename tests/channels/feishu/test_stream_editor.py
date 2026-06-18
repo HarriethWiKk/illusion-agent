@@ -50,7 +50,7 @@ async def test_throttle_prevents_rapid_edits(fake_channel, monkeypatch):
 async def test_edit_after_interval(fake_channel, monkeypatch):
     """超过节流间隔后触发编辑。"""
     call_count = {"n": 0}
-    times_seq = [0.0, 1.0]  # 创建时 0.0，第二个 delta 1.0
+    times_seq = [0.0, 2.0]  # 创建时 0.0，第二个 delta 2.0（>1.5s 间隔）
 
     def _fake_monotonic():
         idx = min(call_count["n"], len(times_seq) - 1)
@@ -62,7 +62,7 @@ async def test_edit_after_interval(fake_channel, monkeypatch):
     )
     editor = FeishuStreamEditor(fake_channel, chat_id="oc_1", reply_to="")
     await editor.on_delta("A")  # t=0.0 创建，_last_edit=0.0
-    await editor.on_delta("B")  # t=1.0 距上次 1.0s >= 0.8，编辑
+    await editor.on_delta("B")  # t=2.0 距上次 2.0s >= 1.5，编辑
     fake_channel.edit_message.assert_called_once_with("oc_1", "om_new_msg", "AB")
 
 

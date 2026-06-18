@@ -51,15 +51,30 @@ def run_channel_serve() -> None:
                     deps=", ".join(FEISHU_DEPENDENCIES), channel="feishu"))
             return
 
-    # 配置日志：渠道运行时日志也输出到 stdout，便于前台排查
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
-    )
+    # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
+    # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
+    # 故额外用 FileHandler 直接写文件，确保日志可靠落盘
+    from illusion.config.paths import get_channels_data_dir
+    log_path = get_channels_data_dir() / "serve.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
+    # 文件 handler（可靠写盘）
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+    # stdout handler（前台运行时可见；detached 时可能缓冲但不影响文件）
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+    logger.info("渠道守护进程启动，日志文件: %s", log_path)
 
     try:
         asyncio.run(_serve_async(cfg, settings))
     except KeyboardInterrupt:
+        stream_handler.flush()
+        file_handler.flush()
         print("\n收到中断信号，正在关闭...")
         # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
         _force_shutdown()
