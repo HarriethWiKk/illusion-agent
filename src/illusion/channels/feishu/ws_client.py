@@ -59,8 +59,9 @@ class FeishuWSClient:
         event_handler = self._event_handler
 
         # 构造事件分发器：注册 im.message.receive_v1（消息接收）事件
+        # 注意：register_p2_im_message_receive_v1 的回调是单参数 (event)，不是双参数
         dispatcher = lark.EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(
-            lambda _, event: event_handler(_to_dict(event))
+            lambda event: event_handler(_to_dict(event))
         ).build()
 
         self._client = WsClient(

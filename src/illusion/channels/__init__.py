@@ -70,10 +70,6 @@ def maybe_spawn_channel_daemon() -> None:
         logger.warning("启动渠道守护进程失败: %s", exc)
         return
 
-    # 打印激活提示
-    names = ", ".join(cfg.enabled_channel_names())
-    print(t("channel_daemon_spawned", channel=names))
-
 
 class ChannelRunner:
     """渠道消息接入 agent 的运行器
