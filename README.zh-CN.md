@@ -263,6 +263,14 @@ illusion plugin list             # 列出插件
 illusion plugin install <source> # 安装插件
 illusion plugin uninstall <name> # 卸载插件
 
+# 渠道管理（飞书等消息渠道）
+illusion channel login           # 交互式配置渠道（选择渠道 → 配置凭据）
+illusion channel serve           # 前台运行渠道守护进程（监听消息）
+illusion channel status          # 查看渠道状态（启用/连接/PID）
+illusion channel enable feishu   # 启用飞书渠道
+illusion channel disable feishu  # 禁用飞书渠道
+illusion channel logout feishu   # 清除飞书渠道凭据
+
 # 定时任务
 illusion cron start              # 启动调度器
 illusion cron stop               # 停止调度器
@@ -1355,6 +1363,202 @@ illusion mcp remove <name>       # 移除服务器
 |------|------|
 | `/sandbox` 或 `/sandbox status` | 显示当前沙箱状态 |
 | `/sandbox exclude <模式>` | 添加排除命令模式 |
+
+---
+
+## 📱 消息渠道
+
+IllusionCode 支持消息渠道，让你能通过飞书（Feishu / Lark）等即时通讯应用与 AI 助手交互。这实现了**远程继续工作**——在终端开始一个任务，然后通过飞书在手机上继续。
+
+### 工作原理
+
+```
+illusion（主程序启动）
+ ├─ 读取 channels.json → feishu.enabled == true
+ ├─ 静默后台 spawn 'illusion channel serve' 守护进程
+ │    └─ WS 长连接飞书，监听消息 → 跑 agent → 流式卡片回复
+ └─ run_repl()  ← 本地终端交互（不受影响）
+
+手机飞书 App
+ └─ 发消息 → 守护进程接收 → agent 处理 → 交互卡片流式回复
+```
+
+- 渠道守护进程作为**独立后台进程**运行，REPL 退出后继续存活
+- 所有回复使用**飞书交互卡片**（JSON 2.0），完整渲染 Markdown（表格、代码块、标题、列表）
+- 卡片通过 `message.patch` 支持**无限次流式更新**（无编辑次数限制）
+- 渠道会话**按用户隔离**（私聊：每用户独立；群组：默认每用户每群独立）
+
+### 快速开始（飞书）
+
+#### 1. 创建飞书应用
+
+1. 访问[飞书开放平台](https://open.feishu.cn/app)（Lark 国际版：[open.larksuite.com](https://open.larksuite.com/app)）
+2. 创建**自建应用**
+3. 开启**机器人**能力
+4. 在**事件订阅**页面，选择**长连接模式**
+5. 订阅事件：`im.message.receive_v1`（接收消息）
+6. 记录**App ID** 和 **App Secret**
+
+#### 2. 配置渠道
+
+```bash
+illusion channel login
+```
+
+启动交互式配置向导：
+
+```
+选择渠道 / Select a channel:
+  1. 飞书 / Feishu (Lark)
+输入序号: 1
+
+--- 飞书渠道渠道配置 ---
+选择平台 / Select platform:
+  1. 飞书 (open.feishu.cn)
+  2. Lark (open.larksuite.com)
+输入序号: 1
+
+输入 App ID: cli_a1b2c3...
+输入 App Secret: 明文输入
+
+是否启用群组会话按用户隔离? (Y/n): Y
+群组中是否要求 @机器人才响应? (Y/n): Y
+是否允许其他机器人消息? (y/N): N
+
+正在安装依赖 lark-oapi... ✓
+配置已保存，飞书渠道已启用。
+```
+
+- 首次配置时**自动安装** `lark-oapi` SDK（作为可选依赖）
+- 凭据明文存储在 `~/.illusion/channels.json`（按需求不遮掩）
+- 下次运行 `illusion` 时**自动激活**渠道
+
+#### 3. 开始使用
+
+```bash
+# 方式一：让 illusion 自动激活渠道（静默后台守护进程）
+illusion                    # 渠道守护进程自动启动，REPL 正常运行
+
+# 方式二：前台运行守护进程（查看日志，Ctrl+C 停止）
+illusion channel serve
+```
+
+现在在飞书给机器人发消息，你会收到流式卡片回复，完整渲染 Markdown。
+
+### 渠道配置（channels.json）
+
+渠道配置单独存储在 `~/.illusion/channels.json`（不挤在 settings.json 中）：
+
+```json
+{
+  "feishu": {
+    "enabled": true,
+    "app_id": "cli_xxx",
+    "app_secret": "your-secret",
+    "domain": "feishu",
+    "require_mention": true,
+    "allow_bots": false,
+    "group_sessions_per_user": true,
+    "group_policy": {
+      "mode": "open",
+      "allowlist": [],
+      "blacklist": [],
+      "admin_list": []
+    }
+  }
+}
+```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `false` | 是否启用该渠道 |
+| `app_id` | — | 飞书应用 App ID |
+| `app_secret` | — | 飞书应用 App Secret（明文） |
+| `domain` | `"feishu"` | `"feishu"`（国内）或 `"lark"`（国际） |
+| `require_mention` | `true` | 群组中是否要求 @机器人才响应 |
+| `allow_bots` | `false` | 是否处理其他机器人的消息 |
+| `group_sessions_per_user` | `true` | 群组会话是否按用户隔离 |
+| `group_policy.mode` | `"open"` | `"open"` / `"disabled"` / `"allowlist"` / `"blacklist"` |
+| `group_policy.allowlist` | `[]` | 允许的 chat_id 列表（mode=allowlist 时生效） |
+| `group_policy.blacklist` | `[]` | 拒绝的 chat_id 列表（mode=blacklist 时生效） |
+| `group_policy.admin_list` | `[]` | 永远放行的 user_id 列表（管理员） |
+
+### 飞书侧斜杠命令
+
+可以直接在飞书会话中管理会话：
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示可用命令 |
+| `/clear` | 清空当前飞书会话历史 |
+| `/new` | 开启新的飞书会话 |
+| `/sessions` | 列出本地终端会话（未完成的工作） |
+| `/resume [id\|序号]` | 恢复本地终端会话到飞书 |
+| `/detach` | 将当前飞书会话保存为本地终端会话 |
+| `/model [show\|set 名称]` | 查看或切换会话模型 |
+
+**远程继续工作流程：**
+1. 在终端开始一个编码任务，中途退出
+2. 在飞书发送 `/sessions` —— 看到未完成的终端会话
+3. 发送 `/resume 1` —— 把会话拉到飞书，继续工作
+4. 发送 `/detach` —— 保存回本地，用 `illusion --resume <id>` 在终端继续
+
+### 飞书内置工具
+
+启用飞书渠道后，agent 自动获得飞书专属工具：
+
+| 工具 | 说明 |
+|------|------|
+| `feishu_doc_read` | 读取飞书 Docx/Wiki 文档为纯文本 |
+| `feishu_doc_create` | 创建新的飞书 Docx 文档 |
+| `feishu_drive_list` | 列出飞书云盘文件夹下的文件 |
+| `feishu_drive_upload` | 上传本地文件到飞书云盘 |
+| `feishu_drive_download` | 下载飞书云盘文件到本地 |
+
+这些工具使用相同的 App 凭据，agent 可自主调用。
+
+### 权限交互
+
+当 agent 请求工具权限（如执行 bash 命令）时，请求会**推送到飞书**：
+
+```
+⚠️ 工具 bash 请求权限：执行 ls -la
+回复 'y' 批准（120s 超时自动拒绝）
+```
+
+回复 `y` 批准，或等待 120 秒后自动拒绝。`ask_user` 提问和计划审批同理。
+
+### 常见问题排查
+
+| 问题 | 解决方案 |
+|------|----------|
+| 飞书无响应 | 查看 `~/.illusion/channels/serve.log` 日志 |
+| 守护进程未自动启动 | 运行 `illusion channel status` 检查；手动运行 `illusion channel serve` 查看日志 |
+| 日志中出现 `processor not found` | 无害——这是已读回执事件，已用空处理器处理 |
+| 卡片不渲染表格 | 确保飞书客户端版本 ≥ 7.20（JSON 2.0 卡片需要） |
+| WS 连接反复重连 | 检查 App ID/Secret 是否正确；确认事件订阅设为长连接模式 |
+| 编辑次数超限（230072） | 不适用——卡片使用 `message.patch`，无编辑次数限制 |
+
+### 渠道架构
+
+```
+src/illusion/channels/
+├── __init__.py          # ChannelRunner（消息→agent 粘合层）+ maybe_spawn_channel_daemon
+├── base.py              # Channel 抽象基类 + InboundMessage
+├── config.py            # ChannelsConfig / FeishuChannelConfig 模型
+├── serve.py             # 'illusion channel serve' 入口
+├── pid.py               # PID 文件管理（避免重复启动守护进程）
+├── feishu/
+│   ├── adapter.py       # FeishuChannel：WS 连接、事件分发、准入控制
+│   ├── ws_client.py     # lark-oapi WS 客户端包装
+│   ├── messaging.py     # 卡片发送/更新、消息渲染
+│   ├── stream_editor.py # 流式卡片编辑器（节流 patch 更新）
+│   ├── session_map.py   # 飞书会话存储（chat_id → 会话）
+│   └── commands.py      # 飞书侧斜杠命令处理
+└── tools/
+    ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
+    └── feishu_drive.py  # feishu_drive_list / upload / download
+```
 
 ---
 

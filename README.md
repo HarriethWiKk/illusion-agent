@@ -263,6 +263,14 @@ illusion plugin list             # List plugins
 illusion plugin install <source> # Install plugin
 illusion plugin uninstall <name> # Uninstall plugin
 
+# Channel management (Feishu/Lark messaging)
+illusion channel login           # Interactive channel setup (select channel → configure credentials)
+illusion channel serve           # Run channel daemon in foreground (listen for messages)
+illusion channel status          # View channel status (enabled/connected/PID)
+illusion channel enable feishu   # Enable a channel
+illusion channel disable feishu  # Disable a channel
+illusion channel logout feishu   # Clear channel credentials
+
 # Scheduled tasks
 illusion cron start              # Start scheduler
 illusion cron stop               # Stop scheduler
@@ -1355,6 +1363,202 @@ When an LLM operation triggers a sandbox restriction (e.g., reading a file in `d
 |---------|-------------|
 | `/sandbox` or `/sandbox status` | Show current sandbox status |
 | `/sandbox exclude <pattern>` | Add an excluded command pattern |
+
+---
+
+## 📱 Messaging Channels
+
+IllusionCode supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark). This enables **remote work continuation** — start a task on your terminal, then continue it from your phone via Feishu.
+
+### How It Works
+
+```
+illusion (main program)
+ ├─ Reads channels.json → feishu.enabled == true
+ ├─ Silently spawns 'illusion channel serve' as a background daemon
+ │    └─ WS long connection to Feishu, listens for messages → runs agent → streaming reply
+ └─ run_repl()  ← Local terminal interaction (unaffected)
+
+Feishu app on your phone
+ └─ Send message → daemon receives → agent processes → interactive card reply (streaming)
+```
+
+- The channel daemon runs as a **detached background process** that survives REPL exit
+- All replies use **Feishu interactive cards** (JSON 2.0) with full Markdown rendering (tables, code blocks, headings, lists)
+- Cards support **unlimited streaming updates** via `message.patch` (no edit count limit)
+- Channel sessions are **isolated per user** (DM: one session per user; group: one session per user per group by default)
+
+### Quick Start (Feishu)
+
+#### 1. Create a Feishu App
+
+1. Go to [Feishu Open Platform](https://open.feishu.cn/app) (Lark: [open.larksuite.com](https://open.larksuite.com/app))
+2. Create a **Custom App** (自建应用)
+3. Enable the **Bot** capability (机器人能力)
+4. Under **Event Subscriptions** (事件订阅), select **Long Connection mode** (长连接模式)
+5. Subscribe to the event: `im.message.receive_v1` (接收消息)
+6. Record your **App ID** and **App Secret**
+
+#### 2. Configure the Channel
+
+```bash
+illusion channel login
+```
+
+This launches an interactive setup wizard:
+
+```
+选择渠道 / Select a channel:
+  1. 飞书 / Feishu (Lark)
+输入序号: 1
+
+--- 飞书渠道配置 ---
+选择平台 / Select platform:
+  1. 飞书 (open.feishu.cn)
+  2. Lark (open.larksuite.com)
+输入序号: 1
+
+输入 App ID: cli_a1b2c3...
+输入 App Secret: 明文输入
+
+是否启用群组会话按用户隔离? (Y/n): Y
+群组中是否要求 @机器人才响应? (Y/n): Y
+是否允许其他机器人消息? (y/N): N
+
+正在安装依赖 lark-oapi... ✓
+配置已保存，飞书渠道已启用。
+```
+
+- The `lark-oapi` SDK is **automatically installed** on first setup (as an optional dependency)
+- Credentials are stored in plaintext in `~/.illusion/channels.json` (per requirement, not masked)
+- The channel is **auto-activated** on next `illusion` launch
+
+#### 3. Start Using
+
+```bash
+# Option A: Let illusion auto-activate the channel (silent background daemon)
+illusion                    # Channel daemon starts automatically, REPL runs normally
+
+# Option B: Run the daemon in foreground (see logs, Ctrl+C to stop)
+illusion channel serve
+```
+
+Now send a message to your bot in Feishu — you'll get a streaming card reply with full Markdown rendering.
+
+### Channel Configuration (channels.json)
+
+Channel config is stored separately in `~/.illusion/channels.json` (not in `settings.json`):
+
+```json
+{
+  "feishu": {
+    "enabled": true,
+    "app_id": "cli_xxx",
+    "app_secret": "your-secret",
+    "domain": "feishu",
+    "require_mention": true,
+    "allow_bots": false,
+    "group_sessions_per_user": true,
+    "group_policy": {
+      "mode": "open",
+      "allowlist": [],
+      "blacklist": [],
+      "admin_list": []
+    }
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Whether the channel is active |
+| `app_id` | — | Feishu App ID |
+| `app_secret` | — | Feishu App Secret (plaintext) |
+| `domain` | `"feishu"` | `"feishu"` (China) or `"lark"` (International) |
+| `require_mention` | `true` | In groups, only respond when @mentioned |
+| `allow_bots` | `false` | Whether to process messages from other bots |
+| `group_sessions_per_user` | `true` | Isolate sessions per user in groups |
+| `group_policy.mode` | `"open"` | `"open"` / `"disabled"` / `"allowlist"` / `"blacklist"` |
+| `group_policy.allowlist` | `[]` | Allowed chat_ids (when mode=allowlist) |
+| `group_policy.blacklist` | `[]` | Blocked chat_ids (when mode=blacklist) |
+| `group_policy.admin_list` | `[]` | user_ids that always bypass policy |
+
+### Feishu Slash Commands
+
+You can manage sessions directly from Feishu chats:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | List available commands |
+| `/clear` | Clear current Feishu session history |
+| `/new` | Start a new Feishu session |
+| `/sessions` | List local terminal sessions (unfinished work) |
+| `/resume [id\|index]` | Resume a local terminal session into Feishu |
+| `/detach` | Save current Feishu session as a local terminal session |
+| `/model [show\|set NAME]` | View or switch the session model |
+
+**Remote work continuation workflow:**
+1. Start a coding task in your terminal, exit midway
+2. From Feishu, send `/sessions` — see your unfinished terminal sessions
+3. Send `/resume 1` — pull the session into Feishu, continue working
+4. Send `/detach` — save it back to local, resume in terminal with `illusion --resume <id>`
+
+### Feishu Built-in Tools
+
+When the Feishu channel is enabled, the agent gains access to Feishu-specific tools:
+
+| Tool | Description |
+|------|-------------|
+| `feishu_doc_read` | Read a Feishu Docx/Wiki document as plain text |
+| `feishu_doc_create` | Create a new Feishu Docx document |
+| `feishu_drive_list` | List files in a Feishu Drive folder |
+| `feishu_drive_upload` | Upload a local file to Feishu Drive |
+| `feishu_drive_download` | Download a Feishu Drive file to local |
+
+These tools use the same App credentials and are available to the agent automatically.
+
+### Permission Interaction
+
+When the agent requests permission for a tool (e.g., running a bash command), the request is **pushed to Feishu**:
+
+```
+⚠️ 工具 bash 请求权限：执行 ls -la
+回复 'y' 批准（120s 超时自动拒绝）
+```
+
+Reply `y` to approve, or wait for auto-deny after 120s. Same mechanism applies to `ask_user` questions and plan approvals.
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| No response in Feishu | Check `~/.illusion/channels/serve.log` for errors |
+| Daemon didn't auto-start | Run `illusion channel status` to check; manually run `illusion channel serve` to see logs |
+| `processor not found` in logs | Harmless — this is the read-receipt event, already handled with a no-op processor |
+| Card not rendering tables | Ensure your Feishu client is v7.20+ (JSON 2.0 cards require it) |
+| WS connection keeps reconnecting | Verify App ID/Secret are correct; check event subscription is set to Long Connection mode |
+| Edit limit (230072) | Not applicable — cards use `message.patch` which has no edit count limit |
+
+### Channel Architecture
+
+```
+src/illusion/channels/
+├── __init__.py          # ChannelRunner (message→agent glue) + maybe_spawn_channel_daemon
+├── base.py              # Channel ABC + InboundMessage
+├── config.py            # ChannelsConfig / FeishuChannelConfig models
+├── serve.py             # 'illusion channel serve' entry point
+├── pid.py               # PID file management (avoid duplicate daemons)
+├── feishu/
+│   ├── adapter.py       # FeishuChannel: WS connection, event dispatch, admission control
+│   ├── ws_client.py     # lark-oapi WS client wrapper
+│   ├── messaging.py     # Card send/patch, message rendering
+│   ├── stream_editor.py # Streaming card editor (throttled patch updates)
+│   ├── session_map.py   # Feishu session store (chat_id → session)
+│   └── commands.py      # Feishu slash command handler
+└── tools/
+    ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
+    └── feishu_drive.py  # feishu_drive_list / upload / download
+```
 
 ---
 
