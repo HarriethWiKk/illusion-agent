@@ -213,6 +213,33 @@ def _run_pip_upgrade(packages: list[str]) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _run_pip_install(pkgs: list[str]) -> tuple[bool, str]:
+    """通过 pip install 安装指定包（渠道依赖首次配置时调用）
+
+    复用 _run_pip_upgrade 的子进程调用模式，但使用 install 子命令（不带 --upgrade）。
+
+    Args:
+        pkgs: 要安装的包名列表（含版本约束）
+
+    Returns:
+        tuple[bool, str]: (是否成功, 输出文本)
+    """
+    cmd = [sys.executable, "-m", "pip", "install", *pkgs]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        output = result.stdout + result.stderr
+        return result.returncode == 0, output.strip()
+    except subprocess.TimeoutExpired:
+        return False, "pip install timed out"
+    except Exception as exc:
+        return False, str(exc)
+
+
 async def update_handler(args: str, context: CommandContext) -> CommandResult:
     """检查并更新 IllusionCode"""
     from illusion.config.i18n import t

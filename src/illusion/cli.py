@@ -90,6 +90,10 @@ app.add_typer(auth_app)
 app.add_typer(cron_app)
 app.add_typer(web_app)
 
+# 渠道管理子命令应用（飞书等消息渠道）
+channel_app = typer.Typer(name="channel", help="渠道管理 / Manage messaging channels")
+app.add_typer(channel_app)
+
 
 # ---- mcp 子命令 ----
 
@@ -1253,6 +1257,15 @@ def main(
     if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
         return
 
+    # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（REPL 退出后独立存活）
+    try:
+        from illusion.channels import maybe_spawn_channel_daemon
+        maybe_spawn_channel_daemon()
+    except Exception as exc:  # noqa: BLE001
+        # 自动激活失败不应阻断主程序，仅记日志
+        import logging
+        logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
+
     import asyncio  # 异步编程模块
 
     if dangerously_skip_permissions:  # 如果跳过权限检查
@@ -1359,3 +1372,191 @@ def main(
             effort=effort,  # 推理强度级别
         )
     )
+
+
+# ---- channel 子命令 ----
+
+# 渠道选项列表（未来新增渠道在此追加）
+_CHANNEL_OPTIONS: list[tuple[str, dict[str, str]]] = [
+    ("feishu", _I18N.get("channel_feishu_label", {"zh-CN": "飞书", "en-US": "Feishu"})),
+]
+
+
+def _feishu_login() -> None:
+    """飞书渠道配置引导流程
+
+    引导用户完成飞书自建应用的凭据配置，明文存储（按需求不遮掩 App Secret）。
+    """
+    from illusion.channels.config import (
+        ChannelsConfig, FeishuChannelConfig, FeishuGroupPolicy,
+        load_channels_config, save_channels_config,
+    )
+    from illusion.channels.feishu import ensure_feishu_dependencies
+    from illusion.config.paths import get_channels_file_path
+
+    # 前置提示：引导去飞书开放平台创建应用
+    print(_t("channel_login_intro", url="https://open.feishu.cn/app"))
+
+    # 1. 选平台（国内飞书 / 国际 Lark）
+    print(_t("channel_select_domain"))
+    print(f"  1. {_t('channel_feishu_domain')}")
+    print(f"  2. {_t('channel_lark_domain')}")
+    raw = typer.prompt(_t("enter_number"), default="1")
+    domain = "feishu" if raw.strip() == "1" else "lark"
+
+    # 2. 输入凭据（明文，不遮掩）
+    app_id = input(f"{_t('channel_enter_app_id')}: ").strip()
+    if not app_id:
+        print(_t("api_key_required"), file=sys.stderr)
+        raise typer.Exit(1)
+    app_secret = input(f"{_t('channel_enter_app_secret')}: ").strip()
+    if not app_secret:
+        print(_t("api_key_required"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 3. 行为选项（带合理默认值，回车即默认）
+    def _ask_bool(prompt_key: str, default: bool) -> bool:
+        """询问是/否布尔选项，回车取默认"""
+        raw_val = typer.prompt(_t(prompt_key), default="Y" if default else "N")
+        return raw_val.strip().lower() in ("y", "yes", "是")
+
+    group_isolation = _ask_bool("channel_group_isolation", default=True)
+    require_mention = _ask_bool("channel_require_mention", default=True)
+    allow_bots = _ask_bool("channel_allow_bots", default=False)
+
+    # 4. 安装依赖（首次配置时自动装 lark-oapi）
+    ensure_feishu_dependencies()
+
+    # 5. 保存到 channels.json，置 enabled=true
+    cfg = load_channels_config()
+    cfg.feishu = FeishuChannelConfig(
+        enabled=True,
+        app_id=app_id,
+        app_secret=app_secret,
+        domain=domain,
+        require_mention=require_mention,
+        allow_bots=allow_bots,
+        group_sessions_per_user=group_isolation,
+        group_policy=FeishuGroupPolicy(),
+    )
+    save_channels_config(cfg)
+
+    path = get_channels_file_path()
+    print(_t("channel_saved", path=str(path), channel=_t("channel_feishu_label")))
+
+
+@channel_app.command("login")
+def channel_login() -> None:
+    """交互式配置消息渠道
+
+    流程：选择渠道 → 配置凭据 → 自动安装依赖 → 保存
+    """
+    _ensure_language()
+    from illusion.config import load_settings
+
+    settings = load_settings()
+    lang = settings.ui_language or "en-US"
+
+    # 1. 选择渠道（对齐 auth login 的范式）
+    print(_t("channel_select"))
+    for i, (key, labels) in enumerate(_CHANNEL_OPTIONS, 1):
+        label = labels.get(lang, labels.get("en-US", key))
+        print(f"  {i}. {label}")
+    raw = typer.prompt(_t("enter_number"), default="1")
+    try:
+        idx = int(raw.strip()) - 1
+        if 0 <= idx < len(_CHANNEL_OPTIONS):
+            channel_choice = _CHANNEL_OPTIONS[idx][0]
+        else:
+            print(_t("invalid_selection"), file=sys.stderr)
+            raise typer.Exit(1)
+    except ValueError:
+        print(_t("invalid_selection"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 2. 分发到具体渠道配置流程
+    if channel_choice == "feishu":
+        _feishu_login()
+        return
+    # 未来新增渠道在此追加分发
+
+
+@channel_app.command("serve")
+def channel_serve() -> None:
+    """启动渠道守护进程（前台运行，监听消息）"""
+    from illusion.channels.serve import run_channel_serve
+    run_channel_serve()
+
+
+@channel_app.command("status")
+def channel_status() -> None:
+    """显示各渠道状态（enabled / 连接 / PID）"""
+    from illusion.channels.config import load_channels_config
+    from illusion.channels.pid import PidFile
+    from illusion.config.paths import get_channels_data_dir
+
+    _ensure_language()
+    cfg = load_channels_config()
+    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
+    running = pid_file.is_running()
+
+    print("渠道状态 / Channel status:")
+    feishu_state = _t("channel_connected") if (cfg.feishu.enabled and running) else _t("channel_disconnected")
+    print(f"  feishu: enabled={cfg.feishu.enabled} {feishu_state}")
+
+
+@channel_app.command("enable")
+def channel_enable(
+    name: str = typer.Argument("feishu", help="渠道名称 / Channel name"),
+) -> None:
+    """启用指定渠道"""
+    from illusion.channels.config import load_channels_config, save_channels_config
+
+    _ensure_language()
+    cfg = load_channels_config()
+    if name == "feishu":
+        if not cfg.feishu.app_id:
+            print(_t("channel_no_creds", channel=name), file=sys.stderr)
+            raise typer.Exit(1)
+        cfg.feishu.enabled = True
+        save_channels_config(cfg)
+        print(_t("channel_enabled", channel=name))
+    else:
+        print(_t("invalid_selection"), file=sys.stderr)
+        raise typer.Exit(1)
+
+
+@channel_app.command("disable")
+def channel_disable(
+    name: str = typer.Argument("feishu", help="渠道名称 / Channel name"),
+) -> None:
+    """禁用指定渠道"""
+    from illusion.channels.config import load_channels_config, save_channels_config
+
+    _ensure_language()
+    cfg = load_channels_config()
+    if name == "feishu":
+        cfg.feishu.enabled = False
+        save_channels_config(cfg)
+        print(_t("channel_disabled", channel=name))
+    else:
+        print(_t("invalid_selection"), file=sys.stderr)
+        raise typer.Exit(1)
+
+
+@channel_app.command("logout")
+def channel_logout(
+    name: str = typer.Argument("feishu", help="渠道名称 / Channel name"),
+) -> None:
+    """清除指定渠道凭据"""
+    from illusion.channels.config import FeishuChannelConfig, load_channels_config, save_channels_config
+
+    _ensure_language()
+    cfg = load_channels_config()
+    if name == "feishu":
+        cfg.feishu = FeishuChannelConfig()  # 重置为默认（清空凭据 + disabled）
+        save_channels_config(cfg)
+        print(_t("channel_logout_done", channel=name))
+    else:
+        print(_t("invalid_selection"), file=sys.stderr)
+        raise typer.Exit(1)
