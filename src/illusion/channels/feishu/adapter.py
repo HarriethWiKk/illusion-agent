@@ -73,13 +73,14 @@ class FeishuChannel(Channel):
         loop.run_in_executor(None, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
 
-    def _on_raw_event(self, event: dict) -> None:
+    def _on_raw_event(self, event: Any) -> None:
         """处理原始飞书事件（在 WS 客户端线程调用）
 
-        标准化事件后投递到入站队列。
+        event 是 lark-oapi 的强类型 P2ImMessageReceiveV1 对象。
+        标准化为 InboundMessage 后线程安全地投递到入站队列。
 
         Args:
-            event: 原始事件 dict
+            event: 强类型事件对象（P2ImMessageReceiveV1）
         """
         try:
             msg = self._normalize(event)
@@ -93,32 +94,53 @@ class FeishuChannel(Channel):
         except Exception as exc:  # noqa: BLE001
             logger.exception("处理飞书事件异常: %s", exc)
 
-    def _normalize(self, event: dict) -> InboundMessage | None:
-        """把原始飞书事件标准化为 InboundMessage
+    def _normalize(self, event: Any) -> InboundMessage | None:
+        """把强类型飞书事件标准化为 InboundMessage
+
+        事件对象结构（lark-oapi 强类型）：
+            event.event.sender.sender_id.open_id / .sender_type
+            event.event.message.chat_id / .chat_type / .message_id / .content
 
         Args:
-            event: 原始事件
+            event: P2ImMessageReceiveV1 事件对象
 
         Returns:
             InboundMessage | None: 标准化消息，无法解析返回 None
         """
         try:
-            msg_data = event.get("event", {}).get("message", {})
-            sender = event.get("event", {}).get("sender", {}).get("sender_id", {})
-            chat_id = msg_data.get("chat_id", "")
-            chat_type_raw = msg_data.get("chat_type", "p2p")  # p2p 或 group
-            user_id = sender.get("open_id", "")
-            message_id = msg_data.get("message_id", "")
-            content = msg_data.get("content", '{"text":""}')
+            data = getattr(event, "event", None)
+            if data is None:
+                return None
+            sender = getattr(data, "sender", None)
+            message = getattr(data, "message", None)
+            if sender is None or message is None:
+                return None
+
+            # 发送者信息
+            sender_id = getattr(sender, "sender_id", None)
+            user_id = ""
+            if sender_id is not None:
+                # 优先 open_id，其次 union_id、user_id
+                user_id = (getattr(sender_id, "open_id", None)
+                           or getattr(sender_id, "union_id", None)
+                           or getattr(sender_id, "user_id", None)
+                           or "")
+            sender_type = getattr(sender, "sender_type", "") or ""
+            is_bot = sender_type == "app"
+
+            # 消息信息
+            chat_id = getattr(message, "chat_id", "") or ""
+            chat_type_raw = getattr(message, "chat_type", "p2p") or "p2p"  # p2p 或 group
+            message_id = getattr(message, "message_id", "") or ""
+            content = getattr(message, "content", '{"text":""}') or '{"text":""}'
             text = _extract_text(content)
-            is_bot = event.get("event", {}).get("sender", {}).get("sender_type") == "app"
 
             return InboundMessage(
                 text=text,
                 chat_id=chat_id,
                 chat_type="group" if chat_type_raw == "group" else "dm",
                 user_id=user_id,
-                user_name=sender.get("name", ""),
+                user_name="",  # 飞书事件不直接带显示名，需另调 API 获取
                 message_id=message_id,
                 is_bot=is_bot,
             )
@@ -126,21 +148,39 @@ class FeishuChannel(Channel):
             logger.warning("标准化飞书事件失败: %s", exc)
             return None
 
-    def _event_mentions_bot(self, event: dict) -> bool:
+    def _event_mentions_bot(self, event: Any) -> bool:
         """检测事件是否 @了 bot
 
+        事件对象的 message.mentions 是 MentionEvent 列表，
+        每项有 .id（含 .open_id 等属性）或 .key/name。
+
         Args:
-            event: 原始事件
+            event: P2ImMessageReceiveV1 事件对象
 
         Returns:
             bool: 是否 @了 bot
         """
-        mentions = event.get("event", {}).get("message", {}).get("mentions", [])
-        if not mentions:
+        try:
+            data = getattr(event, "event", None)
+            if data is None:
+                return False
+            message = getattr(data, "message", None)
+            if message is None:
+                return False
+            mentions = getattr(message, "mentions", None) or []
+            if not mentions:
+                return False
+            if not self._bot_open_id:
+                return True  # 未能 hydrate bot ID 时，有 mention 即认为 @了
+            for m in mentions:
+                # MentionEvent.id 是 UserId 对象，有 open_id 属性
+                m_id = getattr(m, "id", None)
+                if m_id is not None:
+                    if getattr(m_id, "open_id", None) == self._bot_open_id:
+                        return True
             return False
-        if not self._bot_open_id:
-            return bool(mentions)  # 未能 hydrate bot ID 时，有 mention 即认为 @了
-        return any(m.get("id", {}).get("open_id") == self._bot_open_id for m in mentions)
+        except Exception:  # noqa: BLE001
+            return False
 
     def _admit(self, msg: InboundMessage, *, mentioned_bot: bool) -> bool:
         """准入控制：决定消息是否进入 agent

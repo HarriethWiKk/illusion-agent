@@ -46,7 +46,10 @@ def write_pid(path: Path, pid: int) -> None:
 def is_process_alive(pid: int) -> bool:
     """检测指定 PID 的进程是否存活
 
-    跨平台实现：用 os.kill(pid, 0) 探测。
+    跨平台实现：
+    - Windows：用 ctypes.OpenProcess 探测（os.kill 在 Windows 上不可靠，
+      对不存在的进程会抛出混乱异常「returned a result with an exception set」）
+    - Unix：用 os.kill(pid, 0) 发送 0 信号探测
 
     Args:
         pid: 进程 ID
@@ -56,6 +59,17 @@ def is_process_alive(pid: int) -> bool:
     """
     if pid <= 0:
         return False
+    if os.name == "nt":
+        # Windows：用 OpenProcess 探测，返回句柄非零即存在
+        # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        import ctypes
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        SYNCHRONIZE = 0x00100000
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return False
     try:
         os.kill(pid, 0)  # 发送 0 信号探测
     except ProcessLookupError:
@@ -63,7 +77,7 @@ def is_process_alive(pid: int) -> bool:
     except PermissionError:
         return True  # 进程存在但无权限（仍视为存活）
     except (OverflowError, OSError):
-        # OverflowError: PID 超 C long 范围（Windows 上大 PID）
+        # OverflowError: PID 超 C long 范围
         # OSError: 其他系统调用错误
         return False
     return True
