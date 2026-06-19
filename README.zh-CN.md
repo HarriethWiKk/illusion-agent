@@ -1368,25 +1368,28 @@ illusion mcp remove <name>       # 移除服务器
 
 ## 📱 消息渠道
 
-IllusionCode 支持消息渠道，让你能通过飞书（Feishu / Lark）等即时通讯应用与 AI 助手交互。这实现了**远程继续工作**——在终端开始一个任务，然后通过飞书在手机上继续。
+IllusionCode 支持消息渠道，让你能通过飞书（Feishu / Lark）和微信等即时通讯应用与 AI 助手交互。这实现了**远程继续工作**——在终端开始一个任务，然后通过手机继续。
 
 ### 工作原理
 
 ```
 illusion（主程序启动）
- ├─ 读取 channels.json → feishu.enabled == true
+ ├─ 读取 channels.json → feishu.enabled / weixin.enabled
  ├─ 静默后台 spawn 'illusion channel serve' 守护进程
- │    └─ WS 长连接飞书，监听消息 → 跑 agent → 流式卡片回复
+ │    └─ 飞书：WS 长连接 → agent → 流式卡片回复
+ │    └─ 微信：HTTP 长轮询 → agent → 打字状态 + 文本回复
  └─ run_repl()  ← 本地终端交互（不受影响）
 
-手机飞书 App
- └─ 发消息 → 守护进程接收 → agent 处理 → 交互卡片流式回复
+手机
+ └─ 发消息 → 守护进程接收 → agent 处理 → 回复
 ```
 
-- 渠道守护进程作为**独立后台进程**运行，REPL 退出后继续存活
-- 所有回复使用**飞书交互卡片**（JSON 2.0），完整渲染 Markdown（表格、代码块、标题、列表）
-- 卡片通过 `message.patch` 支持**无限次流式更新**（无编辑次数限制）
-- 渠道会话**按用户隔离**（私聊：每用户独立；群组：默认每用户每群独立）
+### 支持的渠道
+
+| 渠道 | 协议 | 流式输出 | 群聊 | 状态 |
+|------|------|----------|------|------|
+| 飞书 / Feishu / Lark | WS 长连接 | 交互卡片（JSON 2.0） | ✅ | 生产就绪 |
+| 微信（iLink Bot） | HTTP 长轮询 | 打字状态 + 文本 | ❌（仅私聊） | 生产就绪 |
 
 ### 快速开始（飞书）
 
@@ -1539,14 +1542,49 @@ illusion channel serve
 | WS 连接反复重连 | 检查 App ID/Secret 是否正确；确认事件订阅设为长连接模式 |
 | 编辑次数超限（230072） | 不适用——卡片使用 `message.patch`，无编辑次数限制 |
 
+### 快速开始（微信）
+
+微信使用 **iLink Bot API**（腾讯官方 Bot API，通过 HTTPS 长轮询）。不是逆向 hook，不需要微信客户端运行。
+
+#### 1. 配置渠道
+
+```bash
+illusion channel login
+# 选择：2. 微信 / WeChat
+```
+
+这将：
+1. 自动安装 `aiohttp`、`cryptography`、`qrcode`（仅首次）
+2. 在浏览器中打开二维码页面
+3. 用微信扫码授权 bot 身份
+4. 保存凭据到 `~/.illusion/channels.json`
+
+#### 2. 开始使用
+
+```bash
+illusion                    # 自动后台激活微信守护进程
+# 或
+illusion channel serve      # 前台模式（查看日志）
+```
+
+在微信给 bot 发消息——你会看到「对方正在输入」指示，然后收到完整回复。
+
+#### 3. 关键限制
+
+- **仅私聊**——bot 身份无法加入普通微信群
+- **不支持消息编辑**——回复作为完整文本发送（打字状态指示处理中）
+- **2000 字符限制**——超长回复自动分多条发送，间隔 1.5s
+- **会话过期**——如果看到 `errcode=-14`，重新运行 `illusion channel login` 扫码
+
 ### 渠道架构
 
 ```
 src/illusion/channels/
 ├── __init__.py          # ChannelRunner（消息→agent 粘合层）+ maybe_spawn_channel_daemon
-├── base.py              # Channel 抽象基类 + InboundMessage
-├── config.py            # ChannelsConfig / FeishuChannelConfig 模型
-├── serve.py             # 'illusion channel serve' 入口
+├── base.py              # Channel 抽象基类 + InboundMessage + 打字状态方法
+├── base_commands.py     # BaseCommandHandler（通用斜杠命令基类）
+├── config.py            # ChannelsConfig / FeishuChannelConfig / WeixinChannelConfig
+├── serve.py             # 'illusion channel serve' 入口（多渠道调度）
 ├── pid.py               # PID 文件管理（避免重复启动守护进程）
 ├── feishu/
 │   ├── adapter.py       # FeishuChannel：WS 连接、事件分发、准入控制
@@ -1554,7 +1592,13 @@ src/illusion/channels/
 │   ├── messaging.py     # 卡片发送/更新、消息渲染
 │   ├── stream_editor.py # 流式卡片编辑器（节流 patch 更新）
 │   ├── session_map.py   # 飞书会话存储（chat_id → 会话）
-│   └── commands.py      # 飞书侧斜杠命令处理
+│   └── commands.py      # FeishuCommandHandler（继承 BaseCommandHandler）
+├── weixin/
+│   ├── __init__.py      # WEIXIN_DEPENDENCIES / ensure_weixin_dependencies
+│   ├── adapter.py       # WeixinChannel：长轮询、准入、context_token、打字状态
+│   ├── ilink_api.py     # iLink Bot API 客户端（扫码/收发/打字/分片）
+│   ├── session_map.py   # WeixinSessionStore（user_id → 会话）
+│   └── commands.py      # WeixinCommandHandler（继承 BaseCommandHandler）
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
     └── feishu_drive.py  # feishu_drive_list / upload / download

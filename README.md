@@ -1368,25 +1368,28 @@ When an LLM operation triggers a sandbox restriction (e.g., reading a file in `d
 
 ## 📱 Messaging Channels
 
-IllusionCode supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark). This enables **remote work continuation** — start a task on your terminal, then continue it from your phone via Feishu.
+IllusionCode supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark) and WeChat. This enables **remote work continuation** — start a task on your terminal, then continue it from your phone.
 
 ### How It Works
 
 ```
 illusion (main program)
- ├─ Reads channels.json → feishu.enabled == true
+ ├─ Reads channels.json → feishu.enabled / weixin.enabled
  ├─ Silently spawns 'illusion channel serve' as a background daemon
- │    └─ WS long connection to Feishu, listens for messages → runs agent → streaming reply
+ │    └─ Feishu: WS long connection → agent → streaming card reply
+ │    └─ WeChat: HTTP long-poll → agent → typing indicator + text reply
  └─ run_repl()  ← Local terminal interaction (unaffected)
 
-Feishu app on your phone
- └─ Send message → daemon receives → agent processes → interactive card reply (streaming)
+Your phone
+ └─ Send message → daemon receives → agent processes → reply
 ```
 
-- The channel daemon runs as a **detached background process** that survives REPL exit
-- All replies use **Feishu interactive cards** (JSON 2.0) with full Markdown rendering (tables, code blocks, headings, lists)
-- Cards support **unlimited streaming updates** via `message.patch` (no edit count limit)
-- Channel sessions are **isolated per user** (DM: one session per user; group: one session per user per group by default)
+### Supported Channels
+
+| Channel | Protocol | Streaming | Group Chat | Status |
+|---------|----------|-----------|------------|--------|
+| Feishu / Lark | WS long connection | Interactive card (JSON 2.0) | ✅ | Production ready |
+| WeChat (iLink Bot) | HTTP long-poll | Typing indicator + text | ❌ (DM only) | Production ready |
 
 ### Quick Start (Feishu)
 
@@ -1539,14 +1542,49 @@ Reply `y` to approve, or wait for auto-deny after 120s. Same mechanism applies t
 | WS connection keeps reconnecting | Verify App ID/Secret are correct; check event subscription is set to Long Connection mode |
 | Edit limit (230072) | Not applicable — cards use `message.patch` which has no edit count limit |
 
+### Quick Start (WeChat)
+
+WeChat uses the **iLink Bot API** (Tencent's official Bot API via HTTPS long-poll). It's not a reverse-engineering hook — no WeChat client needs to be running.
+
+#### 1. Configure the Channel
+
+```bash
+illusion channel login
+# Select: 2. WeChat
+```
+
+This will:
+1. Auto-install `aiohttp`, `cryptography`, `qrcode` (first time only)
+2. Open your browser with a QR code page
+3. Scan with WeChat to authorize the bot identity
+4. Save credentials to `~/.illusion/channels.json`
+
+#### 2. Start Using
+
+```bash
+illusion                    # Auto-activates WeChat daemon in background
+# or
+illusion channel serve      # Foreground mode with logs
+```
+
+Send a message to your bot in WeChat — you'll see "typing..." indicator, then the full reply.
+
+#### 3. Key Limitations
+
+- **DM only** — bot identity cannot join normal WeChat groups
+- **No message editing** — replies are sent as complete text (typing indicator shows during processing)
+- **2000 char limit** — longer replies auto-split into multiple messages with 1.5s delay
+- **Session expires** — if you see `errcode=-14`, re-run `illusion channel login` to re-scan
+
 ### Channel Architecture
 
 ```
 src/illusion/channels/
 ├── __init__.py          # ChannelRunner (message→agent glue) + maybe_spawn_channel_daemon
-├── base.py              # Channel ABC + InboundMessage
-├── config.py            # ChannelsConfig / FeishuChannelConfig models
-├── serve.py             # 'illusion channel serve' entry point
+├── base.py              # Channel ABC + InboundMessage + typing methods
+├── base_commands.py     # BaseCommandHandler (shared slash commands)
+├── config.py            # ChannelsConfig / FeishuChannelConfig / WeixinChannelConfig
+├── serve.py             # 'illusion channel serve' entry point (multi-channel)
 ├── pid.py               # PID file management (avoid duplicate daemons)
 ├── feishu/
 │   ├── adapter.py       # FeishuChannel: WS connection, event dispatch, admission control
@@ -1554,7 +1592,13 @@ src/illusion/channels/
 │   ├── messaging.py     # Card send/patch, message rendering
 │   ├── stream_editor.py # Streaming card editor (throttled patch updates)
 │   ├── session_map.py   # Feishu session store (chat_id → session)
-│   └── commands.py      # Feishu slash command handler
+│   └── commands.py      # FeishuCommandHandler (extends BaseCommandHandler)
+├── weixin/
+│   ├── __init__.py      # WEIXIN_DEPENDENCIES / ensure_weixin_dependencies
+│   ├── adapter.py       # WeixinChannel: long-poll, admission, context_token, typing
+│   ├── ilink_api.py     # iLink Bot API client (QR login / send / poll / typing)
+│   ├── session_map.py   # WeixinSessionStore (user_id → session)
+│   └── commands.py      # WeixinCommandHandler (extends BaseCommandHandler)
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
     └── feishu_drive.py  # feishu_drive_list / upload / download
