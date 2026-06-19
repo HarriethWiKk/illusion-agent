@@ -1461,8 +1461,9 @@ def _weixin_login() -> None:
     ensure_weixin_dependencies()
 
     # 2. 扫码登录（浏览器投射二维码）
+    import asyncio
     from illusion.channels.weixin.ilink_api import qr_login_with_browser
-    creds = qr_login_with_browser()
+    creds = asyncio.run(qr_login_with_browser())
     if creds is None:
         print(_t("weixin_qr_timeout"), file=sys.stderr)
         raise typer.Exit(1)
