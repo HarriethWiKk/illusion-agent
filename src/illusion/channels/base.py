@@ -120,3 +120,22 @@ class Channel(ABC):
     async def shutdown(self) -> None:
         """关闭渠道连接，释放资源"""
         ...
+
+    async def start_typing(self, chat_id: str) -> None:
+        """开始打字状态指示（可选，微信渠道实现）
+
+        飞书不需要打字状态（用卡片流式更新），默认空操作。
+        微信渠道重写此方法发送 iLink 打字状态。
+
+        Args:
+            chat_id: 目标会话
+        """
+        pass  # 默认空操作
+
+    async def stop_typing(self, chat_id: str) -> None:
+        """停止打字状态指示（可选，微信渠道实现）
+
+        Args:
+            chat_id: 目标会话
+        """
+        pass  # 默认空操作
