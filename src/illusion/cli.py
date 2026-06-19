@@ -1379,6 +1379,7 @@ def main(
 # 渠道选项列表（未来新增渠道在此追加）
 _CHANNEL_OPTIONS: list[tuple[str, dict[str, str]]] = [
     ("feishu", _I18N.get("channel_feishu_label", {"zh-CN": "飞书", "en-US": "Feishu"})),
+    ("weixin", _I18N.get("channel_weixin_label", {"zh-CN": "微信", "en-US": "WeChat"})),
 ]
 
 
@@ -1445,6 +1446,42 @@ def _feishu_login() -> None:
     print(_t("channel_saved", path=str(path), channel=_t("channel_feishu_label")))
 
 
+def _weixin_login() -> None:
+    """微信渠道扫码登录流程
+
+    安装依赖 → 扫码登录（浏览器投射二维码）→ 保存凭据
+    """
+    from illusion.channels.weixin import ensure_weixin_dependencies
+    from illusion.channels.config import (
+        WeixinChannelConfig, load_channels_config, save_channels_config,
+    )
+    from illusion.config.paths import get_channels_file_path
+
+    # 1. 安装依赖（与飞书同模式，首次配置时自动装）
+    ensure_weixin_dependencies()
+
+    # 2. 扫码登录（浏览器投射二维码）
+    from illusion.channels.weixin.ilink_api import qr_login_with_browser
+    creds = qr_login_with_browser()
+    if creds is None:
+        print(_t("weixin_qr_timeout"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 3. 保存
+    cfg = load_channels_config()
+    cfg.weixin = WeixinChannelConfig(
+        enabled=True,
+        account_id=creds.account_id,
+        token=creds.token,
+        base_url=creds.base_url,
+        user_id=creds.user_id,
+    )
+    save_channels_config(cfg)
+
+    path = get_channels_file_path()
+    print(_t("channel_saved", path=str(path), channel=_t("channel_weixin_label")))
+
+
 @channel_app.command("login")
 def channel_login() -> None:
     """交互式配置消息渠道
@@ -1478,7 +1515,9 @@ def channel_login() -> None:
     if channel_choice == "feishu":
         _feishu_login()
         return
-    # 未来新增渠道在此追加分发
+    elif channel_choice == "weixin":
+        _weixin_login()
+        return
 
 
 @channel_app.command("serve")
@@ -1502,7 +1541,9 @@ def channel_status() -> None:
 
     print("渠道状态 / Channel status:")
     feishu_state = _t("channel_connected") if (cfg.feishu.enabled and running) else _t("channel_disconnected")
+    weixin_state = _t("channel_connected") if (cfg.weixin.enabled and running) else _t("channel_disconnected")
     print(f"  feishu: enabled={cfg.feishu.enabled} {feishu_state}")
+    print(f"  weixin: enabled={cfg.weixin.enabled} {weixin_state}")
 
 
 @channel_app.command("enable")
@@ -1519,6 +1560,13 @@ def channel_enable(
             print(_t("channel_no_creds", channel=name), file=sys.stderr)
             raise typer.Exit(1)
         cfg.feishu.enabled = True
+        save_channels_config(cfg)
+        print(_t("channel_enabled", channel=name))
+    elif name == "weixin":
+        if not cfg.weixin.account_id:
+            print(_t("channel_no_creds", channel=name), file=sys.stderr)
+            raise typer.Exit(1)
+        cfg.weixin.enabled = True
         save_channels_config(cfg)
         print(_t("channel_enabled", channel=name))
     else:
@@ -1539,6 +1587,10 @@ def channel_disable(
         cfg.feishu.enabled = False
         save_channels_config(cfg)
         print(_t("channel_disabled", channel=name))
+    elif name == "weixin":
+        cfg.weixin.enabled = False
+        save_channels_config(cfg)
+        print(_t("channel_disabled", channel=name))
     else:
         print(_t("invalid_selection"), file=sys.stderr)
         raise typer.Exit(1)
@@ -1549,12 +1601,19 @@ def channel_logout(
     name: str = typer.Argument("feishu", help="渠道名称 / Channel name"),
 ) -> None:
     """清除指定渠道凭据"""
-    from illusion.channels.config import FeishuChannelConfig, load_channels_config, save_channels_config
+    from illusion.channels.config import (
+        FeishuChannelConfig, WeixinChannelConfig,
+        load_channels_config, save_channels_config,
+    )
 
     _ensure_language()
     cfg = load_channels_config()
     if name == "feishu":
         cfg.feishu = FeishuChannelConfig()  # 重置为默认（清空凭据 + disabled）
+        save_channels_config(cfg)
+        print(_t("channel_logout_done", channel=name))
+    elif name == "weixin":
+        cfg.weixin = WeixinChannelConfig()  # 重置为默认（清空凭据 + disabled）
         save_channels_config(cfg)
         print(_t("channel_logout_done", channel=name))
     else:
