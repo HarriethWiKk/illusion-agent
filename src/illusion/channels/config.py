@@ -73,6 +73,29 @@ class FeishuChannelConfig(BaseModel):
     group_policy: FeishuGroupPolicy = Field(default_factory=FeishuGroupPolicy)  # 群组策略
 
 
+class WeixinChannelConfig(BaseModel):
+    """微信渠道配置
+
+    凭据由扫码登录动态获取（account_id 形如 xxx@im.bot）。
+    采用腾讯 iLink Bot API（长轮询），不是逆向 hook。
+
+    Attributes:
+        enabled: 是否启用该渠道
+        account_id: iLink Bot 账号 ID（@im.bot 格式，扫码后获取）
+        token: iLink Bot 鉴权 token（Bearer，扫码后获取）
+        base_url: API 入口（可能因扫码重定向改变）
+        user_id: bot 自身 ilink user id
+        allow_bots: 是否处理其他机器人的消息
+    """
+
+    enabled: bool = False  # 默认未启用
+    account_id: str = ""  # @im.bot 格式
+    token: str = ""  # Bearer token
+    base_url: str = "https://ilinkai.weixin.qq.com"  # API 入口
+    user_id: str = ""  # bot 自身 user id
+    allow_bots: bool = False  # 默认拒绝机器人消息
+
+
 class ChannelsConfig(BaseModel):
     """所有渠道配置容器（channels.json）
 
@@ -80,9 +103,11 @@ class ChannelsConfig(BaseModel):
 
     Attributes:
         feishu: 飞书渠道配置
+        weixin: 微信渠道配置
     """
 
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)  # 飞书配置
+    weixin: WeixinChannelConfig = Field(default_factory=WeixinChannelConfig)  # 微信配置
 
     def has_enabled_channels(self) -> bool:
         """是否有任何已启用的渠道
@@ -90,7 +115,7 @@ class ChannelsConfig(BaseModel):
         Returns:
             bool: 任一渠道 enabled 为 True 时返回 True
         """
-        return self.feishu.enabled
+        return self.feishu.enabled or self.weixin.enabled
 
     def enabled_channel_names(self) -> list[str]:
         """返回所有已启用渠道的名称列表
@@ -101,6 +126,8 @@ class ChannelsConfig(BaseModel):
         names: list[str] = []
         if self.feishu.enabled:
             names.append("feishu")
+        if self.weixin.enabled:
+            names.append("weixin")
         return names
 
 
