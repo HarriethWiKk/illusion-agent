@@ -1257,14 +1257,35 @@ def main(
     if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
         return
 
-    # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（REPL 退出后独立存活）
+    # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
+    _daemon_proc = None
     try:
         from illusion.channels import maybe_spawn_channel_daemon
-        maybe_spawn_channel_daemon()
+        _daemon_proc = maybe_spawn_channel_daemon()
     except Exception as exc:  # noqa: BLE001
-        # 自动激活失败不应阻断主程序，仅记日志
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
+
+    # REPL 退出时终止渠道守护进程
+    def _kill_channel_daemon() -> None:
+        """退出时终止渠道守护进程"""
+        nonlocal _daemon_proc
+        try:
+            if _daemon_proc is not None and _daemon_proc.poll() is None:
+                _daemon_proc.terminate()
+                try:
+                    _daemon_proc.wait(timeout=3)
+                except Exception:
+                    _daemon_proc.kill()
+        except Exception:
+            pass
+        finally:
+            try:
+                from illusion.channels.pid import PidFile
+                from illusion.config.paths import get_channels_data_dir
+                PidFile(get_channels_data_dir() / "daemon.pid").release()
+            except Exception:
+                pass
 
     import asyncio  # 异步编程模块
 
@@ -1358,20 +1379,23 @@ def main(
         return
 
     # 启动交互式 REPL 会话
-    asyncio.run(
-        run_repl(
-            prompt=None,  # 无初始提示词
-            cwd=cwd,  # 工作目录
-            model=model,  # 模型
-            max_turns=max_turns,  # 最大轮次
-            backend_only=backend_only,  # 仅后端模式
-            base_url=base_url,  # 基础 URL
-            system_prompt=system_prompt,  # 系统提示词
-            api_key=api_key,  # API 密钥
-            api_format=api_format,  # API 格式
-            effort=effort,  # 推理强度级别
+    try:
+        asyncio.run(
+            run_repl(
+                prompt=None,  # 无初始提示词
+                cwd=cwd,  # 工作目录
+                model=model,  # 模型
+                max_turns=max_turns,  # 最大轮次
+                backend_only=backend_only,  # 仅后端模式
+                base_url=base_url,  # 基础 URL
+                system_prompt=system_prompt,  # 系统提示词
+                api_key=api_key,  # API 密钥
+                api_format=api_format,  # API 格式
+                effort=effort,  # 推理强度级别
+            )
         )
-    )
+    finally:
+        _kill_channel_daemon()
 
 
 # ---- channel 子命令 ----

@@ -205,8 +205,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_press_exit": {"zh-CN": "[渠道] 按 Ctrl+C 退出", "en-US": "[Channel] Press Ctrl+C to exit"},
     "channel_connected": {"zh-CN": "已连接", "en-US": "connected"},
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
-    # --- 飞书侧斜杠命令（用户在飞书中看到）---
-    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /sessions /resume /detach /model"},
+    # --- 飞书侧（用户在飞书中看到）---
+    "feishu_thinking": {"zh-CN": "illusion code 正在思考中...", "en-US": "illusion code is thinking..."},
+    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /delete /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /delete /sessions /resume /detach /model"},
     "feishu_cmd_cleared": {"zh-CN": "飞书会话已清空，开始新对话。", "en-US": "Feishu session cleared, starting fresh."},
     "feishu_cmd_new": {"zh-CN": "已开启新的飞书会话。", "en-US": "New Feishu session started."},
     "feishu_cmd_sessions_title": {"zh-CN": "本地未完成会话:", "en-US": "Local unfinished sessions:"},
@@ -228,6 +229,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "weixin_qr_timeout": {"zh-CN": "扫码超时，请重新运行 illusion channel login", "en-US": "QR scan timed out, run 'illusion channel login' again"},
     "weixin_login_success": {"zh-CN": "微信登录成功", "en-US": "WeChat login successful"},
     "weixin_session_expired": {"zh-CN": "微信会话已过期，请重新运行 'illusion channel login'", "en-US": "WeChat session expired, run 'illusion channel login' again"},
+    "weixin_cmd_new": {"zh-CN": "已开启新的微信会话。", "en-US": "New WeChat session started."},
     "channel_starting_weixin": {"zh-CN": "[渠道] 正在启动微信渠道...", "en-US": "[Channel] Starting WeChat channel..."},
 }
 

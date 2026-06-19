@@ -6,7 +6,6 @@
 子模块：
     - adapter: WS 长连接与事件分发
     - messaging: 消息收发
-    - stream_editor: 流式编辑
     - session_map: 飞书会话存储
     - commands: 飞书侧斜杠命令
 

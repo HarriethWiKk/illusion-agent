@@ -95,6 +95,21 @@ class FeishuSessionStore:
         safe = key.replace(":", "_").replace("/", "_")  # 安全文件名
         return self.data_dir / f"{safe}.json"
 
+    def check_signal(self) -> bool:
+        """检查 /delete 信号文件是否存在
+
+        Returns:
+            bool: 信号存在返回 True
+        """
+        return (self.data_dir / ".delete_signal").exists()
+
+    def clear_signal(self) -> None:
+        """删除信号文件"""
+        try:
+            (self.data_dir / ".delete_signal").unlink()
+        except OSError:
+            pass
+
     def get_or_create(self, key: str, user_id: str, chat_type: str) -> FeishuSession:
         """获取或创建会话
 
@@ -159,6 +174,27 @@ class FeishuSessionStore:
             path.unlink()
         except FileNotFoundError:
             pass  # 已删除
+
+    def clear_by_session_id(self, session_id: str) -> bool:
+        """按 session_id 删除会话文件（用于 /delete 命令跨渠道清理）
+
+        遍历所有 JSON 文件，找到匹配的 session_id 并删除。
+
+        Args:
+            session_id: 要删除的会话 ID
+
+        Returns:
+            bool: 找到并删除返回 True
+        """
+        for path in self.data_dir.glob("*.json"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if raw.get("session_id") == session_id:
+                    path.unlink()
+                    return True
+            except (json.JSONDecodeError, ValueError, OSError):
+                continue
+        return False
 
     def inject(self, key: str, messages: list[dict]) -> None:
         """用外部消息替换指定键的会话历史（用于 /resume）

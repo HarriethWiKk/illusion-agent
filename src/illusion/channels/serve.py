@@ -76,6 +76,7 @@ def run_channel_serve() -> None:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     # stdout handler（前台运行时可见；detached 时可能缓冲但不影响文件）
+    # 注：守护进程通过 PYTHONIOENCODING=utf-8 启动，避免 Windows GBK 编码问题
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)

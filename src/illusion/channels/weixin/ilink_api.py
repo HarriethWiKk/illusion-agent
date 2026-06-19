@@ -81,23 +81,53 @@ def _random_wechat_uin() -> str:
     return str(random.randint(10**17, 10**18 - 1))
 
 
-def _build_headers(token: str) -> dict[str, str]:
+def _make_ssl_connector() -> Any:
+    """创建带 certifi CA 证书的 TCPConnector（若可用）
+
+    腾讯 iLink 服务器在部分系统 CA 商店中无法验证（如 macOS Homebrew OpenSSL）。
+    安装 certifi 时使用其 Mozilla CA 证书包，否则回退到 aiohttp 默认。
+
+    Returns:
+        aiohttp.TCPConnector 或 None
+    """
+    try:
+        import ssl
+
+        import certifi
+    except ImportError:
+        return None
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    import aiohttp as _aiohttp
+    return _aiohttp.TCPConnector(ssl=ssl_ctx)
+
+
+def _base_info() -> dict[str, Any]:
+    """iLink base_info 附加字段"""
+    return {"channel_version": "2.2.0"}
+
+
+def _build_headers(token: str, body: str = "") -> dict[str, str]:
     """构造 iLink API 请求头
 
     Args:
         token: Bearer token
+        body: 请求体字符串（用于计算 Content-Length）
 
     Returns:
         dict: 请求头字典
     """
-    return {
+    headers = {
         "Content-Type": "application/json",
         "AuthorizationType": "ilink_bot_token",
-        "Authorization": f"Bearer {token}",
+        "X-WECHAT-UIN": _random_wechat_uin(),
         "iLink-App-Id": ILINK_APP_ID,
         "iLink-App-ClientVersion": str(ILINK_APP_CLIENT_VERSION),
-        "X-WECHAT-UIN": _random_wechat_uin(),
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if body:
+        headers["Content-Length"] = str(len(body.encode("utf-8")))
+    return headers
 
 
 async def _api_post(
@@ -110,6 +140,9 @@ async def _api_post(
     timeout_ms: int,
 ) -> dict[str, Any]:
     """通用 iLink API POST 调用
+
+    所有 POST 请求自动注入 base_info 字段，手动序列化 JSON 并设置 Content-Length，
+    与 hermes-agent 的 iLink 客户端保持一致。
 
     Args:
         session: aiohttp.ClientSession
@@ -128,9 +161,52 @@ async def _api_post(
     import aiohttp  # 延迟导入
 
     url = f"{base_url}/{endpoint}"
+    body = json.dumps({**payload, "base_info": _base_info()}, ensure_ascii=False, separators=(",", ":"))
     timeout = aiohttp.ClientTimeout(total=timeout_ms / 1000)
-    async with session.post(url, json=payload, headers=_build_headers(token), timeout=timeout) as resp:
-        return await resp.json(content_type=None)  # iLink 返回 octet-stream，跳过 content-type 检查
+    async with session.post(url, data=body, headers=_build_headers(token, body), timeout=timeout) as resp:
+        raw = await resp.text()
+        if not resp.ok:
+            raise RuntimeError(f"iLink POST {endpoint} HTTP {resp.status}: {raw[:200]}")
+        return json.loads(raw)
+
+
+async def _api_get(
+    session: Any,
+    *,
+    base_url: str,
+    endpoint: str,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    """iLink API GET 调用（用于扫码登录的两个端点）
+
+    这两个端点不需要 token，只需 iLink-App-Id 和 iLink-App-ClientVersion 头。
+    响应用 response.text() + json.loads() 解析（避免 content-type 问题）。
+
+    Args:
+        session: aiohttp.ClientSession
+        base_url: API 入口
+        endpoint: 端点路径（含 query 参数）
+        timeout_ms: 超时（毫秒）
+
+    Returns:
+        dict: 响应 JSON
+    """
+    import aiohttp  # 延迟导入
+
+    url = f"{base_url}/{endpoint}"
+    headers = {
+        "iLink-App-Id": ILINK_APP_ID,
+        "iLink-App-ClientVersion": str(ILINK_APP_CLIENT_VERSION),
+    }
+
+    async def _do() -> dict[str, Any]:
+        async with session.get(url, headers=headers) as response:
+            raw = await response.text()
+            if not response.ok:
+                raise RuntimeError(f"iLink GET {endpoint} HTTP {response.status}: {raw[:200]}")
+            return json.loads(raw)
+
+    return await asyncio.wait_for(_do(), timeout=timeout_ms / 1000)
 
 
 async def poll_updates(
@@ -245,6 +321,7 @@ async def get_config(
     base_url: str,
     token: str,
     context_token: str,
+    ilink_user_id: str = "",
 ) -> dict[str, Any]:
     """获取配置（含打字 ticket）
 
@@ -253,13 +330,17 @@ async def get_config(
         base_url: API 入口
         token: Bearer token
         context_token: peer 的 context_token
+        ilink_user_id: 目标用户的 ilink_user_id（API 要求）
 
     Returns:
         dict: 含 typing_ticket 等配置
     """
+    payload: dict[str, Any] = {"context_token": context_token}
+    if ilink_user_id:
+        payload["ilink_user_id"] = ilink_user_id
     return await _api_post(
         session, base_url=base_url, endpoint=EP_GET_CONFIG,
-        payload={"context_token": context_token},
+        payload=payload,
         token=token, timeout_ms=CONFIG_TIMEOUT_MS,
     )
 
@@ -274,9 +355,10 @@ async def get_bot_qrcode(session: Any, *, base_url: str) -> dict[str, Any]:
     Returns:
         dict: 含 qrcode（hex）和 qrcode_img_content
     """
-    return await _api_post(
-        session, base_url=base_url, endpoint=f"{EP_GET_BOT_QR}?bot_type=3",
-        payload={}, token="", timeout_ms=QR_TIMEOUT_MS,
+    return await _api_get(
+        session, base_url=base_url,
+        endpoint=f"{EP_GET_BOT_QR}?bot_type=3",
+        timeout_ms=QR_TIMEOUT_MS,
     )
 
 
@@ -291,9 +373,10 @@ async def get_qrcode_status(session: Any, *, base_url: str, qrcode: str) -> dict
     Returns:
         dict: 含 status（wait/scaned/confirmed/expired 等）
     """
-    return await _api_post(
-        session, base_url=base_url, endpoint=EP_GET_QR_STATUS,
-        payload={"qrcode": qrcode}, token="", timeout_ms=QR_TIMEOUT_MS,
+    return await _api_get(
+        session, base_url=base_url,
+        endpoint=f"{EP_GET_QR_STATUS}?qrcode={qrcode}",
+        timeout_ms=QR_TIMEOUT_MS,
     )
 
 
@@ -328,12 +411,14 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
     流程：
     1. 获取二维码
     2. 用 qrcode 库生成 PNG，启动临时 HTTP 服务投射到浏览器
-    3. 轮询扫码状态（wait/scaned/confirmed/expired）
+    3. 轮询扫码状态（wait/scaned/scaned_but_redirect/expired/confirmed）
     4. 扫码成功后关闭服务，返回凭据
 
     Returns:
         WeixinCredentials | None: 凭据，扫码超时返回 None
     """
+    import time as _time
+
     import aiohttp  # 延迟导入
 
     from illusion.config.i18n import t
@@ -341,8 +426,11 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
     print(t("weixin_qr_fetching"))
     base_url = ILINK_BASE_URL
     timeout = aiohttp.ClientTimeout(total=QR_TIMEOUT_MS / 1000)
+    connector = _make_ssl_connector()
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout, trust_env=True, connector=connector,
+    ) as session:
         # 1. 获取二维码
         qr_resp = await get_bot_qrcode(session, base_url=base_url)
         logger.info("获取二维码完整响应: %s", qr_resp)  # 调试日志
@@ -357,30 +445,76 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
         server_info = _serve_qr_in_browser(qr_content)
         print(t("weixin_qr_waiting"))
 
-        # 3. 轮询扫码状态
+        # 3. 轮询扫码状态（参照 hermes-agent，使用 status 字段判断）
+        deadline = _time.monotonic() + 480  # 总超时 8 分钟
         refresh_count = 0
         max_refreshes = 3
         try:
-            while True:
-                status_resp = await get_qrcode_status(session, base_url=base_url, qrcode=qrcode_hex)
+            while _time.monotonic() < deadline:
+                try:
+                    status_resp = await get_qrcode_status(
+                        session, base_url=base_url, qrcode=qrcode_hex,
+                    )
+                except asyncio.TimeoutError:
+                    await asyncio.sleep(1)
+                    continue
                 logger.info("扫码状态响应: %s", status_resp)  # 调试日志
-                ret = status_resp.get("ret", -1)
 
-                # ret: 0 + 有 bot_token = 扫码确认成功
-                if ret == 0 and status_resp.get("bot_token"):
+                status = str(status_resp.get("status") or "wait")
+
+                if status == "wait":
+                    pass  # 等待扫码，继续轮询
+
+                elif status == "scaned":
+                    print(t("weixin_qr_scanned"))
+
+                elif status == "scaned_but_redirect":
+                    redirect_host = str(status_resp.get("redirect_host") or "")
+                    if redirect_host:
+                        base_url = f"https://{redirect_host}"
+                        logger.info("扫码重定向到: %s", base_url)
+                        print(t("weixin_qr_redirect"))
+
+                elif status == "expired":
+                    refresh_count += 1
+                    if refresh_count > max_refreshes:
+                        print(t("weixin_qr_timeout"))
+                        return None
+                    print(t("weixin_qr_expired"))
+                    try:
+                        qr_resp = await get_bot_qrcode(session, base_url=ILINK_BASE_URL)
+                        qrcode_hex = qr_resp.get("qrcode", "")
+                        qr_url = qr_resp.get("qrcode_img_content", "")
+                        if not qrcode_hex:
+                            logger.error("刷新二维码失败: %s", qr_resp)
+                            return None
+                        # 更新浏览器中的二维码图片
+                        _refresh_qr_server(server_info, qr_url or qrcode_hex)
+                    except Exception as exc:
+                        logger.error("刷新二维码异常: %s", exc)
+                        return None
+
+                elif status == "confirmed":
+                    account_id = str(status_resp.get("ilink_bot_id") or "")
+                    token = str(status_resp.get("bot_token") or "")
+                    base_url = str(status_resp.get("baseurl") or base_url)
+                    user_id = str(status_resp.get("ilink_user_id") or "")
+                    if not account_id or not token:
+                        logger.error("扫码确认但凭据不完整: %s", status_resp)
+                        return None
                     print(t("weixin_login_success"))
                     return WeixinCredentials(
-                        account_id=status_resp.get("ilink_bot_id", ""),
-                        token=status_resp.get("bot_token", ""),
-                        base_url=status_resp.get("baseurl", base_url),
-                        user_id=status_resp.get("ilink_user_id", ""),
+                        account_id=account_id,
+                        token=token,
+                        base_url=base_url,
+                        user_id=user_id,
                     )
-                # ret: 0 但无 bot_token = 已扫码，等待手机确认
-                elif ret == 0:
-                    print(t("weixin_qr_scanned"))
-                # ret: 1 = 等待扫码
-                else:
-                    pass  # 继续轮询
+
+                await asyncio.sleep(1)
+
+            # 超时
+            print(t("weixin_qr_timeout"))
+            return None
         finally:
             server_info["server"].shutdown()
 

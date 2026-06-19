@@ -23,9 +23,32 @@ from illusion.channels.config import load_channels_config
 
 if TYPE_CHECKING:
     from illusion.channels.base import Channel, InboundMessage
+    from illusion.channels.config import ChannelsConfig
     from illusion.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _config_fingerprint(cfg: "ChannelsConfig") -> str:
+    """计算渠道配置指纹（用于检测配置变更后重启守护进程）
+
+    Args:
+        cfg: 渠道配置
+
+    Returns:
+        str: 配置指纹（MD5 hex）
+    """
+    import hashlib
+    import json as _json
+
+    # 只取影响守护进程行为的字段
+    enabled_channels = []
+    if cfg.feishu.enabled:
+        enabled_channels.append(f"feishu:{cfg.feishu.app_id}")
+    if cfg.weixin.enabled:
+        enabled_channels.append(f"weixin:{cfg.weixin.account_id}:{cfg.weixin.token}")
+    raw = _json.dumps(sorted(enabled_channels), ensure_ascii=False)
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 def maybe_spawn_channel_daemon() -> None:
@@ -33,6 +56,8 @@ def maybe_spawn_channel_daemon() -> None:
 
     读取 channels.json，若有 enabled 渠道且守护进程未运行，
     spawn 一个 'illusion channel serve' 子进程。
+
+    配置变更时自动重启旧守护进程（如 channel login 新增渠道后）。
 
     子进程独立存活，REPL 退出后不杀。完全静默，不向主终端打印任何提示。
     """
@@ -43,9 +68,39 @@ def maybe_spawn_channel_daemon() -> None:
     if not cfg.has_enabled_channels():
         return  # 无启用渠道，静默跳过
 
-    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
+    data_dir = get_channels_data_dir()
+    pid_file = PidFile(data_dir / "daemon.pid")
+    fingerprint_path = data_dir / "daemon.fingerprint"
+    current_fp = _config_fingerprint(cfg)
+
     if pid_file.is_running():
-        return  # 已在运行，静默跳过
+        # 守护进程在运行，检查配置是否变更
+        stored_fp = ""
+        try:
+            stored_fp = fingerprint_path.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError):
+            pass
+        if stored_fp == current_fp:
+            return  # 配置未变，跳过
+
+        # 配置已变，终止旧守护进程后重启（is_running 已确认存活）
+        from illusion.channels.pid import read_pid
+        old_pid = read_pid(pid_file.path)
+        if old_pid is not None:
+            try:
+                if os.name == "nt":
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                    handle = kernel32.OpenProcess(0x00010000, False, old_pid)  # PROCESS_TERMINATE
+                    if handle:
+                        kernel32.TerminateProcess(handle, 0)
+                        kernel32.CloseHandle(handle)
+                else:
+                    import signal
+                    os.kill(old_pid, signal.SIGTERM)
+            except (OSError, ProcessLookupError):
+                pass
+            pid_file.release()
 
     # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
     creation_flags = 0
@@ -53,10 +108,12 @@ def maybe_spawn_channel_daemon() -> None:
         # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         creation_flags = 0x00000008 | 0x00000200
 
-    log_path = get_channels_data_dir() / "serve.log"
+    log_path = data_dir / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
+        # 继承当前环境并强制 UTF-8 编码，避免 Windows GBK 遇到 emoji 崩溃
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "channel", "serve"],
             stdout=log_file,
@@ -64,11 +121,14 @@ def maybe_spawn_channel_daemon() -> None:
             stdin=subprocess.DEVNULL,
             creationflags=creation_flags,
             close_fds=True,
+            env=env,
         )
         pid_file.acquire(proc.pid)
+        fingerprint_path.write_text(current_fp, encoding="utf-8")
+        return proc
     except OSError as exc:
         logger.warning("启动渠道守护进程失败: %s", exc)
-        return
+        return None
 
 
 class ChannelRunner:
@@ -139,6 +199,20 @@ class ChannelRunner:
         Args:
             msg: 入站消息
         """
+        # 检查 /delete 信号：先执行 /new（清所有会话+发确认），再处理消息
+        if self.session_store.check_signal():
+            for path in self.session_store.data_dir.glob("*.json"):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            from illusion.config.i18n import t as _t
+            if isinstance(self.channel, _get_weixin_channel_class()):
+                await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
+            else:
+                await self.channel.send_text(msg.chat_id, _t("feishu_cmd_new"))
+            self.session_store.clear_signal()
+
         # 1. 待回复的权限/询问
         if msg.chat_id in self._pending_replies:
             fut = self._pending_replies.pop(msg.chat_id)
@@ -207,8 +281,8 @@ class ChannelRunner:
     async def _run_agent(self, msg: "InboundMessage") -> None:
         """为单条消息构建 runtime 并跑 agent
 
-        飞书：用 StreamEditor 流式卡片更新（edit_message 实际生效）。
-        微信：不支持消息编辑，收集完整文本后一次性发送（打字状态指示处理中）。
+        统一流程：发送"思考中"提示 → 收集流式文本 → 一次性渲染/发送。
+        飞书通过 edit_message patch 卡片，微信通过 send_text 发送。
 
         Args:
             msg: 入站消息
@@ -224,31 +298,23 @@ class ChannelRunner:
         # 检测渠道是否支持消息编辑（飞书支持卡片 patch，微信不支持）
         supports_edit = not isinstance(self.channel, _get_weixin_channel_class())
 
+        # 统一收集流式文本，处理完后一次性发送/渲染
+        collected_text: list[str] = []
+        thinking_msg_id: str | None = None  # 飞书"思考中"卡片的 msg_id
+
+        async def render_event(ev: Any) -> None:
+            """流式事件收集（飞书和微信统一：仅累积文本，不实时更新）"""
+            if isinstance(ev, AssistantTextDelta):
+                collected_text.append(ev.text)
+            elif isinstance(ev, ErrorEvent):
+                collected_text.append(f"\n❌ {ev.message}")
+
         if supports_edit:
-            # 飞书：流式卡片编辑
-            from illusion.channels.feishu.stream_editor import FeishuStreamEditor
-            editor = FeishuStreamEditor(self.channel, msg.chat_id, msg.message_id)
-
-            async def render_event(ev: Any) -> None:
-                """流式事件渲染到卡片"""
-                if isinstance(ev, AssistantTextDelta):
-                    await editor.on_delta(ev.text)
-                elif isinstance(ev, ToolExecutionStarted):
-                    await editor.on_delta(f"\n\n🔧 {ev.tool_name}...")
-                elif isinstance(ev, ErrorEvent):
-                    await self.channel.send_text(msg.chat_id, f"❌ {ev.message}")
-        else:
-            # 微信：收集完整文本，处理完一次性发送
-            collected_text: list[str] = []
-
-            async def render_event(ev: Any) -> None:
-                """流式事件收集（微信不支持编辑，仅累积文本）"""
-                if isinstance(ev, AssistantTextDelta):
-                    collected_text.append(ev.text)
-                elif isinstance(ev, ToolExecutionStarted):
-                    collected_text.append(f"\n\n🔧 {ev.tool_name}...")
-                elif isinstance(ev, ErrorEvent):
-                    collected_text.append(f"\n❌ {ev.message}")
+            # 飞书：发送"正在思考中..."卡片，处理完后一次性 patch
+            from illusion.config.i18n import t as _t
+            thinking_msg_id = await self.channel.send_text(
+                msg.chat_id, _t("feishu_thinking"), reply_to=msg.message_id,
+            )
 
         async def print_system(text: str) -> None:
             """系统消息转发到渠道"""
@@ -263,17 +329,38 @@ class ChannelRunner:
         # 处理期间每 5s 刷新打字状态
         typing_task = asyncio.create_task(self._keep_typing_alive(msg.chat_id))
 
+        logger.info("开始处理渠道消息: chat_id=%s text=%s", msg.chat_id, msg.text[:50])
+
         # 构建临时 runtime（复用 build_runtime，注入渠道工具）
-        bundle = await build_runtime(
-            model=session.model or None,
-            api_key=self.settings.resolve_api_key(),
-            restore_messages=session.messages if session.messages else None,
-            restore_session_id=session.session_id,
-            is_interactive=False,
-            permission_prompt=self._make_permission_prompt(msg.chat_id),
-            ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
-            channel_tools=self._build_channel_tools(),
-        )
+        # 校验 session model 是否仍与当前活跃环境兼容，避免切格式后发到旧端点
+        resolved_model = None
+        if session.model:
+            session_env = session.model.split(".")[0] if "." in session.model else ""
+            current_env = getattr(self.settings, "_active_env_key", "") or ""
+            if session_env == current_env:
+                resolved_model = session.model
+            else:
+                logger.info("session model %s 与当前环境 %s 不匹配，使用默认模型",
+                            session.model, current_env)
+        # 去掉模型名中的上下文窗口后缀（如 [1m]），API 不认识
+        if resolved_model:
+            import re
+            resolved_model = re.sub(r"\[.*?\]$", "", resolved_model).strip()
+        try:
+            bundle = await build_runtime(
+                model=resolved_model,
+                api_key=self.settings.resolve_api_key(),
+                restore_messages=session.messages if session.messages else None,
+                restore_session_id=session.session_id,
+                is_interactive=False,
+                permission_prompt=self._make_permission_prompt(msg.chat_id),
+                ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
+                channel_tools=self._build_channel_tools(),
+            )
+        except Exception as exc:
+            logger.exception("构建 runtime 失败: %s", exc)
+            await self.channel.send_text(msg.chat_id, f"❌ 启动失败: {str(exc)[:100]}")
+            return
 
         try:
             await handle_line(
@@ -282,12 +369,14 @@ class ChannelRunner:
                 render_event=render_event,
                 clear_output=clear_output,
             )
-            if supports_edit:
-                await editor.finalize()
-            else:
-                # 微信：一次性发送完整回复
-                full_text = "".join(collected_text).strip()
-                if full_text:
+            full_text = "".join(collected_text).strip()
+            logger.info("agent 处理完成，回复长度=%d", len(full_text))
+            if full_text:
+                if supports_edit and thinking_msg_id:
+                    # 飞书：一次性 patch "思考中"卡片为完整回复
+                    await self.channel.edit_message(msg.chat_id, thinking_msg_id, full_text)
+                else:
+                    # 微信：一次性发送
                     await self.channel.send_text(msg.chat_id, full_text)
             # 持久化渠道会话历史
             engine = getattr(bundle, "engine", None)
@@ -318,17 +407,9 @@ class ChannelRunner:
                 pass  # 打字状态失败不影响主流程
 
     def _make_permission_prompt(self, chat_id: str) -> Any:
-        """构造权限确认回调（推到飞书等回复）"""
+        """构造权限确认回调（渠道自动批准，不影响终端对话）"""
         async def _prompt(tool: str, desc: str) -> bool:
-            await self.channel.send_text(
-                chat_id, f"⚠️ 工具 {tool} 请求权限：{desc}\n回复 'y' 批准（120s 超时自动拒绝）"
-            )
-            try:
-                reply = await self._wait_reply(chat_id, timeout=120)
-            except asyncio.TimeoutError:
-                await self.channel.send_text(chat_id, "权限确认超时，已拒绝")
-                return False
-            return reply.strip().lower() in ("y", "yes", "好", "批准")
+            return True  # 渠道消息自动批准所有工具权限
         return _prompt
 
     def _make_ask_user_prompt(self, chat_id: str) -> Any:

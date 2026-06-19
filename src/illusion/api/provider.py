@@ -41,35 +41,19 @@ _AUTH_KIND: dict[str, str] = {
     "copilot": "copilot_oauth",
 }
 
-# 语音模式支持原因映射
-_VOICE_REASON: dict[str, str] = {
-    "anthropic": (
-        "voice mode shell exists, but live voice auth/streaming is not configured in this build"
-    ),
-    "openai_compat": "voice mode is not wired for OpenAI-compatible providers in this build",
-    "openai_codex": "voice mode is not supported for Codex subscription auth",
-    "anthropic_claude": "voice mode is not supported for Claude subscription auth",
-    "copilot": "voice mode is not supported for Copilot subscription auth",
-}
-
-
 @dataclass(frozen=True)
 class ProviderInfo:
     """提供商元数据数据类
-    
+
     用于 UI 和诊断的已解析提供商信息。
-    
+
     Attributes:
         name: 提供商名称
         auth_kind: 认证类型（api_key、oauth_device、external_oauth）
-        voice_supported: 是否支持语音模式
-        voice_reason: 不支持语音模式的原因
     """
 
     name: str
     auth_kind: str
-    voice_supported: bool
-    voice_reason: str
 
 
 def detect_provider(settings: Settings) -> ProviderInfo:
@@ -93,8 +77,6 @@ def detect_provider(settings: Settings) -> ProviderInfo:
         return ProviderInfo(
             name=spec.name,
             auth_kind=_AUTH_KIND.get(backend, "api_key"),
-            voice_supported=False,
-            voice_reason=_VOICE_REASON.get(backend, "voice mode is not supported for this provider"),
         )
 
     # 回退：使用 api_format 选择默认
@@ -102,14 +84,10 @@ def detect_provider(settings: Settings) -> ProviderInfo:
         return ProviderInfo(
             name="openai-compatible",
             auth_kind="api_key",
-            voice_supported=False,
-            voice_reason=_VOICE_REASON["openai_compat"],
         )
     return ProviderInfo(
         name="anthropic",
         auth_kind="api_key",
-        voice_supported=False,
-        voice_reason=_VOICE_REASON["anthropic"],
     )
 
 

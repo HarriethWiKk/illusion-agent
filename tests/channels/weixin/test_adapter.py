@@ -8,10 +8,10 @@ from illusion.channels.weixin.adapter import WeixinChannel
 
 def _channel(allow_bots=False, bot_user_id="self_bot"):
     """构造 WeixinChannel 实例（仅测准入逻辑，不连接）。"""
-    cfg = WeixinChannelConfig(enabled=True, allow_bots=allow_bots, user_id=bot_user_id)
+    cfg = WeixinChannelConfig(enabled=True, allow_bots=allow_bots, account_id=bot_user_id, user_id=bot_user_id)
     ch = WeixinChannel.__new__(WeixinChannel)  # 跳过 __init__ 避免连接
     ch.config = cfg
-    ch._user_id = bot_user_id
+    ch._account_id = bot_user_id
     ch._context_tokens = {}
     return ch
 

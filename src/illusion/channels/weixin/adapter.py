@@ -57,7 +57,8 @@ class WeixinChannel(Channel):
             settings: 主设置
         """
         super().__init__(config, settings)
-        self._session: Any = None  # aiohttp.ClientSession（connect 时创建）
+        self._poll_session: Any = None  # 长轮询专用 session
+        self._send_session: Any = None  # 发送专用 session（total=None 避免超时冲突）
         self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
         self._stop_event = asyncio.Event()
         self._loop: Any = None
@@ -72,20 +73,28 @@ class WeixinChannel(Channel):
         # 长轮询游标
         self._sync_buf: str = ""
 
-        # bot 自身 user_id（用于自回显检测）
-        self._user_id: str = config.user_id
+        # bot 自身 account_id（用于自回显检测，用 account_id 而非 user_id）
+        self._account_id: str = config.account_id
 
         # 消息去重
         self._seen_msg_ids: dict[str, float] = {}
 
     async def connect(self) -> None:
-        """建立 HTTP 长轮询连接"""
+        """建立 HTTP 连接（长轮询 + 发送分离）"""
         import aiohttp  # 延迟导入
 
+        from illusion.channels.weixin.ilink_api import _make_ssl_connector
         from illusion.config.i18n import t
 
         self._loop = asyncio.get_event_loop()
-        self._session = aiohttp.ClientSession()
+        connector = _make_ssl_connector()
+        # 长轮询 session（有超时，35 秒 hold）
+        self._poll_session = aiohttp.ClientSession(trust_env=True, connector=connector)
+        # 发送 session（total=None，避免并发发送时 aiohttp 超时冲突）
+        self._send_session = aiohttp.ClientSession(
+            trust_env=True, connector=connector,
+            timeout=aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None),
+        )
 
         # 加载持久化状态
         self._load_context_tokens()
@@ -151,8 +160,8 @@ class WeixinChannel(Channel):
         Returns:
             bool: 放行返回 True
         """
-        # 1. 自回显
-        if self._user_id and msg.user_id == self._user_id:
+        # 1. 自回显（用 account_id 即 bot 身份，如 226d22c4ac3d@im.bot）
+        if self._account_id and msg.user_id == self._account_id:
             return False
         # 2. 机器人策略
         if msg.is_bot and not self.config.allow_bots:
@@ -164,11 +173,12 @@ class WeixinChannel(Channel):
 
     async def listen(self) -> AsyncIterator[InboundMessage]:
         """长轮询监听消息"""
+        logger.info("微信长轮询已启动，sync_buf=%s", repr(self._sync_buf[:30]) if self._sync_buf else "(空)")
         consecutive_failures = 0
         while not self._stop_event.is_set():
             try:
                 result = await _poll_with_retry(
-                    self._session, base_url=self.config.base_url,
+                    self._poll_session, base_url=self.config.base_url,
                     token=self.config.token, sync_buf=self._sync_buf,
                 )
                 consecutive_failures = 0
@@ -178,14 +188,22 @@ class WeixinChannel(Channel):
                 self._save_sync_buf()
 
                 # 处理消息
+                msg_count = len(result.get("msgs", []))
+                if msg_count:
+                    logger.info("微信收到 %d 条消息", msg_count)
                 for raw_msg in result.get("msgs", []):
                     msg = self._normalize(raw_msg)
                     if msg is None:
+                        logger.debug("消息标准化失败，跳过")
                         continue
                     if self._is_duplicate(msg.message_id):
+                        logger.debug("重复消息，跳过: %s", msg.message_id)
                         continue
                     if self._admit(msg):
+                        logger.info("微信消息已准入，yield: user=%s text=%s", msg.user_id, msg.text[:30])
                         yield msg
+                    else:
+                        logger.info("微信消息被拒绝: user=%s is_bot=%s", msg.user_id, msg.is_bot)
 
             except asyncio.CancelledError:
                 break
@@ -222,7 +240,7 @@ class WeixinChannel(Channel):
         return False
 
     async def send_text(self, chat_id: str, text: str, *, reply_to: str = "") -> str:
-        """发送文本消息，超长自动分片
+        """发送文本消息，超长自动分片，含重试和限流退避
 
         Args:
             chat_id: 目标会话（微信用 user_id）
@@ -233,23 +251,46 @@ class WeixinChannel(Channel):
             str: 空字符串（微信无 message_id 返回）
         """
         from illusion.channels.weixin.ilink_api import (
-            send_message, _split_text, SESSION_EXPIRED_ERRCODE,
+            send_message, _split_text, SESSION_EXPIRED_ERRCODE, RATE_LIMIT_ERRCODE,
         )
 
         chunks = _split_text(text)
+        logger.info("微信发送 %d 个分片到 %s", len(chunks), chat_id)
         for i, chunk in enumerate(chunks):
             if i > 0:
                 await asyncio.sleep(1.5)  # 分片间隔，防限流
             ctx_token = self._context_tokens.get(chat_id, "")
-            resp = await send_message(
-                self._session, base_url=self.config.base_url, token=self.config.token,
-                to=chat_id, text=chunk, context_token=ctx_token or None,
-                client_id=f"illusion-weixin-{uuid.uuid4().hex}",
-            )
-            errcode = resp.get("errcode", 0)
-            if errcode == SESSION_EXPIRED_ERRCODE:
-                from illusion.config.i18n import t
-                raise RuntimeError(t("weixin_session_expired"))
+
+            # 重试逻辑（最多 3 次，处理瞬态失败和限流）
+            for attempt in range(3):
+                resp = await send_message(
+                    self._send_session, base_url=self.config.base_url, token=self.config.token,
+                    to=chat_id, text=chunk, context_token=ctx_token or None,
+                    client_id=f"illusion-weixin-{uuid.uuid4().hex}",
+                )
+                errcode = resp.get("errcode", 0)
+                if errcode == SESSION_EXPIRED_ERRCODE:
+                    # 会话过期：去掉 context_token 降级重试一次
+                    if attempt == 0:
+                        ctx_token = ""
+                        self._context_tokens.pop(chat_id, None)
+                        logger.warning("微信会话过期，去掉 context_token 重试")
+                        continue
+                    from illusion.config.i18n import t
+                    raise RuntimeError(t("weixin_session_expired"))
+                if errcode == RATE_LIMIT_ERRCODE:
+                    logger.warning("微信发送限流，%ds 后重试", RETRY_DELAY_SECONDS * 3)
+                    await asyncio.sleep(RETRY_DELAY_SECONDS * 3)
+                    continue
+                if errcode != 0:
+                    logger.warning("微信发送失败 (attempt %d/%d): errcode=%d",
+                                   attempt + 1, 3, errcode)
+                    if attempt < 2:
+                        await asyncio.sleep(RETRY_DELAY_SECONDS)
+                        continue
+                break  # 成功或不可重试的错误
+
+        self._save_context_tokens()
         return ""
 
     async def edit_message(self, chat_id: str, message_id: str, text: str) -> None:
@@ -286,7 +327,7 @@ class WeixinChannel(Channel):
         try:
             from illusion.channels.weixin.ilink_api import send_typing, TYPING_START
             await send_typing(
-                self._session, base_url=self.config.base_url, token=self.config.token,
+                self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_START,
             )
         except Exception as exc:  # noqa: BLE001
@@ -304,7 +345,7 @@ class WeixinChannel(Channel):
         try:
             from illusion.channels.weixin.ilink_api import send_typing, TYPING_STOP
             await send_typing(
-                self._session, base_url=self.config.base_url, token=self.config.token,
+                self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_STOP,
             )
         except Exception as exc:  # noqa: BLE001
@@ -331,8 +372,9 @@ class WeixinChannel(Channel):
             from illusion.channels.weixin.ilink_api import get_config
             ctx_token = self._context_tokens.get(user_id, "")
             cfg = await get_config(
-                self._session, base_url=self.config.base_url,
+                self._send_session, base_url=self.config.base_url,
                 token=self.config.token, context_token=ctx_token,
+                ilink_user_id=user_id,
             )
             ticket = cfg.get("typing_ticket", "")
             if ticket:
@@ -346,8 +388,10 @@ class WeixinChannel(Channel):
     async def shutdown(self) -> None:
         """关闭渠道"""
         self._stop_event.set()
-        if self._session is not None:
-            await self._session.close()
+        if self._poll_session is not None:
+            await self._poll_session.close()
+        if self._send_session is not None:
+            await self._send_session.close()
 
     # ─── 持久化 ──────────────────────────────────────────────
 

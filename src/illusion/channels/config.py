@@ -4,7 +4,7 @@
 本模块定义各消息渠道的配置模型，以及 channels.json 的加载/保存。
 
 配置存储于 ~/.illusion/channels.json，与主 settings.json 分离。
-顶层 key 为渠道名（feishu），预留未来扩展其他渠道。
+顶层 key 为渠道名（feishu）
 
 类说明：
     - FeishuGroupPolicy: 飞书群组访问策略
