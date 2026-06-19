@@ -345,6 +345,7 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # 1. 获取二维码
         qr_resp = await get_bot_qrcode(session, base_url=base_url)
+        logger.info("获取二维码完整响应: %s", qr_resp)  # 调试日志
         qrcode_hex = qr_resp.get("qrcode", "")
         if not qrcode_hex:
             logger.error("获取二维码失败: %s", qr_resp)
@@ -360,9 +361,11 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
         try:
             while True:
                 status_resp = await get_qrcode_status(session, base_url=base_url, qrcode=qrcode_hex)
-                state = status_resp.get("status", "wait")
+                logger.info("扫码状态响应: %s", status_resp)  # 调试日志
+                ret = status_resp.get("ret", -1)
 
-                if state == "confirmed":
+                # ret: 0 + 有 bot_token = 扫码确认成功
+                if ret == 0 and status_resp.get("bot_token"):
                     print(t("weixin_login_success"))
                     return WeixinCredentials(
                         account_id=status_resp.get("ilink_bot_id", ""),
@@ -370,21 +373,12 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
                         base_url=status_resp.get("baseurl", base_url),
                         user_id=status_resp.get("ilink_user_id", ""),
                     )
-                elif state == "scaned":
+                # ret: 0 但无 bot_token = 已扫码，等待手机确认
+                elif ret == 0:
                     print(t("weixin_qr_scanned"))
-                elif state == "scaned_but_redirect":
-                    print(t("weixin_qr_redirect"))
-                    base_url = status_resp.get("redirect_host", base_url)
-                elif state == "expired":
-                    if refresh_count >= max_refreshes:
-                        return None
-                    refresh_count += 1
-                    print(t("weixin_qr_expired"))
-                    qr_resp = await get_bot_qrcode(session, base_url=base_url)
-                    qrcode_hex = qr_resp.get("qrcode", qrcode_hex)
-                    _refresh_qr_server(server_info, qrcode_hex)
-                else:  # wait 或其他
-                    await asyncio.sleep(2)
+                # ret: 1 = 等待扫码
+                else:
+                    pass  # 继续轮询
         finally:
             server_info["server"].shutdown()
 
