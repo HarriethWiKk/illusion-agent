@@ -51,6 +51,17 @@ def run_channel_serve() -> None:
                     deps=", ".join(FEISHU_DEPENDENCIES), channel="feishu"))
             return
 
+    # 检查微信依赖
+    if cfg.weixin.enabled:
+        try:
+            import aiohttp  # noqa: F401
+        except ImportError:
+            from illusion.config.i18n import t
+            from illusion.channels.weixin import WEIXIN_DEPENDENCIES
+            print(t("channel_deps_missing",
+                    deps=", ".join(WEIXIN_DEPENDENCIES), channel="weixin"))
+            return
+
     # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
     # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
     # 故额外用 FileHandler 直接写文件，确保日志可靠落盘
@@ -144,6 +155,22 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
             session_data_dir=feishu_data_dir,
             group_sessions_per_user=cfg.feishu.group_sessions_per_user,
             feishu_config=cfg.feishu,
+        )
+        runners.append(runner)
+
+    if cfg.weixin.enabled and settings is not None:
+        from illusion.channels.weixin.adapter import WeixinChannel
+
+        print(t("channel_starting_weixin"))
+        channel = WeixinChannel(cfg.weixin, settings)
+        # 确保微信会话目录存在
+        weixin_data_dir = get_channels_data_dir() / "weixin" / "sessions"
+        weixin_data_dir.mkdir(parents=True, exist_ok=True)
+        runner = ChannelRunner(
+            channel=channel,
+            settings=settings,
+            session_data_dir=weixin_data_dir,
+            group_sessions_per_user=False,  # 微信只私聊
         )
         runners.append(runner)
 
