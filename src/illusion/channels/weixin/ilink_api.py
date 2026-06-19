@@ -191,8 +191,6 @@ async def _api_get(
     Returns:
         dict: 响应 JSON
     """
-    import aiohttp  # 延迟导入
-
     url = f"{base_url}/{endpoint}"
     headers = {
         "iLink-App-Id": ILINK_APP_ID,

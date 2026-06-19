@@ -28,7 +28,9 @@ def ensure_weixin_dependencies() -> None:
     已安装则跳过，未安装则通过 pip 安装（与飞书同模式，不强制安装）。
     """
     try:
-        import aiohttp, cryptography, qrcode  # noqa: F401
+        import aiohttp  # noqa: F401
+        import cryptography  # noqa: F401
+        import qrcode  # noqa: F401
         return  # 已安装，跳过
     except ImportError:
         pass

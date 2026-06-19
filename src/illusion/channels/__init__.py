@@ -288,7 +288,7 @@ class ChannelRunner:
             msg: 入站消息
         """
         from illusion.engine.stream_events import (
-            AssistantTextDelta, ToolExecutionStarted, ErrorEvent,
+            AssistantTextDelta, ErrorEvent,
         )
         from illusion.ui.runtime import build_runtime, handle_line, close_runtime
 

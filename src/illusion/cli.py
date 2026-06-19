@@ -1413,7 +1413,7 @@ def _feishu_login() -> None:
     引导用户完成飞书自建应用的凭据配置，明文存储（按需求不遮掩 App Secret）。
     """
     from illusion.channels.config import (
-        ChannelsConfig, FeishuChannelConfig, FeishuGroupPolicy,
+        FeishuChannelConfig, FeishuGroupPolicy,
         load_channels_config, save_channels_config,
     )
     from illusion.channels.feishu import ensure_feishu_dependencies
