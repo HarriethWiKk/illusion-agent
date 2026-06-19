@@ -146,21 +146,39 @@ class ChannelRunner:
                 fut.set_result(msg.text)
             return
 
-        # 2. 飞书侧斜杠命令
-        from illusion.channels.feishu.commands import FeishuCommandHandler
-        handler = FeishuCommandHandler(self.channel, self.session_store)
-        if await handler.try_handle(msg):
+        # 2. 斜杠命令（按渠道类型选择 handler）
+        handler = self._get_command_handler()
+        if handler is not None and await handler.try_handle(msg):
             return
 
         # 3. 跑 agent
         try:
             await self._run_agent(msg)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("处理飞书消息异常: %s", exc)
+            logger.exception("处理渠道消息异常: %s", exc)
             try:
                 await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
             except Exception:  # noqa: BLE001
                 pass
+
+    def _get_command_handler(self) -> Any:
+        """按渠道类型返回对应的斜杠命令处理器
+
+        Returns:
+            BaseCommandHandler 实例或 None（未知渠道）
+        """
+        from illusion.channels.feishu.adapter import FeishuChannel
+        from illusion.channels.feishu.commands import FeishuCommandHandler
+        if isinstance(self.channel, FeishuChannel):
+            return FeishuCommandHandler(self.channel, self.session_store)
+        try:
+            from illusion.channels.weixin.adapter import WeixinChannel
+            from illusion.channels.weixin.commands import WeixinCommandHandler
+            if isinstance(self.channel, WeixinChannel):
+                return WeixinCommandHandler(self.channel, self.session_store)
+        except ImportError:
+            pass  # 微信模块不可用时跳过
+        return None
 
     def _build_channel_tools(self) -> list[Any]:
         """构造渠道内置工具列表（飞书文档/云盘等）
@@ -189,10 +207,12 @@ class ChannelRunner:
     async def _run_agent(self, msg: "InboundMessage") -> None:
         """为单条消息构建 runtime 并跑 agent
 
+        飞书：用 StreamEditor 流式卡片更新（edit_message 实际生效）。
+        微信：不支持消息编辑，收集完整文本后一次性发送（打字状态指示处理中）。
+
         Args:
             msg: 入站消息
         """
-        from illusion.channels.feishu.stream_editor import FeishuStreamEditor
         from illusion.engine.stream_events import (
             AssistantTextDelta, ToolExecutionStarted, ErrorEvent,
         )
@@ -201,24 +221,47 @@ class ChannelRunner:
         key = self.session_store.build_session_key(msg)
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
 
-        editor = FeishuStreamEditor(self.channel, msg.chat_id, msg.message_id)
+        # 检测渠道是否支持消息编辑（飞书支持卡片 patch，微信不支持）
+        supports_edit = not isinstance(self.channel, _get_weixin_channel_class())
 
-        async def render_event(ev: Any) -> None:
-            """流式事件渲染到飞书"""
-            if isinstance(ev, AssistantTextDelta):
-                await editor.on_delta(ev.text)
-            elif isinstance(ev, ToolExecutionStarted):
-                await editor.on_delta(f"\n\n🔧 {ev.tool_name}...")
-            elif isinstance(ev, ErrorEvent):
-                await self.channel.send_text(msg.chat_id, f"❌ {ev.message}")
+        if supports_edit:
+            # 飞书：流式卡片编辑
+            from illusion.channels.feishu.stream_editor import FeishuStreamEditor
+            editor = FeishuStreamEditor(self.channel, msg.chat_id, msg.message_id)
+
+            async def render_event(ev: Any) -> None:
+                """流式事件渲染到卡片"""
+                if isinstance(ev, AssistantTextDelta):
+                    await editor.on_delta(ev.text)
+                elif isinstance(ev, ToolExecutionStarted):
+                    await editor.on_delta(f"\n\n🔧 {ev.tool_name}...")
+                elif isinstance(ev, ErrorEvent):
+                    await self.channel.send_text(msg.chat_id, f"❌ {ev.message}")
+        else:
+            # 微信：收集完整文本，处理完一次性发送
+            collected_text: list[str] = []
+
+            async def render_event(ev: Any) -> None:
+                """流式事件收集（微信不支持编辑，仅累积文本）"""
+                if isinstance(ev, AssistantTextDelta):
+                    collected_text.append(ev.text)
+                elif isinstance(ev, ToolExecutionStarted):
+                    collected_text.append(f"\n\n🔧 {ev.tool_name}...")
+                elif isinstance(ev, ErrorEvent):
+                    collected_text.append(f"\n❌ {ev.message}")
 
         async def print_system(text: str) -> None:
-            """系统消息转发到飞书"""
+            """系统消息转发到渠道"""
             await self.channel.send_text(msg.chat_id, text)
 
         async def clear_output() -> None:
-            """飞书无需清屏，空操作"""
+            """无需清屏，空操作"""
             pass
+
+        # 处理前：启动打字状态（微信需要，飞书空操作）
+        await self.channel.start_typing(msg.chat_id)
+        # 处理期间每 5s 刷新打字状态
+        typing_task = asyncio.create_task(self._keep_typing_alive(msg.chat_id))
 
         # 构建临时 runtime（复用 build_runtime，注入渠道工具）
         bundle = await build_runtime(
@@ -229,7 +272,7 @@ class ChannelRunner:
             is_interactive=False,
             permission_prompt=self._make_permission_prompt(msg.chat_id),
             ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
-            channel_tools=self._build_channel_tools(),  # 注入飞书工具
+            channel_tools=self._build_channel_tools(),
         )
 
         try:
@@ -239,20 +282,40 @@ class ChannelRunner:
                 render_event=render_event,
                 clear_output=clear_output,
             )
-            await editor.finalize()
-            # 持久化飞书会话历史
-            # bundle.engine 是 QueryEngine，其 messages property 返回 ConversationMessage 列表
+            if supports_edit:
+                await editor.finalize()
+            else:
+                # 微信：一次性发送完整回复
+                full_text = "".join(collected_text).strip()
+                if full_text:
+                    await self.channel.send_text(msg.chat_id, full_text)
+            # 持久化渠道会话历史
             engine = getattr(bundle, "engine", None)
             msgs = getattr(engine, "messages", None)
             if msgs is not None and hasattr(msgs, "__iter__"):
                 try:
                     self.session_store.save(session, _serialize_messages(list(msgs)))
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("飞书会话持久化失败: %s", exc)
+                    logger.warning("渠道会话持久化失败: %s", exc)
             else:
                 logger.warning("无法从 bundle.engine 获取会话历史，跳过持久化")
         finally:
+            typing_task.cancel()
+            await self.channel.stop_typing(msg.chat_id)
             await close_runtime(bundle)
+
+    async def _keep_typing_alive(self, chat_id: str) -> None:
+        """每 5s 刷新打字状态（微信用，飞书空操作）
+
+        Args:
+            chat_id: 目标会话
+        """
+        while True:
+            await asyncio.sleep(5)
+            try:
+                await self.channel.start_typing(chat_id)
+            except Exception:  # noqa: BLE001
+                pass  # 打字状态失败不影响主流程
 
     def _make_permission_prompt(self, chat_id: str) -> Any:
         """构造权限确认回调（推到飞书等回复）"""
@@ -292,6 +355,19 @@ class ChannelRunner:
         fut: asyncio.Future[str] = loop.create_future()
         self._pending_replies[chat_id] = fut
         return await asyncio.wait_for(fut, timeout=timeout)
+
+
+def _get_weixin_channel_class() -> Any:
+    """延迟获取 WeixinChannel 类（避免循环导入）
+
+    Returns:
+        WeixinChannel 类，或 None（模块不可用时）
+    """
+    try:
+        from illusion.channels.weixin.adapter import WeixinChannel
+        return WeixinChannel
+    except ImportError:
+        return None
 
 
 def _serialize_messages(messages: list[Any]) -> list[dict]:
