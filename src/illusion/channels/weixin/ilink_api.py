@@ -130,7 +130,7 @@ async def _api_post(
     url = f"{base_url}/{endpoint}"
     timeout = aiohttp.ClientTimeout(total=timeout_ms / 1000)
     async with session.post(url, json=payload, headers=_build_headers(token), timeout=timeout) as resp:
-        return await resp.json()
+        return await resp.json(content_type=None)  # iLink 返回 octet-stream，跳过 content-type 检查
 
 
 async def poll_updates(
