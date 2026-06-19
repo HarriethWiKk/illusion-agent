@@ -346,13 +346,15 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
         # 1. 获取二维码
         qr_resp = await get_bot_qrcode(session, base_url=base_url)
         logger.info("获取二维码完整响应: %s", qr_resp)  # 调试日志
-        qrcode_hex = qr_resp.get("qrcode", "")
+        qrcode_hex = qr_resp.get("qrcode", "")  # hex token，用于轮询状态
+        qr_url = qr_resp.get("qrcode_img_content", "")  # URL，用于生成二维码图片供手机扫描
         if not qrcode_hex:
             logger.error("获取二维码失败: %s", qr_resp)
             return None
 
-        # 2. 启动浏览器二维码投射
-        server_info = _serve_qr_in_browser(qrcode_hex)
+        # 2. 启动浏览器二维码投射（用 URL 生成图片，微信才能识别为登录链接）
+        qr_content = qr_url or qrcode_hex  # 优先用 URL
+        server_info = _serve_qr_in_browser(qr_content)
         print(t("weixin_qr_waiting"))
 
         # 3. 轮询扫码状态
