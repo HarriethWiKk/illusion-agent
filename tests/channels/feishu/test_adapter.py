@@ -1,9 +1,13 @@
 """飞书适配器准入控制测试。"""
 from __future__ import annotations
 
+import pytest
+
 from illusion.channels.base import InboundMessage
 from illusion.channels.config import FeishuChannelConfig, FeishuGroupPolicy
-from illusion.channels.feishu.adapter import FeishuChannel
+
+lark_oapi = pytest.importorskip("lark_oapi")
+from illusion.channels.feishu.adapter import FeishuChannel  # noqa: E402
 
 
 def _channel(allow_bots=False, require_mention=True, policy_mode="open",

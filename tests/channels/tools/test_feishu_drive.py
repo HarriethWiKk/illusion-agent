@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytest.importorskip("lark_oapi")
+
 from illusion.channels.config import FeishuChannelConfig
 from illusion.channels.tools.feishu_drive import (
     FeishuDriveListInput,

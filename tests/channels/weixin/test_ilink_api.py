@@ -1,10 +1,15 @@
 """iLink Bot API 客户端测试（纯逻辑，不依赖 aiohttp）。"""
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+try:
+    import aiohttp  # noqa: F401
+    _has_aiohttp = True
+except ImportError:
+    _has_aiohttp = False
 
 from illusion.channels.weixin.ilink_api import (
     ILINK_APP_CLIENT_VERSION,
@@ -85,6 +90,7 @@ def test_constants_correct():
     assert ILINK_APP_CLIENT_VERSION == (2 << 16) | (2 << 8) | 0
 
 
+@pytest.mark.skipif(not _has_aiohttp, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_qr_login_uses_status_field():
     """扫码轮询必须检查 status 字段（非 ret），并正确处理 confirmed 状态。"""
@@ -127,6 +133,7 @@ async def test_qr_login_uses_status_field():
     assert creds.user_id == "u123"
 
 
+@pytest.mark.skipif(not _has_aiohttp, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_qr_login_expires_and_refreshes():
     """二维码过期后应自动刷新，而非永久等待。"""
