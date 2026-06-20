@@ -253,6 +253,9 @@ async def test_run_rg_timeout(monkeypatch):
             await asyncio.sleep(100)
             return 0
 
+        def terminate(self):
+            pass
+
         def kill(self):
             pass
 

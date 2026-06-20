@@ -1292,15 +1292,26 @@ class ReactBackendHost:
         self._bundle.app_state.set(phase=phase)
 
     async def _emit(self, event: BackendEvent) -> None:
+        payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
+        data = payload.encode("utf-8")
         async with self._write_lock:
-            payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
+            # 在线程池中执行同步写入，防止 flush() 阻塞事件循环
+            # Windows 上管道 buffer 满时 flush() 会阻塞，导致整个事件循环冻结
+            await asyncio.to_thread(self._write_stdout_sync, data)
+
+    @staticmethod
+    def _write_stdout_sync(data: bytes) -> None:
+        """同步写入 stdout（在线程池中调用）。"""
+        try:
             buffer = getattr(sys.stdout, "buffer", None)
             if buffer is not None:
-                buffer.write(payload.encode("utf-8"))
+                buffer.write(data)
                 buffer.flush()
-                return
-            sys.stdout.write(payload)
-            sys.stdout.flush()
+            else:
+                sys.stdout.write(data.decode("utf-8"))
+                sys.stdout.flush()
+        except (BrokenPipeError, OSError):
+            pass  # 前端已断开连接，忽略写入错误
 
 
 async def run_backend_host(

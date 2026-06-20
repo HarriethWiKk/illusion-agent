@@ -272,6 +272,7 @@ async def run_rg(args: list[str], cwd: str | None = None,
         # 创建子进程
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,  # 防止 Windows 上的句柄继承死锁
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
@@ -288,13 +289,20 @@ async def run_rg(args: list[str], cwd: str | None = None,
             # 双重终止机制：先优雅终止，再强制杀死
             try:
                 process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await asyncio.wait_for(process.wait(), timeout=3)
             except (ProcessLookupError, OSError):
                 pass  # 进程已退出
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                # 优雅终止超时或失败，强制杀死
+                try:
+                    process.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=3)
+                except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                    pass  # 最终兜底，放弃等待
             raise RipgrepError(f"rg 执行超时（{timeout}秒）")
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
