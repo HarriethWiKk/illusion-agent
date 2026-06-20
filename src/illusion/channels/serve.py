@@ -62,6 +62,17 @@ def run_channel_serve() -> None:
                     deps=", ".join(WEIXIN_DEPENDENCIES), channel="weixin"))
             return
 
+    # 检查 QQ 依赖
+    if cfg.qq.enabled:
+        try:
+            import aiohttp  # noqa: F401
+        except ImportError:
+            from illusion.config.i18n import t
+            from illusion.channels.qq import QQ_DEPENDENCIES
+            print(t("channel_deps_missing",
+                    deps=", ".join(QQ_DEPENDENCIES), channel="qq"))
+            return
+
     # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
     # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
     # 故额外用 FileHandler 直接写文件，确保日志可靠落盘
@@ -172,6 +183,22 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
             settings=settings,
             session_data_dir=weixin_data_dir,
             group_sessions_per_user=False,  # 微信只私聊
+        )
+        runners.append(runner)
+
+    if cfg.qq.enabled and settings is not None:
+        from illusion.channels.qq.adapter import QQChannel
+
+        print(t("channel_starting_qq"))
+        channel = QQChannel(cfg.qq, settings)
+        # 确保 QQ 会话目录存在
+        qq_data_dir = get_channels_data_dir() / "qq" / "sessions"
+        qq_data_dir.mkdir(parents=True, exist_ok=True)
+        runner = ChannelRunner(
+            channel=channel,
+            settings=settings,
+            session_data_dir=qq_data_dir,
+            group_sessions_per_user=cfg.qq.group_sessions_per_user,
         )
         runners.append(runner)
 

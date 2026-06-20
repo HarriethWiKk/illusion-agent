@@ -47,6 +47,8 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
         enabled_channels.append(f"feishu:{cfg.feishu.app_id}")
     if cfg.weixin.enabled:
         enabled_channels.append(f"weixin:{cfg.weixin.account_id}:{cfg.weixin.token}")
+    if cfg.qq.enabled:
+        enabled_channels.append(f"qq:{cfg.qq.app_id}:{cfg.qq.client_secret}")
     raw = _json.dumps(sorted(enabled_channels), ensure_ascii=False)
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -252,6 +254,13 @@ class ChannelRunner:
                 return WeixinCommandHandler(self.channel, self.session_store)
         except ImportError:
             pass  # 微信模块不可用时跳过
+        try:
+            from illusion.channels.qq.adapter import QQChannel
+            from illusion.channels.qq.commands import QQCommandHandler
+            if isinstance(self.channel, QQChannel):
+                return QQCommandHandler(self.channel, self.session_store)
+        except ImportError:
+            pass  # QQ 模块不可用时跳过
         return None
 
     def _build_channel_tools(self) -> list[Any]:
@@ -295,8 +304,9 @@ class ChannelRunner:
         key = self.session_store.build_session_key(msg)
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
 
-        # 检测渠道是否支持消息编辑（飞书支持卡片 patch，微信不支持）
-        supports_edit = not isinstance(self.channel, _get_weixin_channel_class())
+        # 检测渠道是否支持消息编辑（仅飞书支持卡片 patch）
+        from illusion.channels.feishu.adapter import FeishuChannel
+        supports_edit = isinstance(self.channel, FeishuChannel)
 
         # 统一收集流式文本，处理完后一次性发送/渲染
         collected_text: list[str] = []

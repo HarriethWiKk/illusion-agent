@@ -1404,6 +1404,7 @@ def main(
 _CHANNEL_OPTIONS: list[tuple[str, dict[str, str]]] = [
     ("feishu", _I18N.get("channel_feishu_label", {"zh-CN": "飞书", "en-US": "Feishu"})),
     ("weixin", _I18N.get("channel_weixin_label", {"zh-CN": "微信", "en-US": "WeChat"})),
+    ("qq", _I18N.get("channel_qq_label", {"zh-CN": "QQ", "en-US": "QQ"})),
 ]
 
 
@@ -1507,6 +1508,60 @@ def _weixin_login() -> None:
     print(_t("channel_saved", path=str(path), channel=_t("channel_weixin_label")))
 
 
+def _qq_login() -> None:
+    """QQ 渠道配置引导流程
+
+    引导用户完成 QQ 开放平台机器人应用的凭据配置。
+    """
+    from illusion.channels.config import (
+        QQChannelConfig, QQGroupPolicy,
+        load_channels_config, save_channels_config,
+    )
+    from illusion.channels.qq import ensure_qq_dependencies
+    from illusion.config.paths import get_channels_file_path
+
+    # 前置提示
+    print(_t("qq_login_intro"))
+
+    # 1. 输入凭据
+    app_id = input(f"{_t('qq_enter_app_id')}: ").strip()
+    if not app_id:
+        print(_t("api_key_required"), file=sys.stderr)
+        raise typer.Exit(1)
+    client_secret = input(f"{_t('qq_enter_client_secret')}: ").strip()
+    if not client_secret:
+        print(_t("api_key_required"), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 2. 行为选项
+    def _ask_bool(prompt_key: str, default: bool) -> bool:
+        raw_val = typer.prompt(_t(prompt_key), default="Y" if default else "N")
+        return raw_val.strip().lower() in ("y", "yes", "是")
+
+    group_isolation = _ask_bool("channel_group_isolation", default=True)
+    require_mention = _ask_bool("channel_require_mention", default=True)
+    allow_bots = _ask_bool("channel_allow_bots", default=False)
+
+    # 3. 安装依赖
+    ensure_qq_dependencies()
+
+    # 4. 保存到 channels.json
+    cfg = load_channels_config()
+    cfg.qq = QQChannelConfig(
+        enabled=True,
+        app_id=app_id,
+        client_secret=client_secret,
+        allow_bots=allow_bots,
+        group_sessions_per_user=group_isolation,
+        require_mention=require_mention,
+        group_policy=QQGroupPolicy(),
+    )
+    save_channels_config(cfg)
+
+    path = get_channels_file_path()
+    print(_t("channel_saved", path=str(path), channel=_t("channel_qq_label")))
+
+
 @channel_app.command("login")
 def channel_login() -> None:
     """交互式配置消息渠道
@@ -1543,6 +1598,9 @@ def channel_login() -> None:
     elif channel_choice == "weixin":
         _weixin_login()
         return
+    elif channel_choice == "qq":
+        _qq_login()
+        return
 
 
 @channel_app.command("serve")
@@ -1567,8 +1625,10 @@ def channel_status() -> None:
     print("渠道状态 / Channel status:")
     feishu_state = _t("channel_connected") if (cfg.feishu.enabled and running) else _t("channel_disconnected")
     weixin_state = _t("channel_connected") if (cfg.weixin.enabled and running) else _t("channel_disconnected")
+    qq_state = _t("channel_connected") if (cfg.qq.enabled and running) else _t("channel_disconnected")
     print(f"  feishu: enabled={cfg.feishu.enabled} {feishu_state}")
     print(f"  weixin: enabled={cfg.weixin.enabled} {weixin_state}")
+    print(f"  qq: enabled={cfg.qq.enabled} {qq_state}")
 
 
 @channel_app.command("enable")
@@ -1594,6 +1654,13 @@ def channel_enable(
         cfg.weixin.enabled = True
         save_channels_config(cfg)
         print(_t("channel_enabled", channel=name))
+    elif name == "qq":
+        if not cfg.qq.app_id:
+            print(_t("channel_no_creds", channel=name), file=sys.stderr)
+            raise typer.Exit(1)
+        cfg.qq.enabled = True
+        save_channels_config(cfg)
+        print(_t("channel_enabled", channel=name))
     else:
         print(_t("invalid_selection"), file=sys.stderr)
         raise typer.Exit(1)
@@ -1614,6 +1681,10 @@ def channel_disable(
         print(_t("channel_disabled", channel=name))
     elif name == "weixin":
         cfg.weixin.enabled = False
+        save_channels_config(cfg)
+        print(_t("channel_disabled", channel=name))
+    elif name == "qq":
+        cfg.qq.enabled = False
         save_channels_config(cfg)
         print(_t("channel_disabled", channel=name))
     else:
@@ -1639,6 +1710,11 @@ def channel_logout(
         print(_t("channel_logout_done", channel=name))
     elif name == "weixin":
         cfg.weixin = WeixinChannelConfig()  # 重置为默认（清空凭据 + disabled）
+        save_channels_config(cfg)
+        print(_t("channel_logout_done", channel=name))
+    elif name == "qq":
+        from illusion.channels.config import QQChannelConfig
+        cfg.qq = QQChannelConfig()  # 重置为默认（清空凭据 + disabled）
         save_channels_config(cfg)
         print(_t("channel_logout_done", channel=name))
     else:
