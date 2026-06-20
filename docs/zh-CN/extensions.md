@@ -433,3 +433,186 @@ hooks:
 - 钩子事件：`src/illusion/hooks/events.py`
 - 钩子 schema：`src/illusion/hooks/schemas.py`
 - 钩子类型：`src/illusion/hooks/types.py`
+
+---
+
+## 插件配置
+
+### 全局启用/禁用
+
+在 `~/.illusion/settings.json` 的 `enabled_plugins` 字段中控制：
+
+```json
+{
+  "enabled_plugins": {
+    "plugin-name": true,   // 启用
+    "plugin-name": false   // 禁用
+  }
+}
+```
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_plugins` 字段中控制：
+
+```json
+{
+  "denied_plugins": ["plugin-name"]  // 禁用特定插件
+  "denied_plugins": ["*"]            // 禁用所有插件
+}
+```
+
+### 优先级
+
+项目级 `denied_plugins` > 全局 `enabled_plugins` > 默认值
+
+### 源码参考
+
+- 插件加载器：`src/illusion/plugins/loader.py`
+
+---
+
+## MCP 服务器配置
+
+### 全局启用/禁用
+
+在 MCP 服务器配置中添加 `enabled` 字段：
+
+```json
+{
+  "mcp_servers": {
+    "server-name": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["server.py"],
+      "enabled": false  // 禁用此服务器
+    }
+  }
+}
+```
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_mcp_servers` 字段中控制：
+
+```json
+{
+  "denied_mcp_servers": ["server-name"]  // 禁用特定服务器
+  "denied_mcp_servers": ["*"]            // 禁用所有服务器
+}
+```
+
+### 优先级
+
+项目级 `denied_mcp_servers` > 全局 `enabled` 字段 > 默认值
+
+### 源码参考
+
+- MCP 配置加载器：`src/illusion/mcp/config.py`
+
+---
+
+## 记忆系统配置
+
+### 全局启用/禁用
+
+在 `~/.illusion/settings.json` 的 `memory.enabled` 字段中控制：
+
+```json
+{
+  "memory": {
+    "enabled": false  // 禁用记忆功能
+  }
+}
+```
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_memory` 字段中控制：
+
+```json
+{
+  "denied_memory": true  // 禁用记忆功能
+}
+```
+
+### 优先级
+
+项目级 `denied_memory` > 全局 `memory.enabled` > 默认值
+
+### 源码参考
+
+- 记忆管理器：`src/illusion/memory/manager.py`
+
+---
+
+## Skills 配置
+
+### 加载来源
+
+Skills 可以从以下位置加载：
+- 内置 skills（`src/illusion/skills/bundled/`）
+- 用户 skills（`~/.illusion/skills/`）
+- 项目级 skills（`<project>/.illusion/skills/`）
+- 插件 skills（插件的 `skills/` 目录）
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_skills` 字段中控制：
+
+```json
+{
+  "denied_skills": ["skill-name"]  // 禁用特定 skill
+  "denied_skills": ["*"]           // 禁用所有 skills
+}
+```
+
+### 源码参考
+
+- Skills 加载器：`src/illusion/skills/loader.py`
+
+---
+
+## Hooks 配置
+
+### 加载来源
+
+Hooks 可以从以下位置加载：
+- 全局 `settings.json` 的 `hooks` 字段
+- 插件的 `hooks.json` 文件
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_hooks` 字段中控制：
+
+```json
+{
+  "denied_hooks": ["PreToolUse"]  // 禁用特定事件的 hooks
+  "denied_hooks": ["*"]           // 禁用所有 hooks
+}
+```
+
+### 源码参考
+
+- Hooks 加载器：`src/illusion/hooks/loader.py`
+
+---
+
+## Commands 配置
+
+### 命令类型
+
+IllusionCode 的斜杠命令分为两类：
+
+1. **内置命令**：如 `/help`、`/model`、`/skills` 等，硬编码注册，不可禁用
+2. **插件命令**：通过插件的 `commands/` 或 `skills/` 目录提供，遵循插件的启用/禁用规则
+
+### 插件命令的启用/禁用
+
+- 通过 `enabled_plugins` 控制插件整体启用/禁用
+- 通过 `denied_plugins` 项目级禁用插件
+- 插件禁用后，其提供的所有命令都会被禁用
+
+### 源码参考
+
+- 命令注册表：`src/illusion/commands/registry.py`

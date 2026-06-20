@@ -119,3 +119,47 @@ metadata:
 - 路径解析：`src/illusion/memory/paths.py`
 - 加载逻辑：`src/illusion/memory/memdir.py`
 - 管理功能：`src/illusion/memory/manager.py`
+
+---
+
+## 项目级权限配置 (permissions.json)
+
+项目级 `permissions.json` 文件位于 `<project>/.illusion/permissions.json`，用于控制该项目的权限和禁用开关。
+
+### 配置示例
+
+```json
+{
+  "always_allow_tools": ["read_file", "grep"],
+  "denied_tools": ["bash"],
+  "denied_skills": ["dangerous-skill"],
+  "denied_hooks": ["PreToolUse"],
+  "denied_plugins": ["unwanted-plugin"],
+  "denied_mcp_servers": ["external-server"],
+  "denied_memory": false
+}
+```
+
+### 配置字段说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `always_allow_tools` | list | `[]` | 始终允许的工具列表 |
+| `denied_tools` | list | `[]` | 始终拒绝的工具列表 |
+| `denied_commands` | list | `[]` | 禁用的 bash 命令列表 |
+| `denied_skills` | list | `[]` | 禁用的 skill 名称列表，`["*"]` 表示全部禁用 |
+| `denied_hooks` | list | `[]` | 禁用的 hook 事件列表，`["*"]` 表示全部禁用 |
+| `denied_plugins` | list | `[]` | 禁用的插件名称列表，`["*"]` 表示全部禁用 |
+| `denied_mcp_servers` | list | `[]` | 禁用的 MCP 服务器名称列表，`["*"]` 表示全部禁用 |
+| `denied_memory` | bool | `false` | 是否禁用 memory 功能 |
+
+### 优先级规则
+
+1. 项目级 `permissions.json` — 最高优先级
+2. 全局 `settings.json` — 次优先级
+3. 默认值 — 最低优先级
+
+### 源码参考
+
+- 权限加载器：`src/illusion/permissions/loader.py`
+- 权限数据类：`src/illusion/permissions/schemas.py`
