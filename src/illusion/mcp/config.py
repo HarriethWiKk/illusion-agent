@@ -117,6 +117,14 @@ def load_mcp_server_configs(settings, plugins: list[LoadedPlugin], cwd: str | Pa
         >>> for name, config in configs.items():
         ...     print(f"{name}: {config}")
     """
+    # 加载项目级权限配置
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd) if cwd else None
+
+    # 检查是否禁用所有 MCP 服务器
+    if project_permissions and "*" in project_permissions.denied_mcp_servers:
+        return {}
+
     # 从全局设置中获取 MCP 服务器配置（跳过已禁用的服务器）
     servers = {name: cfg for name, cfg in settings.mcp_servers.items()
                if getattr(cfg, "enabled", True)}
@@ -137,4 +145,12 @@ def load_mcp_server_configs(settings, plugins: list[LoadedPlugin], cwd: str | Pa
                 continue
             # 使用 "插件名:服务器名" 格式作为键，避免与全局设置冲突
             servers.setdefault(f"{plugin.manifest.name}:{name}", config)
+
+    # 过滤掉被禁用的 MCP 服务器
+    if project_permissions:
+        servers = {
+            name: cfg for name, cfg in servers.items()
+            if name not in project_permissions.denied_mcp_servers
+        }
+
     return servers
