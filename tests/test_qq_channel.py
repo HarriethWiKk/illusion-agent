@@ -1,4 +1,5 @@
 """QQ 渠道单元测试"""
+import pytest
 from unittest.mock import MagicMock
 
 from illusion.channels.base import InboundMessage
@@ -6,9 +7,12 @@ from illusion.channels.config import (
     QQChannelConfig, QQGroupPolicy, ChannelsConfig,
     load_channels_config, save_channels_config,
 )
-from illusion.channels.qq.adapter import QQChannel
-from illusion.channels.qq.api import split_text, strip_markdown, _build_text_body
-from illusion.channels.qq.session_map import QQSession, QQSessionStore
+
+# QQ 渠道模块依赖 aiohttp，未安装时跳过相关测试
+aiohttp = pytest.importorskip("aiohttp")
+from illusion.channels.qq.adapter import QQChannel  # noqa: E402
+from illusion.channels.qq.api import split_text, strip_markdown, _build_text_body  # noqa: E402
+from illusion.channels.qq.session_map import QQSession, QQSessionStore  # noqa: E402
 
 
 class TestQQChannelConfig:
