@@ -1,0 +1,249 @@
+# Messaging Channels
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Supported Channels](#supported-channels)
+- [Quick Start (Feishu)](#quick-start-feishu)
+- [Channel Configuration (channels.json)](#channel-configuration-channelsjson)
+- [Feishu Slash Commands](#feishu-slash-commands)
+- [Feishu Built-in Tools](#feishu-built-in-tools)
+- [Permission Interaction](#permission-interaction)
+- [Troubleshooting](#troubleshooting)
+- [Quick Start (WeChat)](#quick-start-wechat)
+- [Channel Architecture](#channel-architecture)
+
+---
+
+IllusionCode supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark) and WeChat. This enables **remote work continuation** — start a task on your terminal, then continue it from your phone.
+
+## How It Works
+
+```
+illusion (main program)
+ ├─ Reads channels.json → feishu.enabled / weixin.enabled
+ ├─ Silently spawns 'illusion channel serve' as a background daemon
+ │    └─ Feishu: WS long connection → agent → streaming card reply
+ │    └─ WeChat: HTTP long-poll → agent → typing indicator + text reply
+ └─ run_repl()  ← Local terminal interaction (unaffected)
+
+Your phone
+ └─ Send message → daemon receives → agent processes → reply
+```
+
+## Supported Channels
+
+| Channel | Protocol | Streaming | Group Chat | Status |
+|---------|----------|-----------|------------|--------|
+| Feishu / Lark | WS long connection | Interactive card (JSON 2.0) | ✅ | Production ready |
+| WeChat (iLink Bot) | HTTP long-poll | Typing indicator + text | ❌ (DM only) | Production ready |
+
+## Quick Start (Feishu)
+
+### 1. Create a Feishu App
+
+1. Go to [Feishu Open Platform](https://open.feishu.cn/app) (Lark: [open.larksuite.com](https://open.larksuite.com/app))
+2. Create a **Custom App** (自建应用)
+3. Enable the **Bot** capability (机器人能力)
+4. Under **Event Subscriptions** (事件订阅), select **Long Connection mode** (长连接模式)
+5. Subscribe to the event: `im.message.receive_v1` (接收消息)
+6. Record your **App ID** and **App Secret**
+
+### 2. Configure the Channel
+
+```bash
+illusion channel login
+```
+
+This launches an interactive setup wizard:
+
+```
+选择渠道 / Select a channel:
+  1. 飞书 / Feishu (Lark)
+输入序号: 1
+
+--- 飞书渠道配置 ---
+选择平台 / Select platform:
+  1. 飞书 (open.feishu.cn)
+  2. Lark (open.larksuite.com)
+输入序号: 1
+
+输入 App ID: cli_a1b2c3...
+输入 App Secret: 明文输入
+
+是否启用群组会话按用户隔离? (Y/n): Y
+群组中是否要求 @机器人才响应? (Y/n): Y
+是否允许其他机器人消息? (y/N): N
+
+正在安装依赖 lark-oapi... ✓
+配置已保存，飞书渠道已启用。
+```
+
+- The `lark-oapi` SDK is **automatically installed** on first setup (as an optional dependency)
+- Credentials are stored in plaintext in `~/.illusion/channels.json` (per requirement, not masked)
+- The channel is **auto-activated** on next `illusion` launch
+
+### 3. Start Using
+
+```bash
+# Option A: Let illusion auto-activate the channel (silent background daemon)
+illusion                    # Channel daemon starts automatically, REPL runs normally
+
+# Option B: Run the daemon in foreground (see logs, Ctrl+C to stop)
+illusion channel serve
+```
+
+Now send a message to your bot in Feishu — you'll get a streaming card reply with full Markdown rendering.
+
+## Channel Configuration (channels.json)
+
+Channel config is stored separately in `~/.illusion/channels.json` (not in `settings.json`):
+
+```json
+{
+  "feishu": {
+    "enabled": true,
+    "app_id": "cli_xxx",
+    "app_secret": "your-secret",
+    "domain": "feishu",
+    "require_mention": true,
+    "allow_bots": false,
+    "group_sessions_per_user": true,
+    "group_policy": {
+      "mode": "open",
+      "allowlist": [],
+      "blacklist": [],
+      "admin_list": []
+    }
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Whether the channel is active |
+| `app_id` | — | Feishu App ID |
+| `app_secret` | — | Feishu App Secret (plaintext) |
+| `domain` | `"feishu"` | `"feishu"` (China) or `"lark"` (International) |
+| `require_mention` | `true` | In groups, only respond when @mentioned |
+| `allow_bots` | `false` | Whether to process messages from other bots |
+| `group_sessions_per_user` | `true` | Isolate sessions per user in groups |
+| `group_policy.mode` | `"open"` | `"open"` / `"disabled"` / `"allowlist"` / `"blacklist"` |
+| `group_policy.allowlist` | `[]` | Allowed chat_ids (when mode=allowlist) |
+| `group_policy.blacklist` | `[]` | Blocked chat_ids (when mode=blacklist) |
+| `group_policy.admin_list` | `[]` | user_ids that always bypass policy |
+
+## Feishu Slash Commands
+
+You can manage sessions directly from Feishu chats:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | List available commands |
+| `/clear` | Clear current Feishu session history |
+| `/new` | Start a new Feishu session |
+| `/sessions` | List local terminal sessions (unfinished work) |
+| `/resume [id\|index]` | Resume a local terminal session into Feishu |
+| `/detach` | Save current Feishu session as a local terminal session |
+| `/model [show\|set NAME]` | View or switch the session model |
+
+**Remote work continuation workflow:**
+1. Start a coding task in your terminal, exit midway
+2. From Feishu, send `/sessions` — see your unfinished terminal sessions
+3. Send `/resume 1` — pull the session into Feishu, continue working
+4. Send `/detach` — save it back to local, resume in terminal with `illusion --resume <id>`
+
+## Feishu Built-in Tools
+
+When the Feishu channel is enabled, the agent gains access to Feishu-specific tools:
+
+| Tool | Description |
+|------|-------------|
+| `feishu_doc_read` | Read a Feishu Docx/Wiki document as plain text |
+| `feishu_doc_create` | Create a new Feishu Docx document |
+| `feishu_drive_list` | List files in a Feishu Drive folder |
+| `feishu_drive_upload` | Upload a local file to Feishu Drive |
+| `feishu_drive_download` | Download a Feishu Drive file to local |
+
+These tools use the same App credentials and are available to the agent automatically.
+
+## Permission Interaction
+
+All channel sessions run in **auto mode** by default — tool calls are automatically approved without user confirmation. This is different from the terminal interface where the default permission mode requires confirmation for modification tools.
+
+The auto mode applies to all tools (bash, file write, edit, etc.) in channel sessions. No manual approval is needed.
+
+> **Note**: `ask_user` questions and plan approvals still require user input — these are interactive prompts, not permission checks.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| No response in Feishu | Check `~/.illusion/channels/serve.log` for errors |
+| Daemon didn't auto-start | Run `illusion channel status` to check; manually run `illusion channel serve` to see logs |
+| `processor not found` in logs | Harmless — this is the read-receipt event, already handled with a no-op processor |
+| Card not rendering tables | Ensure your Feishu client is v7.20+ (JSON 2.0 cards require it) |
+| WS connection keeps reconnecting | Verify App ID/Secret are correct; check event subscription is set to Long Connection mode |
+| Edit limit (230072) | Not applicable — cards use `message.patch` which has no edit count limit |
+
+## Quick Start (WeChat)
+
+WeChat uses the **iLink Bot API** (Tencent's official Bot API via HTTPS long-poll). It's not a reverse-engineering hook — no WeChat client needs to be running.
+
+### 1. Configure the Channel
+
+```bash
+illusion channel login
+# Select: 2. WeChat
+```
+
+This will:
+1. Auto-install `aiohttp`, `cryptography`, `qrcode` (first time only)
+2. Open your browser with a QR code page
+3. Scan with WeChat to authorize the bot identity
+4. Save credentials to `~/.illusion/channels.json`
+
+### 2. Start Using
+
+```bash
+illusion                    # Auto-activates WeChat daemon in background
+# or
+illusion channel serve      # Foreground mode with logs
+```
+
+Send a message to your bot in WeChat — you'll see "typing..." indicator, then the full reply.
+
+### 3. Key Limitations
+
+- **DM only** — bot identity cannot join normal WeChat groups
+- **No message editing** — replies are sent as complete text (typing indicator shows during processing)
+- **2000 char limit** — longer replies auto-split into multiple messages with 1.5s delay
+- **Session expires** — if you see `errcode=-14`, re-run `illusion channel login` to re-scan
+
+## Channel Architecture
+
+```
+src/illusion/channels/
+├── __init__.py          # ChannelRunner (message→agent glue) + maybe_spawn_channel_daemon
+├── base.py              # Channel ABC + InboundMessage + typing methods
+├── base_commands.py     # BaseCommandHandler (shared slash commands)
+├── config.py            # ChannelsConfig / FeishuChannelConfig / WeixinChannelConfig
+├── serve.py             # 'illusion channel serve' entry point (multi-channel)
+├── pid.py               # PID file management (avoid duplicate daemons)
+├── feishu/
+│   ├── adapter.py       # FeishuChannel: WS connection, event dispatch, admission control
+│   ├── ws_client.py     # lark-oapi WS client wrapper
+│   ├── messaging.py     # Card send/patch, message rendering
+│   ├── stream_editor.py # Streaming card editor (throttled patch updates)
+│   ├── session_map.py   # Feishu session store (chat_id → session)
+│   └── commands.py      # FeishuCommandHandler (extends BaseCommandHandler)
+├── weixin/
+│   ├── __init__.py      # WEIXIN_DEPENDENCIES / ensure_weixin_dependencies
+│   ├── adapter.py       # WeixinChannel: long-poll, admission, context_token, typing
+│   ├── ilink_api.py     # iLink Bot API client (QR login / send / poll / typing)
+│   ├── session_map.py   # WeixinSessionStore (user_id → session)
+│   └── commands.py      # WeixinCommandHandler (extends BaseCommandHandler)
+└── tools/
+    ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
+    └── feishu_drive.py  # feishu_drive_list / upload / download
+```

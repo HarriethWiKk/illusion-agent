@@ -1,0 +1,444 @@
+# 设置与凭据配置
+
+## 目录
+
+- [配置概览](#配置概览)
+- [凭据文件 (credentials.json)](#凭据文件-credentialsjson)
+- [全局配置 (settings.json)](#全局配置-settingsjson)
+  - [环境配置 (EnvConfig)](#环境配置-envconfig)
+  - [各提供商配置示例](#各提供商配置示例)
+  - [权限配置](#权限配置)
+  - [环境变量](#环境变量)
+  - [记忆系统配置](#记忆系统配置)
+  - [沙箱配置](#沙箱配置)
+
+---
+
+## 配置概览
+
+| 文件 | 位置 | 作用域 | 用途 |
+|------|------|--------|------|
+| `settings.json` | `~/.illusion/settings.json` | 全局 | 主设置：API 配置、权限、钩子等 |
+| `credentials.json` | `~/.illusion/credentials.json` | 全局 | 安全凭据存储（API 密钥） |
+
+环境变量覆盖：`ILLUSION_CONFIG_DIR` 替换 `~/.illusion/`，`ILLUSION_DATA_DIR` 替换 `~/.illusion/data/`，`ILLUSION_LOGS_DIR` 替换 `~/.illusion/logs/`。
+
+### 配置优先级
+
+1. **CLI 参数** — 最高优先级
+2. **环境变量** — `ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL` 等
+3. **配置文件** — `~/.illusion/settings.json`
+4. **默认值** — 内置默认配置
+
+---
+
+## 凭据文件 (credentials.json)
+
+位于 `~/.illusion/credentials.json`，由 `illusion auth login` 管理。凭据按 `env_N` 分组存储。
+
+```json
+{
+  "env_1": {
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_key": "sk-xxxxx"
+  }
+}
+```
+
+**API 密钥存储方式：**
+
+| 方式 | 位置 | 优势 |
+|------|------|------|
+| **安全模式** | `credentials.json`（由 `illusion auth login` 管理） | 密钥与配置分离，文件权限受保护 |
+| **便捷模式** | `settings.json` 的 `env_N.api_key` | 配置集中在一个文件 |
+
+运行时优先级：`env_N.api_key` > 环境变量 > `credentials.json`。
+
+> **文件权限 600**：在 Unix/Linux 上，文件设置为 `rw-------`（仅所有者可读写）。Windows 上静默跳过。
+
+---
+
+## 全局配置 (settings.json)
+
+### 格式
+
+使用 `env_N` 分组格式。每个 `env_N` 是独立的环境配置（EnvConfig）。`model` 字段引用 `env_N.model_N`。
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1.model_1",
+  "context_window": 200000,
+  "system_prompt": null
+}
+```
+
+### 完整配置结构
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1.model_1",
+  "context_window": 200000,
+  "system_prompt": null,
+  "max_tokens": 16384,
+  "max_turns": 200,
+  "permission": {
+    "mode": "default",
+    "allowed_tools": [],
+    "denied_tools": [],
+    "path_rules": [],
+    "denied_commands": []
+  },
+  "hooks": {},
+  "memory": {
+    "enabled": true,
+    "max_files": 5,
+    "max_entrypoint_lines": 200
+  },
+  "sandbox": {
+    "enabled": false,
+    "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": [],
+    "network": {
+      "allowed_domains": [],
+      "denied_domains": [],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
+    },
+    "filesystem": {
+      "allow_read": [],
+      "deny_read": [],
+      "allow_write": ["."],
+      "deny_write": []
+    },
+    "ignore_violations": {},
+    "enable_weaker_nested_sandbox": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false
+  },
+  "enabled_plugins": {},
+  "mcp_servers": {},
+  "ui_language": "zh-CN",
+  "output_style": "default",
+  "fast_mode": false,
+  "effort": "medium",
+  "passes": 1,
+  "verbose": false
+}
+```
+
+### 配置字段说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `env_N` | object | - | 环境配置组（EnvConfig） |
+| `model` | string | "env_1.model_1" | 当前活跃模型引用：`env_N.model_N` |
+| `context_window` | int | 200000 | 上下文窗口大小（tokens） |
+| `system_prompt` | string\|null | null | 自定义系统提示词（全局，可被 env_N 覆盖） |
+| `max_tokens` | int | 16384 | 最大输出 token 数 |
+| `max_turns` | int | 200 | 最大对话轮数 |
+| `ui_language` | string | "zh-CN" | 界面语言 |
+| `fast_mode` | bool | false | 快速模式 |
+| `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
+| `passes` | int | 1 | 推理轮数（1-8） |
+| `verbose` | bool | false | 详细输出 |
+
+---
+
+### 环境配置 (EnvConfig)
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `api_format` | string | 是 | API 格式：`anthropic` / `openai` |
+| `base_url` | string\|null | 否 | 自定义 API 端点，null 使用默认端点 |
+| `api_key` | string | 否 | API 密钥（或通过 `illusion auth login` 存储到 credentials.json） |
+| `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
+| `model_N` | string | 否 | 模型名称：`model_1`、`model_2`、... |
+
+### 多模型配置
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "model_1": "stepfun-ai/step-3.5-flash",
+    "model_2": "minimaxai/minimax-m2.7",
+    "model_3": "meta/llama-3.1-405b-instruct"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+**切换模型：**
+```bash
+/model                          # 交互式切换
+illusion -m env_1.model_2       # CLI 参数指定
+```
+
+---
+
+### 各提供商配置示例
+
+#### 1. Anthropic Claude API
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+#### 2. OpenAI API
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+#### 3. 自定义提供商
+
+在 `illusion auth login` 中选择"自定义提供商"，输入 API 格式、端点、密钥和模型名。
+
+#### 4. GitHub Copilot
+
+```bash
+illusion auth login  # 选择 GitHub Copilot
+```
+
+在浏览器中完成 GitHub 授权后自动配置。认证数据存储在 `~/.illusion/copilot_auth.json`。
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "provider": "copilot"
+  }
+}
+```
+
+#### 5. OpenAI Codex（ChatGPT 订阅）
+
+```bash
+codex auth login      # 先安装并认证 Codex CLI
+illusion auth login   # 选择 OpenAI Codex
+```
+
+使用 ChatGPT 订阅认证，读取 `~/.codex/auth.json`。
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://chatgpt.com/backend-api",
+    "model_1": "codex-mini",
+    "provider": "codex"
+  }
+}
+```
+
+#### 6. 多提供商混合配置
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "env_3": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "provider": "copilot"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+---
+
+### 权限配置
+
+#### 权限模式
+
+| 模式 | 值 | 说明 |
+|------|-----|------|
+| 默认模式 | `default` | 修改类工具需要用户确认 |
+| 计划模式 | `plan` | 阻止所有修改类工具 |
+| 全自动模式 | `full_auto` | 允许一切操作 |
+
+```json
+{
+  "permission": {
+    "mode": "default",
+    "allowed_tools": ["read_file", "grep", "glob"],
+    "denied_tools": ["bash"],
+    "path_rules": [
+      {"pattern": "src/**", "allow": true},
+      {"pattern": "secrets/**", "allow": false}
+    ],
+    "denied_commands": ["/init", "/commit"]
+  }
+}
+```
+
+---
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
+| `OPENAI_API_KEY` | OpenAI API 密钥 |
+| `ANTHROPIC_MODEL` | 默认模型 |
+| `ANTHROPIC_BASE_URL` | API 端点 |
+| `ILLUSION_MAX_TOKENS` | 最大 token 数 |
+| `ILLUSION_MAX_TURNS` | 最大对话轮数 |
+| `ILLUSION_SANDBOX_ENABLED` | 启用沙箱 |
+| `ILLUSION_CONFIG_DIR` | 配置目录路径 |
+| `ILLUSION_DATA_DIR` | 数据目录路径 |
+| `ILLUSION_LOGS_DIR` | 日志目录路径 |
+
+---
+
+### 记忆系统配置
+
+```json
+{
+  "memory": {
+    "enabled": true,
+    "max_files": 5,
+    "max_entrypoint_lines": 200
+  }
+}
+```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | true | 启用记忆功能 |
+| `max_files` | 5 | 最大记忆文件数 |
+| `max_entrypoint_lines` | 200 | MEMORY.md 入口文件最大行数 |
+
+---
+
+### 沙箱配置
+
+沙箱系统为 shell 命令提供操作系统级隔离。支持三平台：
+
+| 平台 | 机制 | 依赖 |
+|------|------|------|
+| Linux / WSL | bubblewrap (bwrap) + 可选 seccomp | `bwrap`、`socat` |
+| macOS | Apple Seatbelt (sandbox-exec) | 内置 |
+| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+#### 基础配置
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": []
+  }
+}
+```
+
+#### 网络配置
+
+```json
+{
+  "sandbox": {
+    "network": {
+      "allowed_domains": ["api.anthropic.com", "*.github.com"],
+      "denied_domains": ["malicious.example.com"],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
+    }
+  }
+}
+```
+
+#### 文件系统配置
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "allow_write": [".", "./output"],
+      "deny_write": [".git/hooks", ".env"],
+      "deny_read": ["./secrets"],
+      "allow_read": ["./secrets/public"]
+    }
+  }
+}
+```
+
+#### 排除命令
+
+```json
+{
+  "sandbox": {
+    "excluded_commands": [
+      "npm test",
+      "make:*",
+      "git status"
+    ]
+  }
+}
+```
+
+#### 环境变量覆盖
+
+| 变量 | 覆盖字段 |
+|------|----------|
+| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled` |
+| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |

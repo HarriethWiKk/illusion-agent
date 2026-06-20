@@ -1,0 +1,183 @@
+# Getting Started
+
+## Requirements
+
+- Python >= 3.10
+- Node.js 18+
+- Supports Windows, macOS, Linux
+- Windows users: Auto-detect Git, no manual PATH configuration needed
+
+## Installation
+
+### Recommended: pip install from PyPI
+
+The simplest way to install IllusionCode. Automatically installs both frontends and registers the `illusion` command globally.
+
+```bash
+pip install illusion-code
+```
+
+No git clone required — everything is included in the package.
+
+### Alternative: pip install from source
+
+Clone the repository and install locally. Triggers the hatch build hook to build frontends automatically.
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
+cd illusion-code
+pip install .
+```
+
+Requires Node.js 18+ (for frontend build).
+
+### Alternative: pip install -e . (editable, from source)
+
+Editable install from source. Like `pip install .`, it triggers the hatch build hook to build frontends automatically and registers `illusion` globally. Like `uv sync`, source code changes take effect immediately without reinstalling.
+
+```bash
+git clone https://github.com/YunTaiHua/illusion-code.git
+cd illusion-code
+pip install -e .
+```
+
+Requires Node.js 18+ (for frontend build).
+
+> **When to use**: Best for developers who want both an editable install (live code changes) and the `illusion` command available globally. Unlike `uv sync`, no manual frontend build or `uv run` wrapper is needed.
+
+### Alternative: uv sync (for development)
+
+`uv sync` creates an editable install within the project directory. It does **not** trigger the hatch build hook, so you must build frontends manually. This is recommended for developers who want to modify the source code.
+
+```bash
+git clone https://github.com/your-repo/illusion-code.git
+cd illusion-code
+uv sync
+
+# Build frontends manually (required after uv sync)
+python scripts/build_frontend.py              # Build both
+python scripts/build_frontend.py --terminal   # Terminal TUI only
+python scripts/build_frontend.py --web        # Web UI only
+```
+
+> **Note**: `uv sync` does NOT register `illusion` globally. To use it:
+>
+> ```bash
+> # Option 1: Use uv run from the project directory
+> cd illusion-code
+> uv run illusion
+>
+> # Option 2: Activate the virtual environment
+> # Windows
+> .venv\Scripts\activate
+> # macOS / Linux
+> source .venv/bin/activate
+> illusion
+>
+> # Option 3: Install globally with pip (recommended)
+> pip install .
+>
+> # Option 4: Editable install with pip (global + live code changes)
+> pip install -e .
+> ```
+
+### Manual frontend build (for source installs only)
+
+If you installed from source and need to rebuild frontends (e.g., after updating frontend code). PyPI users do not need this step.
+
+**Build script (recommended)**
+
+```bash
+python scripts/build_frontend.py              # Build both
+python scripts/build_frontend.py --terminal   # Terminal TUI only
+python scripts/build_frontend.py --web        # Web UI only
+```
+
+**npm directly**
+
+```bash
+# Terminal TUI (esbuild → dist/index.mjs)
+cd frontend/terminal
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+
+# Web UI (Vite → dist/)
+cd frontend/web
+npm install --no-fund --no-audit
+npm run build
+cd ../..
+```
+
+### Key differences
+
+| | `pip install illusion-code` | `pip install .` | `pip install -e .` | `uv sync` |
+|---|---|---|---|---|
+| Source | PyPI | Local git clone | Local git clone | Local git clone |
+| Frontend build | Pre-built (included) | Automatic (hatch hook) | Automatic (hatch hook) | Manual |
+| `illusion` command | Global | Global | Global | Project-only (via `uv run` or venv activation) |
+| Install type | Standard | Standard | Editable | Editable |
+| Code changes take effect | Reinstall needed | Reinstall needed | Immediately | Immediately |
+| Best for | End users | Contributors | Developers (global + editable) | Developers |
+
+## Basic Usage
+
+> **First-time setup**: Run `illusion auth login` first to configure your API credentials. Without authentication (or if the model is unavailable), the program may exit with an error code.
+
+```bash
+# First-time: configure authentication
+illusion auth login
+
+# Start interactive session (recommended)
+illusion
+
+# Launch Web UI in browser
+illusion web
+
+# Web UI with custom port
+illusion web --port 8080
+
+# Non-interactive print mode
+illusion -p "Analyze the structure of this project"
+
+# Specify model
+illusion -m env_1.model_2
+
+# Continue most recent session
+illusion --continue
+
+# Restore specific session
+illusion --resume <session-id>
+
+# Set permission mode
+illusion --permission-mode full_auto
+
+# Specify API format
+illusion --api-format openai
+```
+
+> **Note**: The terminal interface (`illusion`) is the recommended primary mode. The Web UI (`illusion web`) is a supplementary option for scenarios where a terminal is unavailable.
+
+---
+
+## Development & Testing
+
+```bash
+# Install development dependencies
+uv sync --dev
+
+# Run tests
+pytest
+```
+
+---
+
+## License
+
+This project is open-sourced under the [MIT](../LICENSE) license.
+
+---
+
+## Contributing
+
+Welcome to submit Issues and Pull Requests!

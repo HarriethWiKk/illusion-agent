@@ -1,0 +1,444 @@
+# Settings & Credentials
+
+## Table of Contents
+
+- [Configuration Overview](#configuration-overview)
+- [Credentials File (credentials.json)](#credentials-file-credentialsjson)
+- [Global Configuration (settings.json)](#global-configuration-settingsjson)
+  - [Environment Configuration (EnvConfig)](#environment-configuration-envconfig)
+  - [Provider Configuration Examples](#provider-configuration-examples)
+  - [Permission Configuration](#permission-configuration)
+  - [Environment Variables](#environment-variables)
+  - [Memory System Configuration](#memory-system-configuration)
+  - [Sandbox Configuration](#sandbox-configuration)
+
+---
+
+## Configuration Overview
+
+| File | Location | Scope | Purpose |
+|------|----------|-------|---------|
+| `settings.json` | `~/.illusion/settings.json` | Global | Main settings: API config, permissions, hooks, etc. |
+| `credentials.json` | `~/.illusion/credentials.json` | Global | Secure credential storage (API keys) |
+
+Environment variable overrides: `ILLUSION_CONFIG_DIR` replaces `~/.illusion/`, `ILLUSION_DATA_DIR` replaces `~/.illusion/data/`, `ILLUSION_LOGS_DIR` replaces `~/.illusion/logs/`.
+
+### Configuration Priority
+
+1. **CLI Arguments** — highest priority
+2. **Environment Variables** — `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, etc.
+3. **Configuration Files** — `~/.illusion/settings.json`
+4. **Default Values** — built-in defaults
+
+---
+
+## Credentials File (credentials.json)
+
+Located at `~/.illusion/credentials.json`, managed by `illusion auth login`. Credentials are stored by `env_N` groups.
+
+```json
+{
+  "env_1": {
+    "api_key": "sk-ant-xxxxx"
+  },
+  "env_2": {
+    "api_key": "sk-xxxxx"
+  }
+}
+```
+
+**API Key Storage Options:**
+
+| Method | Location | Advantage |
+|--------|----------|-----------|
+| **Secure mode** | `credentials.json` (managed by `illusion auth login`) | Keys separated from config, file permissions protected |
+| **Convenient mode** | `env_N.api_key` in `settings.json` | All config in one file |
+
+Runtime priority: `env_N.api_key` > environment variables > `credentials.json`.
+
+> **File Permission 600**: On Unix/Linux, file is set to `rw-------` (owner only). Silently skipped on Windows.
+
+---
+
+## Global Configuration (settings.json)
+
+### Format
+
+Uses `env_N` grouped format. Each `env_N` is an independent environment config (EnvConfig). The `model` field references `env_N.model_N`.
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1.model_1",
+  "context_window": 200000,
+  "system_prompt": null
+}
+```
+
+### Complete Configuration Structure
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1.model_1",
+  "context_window": 200000,
+  "system_prompt": null,
+  "max_tokens": 16384,
+  "max_turns": 200,
+  "permission": {
+    "mode": "default",
+    "allowed_tools": [],
+    "denied_tools": [],
+    "path_rules": [],
+    "denied_commands": []
+  },
+  "hooks": {},
+  "memory": {
+    "enabled": true,
+    "max_files": 5,
+    "max_entrypoint_lines": 200
+  },
+  "sandbox": {
+    "enabled": false,
+    "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": [],
+    "network": {
+      "allowed_domains": [],
+      "denied_domains": [],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
+    },
+    "filesystem": {
+      "allow_read": [],
+      "deny_read": [],
+      "allow_write": ["."],
+      "deny_write": []
+    },
+    "ignore_violations": {},
+    "enable_weaker_nested_sandbox": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false
+  },
+  "enabled_plugins": {},
+  "mcp_servers": {},
+  "ui_language": "en-US",
+  "output_style": "default",
+  "fast_mode": false,
+  "effort": "medium",
+  "passes": 1,
+  "verbose": false
+}
+```
+
+### Configuration Field Description
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `env_N` | object | - | Environment config group (EnvConfig) |
+| `model` | string | "env_1.model_1" | Active model reference: `env_N.model_N` |
+| `context_window` | int | 200000 | Context window size in tokens |
+| `system_prompt` | string\|null | null | Custom system prompt (global; overridable per env_N) |
+| `max_tokens` | int | 16384 | Maximum output tokens |
+| `max_turns` | int | 200 | Maximum conversation turns |
+| `ui_language` | string | "en-US" | UI language |
+| `fast_mode` | bool | false | Fast mode |
+| `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
+| `passes` | int | 1 | Reasoning passes (1-8) |
+| `verbose` | bool | false | Verbose output |
+
+---
+
+### Environment Configuration (EnvConfig)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `api_format` | string | Yes | API format: `anthropic` / `openai` |
+| `base_url` | string\|null | No | Custom API endpoint, null uses default |
+| `api_key` | string | No | API key (or use `illusion auth login` for credentials.json) |
+| `system_prompt` | string\|null | No | Per-environment system prompt (overrides global) |
+| `model_N` | string | No | Model name: `model_1`, `model_2`, ... |
+
+### Multi-Model Configuration
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "model_1": "stepfun-ai/step-3.5-flash",
+    "model_2": "minimaxai/minimax-m2.7",
+    "model_3": "meta/llama-3.1-405b-instruct"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+**Switching models:**
+```bash
+/model                          # Interactive switch
+illusion -m env_1.model_2       # CLI parameter
+```
+
+---
+
+### Provider Configuration Examples
+
+#### 1. Anthropic Claude API
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6",
+    "model_2": "claude-opus-4-6"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+#### 2. OpenAI API
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+#### 3. Custom Provider
+
+Select "Custom provider" in `illusion auth login`, enter API format, endpoint, API key, and model name.
+
+#### 4. GitHub Copilot
+
+```bash
+illusion auth login  # Select GitHub Copilot
+```
+
+After GitHub authorization in browser, auto-configured. Auth stored in `~/.illusion/copilot_auth.json`.
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "provider": "copilot"
+  }
+}
+```
+
+#### 5. OpenAI Codex (ChatGPT Subscription)
+
+```bash
+codex auth login      # Install and authenticate Codex CLI first
+illusion auth login   # Select OpenAI Codex
+```
+
+Uses ChatGPT subscription auth from `~/.codex/auth.json`.
+
+```json
+{
+  "env_1": {
+    "api_format": "openai",
+    "base_url": "https://chatgpt.com/backend-api",
+    "model_1": "codex-mini",
+    "provider": "codex"
+  }
+}
+```
+
+#### 6. Multi-Provider Mixed Configuration
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": null,
+    "model_1": "claude-sonnet-4-6"
+  },
+  "env_2": {
+    "api_format": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model_1": "gpt-5.4"
+  },
+  "env_3": {
+    "api_format": "openai",
+    "base_url": "https://api.githubcopilot.com",
+    "model_1": "gpt-5.5",
+    "provider": "copilot"
+  },
+  "model": "env_1.model_1"
+}
+```
+
+---
+
+### Permission Configuration
+
+#### Permission Modes
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| Default | `default` | Modification tools require user confirmation |
+| Plan | `plan` | Block all modification tools |
+| Full Auto | `full_auto` | Allow all operations |
+
+```json
+{
+  "permission": {
+    "mode": "default",
+    "allowed_tools": ["read_file", "grep", "glob"],
+    "denied_tools": ["bash"],
+    "path_rules": [
+      {"pattern": "src/**", "allow": true},
+      {"pattern": "secrets/**", "allow": false}
+    ],
+    "denied_commands": ["/init", "/commit"]
+  }
+}
+```
+
+---
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_MODEL` | Default model |
+| `ANTHROPIC_BASE_URL` | API endpoint |
+| `ILLUSION_MAX_TOKENS` | Maximum token count |
+| `ILLUSION_MAX_TURNS` | Maximum conversation turns |
+| `ILLUSION_SANDBOX_ENABLED` | Enable sandbox |
+| `ILLUSION_CONFIG_DIR` | Configuration directory path |
+| `ILLUSION_DATA_DIR` | Data directory path |
+| `ILLUSION_LOGS_DIR` | Logs directory path |
+
+---
+
+### Memory System Configuration
+
+```json
+{
+  "memory": {
+    "enabled": true,
+    "max_files": 5,
+    "max_entrypoint_lines": 200
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | true | Enable memory function |
+| `max_files` | 5 | Maximum number of memory files |
+| `max_entrypoint_lines` | 200 | Maximum lines for MEMORY.md entry file |
+
+---
+
+### Sandbox Configuration
+
+The sandbox system provides OS-level isolation for shell commands. Supports three platforms:
+
+| Platform | Mechanism | Dependencies |
+|----------|-----------|--------------|
+| Linux / WSL | bubblewrap (bwrap) + optional seccomp | `bwrap`, `socat` |
+| macOS | Apple Seatbelt (sandbox-exec) | Built-in |
+| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+#### Basic Configuration
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "fail_if_unavailable": false,
+    "auto_allow_bash_if_sandboxed": true,
+    "allow_unsandboxed_commands": true,
+    "enabled_platforms": [],
+    "excluded_commands": []
+  }
+}
+```
+
+#### Network Configuration
+
+```json
+{
+  "sandbox": {
+    "network": {
+      "allowed_domains": ["api.anthropic.com", "*.github.com"],
+      "denied_domains": ["malicious.example.com"],
+      "allow_unix_sockets": [],
+      "allow_all_unix_sockets": false,
+      "allow_local_binding": false,
+      "http_proxy_port": null,
+      "socks_proxy_port": null
+    }
+  }
+}
+```
+
+#### Filesystem Configuration
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "allow_write": [".", "./output"],
+      "deny_write": [".git/hooks", ".env"],
+      "deny_read": ["./secrets"],
+      "allow_read": ["./secrets/public"]
+    }
+  }
+}
+```
+
+#### Excluded Commands
+
+```json
+{
+  "sandbox": {
+    "excluded_commands": [
+      "npm test",
+      "make:*",
+      "git status"
+    ]
+  }
+}
+```
+
+#### Environment Variable Overrides
+
+| Variable | Overrides |
+|----------|-----------|
+| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled` |
+| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |
