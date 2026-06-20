@@ -29,6 +29,7 @@ from illusion.channels.qq.api import (
     send_c2c_message,
     send_group_message,
     split_text,
+    strip_markdown,
 )
 
 if TYPE_CHECKING:
@@ -75,6 +76,9 @@ class QQChannel(Channel):
 
         # chat_type 缓存（用于判断 C2C vs 群聊）
         self._chat_type_cache: dict[str, str] = {}
+
+        # markdown 支持（从配置读取，默认启用）
+        self._markdown_support: bool = getattr(config, "markdown_support", True)
 
     async def connect(self) -> None:
         """建立 WS 连接和 HTTP session"""
@@ -283,8 +287,27 @@ class QQChannel(Channel):
             except asyncio.TimeoutError:
                 continue
 
+    def _format_message(self, content: str) -> str:
+        """格式化消息内容
+
+        markdown_support=True 时原样传递（QQ 自行渲染），
+        False 时剥离 markdown 格式为纯文本。
+
+        Args:
+            content: 原始消息内容
+
+        Returns:
+            str: 格式化后的消息
+        """
+        if self._markdown_support:
+            return content
+        return strip_markdown(content)
+
     async def send_text(self, chat_id: str, text: str, *, reply_to: str = "") -> str:
-        """发送文本消息，超长自动分片
+        """发送文本消息，超长自动分片（代码块感知）
+
+        markdown_support=True 时使用 markdown 信封（msg_type=2），
+        分片时自动处理代码块围栏的闭合与重开。
 
         Args:
             chat_id: 目标会话（openid 或 group_openid）
@@ -303,8 +326,11 @@ class QQChannel(Channel):
                 self._session, self.config.app_id, self.config.client_secret,
             )
 
-        chunks = split_text(text, MAX_MESSAGE_LENGTH)
-        logger.info("QQ 发送 %d 个分片到 %s", len(chunks), chat_id)
+        # 格式化（markdown 原样传递 or 剥离为纯文本）
+        formatted = self._format_message(text)
+        chunks = split_text(formatted, MAX_MESSAGE_LENGTH)
+        logger.info("QQ 发送 %d 个分片到 %s (markdown=%s)",
+                     len(chunks), chat_id, self._markdown_support)
 
         for i, chunk in enumerate(chunks):
             if i > 0:
@@ -318,11 +344,13 @@ class QQChannel(Channel):
                         await send_group_message(
                             self._session, self._token, chat_id, chunk,
                             msg_id=reply_to or "",
+                            markdown=self._markdown_support,
                         )
                     else:
                         await send_c2c_message(
                             self._session, self._token, chat_id, chunk,
                             msg_id=reply_to or "",
+                            markdown=self._markdown_support,
                         )
                     break
                 except Exception as exc:  # noqa: BLE001

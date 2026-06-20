@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,8 @@ async def send_c2c_message(
     openid: str,
     content: str,
     msg_id: str,
+    *,
+    markdown: bool = False,
 ) -> dict[str, Any]:
     """发送 C2C 私聊消息
 
@@ -134,17 +137,14 @@ async def send_c2c_message(
         openid: 用户 openid
         content: 消息内容
         msg_id: 引用的消息 ID（用于回复）
+        markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
         dict: API 响应
     """
     url = f"{API_BASE}/v2/users/{openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
-    body: dict[str, Any] = {
-        "content": content[:MAX_MESSAGE_LENGTH],
-        "msg_type": MSG_TYPE_TEXT,
-        "msg_id": msg_id,
-    }
+    body = _build_text_body(content, msg_id, markdown=markdown)
     async with session.post(url, headers=headers, json=body) as resp:
         resp.raise_for_status()
         return await resp.json()
@@ -156,6 +156,8 @@ async def send_group_message(
     group_openid: str,
     content: str,
     msg_id: str,
+    *,
+    markdown: bool = False,
 ) -> dict[str, Any]:
     """发送群聊消息
 
@@ -165,20 +167,51 @@ async def send_group_message(
         group_openid: 群 openid
         content: 消息内容
         msg_id: 引用的消息 ID（用于回复）
+        markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
         dict: API 响应
     """
     url = f"{API_BASE}/v2/groups/{group_openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
-    body: dict[str, Any] = {
-        "content": content[:MAX_MESSAGE_LENGTH],
-        "msg_type": MSG_TYPE_TEXT,
-        "msg_id": msg_id,
-    }
+    body = _build_text_body(content, msg_id, markdown=markdown)
     async with session.post(url, headers=headers, json=body) as resp:
         resp.raise_for_status()
         return await resp.json()
+
+
+def _build_text_body(
+    content: str,
+    msg_id: str,
+    *,
+    markdown: bool = False,
+) -> dict[str, Any]:
+    """构建消息请求体
+
+    markdown=True 时使用 QQ markdown 信封（msg_type=2），
+    否则使用纯文本（msg_type=0）。
+
+    Args:
+        content: 消息内容
+        msg_id: 引用的消息 ID
+        markdown: 是否使用 markdown 信封
+
+    Returns:
+        dict: 请求体
+    """
+    if markdown:
+        body: dict[str, Any] = {
+            "markdown": {"content": content[:MAX_MESSAGE_LENGTH]},
+            "msg_type": MSG_TYPE_MARKDOWN,
+            "msg_id": msg_id,
+        }
+    else:
+        body = {
+            "content": content[:MAX_MESSAGE_LENGTH],
+            "msg_type": MSG_TYPE_TEXT,
+            "msg_id": msg_id,
+        }
+    return body
 
 
 # ── 打字状态 ──────────────────────────────────────────────────
@@ -285,10 +318,19 @@ def _file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-# ── 文本分片 ──────────────────────────────────────────────────
+# ── 文本分片（代码块感知） ────────────────────────────────────
+
+# 匹配 ``` 围栏行（开头或闭合）
+_RE_FENCE = re.compile(r"^```(\w*)", re.MULTILINE)
+
 
 def split_text(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
-    """超长文本按段落边界分片
+    """超长文本按段落边界分片，代码块感知
+
+    分片时追踪 ``` 围栏状态：若在代码块内切分，当前片闭合围栏，
+    下一片重开围栏（保留语言标记），避免渲染错乱。
+
+    多分片消息附带 (1/n) 编号标记。
 
     Args:
         text: 原始文本
@@ -300,21 +342,106 @@ def split_text(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
     if len(text) <= max_length:
         return [text]
 
+    # 预留编号空间：最多 "(99/99)" = 10 字符
+    indicator_reserve = 10
+    effective_max = max_length - indicator_reserve
+
     chunks: list[str] = []
-    while text:
-        if len(text) <= max_length:
-            chunks.append(text)
+    remaining = text
+    in_code_block = False  # 追踪是否在 ``` 代码块内
+    code_lang = ""  # 当前代码块的语言标记
+
+    while remaining:
+        if len(remaining) <= effective_max:
+            # 最后一片：如果在代码块内需要闭合
+            if in_code_block:
+                chunks.append(remaining.rstrip() + "\n```")
+            else:
+                chunks.append(remaining)
             break
 
-        # 在 max_length 范围内找最后一个段落分隔
-        cut = max_length
+        # 在有效范围内找切分点
+        cut = effective_max
         for sep in ["\n\n", "\n", "。", ".", " "]:
-            pos = text.rfind(sep, 0, max_length)
-            if pos > max_length // 2:  # 至少从中间切
+            pos = remaining.rfind(sep, 0, effective_max)
+            if pos > effective_max // 2:
                 cut = pos + len(sep)
                 break
 
-        chunks.append(text[:cut])
-        text = text[cut:]
+        chunk = remaining[:cut]
+        remaining_after = remaining[cut:]
+
+        # 统计当前片中 ``` 围栏的出现次数
+        fence_count = len(_RE_FENCE.findall(chunk))
+
+        if in_code_block:
+            # 已在代码块内
+            if fence_count % 2 == 0:
+                # 偶数个新围栏：仍在代码块内 → 闭合 + 重开
+                chunk = chunk.rstrip() + "\n```"
+                remaining = f"```{code_lang}\n" + remaining_after
+            else:
+                # 奇数个新围栏：代码块已自然关闭
+                in_code_block = False
+                code_lang = ""
+                remaining = remaining_after
+        else:
+            # 不在代码块内
+            if fence_count % 2 == 0:
+                # 偶数个新围栏：仍在代码块外
+                remaining = remaining_after
+            else:
+                # 奇数个新围栏：代码块已开启 → 闭合 + 重开
+                in_code_block = True
+                # 记录最后一个围栏的语言标记
+                last_fence = None
+                for m in _RE_FENCE.finditer(chunk):
+                    last_fence = m
+                if last_fence:
+                    code_lang = last_fence.group(1)
+                chunk = chunk.rstrip() + "\n```"
+                remaining = f"```{code_lang}\n" + remaining_after
+
+        chunks.append(chunk)
+
+    # 添加分片编号
+    if len(chunks) > 1:
+        total = len(chunks)
+        chunks = [f"{c}\n\n({i+1}/{total})" for i, c in enumerate(chunks)]
 
     return chunks
+
+
+# ── Markdown 剥离 ─────────────────────────────────────────────
+
+# 预编译正则（用于纯文本回退模式）
+_RE_BOLD = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_RE_ITALIC_STAR = re.compile(r"\*(.+?)\*")
+_RE_BOLD_UNDER = re.compile(r"__(.+?)__", re.DOTALL)
+_RE_ITALIC_UNDER = re.compile(r"_(.+?)_")
+_RE_CODE_BLOCK = re.compile(r"```[a-zA-Z0-9_+-]*\n?", re.DOTALL)
+_RE_INLINE_CODE = re.compile(r"`(.+?)`")
+_RE_HEADING = re.compile(r"^#{1,6}\s+", re.MULTILINE)
+_RE_LINK = re.compile(r"\[([^\]]+)\]\([^\)]+\)")
+_RE_MULTI_NEWLINE = re.compile(r"\n{3,}")
+
+
+def strip_markdown(text: str) -> str:
+    """剥离 markdown 格式，用于纯文本回退模式
+
+    Args:
+        text: 含 markdown 的文本
+
+    Returns:
+        str: 纯文本
+    """
+    text = _RE_BOLD.sub(r"\1", text)
+    text = _RE_ITALIC_STAR.sub(r"\1", text)
+    text = _RE_BOLD_UNDER.sub(r"\1", text)
+    text = _RE_ITALIC_UNDER.sub(r"\1", text)
+    text = _RE_CODE_BLOCK.sub("", text)
+    text = _RE_INLINE_CODE.sub(r"\1", text)
+    text = _RE_HEADING.sub("", text)
+    text = _RE_LINK.sub(r"\1", text)
+    text = _RE_MULTI_NEWLINE.sub("\n\n", text)
+    return text.strip()

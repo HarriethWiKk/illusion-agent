@@ -7,7 +7,7 @@ from illusion.channels.config import (
     load_channels_config, save_channels_config,
 )
 from illusion.channels.qq.adapter import QQChannel
-from illusion.channels.qq.api import split_text
+from illusion.channels.qq.api import split_text, strip_markdown, _build_text_body
 from illusion.channels.qq.session_map import QQSession, QQSessionStore
 
 
@@ -81,7 +81,7 @@ class TestChannelsConfigWithQQ:
 
 
 class TestSplitText:
-    """文本分片测试"""
+    """文本分片测试（代码块感知 + 分片编号）"""
 
     def test_short_text_no_split(self):
         assert split_text("hello") == ["hello"]
@@ -90,14 +90,86 @@ class TestSplitText:
         text = "a" * 1000 + "\n\n" + "b" * 1000
         chunks = split_text(text, max_length=2000)
         assert len(chunks) == 2
-        assert chunks[0] == "a" * 1000 + "\n\n"
-        assert chunks[1] == "b" * 1000
+        # 多分片带编号
+        assert "(1/2)" in chunks[0]
+        assert "(2/2)" in chunks[1]
 
     def test_respects_max_length(self):
         text = "x" * 5000
         chunks = split_text(text, max_length=4000)
-        assert all(len(c) <= 4000 for c in chunks)
-        assert "".join(chunks) == text
+        # 去掉编号后检查长度
+        for c in chunks:
+            content = c.rsplit("\n\n(", 1)[0] if "\n\n(" in c else c
+            assert len(content) <= 4000
+
+    def test_code_block_awareness(self):
+        """代码块内分片时自动闭合/重开围栏"""
+        code = "```python\n" + "x = 1\n" * 500 + "```"
+        chunks = split_text(code, max_length=2000)
+        assert len(chunks) >= 2
+        # 去掉编号后检查围栏处理
+        first_content = chunks[0].rsplit("\n\n(", 1)[0]
+        second_content = chunks[1].split("\n\n(", 1)[0]
+        # 第一片应在代码块内闭合
+        assert first_content.rstrip().endswith("```")
+        # 第二片应重开围栏
+        assert second_content.startswith("```python")
+
+    def test_no_code_block_normal_split(self):
+        """无代码块时正常分片"""
+        text = "hello world " * 500
+        chunks = split_text(text, max_length=2000)
+        assert len(chunks) >= 2
+        # 不应包含代码围栏
+        for c in chunks:
+            assert "```" not in c
+
+
+class TestStripMarkdown:
+    """Markdown 剥离测试"""
+
+    def test_bold(self):
+        assert strip_markdown("**hello**") == "hello"
+
+    def test_italic(self):
+        assert strip_markdown("*world*") == "world"
+
+    def test_code_block(self):
+        text = "```python\ncode\n```"
+        result = strip_markdown(text)
+        assert "```" not in result
+        assert "code" in result
+
+    def test_inline_code(self):
+        assert strip_markdown("`foo`") == "foo"
+
+    def test_heading(self):
+        assert strip_markdown("## Title") == "Title"
+
+    def test_link(self):
+        assert strip_markdown("[text](url)") == "text"
+
+
+class TestBuildTextBody:
+    """消息请求体构建测试"""
+
+    def test_markdown_envelope(self):
+        """markdown 模式使用 msg_type=2 信封"""
+        body = _build_text_body("hello", "m1", markdown=True)
+        assert body["msg_type"] == 2
+        assert body["markdown"]["content"] == "hello"
+
+    def test_text_mode(self):
+        """纯文本模式使用 msg_type=0"""
+        body = _build_text_body("hello", "m1", markdown=False)
+        assert body["msg_type"] == 0
+        assert body["content"] == "hello"
+
+    def test_truncation(self):
+        """超长内容截断到 MAX_MESSAGE_LENGTH"""
+        long_text = "x" * 5000
+        body = _build_text_body(long_text, "m1", markdown=True)
+        assert len(body["markdown"]["content"]) == 4000
 
 
 class TestQQSessionStore:

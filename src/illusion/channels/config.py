@@ -133,6 +133,7 @@ class QQChannelConfig(BaseModel):
     enabled: bool = False  # 默认未启用
     app_id: str = ""  # 应用 ID
     client_secret: str = ""  # 应用密钥（明文）
+    markdown_support: bool = True  # 是否使用 markdown 渲染（msg_type=2）
     allow_bots: bool = False  # 默认拒绝机器人消息
     group_sessions_per_user: bool = True  # 群组会话按用户隔离
     require_mention: bool = True  # 群组需 @提及
