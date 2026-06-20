@@ -96,6 +96,49 @@ class WeixinChannelConfig(BaseModel):
     allow_bots: bool = False  # 默认拒绝机器人消息
 
 
+class QQGroupPolicy(BaseModel):
+    """QQ 群组访问策略
+
+    控制机器人如何响应群组消息。
+
+    Attributes:
+        mode: 策略模式，open（全部允许）/ disabled（全部拒绝）/
+              allowlist（仅白名单）/ blacklist（除黑名单外允许）
+        allowlist: 允许的 group_openid 列表（mode=allowlist 时生效）
+        blacklist: 拒绝的 group_openid 列表（mode=blacklist 时生效）
+        admin_list: 永远放行的 user_openid 列表（管理员）
+    """
+
+    mode: str = "open"  # 默认开放
+    allowlist: list[str] = Field(default_factory=list)  # 白名单 group_openid
+    blacklist: list[str] = Field(default_factory=list)  # 黑名单 group_openid
+    admin_list: list[str] = Field(default_factory=list)  # 管理员 user_openid
+
+
+class QQChannelConfig(BaseModel):
+    """QQ 渠道配置
+
+    存储 QQ 开放平台机器人应用的凭据和行为选项。
+
+    Attributes:
+        enabled: 是否启用该渠道
+        app_id: QQ 开放平台应用 App ID
+        client_secret: QQ 开放平台应用 App Secret（明文）
+        allow_bots: 是否允许其他机器人的消息
+        group_sessions_per_user: 群组会话是否按用户隔离
+        require_mention: 群组中是否要求 @机器人才响应
+        group_policy: 群组访问策略
+    """
+
+    enabled: bool = False  # 默认未启用
+    app_id: str = ""  # 应用 ID
+    client_secret: str = ""  # 应用密钥（明文）
+    allow_bots: bool = False  # 默认拒绝机器人消息
+    group_sessions_per_user: bool = True  # 群组会话按用户隔离
+    require_mention: bool = True  # 群组需 @提及
+    group_policy: QQGroupPolicy = Field(default_factory=QQGroupPolicy)  # 群组策略
+
+
 class ChannelsConfig(BaseModel):
     """所有渠道配置容器（channels.json）
 
@@ -108,6 +151,7 @@ class ChannelsConfig(BaseModel):
 
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)  # 飞书配置
     weixin: WeixinChannelConfig = Field(default_factory=WeixinChannelConfig)  # 微信配置
+    qq: QQChannelConfig = Field(default_factory=QQChannelConfig)  # QQ 配置
 
     def has_enabled_channels(self) -> bool:
         """是否有任何已启用的渠道
@@ -115,7 +159,7 @@ class ChannelsConfig(BaseModel):
         Returns:
             bool: 任一渠道 enabled 为 True 时返回 True
         """
-        return self.feishu.enabled or self.weixin.enabled
+        return self.feishu.enabled or self.weixin.enabled or self.qq.enabled
 
     def enabled_channel_names(self) -> list[str]:
         """返回所有已启用渠道的名称列表
@@ -128,6 +172,8 @@ class ChannelsConfig(BaseModel):
             names.append("feishu")
         if self.weixin.enabled:
             names.append("weixin")
+        if self.qq.enabled:
+            names.append("qq")
         return names
 
 
