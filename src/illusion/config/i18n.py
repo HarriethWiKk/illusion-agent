@@ -240,6 +240,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "请先访问 https://q.qq.com 注册机器人应用，获取 App ID 和 Client Secret",
         "en-US": "Please visit https://q.qq.com to register a bot app and obtain App ID and Client Secret",
     },
+    "qq_cmd_new": {"zh-CN": "已开启新的 QQ 会话。", "en-US": "New QQ session started."},
 }
 
 # --- 命令描述翻译 ---

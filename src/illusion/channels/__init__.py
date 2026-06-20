@@ -213,7 +213,7 @@ class ChannelRunner:
             if isinstance(self.channel, _get_weixin_channel_class()):
                 await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
             elif isinstance(self.channel, _QQChannel):
-                await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
+                await self.channel.send_text(msg.chat_id, _t("qq_cmd_new"))
             else:
                 await self.channel.send_text(msg.chat_id, _t("feishu_cmd_new"))
             self.session_store.clear_signal()
