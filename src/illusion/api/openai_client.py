@@ -291,13 +291,14 @@ class OpenAICompatibleClient:
         _client: AsyncOpenAI 客户端实例
     """
 
-    def __init__(self, api_key: str, *, base_url: str | None = None, extra_headers: dict[str, str] | None = None) -> None:
+    def __init__(self, api_key: str, *, base_url: str | None = None, extra_headers: dict[str, str] | None = None, provider: str = "") -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
         if extra_headers:
             kwargs["default_headers"] = extra_headers
         self._client = AsyncOpenAI(**kwargs)
+        self._provider = provider
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """流式生成文本增量和最终消息，匹配 Anthropic 客户端接口
@@ -386,7 +387,7 @@ class OpenAICompatibleClient:
 
         # 检测是否为 Codex 模型（使用 chatgpt.com/backend-api 或模型名包含 codex）
         # 如果是 Codex 模型，直接走 responses API，避免先尝试 chat/completions 再回退
-        if self._is_codex_model(request.model):
+        if self._should_use_responses_api(request.model):
             log.info("Detected Codex model %s, using responses API directly", request.model)
             async for event in self._stream_via_responses_api(request, openai_messages, openai_tools):
                 yield event
@@ -522,22 +523,22 @@ class OpenAICompatibleClient:
             stop_reason=finish_reason,
         )
 
-    @staticmethod
-    def _is_codex_model(model: str) -> bool:
-        """检测是否为 Codex 模型（需要直接走 responses API）
+    def _should_use_responses_api(self, model: str) -> bool:
+        """判断是否应使用 Responses API 而非 chat/completions
 
-        Codex 模型的特征：
-        - 模型名包含 "codex"（如 codex-mini、gpt-5.2-codex）
-        - 模型名以 "gpt-5" 开头（GPT-5 系列默认使用 responses API）
+        条件：
+        - provider 为 codex（通过 auth login 配置的 codex 认证）
+        - 或模型名包含 "codex"（codex 后缀模型）
 
         Args:
             model: 模型名称
 
         Returns:
-            bool: 是否为 Codex 模型
+            bool: 是否使用 Responses API
         """
-        model_lower = model.lower()
-        return "codex" in model_lower or model_lower.startswith("gpt-5")
+        if self._provider == "codex":
+            return True
+        return "codex" in model.lower()
 
     @staticmethod
     def _is_media_related_error(exc: Exception) -> bool:

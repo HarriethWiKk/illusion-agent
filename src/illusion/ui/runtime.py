@@ -248,6 +248,7 @@ async def build_runtime(
             resolved_api_client = OpenAICompatibleClient(
                 api_key=settings.resolve_api_key(),
                 base_url=settings.base_url,
+                provider=_provider_info.name,
             )
     else:
         resolved_api_client = AnthropicApiClient(
@@ -560,6 +561,7 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
         new_client = OpenAICompatibleClient(
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
+            provider=_provider_info.name,
         )
     else:
         new_client = AnthropicApiClient(
