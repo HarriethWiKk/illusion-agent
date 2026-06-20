@@ -231,6 +231,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     "weixin_session_expired": {"zh-CN": "微信会话已过期，请重新运行 'illusion channel login'", "en-US": "WeChat session expired, run 'illusion channel login' again"},
     "weixin_cmd_new": {"zh-CN": "已开启新的微信会话。", "en-US": "New WeChat session started."},
     "channel_starting_weixin": {"zh-CN": "[渠道] 正在启动微信渠道...", "en-US": "[Channel] Starting WeChat channel..."},
+    # QQ 渠道
+    "channel_qq_label": {"zh-CN": "QQ", "en-US": "QQ"},
+    "channel_starting_qq": {"zh-CN": "[渠道] 正在启动 QQ 渠道...", "en-US": "[Channel] Starting QQ channel..."},
+    "qq_enter_app_id": {"zh-CN": "输入 App ID", "en-US": "Enter App ID"},
+    "qq_enter_client_secret": {"zh-CN": "输入 Client Secret", "en-US": "Enter Client Secret"},
+    "qq_login_intro": {
+        "zh-CN": "请先访问 https://q.qq.com 注册机器人应用，获取 App ID 和 Client Secret",
+        "en-US": "Please visit https://q.qq.com to register a bot app and obtain App ID and Client Secret",
+    },
 }
 
 # --- 命令描述翻译 ---
