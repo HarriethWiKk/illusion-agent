@@ -337,7 +337,7 @@ def _clear_all_channel_sessions() -> None:
     try:
         from illusion.config.paths import get_channels_data_dir
         data_dir = get_channels_data_dir()
-        for channel in ("feishu", "weixin"):
+        for channel in ("feishu", "weixin", "qq"):
             session_dir = data_dir / channel / "sessions"
             session_dir.mkdir(parents=True, exist_ok=True)
             (session_dir / ".delete_signal").write_text("1", encoding="utf-8")

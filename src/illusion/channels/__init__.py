@@ -209,7 +209,10 @@ class ChannelRunner:
                 except OSError:
                     pass
             from illusion.config.i18n import t as _t
+            from illusion.channels.qq.adapter import QQChannel as _QQChannel
             if isinstance(self.channel, _get_weixin_channel_class()):
+                await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
+            elif isinstance(self.channel, _QQChannel):
                 await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
             else:
                 await self.channel.send_text(msg.chat_id, _t("feishu_cmd_new"))
@@ -382,8 +385,9 @@ class ChannelRunner:
                     # 飞书：一次性 patch "思考中"卡片为完整回复
                     await self.channel.edit_message(msg.chat_id, thinking_msg_id, full_text)
                 else:
-                    # 微信：一次性发送
-                    await self.channel.send_text(msg.chat_id, full_text)
+                    # 微信/QQ：一次性发送（QQ 群聊需要 reply_to 定位消息）
+                    await self.channel.send_text(msg.chat_id, full_text,
+                                                 reply_to=msg.message_id)
             # 持久化渠道会话历史
             engine = getattr(bundle, "engine", None)
             msgs = getattr(engine, "messages", None)

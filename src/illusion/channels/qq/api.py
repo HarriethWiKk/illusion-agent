@@ -191,7 +191,10 @@ async def send_c2c_message(
     if msg_id:
         body["msg_id"] = msg_id
     async with session.post(url, headers=headers, json=body) as resp:
-        resp.raise_for_status()
+        if resp.status >= 400:
+            err_body = await resp.text()
+            logger.error("QQ C2C 发送失败: status=%d body=%s", resp.status, err_body)
+            resp.raise_for_status()
         return await resp.json()
 
 
@@ -224,8 +227,12 @@ async def send_group_message(
     body = _build_text_body(content, markdown=markdown)
     if msg_id:
         body["msg_id"] = msg_id
+    logger.info("QQ 群聊发送: url=%s body=%s", url, body)
     async with session.post(url, headers=headers, json=body) as resp:
-        resp.raise_for_status()
+        if resp.status >= 400:
+            err_body = await resp.text()
+            logger.error("QQ 群聊发送失败: status=%d body=%s", resp.status, err_body)
+            resp.raise_for_status()
         return await resp.json()
 
 
