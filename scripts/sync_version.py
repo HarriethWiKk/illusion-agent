@@ -117,6 +117,49 @@ def update_package_json_version(package_path: Path, version: str) -> None:
     print(f"Updated version in: {package_path}")
 
 
+def update_package_lock_version(package_path: Path, version: str) -> None:
+    """更新 package-lock.json 中的版本号
+
+    更新顶层 version 和 packages[""] 中的 version。
+
+    Args:
+        package_path: package-lock.json 路径
+        version: 目标版本号
+    """
+    if not package_path.exists():
+        print(f"Warning: {package_path} not found, skipping")
+        return
+
+    with package_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    changed = False
+
+    # 更新顶层 version
+    if data.get("version") != version:
+        data["version"] = version
+        changed = True
+
+    # 更新 packages[""] 中的 version（npm v2+ 格式）
+    packages = data.get("packages", {})
+    root_pkg = packages.get("", {})
+    if root_pkg.get("version") != version:
+        root_pkg["version"] = version
+        packages[""] = root_pkg
+        data["packages"] = packages
+        changed = True
+
+    if not changed:
+        print(f"Version already up to date: {package_path}")
+        return
+
+    with package_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"Updated version in: {package_path}")
+
+
 def main() -> None:
     """主函数"""
     version = read_version_from_pyproject()
@@ -130,6 +173,8 @@ def main() -> None:
     update_init_version(root / "src" / "illusion" / "__init__.py", version)
     update_package_json_version(root / "frontend" / "web" / "package.json", version)
     update_package_json_version(root / "frontend" / "terminal" / "package.json", version)
+    update_package_lock_version(root / "frontend" / "web" / "package-lock.json", version)
+    update_package_lock_version(root / "frontend" / "terminal" / "package-lock.json", version)
 
     print("Version sync completed successfully.")
 
