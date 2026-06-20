@@ -1,9 +1,11 @@
 """QQ 渠道单元测试"""
+from illusion.channels.base import InboundMessage
 from illusion.channels.config import (
     QQChannelConfig, QQGroupPolicy, ChannelsConfig,
     load_channels_config, save_channels_config,
 )
 from illusion.channels.qq.api import split_text
+from illusion.channels.qq.session_map import QQSession, QQSessionStore
 
 
 class TestQQChannelConfig:
@@ -93,3 +95,43 @@ class TestSplitText:
         chunks = split_text(text, max_length=4000)
         assert all(len(c) <= 4000 for c in chunks)
         assert "".join(chunks) == text
+
+
+class TestQQSessionStore:
+    """QQSessionStore 测试"""
+
+    def _make_msg(self, chat_id="c1", user_id="u1", chat_type="dm") -> InboundMessage:
+        return InboundMessage(
+            text="hi", chat_id=chat_id, chat_type=chat_type,
+            user_id=user_id, user_name="test", message_id="m1",
+        )
+
+    def test_build_key_dm(self, tmp_path):
+        store = QQSessionStore(tmp_path)
+        msg = self._make_msg(chat_type="dm")
+        assert store.build_session_key(msg) == "c1"
+
+    def test_build_key_group_isolated(self, tmp_path):
+        store = QQSessionStore(tmp_path, group_sessions_per_user=True)
+        msg = self._make_msg(chat_id="g1", user_id="u1", chat_type="group")
+        assert store.build_session_key(msg) == "g1_u1"
+
+    def test_build_key_group_shared(self, tmp_path):
+        store = QQSessionStore(tmp_path, group_sessions_per_user=False)
+        msg = self._make_msg(chat_id="g1", user_id="u1", chat_type="group")
+        assert store.build_session_key(msg) == "g1"
+
+    def test_get_or_create_new(self, tmp_path):
+        store = QQSessionStore(tmp_path)
+        session = store.get_or_create("key1", "u1", "dm")
+        assert session.key == "key1"
+        assert session.messages == []
+
+    def test_save_and_load(self, tmp_path):
+        store = QQSessionStore(tmp_path)
+        session = store.get_or_create("key1", "u1", "dm")
+        msgs = [{"role": "user", "content": "hello"}]
+        store.save(session, msgs)
+
+        loaded = store.get_or_create("key1", "u1", "dm")
+        assert loaded.messages == msgs
