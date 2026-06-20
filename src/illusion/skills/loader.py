@@ -43,16 +43,34 @@ def get_project_rules_dir(cwd: str | Path) -> Path:
 def load_skill_registry(cwd: str | Path | None = None) -> SkillRegistry:
     """加载内置和用户定义的 skills。"""
     registry = SkillRegistry()
+
+    # 加载项目级权限配置
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd) if cwd else None
+
+    # 检查是否禁用所有 skills
+    if project_permissions and "*" in project_permissions.denied_skills:
+        return registry
+
     # 注册内置 skills
     for skill in get_bundled_skills():
+        if project_permissions and skill.name in project_permissions.denied_skills:
+            continue
         registry.register(skill)
+
     # 注册用户 skills
     for skill in load_user_skills():
+        if project_permissions and skill.name in project_permissions.denied_skills:
+            continue
         registry.register(skill)
+
     # 如果提供了工作目录，加载项目级 skills 和插件 skills
     if cwd is not None:
         for skill in load_project_skills(cwd):
+            if project_permissions and skill.name in project_permissions.denied_skills:
+                continue
             registry.register(skill)
+
         from illusion.plugins.loader import load_plugins
 
         settings = load_settings()
@@ -60,7 +78,10 @@ def load_skill_registry(cwd: str | Path | None = None) -> SkillRegistry:
             if not plugin.enabled:
                 continue
             for skill in plugin.skills:
+                if project_permissions and skill.name in project_permissions.denied_skills:
+                    continue
                 registry.register(skill)
+
     return registry
 
 
