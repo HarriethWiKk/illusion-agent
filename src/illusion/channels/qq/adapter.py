@@ -122,6 +122,14 @@ class QQChannel(Channel):
             return
 
         if self._admit(msg):
+            # 空 @消息（只 @机器人没有文字）→ 回复帮助提示，不传给 LLM
+            if not msg.text.strip() and msg.chat_type == "group":
+                logger.info("QQ 空 @消息，回复帮助提示: user=%s", msg.user_id)
+                from illusion.config.i18n import t as _t
+                await self.send_text(msg.chat_id, _t("feishu_cmd_help"),
+                                     reply_to=msg.message_id)
+                return
+
             logger.info("QQ 消息已准入: user=%s text=%s", msg.user_id, msg.text[:30])
             self._queue.put_nowait(msg)
         else:
