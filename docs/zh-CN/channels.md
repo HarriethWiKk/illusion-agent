@@ -23,10 +23,11 @@ IllusionCode 支持消息渠道，让你能通过飞书（Feishu / Lark）和微
 
 ```
 illusion（主程序启动）
- ├─ 读取 channels.json → feishu.enabled / weixin.enabled
+ ├─ 读取 channels.json → feishu.enabled / weixin.enabled / qq.enabled
  ├─ 静默后台 spawn 'illusion channel serve' 守护进程
  │    └─ 飞书：WS 长连接 → agent → 流式卡片回复
  │    └─ 微信：HTTP 长轮询 → agent → 打字状态 + 文本回复
+ │    └─ QQ：WS 网关 → agent → 文本回复
  └─ run_repl()  ← 本地终端交互（不受影响）
 
 手机
@@ -39,6 +40,7 @@ illusion（主程序启动）
 |------|------|----------|------|------|
 | 飞书 / Feishu / Lark | WS 长连接 | 交互卡片（JSON 2.0） | ✅ | 生产就绪 |
 | 微信（iLink Bot） | HTTP 长轮询 | 打字状态 + 文本 | ❌（仅私聊） | 生产就绪 |
+| QQ（QQ 开放平台 Bot） | WS 网关 | 文本 | ✅（C2C + 群聊） | 生产就绪 |
 
 ### 快速开始（飞书）
 
@@ -222,6 +224,46 @@ illusion channel serve      # 前台模式（查看日志）
 - **2000 字符限制**——超长回复自动分多条发送，间隔 1.5s
 - **会话过期**——如果看到 `errcode=-14`，重新运行 `illusion channel login` 扫码
 
+### 快速开始（QQ）
+
+QQ 使用**官方 QQ Bot API v2**（WebSocket 网关 + REST API）。需要在 QQ 开放平台注册机器人应用。
+
+#### 1. 注册 QQ 机器人
+
+1. 访问 [QQ 开放平台](https://q.qq.com)
+2. 注册机器人应用，获取 **App ID** 和 **Client Secret**
+3. 在机器人设置中开启 **C2C 私聊** 和 **群聊 @消息** 能力
+
+#### 2. 配置渠道
+
+```bash
+illusion channel login
+# 选择：3. QQ
+```
+
+这将：
+1. 自动安装 `aiohttp`（仅首次）
+2. 引导输入 App ID 和 Client Secret
+3. 配置群组策略选项
+4. 保存凭据到 `~/.illusion/channels.json`
+
+#### 3. 开始使用
+
+```bash
+illusion                    # 自动后台激活 QQ 守护进程
+# 或
+illusion channel serve      # 前台模式（查看日志）
+```
+
+在 QQ 给机器人发消息——私聊直接回复，群聊需 @机器人。
+
+#### 4. 关键限制
+
+- **群聊需 @机器人**——群消息默认需要 @机器人 才响应（可配置）
+- **不支持消息编辑**——回复作为完整文本发送
+- **4000 字符限制**——超长回复自动分多条发送，间隔 1.5s
+- **文件发送**——支持三步分片上传
+
 ### 渠道架构
 
 ```
@@ -245,6 +287,13 @@ src/illusion/channels/
 │   ├── ilink_api.py     # iLink Bot API 客户端（扫码/收发/打字/分片）
 │   ├── session_map.py   # WeixinSessionStore（user_id → 会话）
 │   └── commands.py      # WeixinCommandHandler（继承 BaseCommandHandler）
+├── qq/
+│   ├── __init__.py      # QQ_DEPENDENCIES / ensure_qq_dependencies
+│   ├── adapter.py       # QQChannel：WS 连接、准入、消息标准化
+│   ├── ws_client.py     # QQ Bot WS 网关客户端（心跳/重连/事件分发）
+│   ├── api.py           # QQ Bot REST API 客户端（token/收发/上传）
+│   ├── session_map.py   # QQSessionStore（chat_id → 会话）
+│   └── commands.py      # QQCommandHandler（继承 BaseCommandHandler）
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
     └── feishu_drive.py  # feishu_drive_list / upload / download

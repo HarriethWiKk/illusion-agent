@@ -21,10 +21,11 @@ IllusionCode supports messaging channels that let you interact with the AI assis
 
 ```
 illusion (main program)
- ├─ Reads channels.json → feishu.enabled / weixin.enabled
+ ├─ Reads channels.json → feishu.enabled / weixin.enabled / qq.enabled
  ├─ Silently spawns 'illusion channel serve' as a background daemon
  │    └─ Feishu: WS long connection → agent → streaming card reply
  │    └─ WeChat: HTTP long-poll → agent → typing indicator + text reply
+ │    └─ QQ: WS Gateway → agent → text reply
  └─ run_repl()  ← Local terminal interaction (unaffected)
 
 Your phone
@@ -37,6 +38,7 @@ Your phone
 |---------|----------|-----------|------------|--------|
 | Feishu / Lark | WS long connection | Interactive card (JSON 2.0) | ✅ | Production ready |
 | WeChat (iLink Bot) | HTTP long-poll | Typing indicator + text | ❌ (DM only) | Production ready |
+| QQ (QQ Open Platform Bot) | WS Gateway | Text | ✅ (C2C + Group) | Production ready |
 
 ## Quick Start (Feishu)
 
@@ -220,6 +222,46 @@ Send a message to your bot in WeChat — you'll see "typing..." indicator, then 
 - **2000 char limit** — longer replies auto-split into multiple messages with 1.5s delay
 - **Session expires** — if you see `errcode=-14`, re-run `illusion channel login` to re-scan
 
+## Quick Start (QQ)
+
+QQ uses the **Official QQ Bot API v2** (WebSocket Gateway + REST API). You need to register a bot application on the QQ Open Platform.
+
+### 1. Register a QQ Bot
+
+1. Go to [QQ Open Platform](https://q.qq.com)
+2. Register a bot application, obtain **App ID** and **Client Secret**
+3. Enable **C2C Private Chat** and **Group @Message** capabilities in bot settings
+
+### 2. Configure the Channel
+
+```bash
+illusion channel login
+# Select: 3. QQ
+```
+
+This will:
+1. Auto-install `aiohttp` (first time only)
+2. Guide you to enter App ID and Client Secret
+3. Configure group policy options
+4. Save credentials to `~/.illusion/channels.json`
+
+### 3. Start Using
+
+```bash
+illusion                    # Auto-activates QQ daemon in background
+# or
+illusion channel serve      # Foreground mode with logs
+```
+
+Send a message to your bot in QQ — private chat replies directly, group chat requires @mention.
+
+### 4. Key Limitations
+
+- **Group chat requires @mention** — group messages need to @mention the bot by default (configurable)
+- **No message editing** — replies are sent as complete text
+- **4000 char limit** — longer replies auto-split into multiple messages with 1.5s delay
+- **File sending** — supports 3-step chunked upload
+
 ## Channel Architecture
 
 ```
@@ -243,6 +285,13 @@ src/illusion/channels/
 │   ├── ilink_api.py     # iLink Bot API client (QR login / send / poll / typing)
 │   ├── session_map.py   # WeixinSessionStore (user_id → session)
 │   └── commands.py      # WeixinCommandHandler (extends BaseCommandHandler)
+├── qq/
+│   ├── __init__.py      # QQ_DEPENDENCIES / ensure_qq_dependencies
+│   ├── adapter.py       # QQChannel: WS connection, admission, message normalization
+│   ├── ws_client.py     # QQ Bot WS gateway client (heartbeat/reconnect/events)
+│   ├── api.py           # QQ Bot REST API client (token/send/upload)
+│   ├── session_map.py   # QQSessionStore (chat_id → session)
+│   └── commands.py      # QQCommandHandler (extends BaseCommandHandler)
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
     └── feishu_drive.py  # feishu_drive_list / upload / download
