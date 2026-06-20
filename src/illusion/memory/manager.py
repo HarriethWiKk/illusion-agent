@@ -28,30 +28,66 @@ from re import sub
 from illusion.memory.paths import get_memory_entrypoint, get_project_memory_dir
 
 
-def list_memory_files(cwd: str | Path) -> list[Path]:
-    """列出项目的所有记忆markdown文件
-    
+def is_memory_enabled(cwd: str | Path) -> bool:
+    """检查记忆功能是否启用
+
+    检查项目级权限配置中的 denied_memory 字段。
+    如果 denied_memory 为 True，则禁用记忆功能。
+
     Args:
         cwd: 当前工作目录
-    
+
+    Returns:
+        bool: 记忆功能是否启用
+    """
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd)
+
+    # 检查项目级权限配置
+    if project_permissions.denied_memory:
+        return False
+
+    # 检查全局配置
+    from illusion.config.settings import load_settings
+    settings = load_settings()
+    return settings.memory.enabled
+
+
+def list_memory_files(cwd: str | Path) -> list[Path]:
+    """列出项目的所有记忆markdown文件
+
+    Args:
+        cwd: 当前工作目录
+
     Returns:
         list[Path]: 排序后的记忆文件路径列表
     """
+    # 检查记忆功能是否启用
+    if not is_memory_enabled(cwd):
+        return []
+
     memory_dir = get_project_memory_dir(cwd)  # 获取记忆目录
     return sorted(path for path in memory_dir.glob("*.md"))  # 返回排序后的文件列表
 
 
 def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
     """创建记忆文件并添加到MEMORY.md索引
-    
+
     Args:
         cwd: 当前工作目录
         title: 记忆标题
         content: 记忆内容
-    
+
     Returns:
         Path: 创建的记忆文件路径
+
+    Raises:
+        RuntimeError: 记忆功能被禁用时抛出
     """
+    # 检查记忆功能是否启用
+    if not is_memory_enabled(cwd):
+        raise RuntimeError("Memory is disabled by project permissions")
+
     memory_dir = get_project_memory_dir(cwd)  # 获取记忆目录
     slug = sub(r"[^a-zA-Z0-9]+", "_", title.strip().lower()).strip("_") or "memory"  # 转换为slug
     path = memory_dir / f"{slug}.md"  # 构建文件路径
