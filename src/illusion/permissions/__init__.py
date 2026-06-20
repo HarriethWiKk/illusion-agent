@@ -8,9 +8,11 @@
     - PermissionChecker: 权限检查器
     - PermissionDecision: 权限决策
     - PermissionMode: 权限模式
+    - ProjectPermissions: 项目级权限配置
+    - load_project_permissions: 加载项目级权限配置
 
 使用示例：
-    >>> from illusion.permissions import PermissionChecker, PermissionMode
+    >>> from illusion.permissions import PermissionChecker, PermissionMode, ProjectPermissions
 """
 
 from __future__ import annotations
@@ -19,9 +21,17 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from illusion.permissions.checker import PermissionChecker, PermissionDecision
+    from illusion.permissions.loader import load_project_permissions
     from illusion.permissions.modes import PermissionMode
+    from illusion.permissions.schemas import ProjectPermissions
 
-__all__ = ["PermissionChecker", "PermissionDecision", "PermissionMode"]
+__all__ = [
+    "PermissionChecker",
+    "PermissionDecision",
+    "PermissionMode",
+    "ProjectPermissions",
+    "load_project_permissions",
+]
 
 
 def __getattr__(name: str):
@@ -36,4 +46,12 @@ def __getattr__(name: str):
         from illusion.permissions.modes import PermissionMode
 
         return PermissionMode
+    if name == "ProjectPermissions":
+        from illusion.permissions.schemas import ProjectPermissions
+
+        return ProjectPermissions
+    if name == "load_project_permissions":
+        from illusion.permissions.loader import load_project_permissions
+
+        return load_project_permissions
     raise AttributeError(name)
