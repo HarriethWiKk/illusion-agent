@@ -342,10 +342,6 @@ class ChannelRunner:
             else:
                 logger.info("session model %s 与当前环境 %s 不匹配，使用默认模型",
                             session.model, current_env)
-        # 去掉模型名中的上下文窗口后缀（如 [1m]），API 不认识
-        if resolved_model:
-            import re
-            resolved_model = re.sub(r"\[.*?\]$", "", resolved_model).strip()
         try:
             bundle = await build_runtime(
                 model=resolved_model,
