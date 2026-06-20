@@ -3,6 +3,7 @@ from illusion.channels.config import (
     QQChannelConfig, QQGroupPolicy, ChannelsConfig,
     load_channels_config, save_channels_config,
 )
+from illusion.channels.qq.api import split_text
 
 
 class TestQQChannelConfig:
@@ -72,3 +73,23 @@ class TestChannelsConfigWithQQ:
         assert loaded.qq.enabled is True
         assert loaded.qq.app_id == "abc"
         assert loaded.qq.client_secret == "xyz"
+
+
+class TestSplitText:
+    """文本分片测试"""
+
+    def test_short_text_no_split(self):
+        assert split_text("hello") == ["hello"]
+
+    def test_split_at_newline(self):
+        text = "a" * 1000 + "\n\n" + "b" * 1000
+        chunks = split_text(text, max_length=2000)
+        assert len(chunks) == 2
+        assert chunks[0] == "a" * 1000 + "\n\n"
+        assert chunks[1] == "b" * 1000
+
+    def test_respects_max_length(self):
+        text = "x" * 5000
+        chunks = split_text(text, max_length=4000)
+        assert all(len(c) <= 4000 for c in chunks)
+        assert "".join(chunks) == text
