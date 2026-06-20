@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from illusion.hooks.events import HookEvent
@@ -85,7 +86,7 @@ def _normalize_hooks_value(value: Any) -> list[HookMatcherDefinition]:
     return result
 
 
-def load_hook_registry(settings: Any, plugins: Any = None) -> HookRegistry:
+def load_hook_registry(settings: Any, plugins: Any = None, cwd: str | Path | None = None) -> HookRegistry:
     """从设置对象加载钩子注册表。
 
     事件名必须是 PascalCase（如 PreToolUse）。
@@ -93,11 +94,24 @@ def load_hook_registry(settings: Any, plugins: Any = None) -> HookRegistry:
     """
     registry = HookRegistry()
 
+    # 加载项目级权限配置
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd) if cwd else None
+
+    # 检查是否禁用所有 hooks
+    if project_permissions and "*" in project_permissions.denied_hooks:
+        return registry
+
     for raw_event, hooks_value in settings.hooks.items():
         try:
             event = HookEvent(str(raw_event))
         except ValueError:
             continue
+
+        # 检查是否禁用特定事件的 hooks
+        if project_permissions and event.value in project_permissions.denied_hooks:
+            continue
+
         for matcher_def in _normalize_hooks_value(hooks_value):
             registry.register(event, matcher_def)
 
@@ -109,6 +123,11 @@ def load_hook_registry(settings: Any, plugins: Any = None) -> HookRegistry:
                 event = HookEvent(str(raw_event))
             except ValueError:
                 continue
+
+            # 检查是否禁用特定事件的 hooks
+            if project_permissions and event.value in project_permissions.denied_hooks:
+                continue
+
             for matcher_def in _normalize_hooks_value(hooks_value):
                 registry.register(event, matcher_def)
 
