@@ -155,20 +155,23 @@ class TestBuildTextBody:
 
     def test_markdown_envelope(self):
         """markdown 模式使用 msg_type=2 信封"""
-        body = _build_text_body("hello", "m1", markdown=True)
+        body = _build_text_body("hello", markdown=True)
         assert body["msg_type"] == 2
         assert body["markdown"]["content"] == "hello"
+        assert "msg_seq" in body
+        assert "msg_id" not in body  # msg_id 由调用方补充
 
     def test_text_mode(self):
         """纯文本模式使用 msg_type=0"""
-        body = _build_text_body("hello", "m1", markdown=False)
+        body = _build_text_body("hello", markdown=False)
         assert body["msg_type"] == 0
         assert body["content"] == "hello"
+        assert "msg_seq" in body
 
     def test_truncation(self):
         """超长内容截断到 MAX_MESSAGE_LENGTH"""
         long_text = "x" * 5000
-        body = _build_text_body(long_text, "m1", markdown=True)
+        body = _build_text_body(long_text, markdown=True)
         assert len(body["markdown"]["content"]) == 4000
 
 

@@ -13,6 +13,7 @@ import hashlib
 import logging
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,48 @@ async def get_gateway_url(
 
 # ── 消息发送 ──────────────────────────────────────────────────
 
+def _next_msg_seq() -> int:
+    """生成消息序列号（0..65535）
+
+    QQ Bot API 要求每条消息携带 msg_seq，用于消息排序和去重。
+
+    Returns:
+        int: 序列号
+    """
+    time_part = int(time.time()) % 100000000
+    rand = int(uuid.uuid4().hex[:4], 16)
+    return (time_part ^ rand) % 65536
+
+
+def _build_text_body(content: str, *, markdown: bool = False) -> dict[str, Any]:
+    """构建消息请求体（不含 msg_id，由调用方补充）
+
+    markdown=True 时使用 QQ markdown 信封（msg_type=2），
+    否则使用纯文本（msg_type=0）。
+
+    Args:
+        content: 消息内容
+        markdown: 是否使用 markdown 信封
+
+    Returns:
+        dict: 请求体（含 msg_type、msg_seq、content/markdown）
+    """
+    msg_seq = _next_msg_seq()
+    if markdown:
+        body: dict[str, Any] = {
+            "markdown": {"content": content[:MAX_MESSAGE_LENGTH]},
+            "msg_type": MSG_TYPE_MARKDOWN,
+            "msg_seq": msg_seq,
+        }
+    else:
+        body = {
+            "content": content[:MAX_MESSAGE_LENGTH],
+            "msg_type": MSG_TYPE_TEXT,
+            "msg_seq": msg_seq,
+        }
+    return body
+
+
 async def send_c2c_message(
     session: aiohttp.ClientSession,
     token: str,
@@ -136,7 +179,7 @@ async def send_c2c_message(
         token: access_token
         openid: 用户 openid
         content: 消息内容
-        msg_id: 引用的消息 ID（用于回复）
+        msg_id: 引用的消息 ID（用于回复定位）
         markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
@@ -144,7 +187,9 @@ async def send_c2c_message(
     """
     url = f"{API_BASE}/v2/users/{openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
-    body = _build_text_body(content, msg_id, markdown=markdown)
+    body = _build_text_body(content, markdown=markdown)
+    if msg_id:
+        body["msg_id"] = msg_id
     async with session.post(url, headers=headers, json=body) as resp:
         resp.raise_for_status()
         return await resp.json()
@@ -161,12 +206,14 @@ async def send_group_message(
 ) -> dict[str, Any]:
     """发送群聊消息
 
+    群聊 API 要求 msg_id（引用消息 ID）和 msg_seq（消息序列号）。
+
     Args:
         session: HTTP 会话
         token: access_token
         group_openid: 群 openid
         content: 消息内容
-        msg_id: 引用的消息 ID（用于回复）
+        msg_id: 引用的消息 ID（群聊必须）
         markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
@@ -174,44 +221,12 @@ async def send_group_message(
     """
     url = f"{API_BASE}/v2/groups/{group_openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
-    body = _build_text_body(content, msg_id, markdown=markdown)
+    body = _build_text_body(content, markdown=markdown)
+    if msg_id:
+        body["msg_id"] = msg_id
     async with session.post(url, headers=headers, json=body) as resp:
         resp.raise_for_status()
         return await resp.json()
-
-
-def _build_text_body(
-    content: str,
-    msg_id: str,
-    *,
-    markdown: bool = False,
-) -> dict[str, Any]:
-    """构建消息请求体
-
-    markdown=True 时使用 QQ markdown 信封（msg_type=2），
-    否则使用纯文本（msg_type=0）。
-
-    Args:
-        content: 消息内容
-        msg_id: 引用的消息 ID
-        markdown: 是否使用 markdown 信封
-
-    Returns:
-        dict: 请求体
-    """
-    if markdown:
-        body: dict[str, Any] = {
-            "markdown": {"content": content[:MAX_MESSAGE_LENGTH]},
-            "msg_type": MSG_TYPE_MARKDOWN,
-            "msg_id": msg_id,
-        }
-    else:
-        body = {
-            "content": content[:MAX_MESSAGE_LENGTH],
-            "msg_type": MSG_TYPE_TEXT,
-            "msg_id": msg_id,
-        }
-    return body
 
 
 # ── 打字状态 ──────────────────────────────────────────────────
