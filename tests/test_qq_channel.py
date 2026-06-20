@@ -1,9 +1,12 @@
 """QQ 渠道单元测试"""
+from unittest.mock import MagicMock
+
 from illusion.channels.base import InboundMessage
 from illusion.channels.config import (
     QQChannelConfig, QQGroupPolicy, ChannelsConfig,
     load_channels_config, save_channels_config,
 )
+from illusion.channels.qq.adapter import QQChannel
 from illusion.channels.qq.api import split_text
 from illusion.channels.qq.session_map import QQSession, QQSessionStore
 
@@ -135,3 +138,137 @@ class TestQQSessionStore:
 
         loaded = store.get_or_create("key1", "u1", "dm")
         assert loaded.messages == msgs
+
+
+class TestQQChannelNormalize:
+    """QQChannel._normalize 测试"""
+
+    def _make_channel(self) -> QQChannel:
+        config = MagicMock()
+        config.app_id = "test_id"
+        config.client_secret = "test_secret"
+        config.allow_bots = False
+        config.require_mention = True
+        config.group_sessions_per_user = True
+        config.group_policy = MagicMock()
+        config.group_policy.mode = "open"
+        config.group_policy.allowlist = []
+        config.group_policy.blacklist = []
+        config.group_policy.admin_list = []
+        settings = MagicMock()
+        return QQChannel(config, settings)
+
+    def test_normalize_c2c(self):
+        ch = self._make_channel()
+        raw = {
+            "id": "msg_001",
+            "content": "  hello world  ",
+            "author": {"id": "user_openid_123", "username": "TestUser"},
+        }
+        msg = ch._normalize_c2c(raw)
+        assert msg is not None
+        assert msg.text == "hello world"
+        assert msg.chat_type == "dm"
+        assert msg.user_id == "user_openid_123"
+        assert msg.user_name == "TestUser"
+        assert msg.message_id == "msg_001"
+
+    def test_normalize_group(self):
+        ch = self._make_channel()
+        raw = {
+            "id": "msg_002",
+            "content": "<@!bot_openid> help me",
+            "author": {"id": "user_openid_456", "username": "GroupUser"},
+            "group_openid": "group_openid_789",
+            "mentions": [{"id": "bot_openid", "username": "MyBot"}],
+        }
+        msg = ch._normalize_group(raw)
+        assert msg is not None
+        assert msg.text == "help me"
+        assert msg.chat_type == "group"
+        assert msg.chat_id == "group_openid_789"
+        assert msg.user_id == "user_openid_456"
+
+    def test_normalize_c2c_missing_fields(self):
+        ch = self._make_channel()
+        raw = {"id": "msg_003"}
+        msg = ch._normalize_c2c(raw)
+        assert msg is None
+
+
+class TestQQChannelAdmit:
+    """QQChannel._admit 测试"""
+
+    def _make_msg(self, **kwargs):
+        defaults = {
+            "text": "hi", "chat_id": "c1", "chat_type": "dm",
+            "user_id": "u1", "user_name": "test", "message_id": "m1",
+            "is_bot": False,
+        }
+        defaults.update(kwargs)
+        return InboundMessage(**defaults)
+
+    def _make_channel(self, allow_bots=False):
+        config = MagicMock()
+        config.app_id = "bot_id"
+        config.allow_bots = allow_bots
+        config.group_policy = MagicMock()
+        config.group_policy.mode = "open"
+        config.group_policy.allowlist = []
+        config.group_policy.blacklist = []
+        config.group_policy.admin_list = []
+        settings = MagicMock()
+        ch = QQChannel(config, settings)
+        ch._bot_openid = "bot_id"
+        return ch
+
+    def test_self_echo_rejected(self):
+        ch = self._make_channel()
+        msg = self._make_msg(user_id="bot_id")
+        assert ch._admit(msg) is False
+
+    def test_bot_rejected_when_disabled(self):
+        ch = self._make_channel(allow_bots=False)
+        msg = self._make_msg(is_bot=True)
+        assert ch._admit(msg) is False
+
+    def test_bot_allowed_when_enabled(self):
+        ch = self._make_channel(allow_bots=True)
+        msg = self._make_msg(is_bot=True)
+        assert ch._admit(msg) is True
+
+    def test_normal_dm_allowed(self):
+        ch = self._make_channel()
+        msg = self._make_msg()
+        assert ch._admit(msg) is True
+
+    def test_group_policy_disabled(self):
+        ch = self._make_channel()
+        ch.config.group_policy.mode = "disabled"
+        msg = self._make_msg(chat_type="group")
+        assert ch._admit(msg) is False
+
+    def test_group_policy_allowlist(self):
+        ch = self._make_channel()
+        ch.config.group_policy.mode = "allowlist"
+        ch.config.group_policy.allowlist = ["g1"]
+        msg_allowed = self._make_msg(chat_type="group", chat_id="g1")
+        msg_blocked = self._make_msg(chat_type="group", chat_id="g2")
+        assert ch._admit(msg_allowed) is True
+        assert ch._admit(msg_blocked) is False
+
+    def test_group_policy_blacklist(self):
+        ch = self._make_channel()
+        ch.config.group_policy.mode = "blacklist"
+        ch.config.group_policy.blacklist = ["g1"]
+        msg_allowed = self._make_msg(chat_type="group", chat_id="g2")
+        msg_blocked = self._make_msg(chat_type="group", chat_id="g1")
+        assert ch._admit(msg_allowed) is True
+        assert ch._admit(msg_blocked) is False
+
+    def test_admin_always_passes(self):
+        ch = self._make_channel()
+        ch.config.group_policy.mode = "disabled"
+        ch.config.group_policy.admin_list = ["admin_user"]
+        msg = self._make_msg(chat_type="group", user_id="admin_user")
+        assert ch._admit(msg) is True
