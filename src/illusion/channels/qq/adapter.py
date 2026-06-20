@@ -109,6 +109,9 @@ class QQChannel(Channel):
         if event_type == "C2C_MESSAGE_CREATE":
             msg = self._normalize_c2c(data)
         elif event_type == "GROUP_AT_MESSAGE_CREATE":
+            logger.debug("QQ 群聊原始事件: id=%s, content=%s, group=%s",
+                         data.get("id"), repr(data.get("content")),
+                         data.get("group_openid"))
             msg = self._normalize_group(data)
 
         if msg is None:
@@ -178,6 +181,8 @@ class QQChannel(Channel):
             group_openid = str(raw.get("group_openid", ""))
 
             if not msg_id or not user_id or not group_openid:
+                logger.warning("QQ 群聊消息缺少必填字段: msg_id=%s user_id=%s group=%s",
+                               repr(msg_id), repr(user_id), repr(group_openid))
                 return None
 
             # 去除 @mention 前缀
@@ -329,21 +334,26 @@ class QQChannel(Channel):
         # 格式化（markdown 原样传递 or 剥离为纯文本）
         formatted = self._format_message(text)
         chunks = split_text(formatted, MAX_MESSAGE_LENGTH)
-        logger.info("QQ 发送 %d 个分片到 %s (markdown=%s)",
-                     len(chunks), chat_id, self._markdown_support)
+        logger.info("QQ 发送 %d 个分片到 %s (markdown=%s, reply_to=%s)",
+                     len(chunks), chat_id, self._markdown_support, repr(reply_to))
+
+        is_group = self._chat_type_cache.get(chat_id) == "group"
+
+        # QQ 群聊 API 要求 msg_id（被动消息），无 msg_id 时跳过（主动消息无权限）
+        if is_group and not reply_to:
+            logger.warning("QQ 群聊发送跳过：缺少 msg_id（主动消息无权限）")
+            return ""
 
         for i, chunk in enumerate(chunks):
             if i > 0:
                 await asyncio.sleep(1.5)  # 分片间隔，防限流
-
-            is_group = self._chat_type_cache.get(chat_id) == "group"
 
             for attempt in range(3):
                 try:
                     if is_group:
                         await send_group_message(
                             self._session, self._token, chat_id, chunk,
-                            msg_id=reply_to or "",
+                            msg_id=reply_to,
                             markdown=self._markdown_support,
                         )
                     else:
