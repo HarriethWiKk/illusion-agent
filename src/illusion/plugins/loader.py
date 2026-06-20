@@ -60,10 +60,21 @@ def discover_plugin_paths(cwd: str | Path) -> list[Path]:
 
 def load_plugins(settings: Any, cwd: str | Path) -> list[LoadedPlugin]:
     """从磁盘加载所有插件。"""
+    # 加载项目级权限配置
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd)
+
+    # 检查是否禁用所有插件
+    if "*" in project_permissions.denied_plugins:
+        return []
+
     plugins: list[LoadedPlugin] = []
     for path in discover_plugin_paths(cwd):
         plugin = load_plugin(path, settings.enabled_plugins)
         if plugin is not None:
+            # 检查是否禁用特定插件
+            if plugin.manifest.name in project_permissions.denied_plugins:
+                continue
             plugins.append(plugin)
     return plugins
 
