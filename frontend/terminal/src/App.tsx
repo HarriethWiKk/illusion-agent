@@ -340,6 +340,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /skills → 显示技能选择器
+		if (trimmed === '/skills') {
+			session.sendRequest({type: 'select_command', command: 'skills'});
+			return true;
+		}
+
 		// /context → 显示上下文管理选择器
 		if (trimmed === '/context') {
 			session.sendRequest({type: 'select_command', command: 'context'});
