@@ -1070,7 +1070,7 @@ class ReactBackendHost:
             skills = skill_registry.list_skills()
 
             if not skills:
-                await self._emit(BackendEvent(type="error", message=("没有可用的技能" if zh else "No skills available")))
+                await self._emit(BackendEvent(type="error", message="No skills available."))
                 return
 
             options = []

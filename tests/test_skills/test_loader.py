@@ -97,3 +97,22 @@ def test_project_skill_overrides_global_skill(tmp_path: Path, monkeypatch):
     assert skill is not None
     assert skill.source == "project"
     assert "Project deploy" in skill.content
+
+
+def test_load_user_skills_from_skill_md_directory(tmp_path: Path, monkeypatch):
+    """测试用户级 SKILL.md 目录格式加载"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    skills_dir = get_user_skills_dir()
+    skill_subdir = skills_dir / "my-skill"
+    skill_subdir.mkdir()
+    (skill_subdir / "SKILL.md").write_text(
+        "---\nname: my-skill\ndescription: A user skill\n---\n\n# My Skill\n\nContent.\n",
+        encoding="utf-8",
+    )
+
+    registry = load_skill_registry()
+    skill = registry.get("my-skill")
+
+    assert skill is not None
+    assert skill.source == "user"
+    assert skill.skill_root == str(skill_subdir)

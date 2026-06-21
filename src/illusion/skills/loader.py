@@ -224,6 +224,11 @@ def load_project_skills(cwd: str | Path) -> list[SkillDefinition]:
                             disable_model_invocation=sk.disable_model_invocation,
                             effort=sk.effort,
                         ))
+        elif sub.suffix in (".yaml", ".yml"):
+            # YAML 文件
+            skill = _load_yaml_skill(sub, source="project")
+            if skill:
+                skills.append(skill)
         elif sub.suffix == ".md":
             # 直接 .md 文件
             content = sub.read_text(encoding="utf-8")
