@@ -103,14 +103,21 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
 
 def remove_memory_entry(cwd: str | Path, name: str) -> bool:
     """删除记忆文件及其在MEMORY.md中的索引条目
-    
+
     Args:
         cwd: 当前工作目录
         name: 记忆文件名称 (不带.md扩展名)
-    
+
     Returns:
         bool: 是否成功删除
+
+    Raises:
+        RuntimeError: 记忆功能被禁用时抛出
     """
+    # 检查记忆功能是否启用
+    if not is_memory_enabled(cwd):
+        raise RuntimeError("Memory is disabled by project permissions")
+
     memory_dir = get_project_memory_dir(cwd)  # 获取记忆目录
     matches = [path for path in memory_dir.glob("*.md") if path.stem == name or path.name == name]  # 查找匹配文件
     if not matches:  # 没有匹配

@@ -528,6 +528,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     # 技能
     (r"^Skill not found: (.+)$", r"未找到技能：\1"),
     # 规则
+    (r"^All rules are disabled$", r"所有规则已被禁用"),
     (r"^No rules found in (.+)$", r"在 \1 中未找到规则"),
     (r"^Rule not found: (.+)\. Use /rules to list available rules\.$", r"未找到规则：\1。使用 /rules 查看可用规则。"),
     # 状态行（多行消息的逐行翻译）

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from illusion.memory.manager import is_memory_enabled, list_memory_files, add_memory_entry
+from illusion.memory.manager import is_memory_enabled, list_memory_files, add_memory_entry, remove_memory_entry
 
 
 class TestIsMemoryEnabled:
@@ -98,3 +98,34 @@ class TestAddMemoryEntry:
 
         with pytest.raises(RuntimeError, match="Memory is disabled"):
             add_memory_entry(tmp_path, "Test", "# Test content")
+
+
+class TestRemoveMemoryEntry:
+    """remove_memory_entry 函数测试"""
+
+    def test_memory_enabled(self, tmp_path: Path) -> None:
+        """测试记忆功能启用时可以删除条目"""
+        # 先添加一个记忆条目
+        path = add_memory_entry(tmp_path, "Test", "# Test content")
+        assert path.exists()
+
+        # 删除记忆条目
+        result = remove_memory_entry(tmp_path, "test")
+        assert result is True
+        assert not path.exists()
+
+    def test_memory_disabled(self, tmp_path: Path) -> None:
+        """测试记忆功能禁用时抛出异常"""
+        # 创建权限配置
+        config_dir = tmp_path / ".illusion"
+        config_dir.mkdir()
+        permissions_file = config_dir / "permissions.json"
+        permissions_file.write_text(
+            json.dumps({
+                "denied_memory": True,
+            }),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(RuntimeError, match="Memory is disabled"):
+            remove_memory_entry(tmp_path, "test")
