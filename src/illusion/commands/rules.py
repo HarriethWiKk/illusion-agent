@@ -15,18 +15,18 @@ async def rules_handler(args: str, context: CommandContext) -> CommandResult:
     from illusion.skills.loader import get_project_rules_dir
 
     # 加载项目级权限配置
-    from illusion.permissions.loader import load_project_permissions
+    from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
     project_permissions = load_project_permissions(context.cwd)
 
     # 检查是否禁用所有 rules
-    if "*" in project_permissions.denied_rules:
+    if is_rules_disabled(project_permissions):
         return CommandResult(message="All rules are disabled")
 
     rules_dir = get_project_rules_dir(context.cwd)
-    rule_files = sorted(rules_dir.glob("*.md"))
+    all_rule_files = sorted(rules_dir.glob("*.md"))
 
     # 过滤掉被禁用的 rules
-    rule_files = [f for f in rule_files if f.stem not in project_permissions.denied_rules]
+    rule_files = filter_rules_by_permissions(all_rule_files, project_permissions)
 
     if not rule_files:
         return CommandResult(message=f"No rules found in {rules_dir}")

@@ -65,13 +65,13 @@ def discover_claude_md_files(cwd: str | Path) -> list[Path]:
         seen.add(claude_md)
 
     # 检查是否禁用所有 rules
-    if "*" not in project_permissions.denied_rules:
+    from illusion.permissions.loader import is_rules_disabled, filter_rules_by_permissions
+    if not is_rules_disabled(project_permissions):
         rules_dir = claude_dir / "rules"
         if rules_dir.is_dir():
-            for rule in sorted(rules_dir.glob("*.md")):
-                # 检查是否禁用特定 rule
-                if rule.stem in project_permissions.denied_rules:
-                    continue
+            all_rules = sorted(rules_dir.glob("*.md"))
+            filtered_rules = filter_rules_by_permissions(all_rules, project_permissions)
+            for rule in filtered_rules:
                 if rule not in seen:
                     results.append(rule)
                     seen.add(rule)

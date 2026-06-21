@@ -39,23 +39,23 @@ def _build_rules_section(cwd: str | Path) -> str | None:
         str | None: rules 章节字符串，如果没有 rules 则返回 None
     """
     # 加载项目级权限配置
-    from illusion.permissions.loader import load_project_permissions
+    from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
     project_permissions = load_project_permissions(cwd)
 
     # 检查是否禁用所有 rules
-    if "*" in project_permissions.denied_rules:
+    if is_rules_disabled(project_permissions):
         return None
 
     rules_dir = get_project_rules_dir(cwd)
-    rule_files = sorted(rules_dir.glob("*.md"))
-    if not rule_files:
+    all_rule_files = sorted(rules_dir.glob("*.md"))
+    if not all_rule_files:
         return None
+
+    # 过滤掉被禁用的 rules
+    rule_files = filter_rules_by_permissions(all_rule_files, project_permissions)
 
     contents = []
     for path in rule_files:
-        # 检查是否禁用特定 rule
-        if path.stem in project_permissions.denied_rules:
-            continue
         content = path.read_text(encoding="utf-8", errors="replace").strip()
         if content:
             contents.append(content)

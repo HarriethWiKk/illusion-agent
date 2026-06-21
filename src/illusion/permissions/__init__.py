@@ -10,6 +10,8 @@
     - PermissionMode: 权限模式
     - ProjectPermissions: 项目级权限配置
     - load_project_permissions: 加载项目级权限配置
+    - filter_rules_by_permissions: 根据权限配置过滤 rules 文件列表
+    - is_rules_disabled: 检查是否禁用所有 rules
 
 使用示例：
     >>> from illusion.permissions import PermissionChecker, PermissionMode, ProjectPermissions
@@ -21,7 +23,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from illusion.permissions.checker import PermissionChecker, PermissionDecision
-    from illusion.permissions.loader import load_project_permissions
+    from illusion.permissions.loader import (
+        filter_rules_by_permissions,
+        is_rules_disabled,
+        load_project_permissions,
+    )
     from illusion.permissions.modes import PermissionMode
     from illusion.permissions.schemas import ProjectPermissions
 
@@ -30,6 +36,8 @@ __all__ = [
     "PermissionDecision",
     "PermissionMode",
     "ProjectPermissions",
+    "filter_rules_by_permissions",
+    "is_rules_disabled",
     "load_project_permissions",
 ]
 
@@ -50,8 +58,16 @@ def __getattr__(name: str):
         from illusion.permissions.schemas import ProjectPermissions
 
         return ProjectPermissions
-    if name == "load_project_permissions":
-        from illusion.permissions.loader import load_project_permissions
+    if name in {"load_project_permissions", "filter_rules_by_permissions", "is_rules_disabled"}:
+        from illusion.permissions.loader import (
+            filter_rules_by_permissions,
+            is_rules_disabled,
+            load_project_permissions,
+        )
 
-        return load_project_permissions
+        return {
+            "load_project_permissions": load_project_permissions,
+            "filter_rules_by_permissions": filter_rules_by_permissions,
+            "is_rules_disabled": is_rules_disabled,
+        }[name]
     raise AttributeError(name)

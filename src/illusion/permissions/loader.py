@@ -6,10 +6,12 @@
 
 主要功能：
     - load_project_permissions: 加载项目级权限配置
+    - filter_rules_by_permissions: 根据权限配置过滤 rules 文件列表
 
 使用示例：
-    >>> from illusion.permissions.loader import load_project_permissions
+    >>> from illusion.permissions.loader import load_project_permissions, filter_rules_by_permissions
     >>> perms = load_project_permissions("/path/to/project")
+    >>> filtered_rules = filter_rules_by_permissions(rule_files, perms)
 """
 
 from __future__ import annotations
@@ -48,3 +50,36 @@ def load_project_permissions(cwd: str | Path) -> ProjectPermissions:
     except Exception as exc:
         logger.warning("Failed to load project permissions from %s: %s", permissions_file, exc)
         return ProjectPermissions()
+
+
+def filter_rules_by_permissions(
+    rule_files: list[Path],
+    project_permissions: ProjectPermissions,
+) -> list[Path]:
+    """根据权限配置过滤 rules 文件列表
+
+    Args:
+        rule_files: rules 文件路径列表
+        project_permissions: 项目级权限配置对象
+
+    Returns:
+        list[Path]: 过滤后的 rules 文件路径列表
+    """
+    # 检查是否禁用所有 rules
+    if "*" in project_permissions.denied_rules:
+        return []
+
+    # 过滤掉被禁用的 rules
+    return [f for f in rule_files if f.stem not in project_permissions.denied_rules]
+
+
+def is_rules_disabled(project_permissions: ProjectPermissions) -> bool:
+    """检查是否禁用所有 rules
+
+    Args:
+        project_permissions: 项目级权限配置对象
+
+    Returns:
+        bool: 是否禁用所有 rules
+    """
+    return "*" in project_permissions.denied_rules

@@ -1023,24 +1023,25 @@ class ReactBackendHost:
             from illusion.skills.loader import get_project_rules_dir
 
             # 加载项目级权限配置
-            from illusion.permissions.loader import load_project_permissions
+            from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
             project_permissions = load_project_permissions(self._bundle.cwd)
 
             # 检查是否禁用所有 rules
-            if "*" in project_permissions.denied_rules:
+            if is_rules_disabled(project_permissions):
                 await self._emit(BackendEvent(type="error", message=("所有规则已被禁用" if zh else "All rules are disabled")))
                 return
 
             rules_dir = get_project_rules_dir(self._bundle.cwd)
-            rule_files = sorted(rules_dir.glob("*.md"))
-            if not rule_files:
+            all_rule_files = sorted(rules_dir.glob("*.md"))
+            if not all_rule_files:
                 await self._emit(BackendEvent(type="error", message=(f"没有找到规则文件：{rules_dir}" if zh else f"No rules found in {rules_dir}")))
                 return
+
+            # 过滤掉被禁用的 rules
+            rule_files = filter_rules_by_permissions(all_rule_files, project_permissions)
+
             options = []
             for path in rule_files:
-                # 检查是否禁用特定 rule
-                if path.stem in project_permissions.denied_rules:
-                    continue
                 content = path.read_text(encoding="utf-8", errors="replace").strip()
                 first_line = content.split("\n", 1)[0][:60] if content else ("（空）" if zh else "(empty)")
                 options.append({
