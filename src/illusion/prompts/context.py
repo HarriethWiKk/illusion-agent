@@ -205,33 +205,37 @@ def build_runtime_system_prompt(
 
     # 记忆功能
     if settings.memory.enabled:
-        memory_section = load_memory_prompt(
-            cwd,
-            max_entrypoint_lines=settings.memory.max_entrypoint_lines,
-        )
-        if memory_section:
-            sections.append(memory_section)
-
-        # 相关记忆
-        if latest_user_prompt:
-            relevant = find_relevant_memories(
-                latest_user_prompt,
+        # 检查项目级权限配置
+        from illusion.permissions.loader import load_project_permissions
+        project_perms = load_project_permissions(cwd)
+        if not project_perms.denied_memory:
+            memory_section = load_memory_prompt(
                 cwd,
-                max_results=settings.memory.max_files,
+                max_entrypoint_lines=settings.memory.max_entrypoint_lines,
             )
-            if relevant:
-                lines = ["# Relevant Memories"]
-                for header in relevant:
-                    content = header.path.read_text(encoding="utf-8", errors="replace").strip()
-                    lines.extend(
-                        [
-                            "",
-                            f"## {header.path.name}",
-                            "```md",
-                            content[:8000],
-                            "```",
-                        ]
-                    )
-                sections.append("\n".join(lines))
+            if memory_section:
+                sections.append(memory_section)
+
+            # 相关记忆
+            if latest_user_prompt:
+                relevant = find_relevant_memories(
+                    latest_user_prompt,
+                    cwd,
+                    max_results=settings.memory.max_files,
+                )
+                if relevant:
+                    lines = ["# Relevant Memories"]
+                    for header in relevant:
+                        content = header.path.read_text(encoding="utf-8", errors="replace").strip()
+                        lines.extend(
+                            [
+                                "",
+                                f"## {header.path.name}",
+                                "```md",
+                                content[:8000],
+                                "```",
+                            ]
+                        )
+                    sections.append("\n".join(lines))
 
     return "\n\n".join(section for section in sections if section.strip())

@@ -27,6 +27,7 @@ class TestLoadProjectPermissions:
         assert perms.denied_plugins == []
         assert perms.denied_mcp_servers == []
         assert perms.denied_memory is False
+        assert perms.denied_rules == []
 
     def test_empty_permissions_file(self, tmp_path: Path) -> None:
         """测试空 permissions.json 文件返回默认值"""
@@ -41,6 +42,7 @@ class TestLoadProjectPermissions:
         assert perms.denied_plugins == []
         assert perms.denied_mcp_servers == []
         assert perms.denied_memory is False
+        assert perms.denied_rules == []
 
     def test_full_permissions_file(self, tmp_path: Path) -> None:
         """测试完整的 permissions.json 文件"""
@@ -54,6 +56,7 @@ class TestLoadProjectPermissions:
                 "denied_plugins": ["plugin-a"],
                 "denied_mcp_servers": ["server-a"],
                 "denied_memory": True,
+                "denied_rules": ["rule-a", "rule-b"],
             }),
             encoding="utf-8",
         )
@@ -64,6 +67,7 @@ class TestLoadProjectPermissions:
         assert perms.denied_plugins == ["plugin-a"]
         assert perms.denied_mcp_servers == ["server-a"]
         assert perms.denied_memory is True
+        assert perms.denied_rules == ["rule-a", "rule-b"]
 
     def test_partial_permissions_file(self, tmp_path: Path) -> None:
         """测试部分字段的 permissions.json 文件"""
@@ -84,6 +88,7 @@ class TestLoadProjectPermissions:
         assert perms.denied_plugins == []
         assert perms.denied_mcp_servers == []
         assert perms.denied_memory is True
+        assert perms.denied_rules == []
 
     def test_invalid_json_file(self, tmp_path: Path) -> None:
         """测试无效 JSON 文件返回默认值"""
@@ -98,6 +103,7 @@ class TestLoadProjectPermissions:
         assert perms.denied_plugins == []
         assert perms.denied_mcp_servers == []
         assert perms.denied_memory is False
+        assert perms.denied_rules == []
 
     def test_wildcard_denied_skills(self, tmp_path: Path) -> None:
         """测试通配符禁用所有 skills"""
