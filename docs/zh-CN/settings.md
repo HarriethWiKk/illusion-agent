@@ -167,6 +167,7 @@
 | `passes` | int | 1 | 推理轮数（1-8） |
 | `verbose` | bool | false | 详细输出 |
 | `denied_commands` | list | `[]` | 禁用的 bash 命令列表（如 `git status`、`npm test`） |
+| `denied_rules` | list | `[]` | 禁用的规则名称列表，`["*"]` 表示全部禁用 |
 
 ---
 

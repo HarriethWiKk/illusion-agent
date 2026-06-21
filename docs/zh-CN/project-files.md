@@ -152,6 +152,7 @@ metadata:
 | `denied_plugins` | list | `[]` | 禁用的插件名称列表，`["*"]` 表示全部禁用 |
 | `denied_mcp_servers` | list | `[]` | 禁用的 MCP 服务器名称列表，`["*"]` 表示全部禁用 |
 | `denied_memory` | bool | `false` | 是否禁用 memory 功能 |
+| `denied_rules` | list | `[]` | 禁用的规则名称列表，`["*"]` 表示全部禁用 |
 
 ### 优先级规则
 

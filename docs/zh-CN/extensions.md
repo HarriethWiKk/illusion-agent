@@ -616,3 +616,28 @@ IllusionCode 的斜杠命令分为两类：
 ### 源码参考
 
 - 命令注册表：`src/illusion/commands/registry.py`
+
+---
+
+## Rules 配置
+
+### 加载来源
+
+Rules 从以下位置加载：
+- `.claude/rules/*.md`
+- `.illusion/rules/*.md`
+
+### 项目级禁用
+
+在 `<project>/.illusion/permissions.json` 的 `denied_rules` 字段中控制：
+
+```json
+{
+  "denied_rules": ["rule-name"]  // 禁用特定 rule
+  "denied_rules": ["*"]          // 禁用所有 rules
+}
+```
+
+### 源码参考
+
+- Rules 发现逻辑：`src/illusion/prompts/claudemd.py`

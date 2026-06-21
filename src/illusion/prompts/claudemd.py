@@ -42,6 +42,10 @@ def discover_claude_md_files(cwd: str | Path) -> list[Path]:
     Returns:
         list[Path]: 找到的指令文件路径列表
     """
+    # 加载项目级权限配置
+    from illusion.permissions.loader import load_project_permissions
+    project_permissions = load_project_permissions(cwd)
+
     current = Path(cwd).resolve()
     results: list[Path] = []
     seen: set[Path] = set()
@@ -60,12 +64,17 @@ def discover_claude_md_files(cwd: str | Path) -> list[Path]:
         results.append(claude_md)
         seen.add(claude_md)
 
-    rules_dir = claude_dir / "rules"
-    if rules_dir.is_dir():
-        for rule in sorted(rules_dir.glob("*.md")):
-            if rule not in seen:
-                results.append(rule)
-                seen.add(rule)
+    # 检查是否禁用所有 rules
+    if "*" not in project_permissions.denied_rules:
+        rules_dir = claude_dir / "rules"
+        if rules_dir.is_dir():
+            for rule in sorted(rules_dir.glob("*.md")):
+                # 检查是否禁用特定 rule
+                if rule.stem in project_permissions.denied_rules:
+                    continue
+                if rule not in seen:
+                    results.append(rule)
+                    seen.add(rule)
 
     # 3. 扫描 .illusion/ 目录下的 AI 指令文件
     illusion_dir = current / ".illusion"

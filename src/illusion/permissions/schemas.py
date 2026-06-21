@@ -29,6 +29,7 @@ class ProjectPermissions(BaseModel):
         denied_plugins: 禁用的插件名称列表，["*"] 表示全部禁用
         denied_mcp_servers: 禁用的 MCP 服务器名称列表，["*"] 表示全部禁用
         denied_memory: 是否禁用 memory 功能
+        denied_rules: 禁用的规则名称列表，["*"] 表示全部禁用
     """
 
     denied_skills: list[str] = Field(default_factory=list)  # 禁用的 skill 名称列表
@@ -36,3 +37,4 @@ class ProjectPermissions(BaseModel):
     denied_plugins: list[str] = Field(default_factory=list)  # 禁用的插件名称列表
     denied_mcp_servers: list[str] = Field(default_factory=list)  # 禁用的 MCP 服务器名称列表
     denied_memory: bool = False  # 是否禁用 memory 功能
+    denied_rules: list[str] = Field(default_factory=list)  # 禁用的规则名称列表
