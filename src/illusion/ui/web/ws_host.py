@@ -977,6 +977,15 @@ class WebBackendHost:
         if command == "rules":
             from illusion.skills.loader import get_project_rules_dir
 
+            # 加载项目级权限配置
+            from illusion.permissions.loader import load_project_permissions
+            project_permissions = load_project_permissions(self._bundle.cwd)
+
+            # 检查是否禁用所有 rules
+            if "*" in project_permissions.denied_rules:
+                await self._emit(BackendEvent(type="error", message=("所有规则已被禁用" if zh else "All rules are disabled")))
+                return
+
             rules_dir = get_project_rules_dir(self._bundle.cwd)
             rule_files = sorted(rules_dir.glob("*.md"))
             if not rule_files:
@@ -984,6 +993,9 @@ class WebBackendHost:
                 return
             options = []
             for path in rule_files:
+                # 检查是否禁用特定 rule
+                if path.stem in project_permissions.denied_rules:
+                    continue
                 content = path.read_text(encoding="utf-8", errors="replace").strip()
                 first_line = content.split("\n", 1)[0][:60] if content else ("（空）" if zh else "(empty)")
                 options.append({
@@ -991,6 +1003,9 @@ class WebBackendHost:
                     "label": path.stem,
                     "description": first_line,
                 })
+            if not options:
+                await self._emit(BackendEvent(type="error", message=("没有可用的规则文件" if zh else "No available rules files")))
+                return
             await self._emit(
                 BackendEvent(
                     type="select_request",
