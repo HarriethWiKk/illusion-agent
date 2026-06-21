@@ -86,22 +86,76 @@ def load_skill_registry(cwd: str | Path | None = None) -> SkillRegistry:
 
 
 def load_user_skills() -> list[SkillDefinition]:
-    """从用户配置目录加载 skills（支持 .md、.yaml、.yml）。"""
+    """从用户配置目录加载 skills。
+
+    支持两种格式：
+    1. SKILL.md 目录格式：~/.illusion/skills/<skill_name>/SKILL.md
+    2. 直接文件格式：~/.illusion/skills/<skill_name>.md
+    """
     skills: list[SkillDefinition] = []
-    for path in sorted(get_user_skills_dir().iterdir()):
-        if path.suffix in (".yaml", ".yml"):
-            skill = _load_yaml_skill(path, source="user")
+    skills_dir = get_user_skills_dir()
+    if not skills_dir.exists():
+        return skills
+
+    for sub in sorted(skills_dir.iterdir()):
+        if sub.is_dir():
+            # SKILL.md 目录格式
+            skill_md = sub / "SKILL.md"
+            if skill_md.exists():
+                content = skill_md.read_text(encoding="utf-8")
+                skill = parse_skill_markdown(sub.name, content, skill_root=str(sub))
+                skills.append(SkillDefinition(
+                    name=skill.name,
+                    description=skill.description,
+                    content=skill.content,
+                    source="user",
+                    path=str(skill_md),
+                    allowed_tools=skill.allowed_tools,
+                    model=skill.model,
+                    hooks=skill.hooks,
+                    context=skill.context,
+                    agent=skill.agent,
+                    disable_model_invocation=skill.disable_model_invocation,
+                    effort=skill.effort,
+                    skill_root=str(sub),
+                ))
+            else:
+                # 遍历目录中的 .md/.yaml 文件
+                for path in sorted(sub.iterdir()):
+                    if path.suffix in (".yaml", ".yml"):
+                        sk = _load_yaml_skill(path, source="user")
+                        if sk:
+                            skills.append(sk)
+                    elif path.suffix == ".md":
+                        content = path.read_text(encoding="utf-8")
+                        sk = parse_skill_markdown(path.stem, content)
+                        skills.append(SkillDefinition(
+                            name=sk.name,
+                            description=sk.description,
+                            content=sk.content,
+                            source="user",
+                            path=str(path),
+                            allowed_tools=sk.allowed_tools,
+                            model=sk.model,
+                            hooks=sk.hooks,
+                            context=sk.context,
+                            agent=sk.agent,
+                            disable_model_invocation=sk.disable_model_invocation,
+                            effort=sk.effort,
+                        ))
+        elif sub.suffix in (".yaml", ".yml"):
+            skill = _load_yaml_skill(sub, source="user")
             if skill:
                 skills.append(skill)
-        elif path.suffix == ".md":
-            content = path.read_text(encoding="utf-8")
-            skill = parse_skill_markdown(path.stem, content)
+        elif sub.suffix == ".md":
+            content = sub.read_text(encoding="utf-8")
+            skill = parse_skill_markdown(sub.stem, content)
             skills.append(SkillDefinition(
                 name=skill.name,
                 description=skill.description,
                 content=skill.content,
                 source="user",
-                path=str(path),
+                path=str(sub),
                 allowed_tools=skill.allowed_tools,
                 model=skill.model,
                 hooks=skill.hooks,
