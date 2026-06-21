@@ -554,6 +554,10 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
     (r"^Bridge summary:$", r"Bridge 摘要："),
     (r"^Reloaded plugins:$", r"已重新加载插件："),
     (r"^Available skills:$", r"可用技能："),
+    (r"^User skills directory: (.+)$", r"用户技能目录：\1"),
+    (r"^Project skills directory: (.+)$", r"项目技能目录：\1"),
+    (r"^Usage: /skills <name|number>  — view a specific skill$", r"用法：/skills <名称|序号>  — 查看指定技能"),
+    (r"^Skill not found: (.+)\. Use /skills to list available skills\.$", r"未找到技能：\1。使用 /skills 查看可用技能。"),
     (r"^Rules directory: (.+)$", r"规则目录：\1"),
     # 前缀行（doctor, privacy-settings, bridge, login, stats, permissions 等）
     (r"^- backend host: available$", r"- 后端宿主：可用"),

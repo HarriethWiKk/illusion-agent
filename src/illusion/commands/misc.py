@@ -107,20 +107,57 @@ async def reload_plugins_handler(_: str, context: CommandContext) -> CommandResu
 
 async def skills_handler(args: str, context: CommandContext) -> CommandResult:
     """列出或显示可用技能"""
+    from illusion.skills.loader import get_user_skills_dir, get_project_skills_dir
+
     skill_registry = load_skill_registry(context.cwd)
-    if args:
-        skill = skill_registry.get(args)
-        if skill is None:
-            return CommandResult(message=f"Skill not found: {args}")
-        return CommandResult(message=skill.content)
     skills = skill_registry.list_skills()
+
     if not skills:
         return CommandResult(message="No skills available.")
-    lines = ["Available skills:"]
-    for skill in skills:
-        source = f" [{skill.source}]"
-        lines.append(f"- {skill.name}{source}: {skill.description}")
-    return CommandResult(message="\n".join(lines))
+
+    tokens = args.strip().split()
+
+    # /skills — 列出所有技能
+    if not tokens:
+        user_skills_dir = get_user_skills_dir()
+        project_skills_dir = get_project_skills_dir(context.cwd)
+        lines = ["Available skills:", ""]
+        if user_skills_dir.exists():
+            lines.append(f"User skills directory: {user_skills_dir}")
+        if project_skills_dir.exists():
+            lines.append(f"Project skills directory: {project_skills_dir}")
+        lines.append("")
+        for i, skill in enumerate(skills, 1):
+            source = f" [{skill.source}]"
+            first_line = skill.description.split("\n", 1)[0][:60] if skill.description else "(empty)"
+            lines.append(f"  {i}. {skill.name}{source}  —  {first_line}")
+        lines.append("")
+        lines.append("Usage: /skills <name|number>  — view a specific skill")
+        return CommandResult(message="\n".join(lines))
+
+    # /skills <name|number> — 显示指定技能内容
+    target = tokens[0]
+    selected = None
+
+    # 按序号查找
+    try:
+        idx = int(target) - 1
+        if 0 <= idx < len(skills):
+            selected = skills[idx]
+    except ValueError:
+        pass
+
+    # 按名称查找
+    if selected is None:
+        for skill in skills:
+            if skill.name.lower() == target.lower():
+                selected = skill
+                break
+
+    if selected is None:
+        return CommandResult(message=f"Skill not found: {target}. Use /skills to list available skills.")
+
+    return CommandResult(message=selected.content)
 
 
 async def files_handler(args: str, context: CommandContext) -> CommandResult:
