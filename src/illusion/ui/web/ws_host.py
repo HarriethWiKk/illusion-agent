@@ -681,6 +681,8 @@ class WebBackendHost:
             return f"/delete {value}"
         if command == "rules":
             return f"/rules {value}"
+        if command == "skills":
+            return f"/skills {value}"
         if command == "context":
             if value == "__usage__":
                 return "/context __usage__"
@@ -1011,6 +1013,35 @@ class WebBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "查看规则" if zh else "View Rules", "command": "rules"},
+                    select_options=options,
+                )
+            )
+            return
+
+        if command == "skills":
+            from illusion.skills import load_skill_registry
+
+            skill_registry = load_skill_registry(self._bundle.cwd)
+            skills = skill_registry.list_skills()
+
+            if not skills:
+                await self._emit(BackendEvent(type="error", message=("没有可用的技能" if zh else "No skills available")))
+                return
+
+            options = []
+            for skill in skills:
+                source = f" [{skill.source}]"
+                first_line = skill.description.split("\n", 1)[0][:60] if skill.description else ("（空）" if zh else "(empty)")
+                options.append({
+                    "value": skill.name,
+                    "label": f"{skill.name}{source}",
+                    "description": first_line,
+                })
+
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": "查看技能" if zh else "View Skills", "command": "skills"},
                     select_options=options,
                 )
             )
