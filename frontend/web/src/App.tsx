@@ -198,21 +198,19 @@ export default function App() {
    *
    * @param id - 会话 ID
    */
-  const handleSelectSession = (id: string) => {
+  const handleSelectSession = useCallback((id: string) => {
     session.suppressInlineOptions();
-    session.suppressCommandResult(2); // 抑制 resume 和 list_sessions 两个命令结果
-    session.suppressTranscript(2000); // 抑制 2 秒内的转录事件
+    session.suppressCommandResult(1); // 抑制 apply_select_command 的命令结果
+    session.suppressTranscript(); // 抑制转录事件，直到收到 replace_transcript
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
-    setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
-  };
+  }, [session.suppressInlineOptions, session.suppressCommandResult, session.suppressTranscript, session.sendRequest]);
 
   /** 处理列出会话 */
   const handleListSessions = useCallback(() => {
     session.suppressInlineOptions();
     session.suppressCommandResult();
-    session.suppressTranscript(1000); // 抑制 1 秒内的转录事件
     session.sendRequest({ type: 'list_sessions' });
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.suppressTranscript, session.sendRequest]);
+  }, [session.suppressInlineOptions, session.suppressCommandResult, session.sendRequest]);
 
   /** 处理删除会话 */
   const handleDeleteSessions = useCallback(() => {

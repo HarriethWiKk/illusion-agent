@@ -173,9 +173,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
   const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
   const suppressCommandResult = useCallback((count: number = 1) => { suppressCommandResultCountRef.current += count; }, []);
-  const suppressTranscript = useCallback((duration: number = 1000) => {
+  const suppressTranscript = useCallback(() => {
     suppressTranscriptRef.current = true;
-    setTimeout(() => { suppressTranscriptRef.current = false; }, duration);
   }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
@@ -382,6 +381,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       // === 转录管理 ===
       if (evt.type === 'clear_transcript') { setStaticItems([]); clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return; }
       if (evt.type === 'replace_transcript' && evt.items) {
+        // 检查是否需要抑制显示（用于左侧栏操作解耦）
+        if (suppressTranscriptRef.current) {
+          suppressTranscriptRef.current = false;
+          return;
+        }
         setStaticItems((evt.items as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
         clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
       }
