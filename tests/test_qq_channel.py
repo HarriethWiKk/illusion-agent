@@ -12,7 +12,7 @@ from illusion.channels.config import (
 aiohttp = pytest.importorskip("aiohttp")
 from illusion.channels.qq.adapter import QQChannel  # noqa: E402
 from illusion.channels.qq.api import split_text, strip_markdown, _build_text_body  # noqa: E402
-from illusion.channels.qq.session_map import QQSession, QQSessionStore  # noqa: E402
+from illusion.channels.qq.session_map import QQSessionStore  # noqa: E402
 
 
 class TestQQChannelConfig:

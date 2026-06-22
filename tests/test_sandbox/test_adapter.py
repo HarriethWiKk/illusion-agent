@@ -1,8 +1,7 @@
 """沙箱适配器测试 — 测试新的 SandboxManager API"""
-from unittest.mock import patch, MagicMock
-from illusion.sandbox.adapter import SandboxManager, SandboxAvailability, SandboxUnavailableError
+from unittest.mock import patch
+from illusion.sandbox.adapter import SandboxManager
 from illusion.config.settings import SandboxSettings, SandboxNetworkSettings, SandboxFilesystemSettings, Settings
-import pytest
 
 
 def test_manager_singleton():

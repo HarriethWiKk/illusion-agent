@@ -1,8 +1,6 @@
 """沙箱运行时测试"""
 from unittest.mock import patch, MagicMock
 from illusion.sandbox.runtime import SandboxRuntime
-from illusion.sandbox.platforms.base import SandboxPlatformConfig
-import pytest
 
 
 def test_runtime_initializes_disabled_by_default():

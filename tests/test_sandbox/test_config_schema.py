@@ -2,7 +2,6 @@
 from illusion.config.settings import (
     SandboxSettings,
     SandboxNetworkSettings,
-    SandboxFilesystemSettings,
 )
 from pydantic import ValidationError
 import pytest

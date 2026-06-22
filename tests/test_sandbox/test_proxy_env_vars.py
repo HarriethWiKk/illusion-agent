@@ -1,6 +1,5 @@
 """代理环境变量生成测试"""
 from illusion.sandbox.proxy.env_vars import generate_sandbox_proxy_env
-import pytest
 
 
 def test_generate_sandbox_proxy_env_basic():

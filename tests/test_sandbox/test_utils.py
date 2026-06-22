@@ -8,7 +8,6 @@ from illusion.sandbox.utils import (
     generate_proxy_env_vars,
     get_default_write_paths,
 )
-import pytest
 
 
 def test_encode_decode_command():

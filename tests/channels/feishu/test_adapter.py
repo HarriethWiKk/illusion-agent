@@ -123,14 +123,9 @@ def _make_real_event(chat_type="p2p", sender_open_id="ou_user",
                      content='{"text":"hello"}', mentions=None):
     """构造真实 lark-oapi 强类型事件对象（用于测 _normalize）。"""
     from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import (
-        P2ImMessageReceiveV1, P2ImMessageReceiveV1Data,
+        P2ImMessageReceiveV1,
     )
-    from lark_oapi.api.im.v1.model.event_sender import EventSender
-    from lark_oapi.api.im.v1.model.event_message import EventMessage
-    from lark_oapi.api.im.v1.model.user_id import UserId
 
-    uid = UserId({"open_id": sender_open_id})
-    sender = EventSender({"sender_id": {"open_id": sender_open_id}, "sender_type": sender_type})
     msg_data = {
         "chat_id": chat_id,
         "chat_type": chat_type,
@@ -139,8 +134,6 @@ def _make_real_event(chat_type="p2p", sender_open_id="ou_user",
     }
     if mentions is not None:
         msg_data["mentions"] = mentions
-    message = EventMessage(msg_data)
-    data = P2ImMessageReceiveV1Data({"sender": {"sender_id": {"open_id": sender_open_id}, "sender_type": sender_type}, "message": msg_data})
     event = P2ImMessageReceiveV1({"event": {"sender": {"sender_id": {"open_id": sender_open_id}, "sender_type": sender_type}, "message": msg_data}})
     return event
 

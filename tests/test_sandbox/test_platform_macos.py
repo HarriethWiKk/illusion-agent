@@ -2,7 +2,6 @@
 from unittest.mock import patch
 from illusion.sandbox.platforms.macos import MacOSSandboxPlatform
 from illusion.sandbox.platforms.base import SandboxPlatformConfig
-import pytest
 
 
 def test_macos_platform_available():

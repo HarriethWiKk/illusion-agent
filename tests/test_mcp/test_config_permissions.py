@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from illusion.mcp.config import load_mcp_server_configs
 

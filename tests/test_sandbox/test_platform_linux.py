@@ -2,7 +2,6 @@
 from unittest.mock import patch
 from illusion.sandbox.platforms.linux import LinuxSandboxPlatform
 from illusion.sandbox.platforms.base import SandboxPlatformConfig
-import pytest
 
 
 def test_linux_platform_is_available_with_bwrap():

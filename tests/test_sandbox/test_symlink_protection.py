@@ -1,7 +1,6 @@
 """符号链接防护测试"""
 import os
 from illusion.sandbox.symlink_protection import is_symlink_outside_boundary, normalize_path_for_sandbox
-import pytest
 
 
 def test_root_is_outside_boundary():
