@@ -356,10 +356,11 @@ class WebBackendHost:
         self._emitted_tool_started_ids.clear()
         # 更新会话阶段为思考中
         await self._update_phase("thinking")
-        # 发送用户消息
-        await self._emit(
-            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
-        )
+        # 发送用户消息（transcript_line 为 None 时不发送转录，用于左侧栏操作等静默场景）
+        if transcript_line is not None:
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
+            )
 
         async def _print_system(message: str) -> None:
             """打印系统消息。"""
@@ -644,15 +645,93 @@ class WebBackendHost:
         # rewind 两步选择：第二步（选模式）→ 执行回退
         if command == "rewind_mode":
             return await self._handle_rewind_mode_selected(selected)
+        # resume 命令：独立处理，不通过 _process_line，避免触发输入框命令交互
+        if command == "resume":
+            return await self._restore_session(selected)
         line = self._build_select_command_line(command, selected)
         if line is None:
             await self._emit(BackendEvent(type="error", message=f"Unknown select command: {command_name}"))
             await self._emit(BackendEvent(type="line_complete"))
             return True
-        # resume 命令不显示转录，避免左侧栏操作触发输入框命令交互
-        if command == "resume":
-            return await self._process_line(line, transcript_line=None)
         return await self._process_line(line, transcript_line=f"/{command}")
+
+    async def _restore_session(self, session_id: str) -> bool:
+        """恢复会话（独立处理，不触发输入框命令交互）。
+
+        这个函数直接调用 resume_handler，不通过 _process_line，
+        避免发送 transcript_item 事件显示用户输入的命令。
+        """
+        assert self._bundle is not None
+        from illusion.commands.session import resume_handler
+        from illusion.commands.types import CommandContext
+
+        # 创建命令上下文
+        context = CommandContext(
+            engine=self._bundle.engine,
+            hooks_summary=self._bundle.hook_summary(),
+            mcp_summary=self._bundle.mcp_summary(),
+            plugin_summary=self._bundle.plugin_summary(),
+            cwd=self._bundle.cwd,
+            tool_registry=self._bundle.tool_registry,
+            app_state=self._bundle.app_state,
+            session_id=self._bundle.session_id,
+        )
+
+        # 调用 resume_handler 恢复会话
+        result = await resume_handler(session_id, context)
+
+        # 处理恢复结果
+        if result.restored_session_id:
+            self._bundle.session_id = result.restored_session_id
+
+        # 如果有 replay_messages，替换转录项
+        if result.replay_messages:
+            from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+
+            tool_uses_by_id: dict[str, dict] = {}
+            all_tool_use_ids: set[str] = set()
+            all_tool_result_ids: set[str] = set()
+            for msg in result.replay_messages:
+                for block in msg.content:
+                    if isinstance(block, ToolUseBlock):
+                        all_tool_use_ids.add(block.id)
+                    elif isinstance(block, ToolResultBlock):
+                        all_tool_result_ids.add(block.tool_use_id)
+
+            replay_items: list[dict] = []
+            for msg in result.replay_messages:
+                if msg.role == "user":
+                    if msg.text.strip():
+                        replay_items.append({"role": "user", "text": msg.text})
+                    for block in msg.content:
+                        if isinstance(block, ToolResultBlock):
+                            tool_info = tool_uses_by_id.get(block.tool_use_id, {})
+                            replay_items.append({
+                                "role": "tool_result",
+                                "text": block.text_content,
+                                "tool_name": tool_info.get("name"),
+                                "tool_use_id": block.tool_use_id,
+                                "is_error": block.is_error,
+                            })
+                elif msg.role == "assistant":
+                    reasoning = msg.thinking_text.strip()
+                    assistant_text = msg.text.strip()
+                    has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
+                    if not has_tool_use and (assistant_text or reasoning):
+                        item = {"role": "assistant", "text": assistant_text}
+                        if reasoning:
+                            item["reasoning"] = reasoning
+                        replay_items.append(item)
+
+            # 替换转录项
+            transcript_items = [TranscriptItem(**item) for item in replay_items]
+            await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
+
+        # 发送状态更新
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"))
+        return True
 
     def _build_select_command_line(self, command: str, value: str) -> str | None:
         """构建选择命令的实际命令字符串。"""
