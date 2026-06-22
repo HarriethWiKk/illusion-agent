@@ -1206,8 +1206,8 @@ def main(
         help="Load MCP servers from JSON files or strings",
         rich_help_panel="Advanced",
     ),
-    cwd: str = typer.Option(
-        str(Path.cwd()),
+    cwd: Optional[str] = typer.Option(
+        None,
         "--cwd",
         help="Working directory for the session",
         hidden=True,
@@ -1260,17 +1260,19 @@ def main(
     # 读取settings.json中的working_directory字段，切换工作目录
     from illusion.config import load_settings
     settings = load_settings()
-    if settings.working_directory:
+    # 仅在用户未显式指定 --cwd 时，才使用 settings.working_directory
+    if cwd is None and settings.working_directory:
+        cwd = settings.working_directory
+    if cwd:
         import os
-        working_dir = Path(settings.working_directory)
+        working_dir = Path(cwd).expanduser().resolve()
         if working_dir.exists() and working_dir.is_dir():
             os.chdir(working_dir)
             cwd = str(working_dir)
         else:
             import logging
             logging.getLogger(__name__).warning(
-                "settings.json中配置的working_directory不存在或不是目录: %s",
-                settings.working_directory
+                _t("cwd_invalid", path=cwd)
             )
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程

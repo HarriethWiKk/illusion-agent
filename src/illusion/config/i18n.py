@@ -127,6 +127,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "session_not_found": {"zh-CN": "未找到会话: {id}", "en-US": "Session not found: {id}"},
     "print_requires_prompt": {"zh-CN": "错误: -p/--print 需要提供提示词，例如 -p '你的提示词'", "en-US": "Error: -p/--print requires a prompt, e.g. -p 'your prompt'"},
     # --- settings ---
+    "cwd_invalid": {"zh-CN": "settings.json中配置的working_directory不存在或不是目录: {path}", "en-US": "working_directory in settings.json does not exist or is not a directory: {path}"},
     "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置，或设置 ANTHROPIC_API_KEY / OPENAI_API_KEY 环境变量", "en-US": "No API key found. Run 'illusion auth login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY environment variable"},
     "no_auth": {"zh-CN": "未找到认证信息。请使用 'illusion auth login' 配置，或设置对应的环境变量", "en-US": "No credentials found. Run 'illusion auth login' or set the matching environment variable"},
     # --- manager ---
