@@ -42,7 +42,7 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
   if (item.role === 'user') {
     return (
       <div className="flex justify-end py-1.5">
-        <div className="max-w-[min(82%,64ch)] bg-[#f5f0e8] border border-[#e6dfd8] rounded-[6px] px-3 py-2 text-sm text-[#141413] whitespace-pre-wrap break-words select-text">
+        <div className="max-w-[min(82%,64ch)] bg-surface-card-alt border border-border-light rounded-[6px] px-3 py-2 text-sm text-content-primary whitespace-pre-wrap break-words select-text">
           {item.text}
         </div>
       </div>
@@ -53,7 +53,7 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
     return (
       <div className="py-1.5">
         {item.reasoning && <ThinkingBlock text={item.reasoning} />}
-        <div className="text-[#141413] text-sm prose max-w-full select-text">
+        <div className="text-content-primary text-sm prose max-w-full select-text">
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
             {item.text}
           </ReactMarkdown>
@@ -97,17 +97,17 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
     <div className="py-1.5">
       <button
         onClick={() => text && setOpen(!open)}
-        className={`flex items-start gap-2 text-sm transition-colors cursor-pointer text-left ${text ? 'text-[#3d3d3a] hover:text-[#141413]' : ''}`}
+        className={`flex items-start gap-2 text-sm transition-colors cursor-pointer text-left ${text ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-[#c64545]' : 'bg-[#cc785c]'}`} />
+        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span>
-          <span className={`font-medium font-mono ${isError ? 'text-[#c64545]' : 'text-[#141413]'}`}>{name}</span>
-          {!open && summary && <span className={`text-xs ${isError ? 'text-[#c64545]' : 'text-[#6c6a64]'}`}>（{summary}）</span>}
-          {isError && <span className="text-xs text-[#c64545] font-medium"> ERROR</span>}
+          <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
+          {!open && summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
+          {isError && <span className="text-xs text-danger font-medium"> ERROR</span>}
         </span>
       </button>
       {open && text && (
-        <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] select-text ${isError ? 'text-[#c64545] bg-red-50 border border-red-200' : 'text-[#141413] bg-[#f5f0e8] border border-[#e6dfd8]'}`}>
+        <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
           {text}
         </div>
       )}

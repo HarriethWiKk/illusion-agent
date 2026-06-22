@@ -5,45 +5,45 @@ export default {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#6366F1',
-          hover: '#4F46E5',
-          light: 'rgba(99, 102, 241, 0.1)',
+          DEFAULT: '#cc785c',
+          hover: '#a9583e',
+          light: 'rgba(204, 120, 92, 0.1)',
         },
         secondary: {
-          DEFAULT: '#8B5CF6',
-          hover: '#7C3AED',
+          DEFAULT: '#8B7355',
+          hover: '#7a6548',
         },
         accent: {
-          DEFAULT: '#F59E0B',
-          hover: '#D97706',
+          DEFAULT: '#e8a55a',
+          hover: '#d4943e',
         },
         success: {
-          DEFAULT: '#10B981',
-          hover: '#059669',
+          DEFAULT: '#5db872',
+          hover: '#4da563',
         },
         warning: {
-          DEFAULT: '#F59E0B',
-          hover: '#D97706',
+          DEFAULT: '#d4a017',
+          hover: '#bf8f14',
         },
         danger: {
-          DEFAULT: '#EF4444',
-          hover: '#DC2626',
+          DEFAULT: '#c64545',
+          hover: '#b03b3b',
         },
         surface: {
-          main: '#F8FAFC',
-          card: '#FFFFFF',
-          'card-alt': '#F1F5F9',
-          hover: '#E2E8F0',
-          input: '#FFFFFF',
+          main: '#faf9f5',
+          card: '#ffffff',
+          'card-alt': '#f5f0e8',
+          hover: '#e6dfd8',
+          input: '#ffffff',
         },
         content: {
-          primary: '#1E293B',
-          secondary: '#64748B',
-          disabled: '#94A3B8',
+          primary: '#141413',
+          secondary: '#3d3d3a',
+          disabled: '#6c6a64',
         },
         border: {
-          light: 'rgba(148, 163, 184, 0.2)',
-          medium: 'rgba(148, 163, 184, 0.4)',
+          light: '#e6dfd8',
+          medium: '#d4c8b8',
         },
       },
       fontFamily: {
@@ -54,7 +54,7 @@ export default {
       boxShadow: {
         'soft': '0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06)',
         'card': '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
-        'glow': '0 0 20px rgba(99, 102, 241, 0.15)',
+        'glow': '0 0 20px rgba(204, 120, 92, 0.15)',
       },
       borderRadius: {
         'sm': '6px',
