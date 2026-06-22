@@ -61,17 +61,17 @@ function Dropdown({ value, placeholder, options, onChange, onOpen }: {
   return (
     <div className="relative">
       <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-hover hover:text-content-primary rounded-lg transition-colors cursor-pointer border border-border-light bg-white">
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary rounded-lg transition-colors cursor-pointer border border-border-light bg-surface-main">
         <span className={!value ? 'text-content-disabled' : ''}>{displayValue}</span>
         <span className="text-content-disabled text-[10px]">▾</span>
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 bg-white border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 max-h-[40vh] overflow-y-auto">
+          <div className="absolute bottom-full left-0 mb-1 bg-surface-main border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 max-h-[40vh] overflow-y-auto">
             {options.map((opt) => (
               <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-hover transition-colors cursor-pointer ${opt.active ? 'text-primary font-medium bg-primary-light' : 'text-content-secondary'}`}>
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-card-alt transition-colors cursor-pointer ${opt.active ? 'text-primary font-medium bg-primary-light' : 'text-content-secondary'}`}>
                 {opt.label}
               </button>
             ))}
