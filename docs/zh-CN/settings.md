@@ -5,6 +5,7 @@
 - [配置概览](#配置概览)
 - [凭据文件 (credentials.json)](#凭据文件-credentialsjson)
 - [全局配置 (settings.json)](#全局配置-settingsjson)
+  - [working_directory](#working_directory)
   - [环境配置 (EnvConfig)](#环境配置-envconfig)
   - [各提供商配置示例](#各提供商配置示例)
   - [权限配置](#权限配置)
@@ -142,6 +143,7 @@
   },
   "enabled_plugins": {},
   "mcp_servers": {},
+  "working_directory": null,
   "ui_language": "zh-CN",
   "output_style": "default",
   "fast_mode": false,
@@ -166,6 +168,30 @@
 | `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
 | `passes` | int | 1 | 推理轮数（1-8） |
 | `verbose` | bool | false | 详细输出 |
+| `working_directory` | string | - | 固定工作目录（可选） |
+
+---
+
+## working_directory
+
+固定工作目录。如果设置此字段，illusion-code启动时会自动切换到该目录。
+
+**类型：** 字符串（可选）
+
+**默认值：** 不设置或为空
+
+**示例：**
+
+```json
+{
+  "working_directory": "E:\\Projects\\my-project"
+}
+```
+
+**行为：**
+- 如果字段存在且不为空，启动时自动切换到指定目录
+- 如果字段不存在或为空，使用启动时的当前目录
+- 如果指定的目录不存在或无权限，记录警告日志，使用当前目录
 
 ---
 

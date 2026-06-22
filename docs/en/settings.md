@@ -5,6 +5,7 @@
 - [Configuration Overview](#configuration-overview)
 - [Credentials File (credentials.json)](#credentials-file-credentialsjson)
 - [Global Configuration (settings.json)](#global-configuration-settingsjson)
+  - [working_directory](#working_directory)
   - [Environment Configuration (EnvConfig)](#environment-configuration-envconfig)
   - [Provider Configuration Examples](#provider-configuration-examples)
   - [Permission Configuration](#permission-configuration)
@@ -142,6 +143,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
   },
   "enabled_plugins": {},
   "mcp_servers": {},
+  "working_directory": null,
   "ui_language": "en-US",
   "output_style": "default",
   "fast_mode": false,
@@ -166,6 +168,30 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
 | `verbose` | bool | false | Verbose output |
+| `working_directory` | string | - | Fixed working directory (optional) |
+
+---
+
+## working_directory
+
+Fixed working directory. If set, illusion-code will automatically switch to this directory on startup.
+
+**Type:** String (optional)
+
+**Default:** Not set or empty
+
+**Example:**
+
+```json
+{
+  "working_directory": "E:\\Projects\\my-project"
+}
+```
+
+**Behavior:**
+- If the field exists and is not empty, automatically switches to the specified directory on startup
+- If the field does not exist or is empty, uses the current directory at startup
+- If the specified directory does not exist or lacks permissions, logs a warning and uses the current directory
 
 ---
 
