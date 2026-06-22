@@ -323,7 +323,7 @@ export default function App() {
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-white rounded-2xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col">
+          <div className="relative bg-white rounded-xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -361,7 +361,7 @@ export default function App() {
       {toastMessage && (
         <div className="fixed bottom-20 right-6 z-50 animate-fade-in"
           onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}>
-          <div className="bg-white rounded-xl shadow-lg px-4 py-3 max-w-sm">
+          <div className="bg-white rounded-lg shadow-lg px-4 py-3 max-w-sm">
             <div className="flex items-start gap-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
               <button onClick={() => setToastMessage(null)}

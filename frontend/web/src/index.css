@@ -59,7 +59,7 @@ body {
 /* ========== 代码块样式 ========== */
 pre code.hljs,
 .prose pre code {
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -108,7 +108,7 @@ pre code.hljs {
 
 /* 代码块外层容器 */
 .prose pre {
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #e6dfd8;
   background: #f5f0e8;
   margin: 1em 0;
@@ -177,7 +177,7 @@ pre code.hljs {
   margin: 1em 0;
   background: rgba(204, 120, 92, 0.05);
   color: #a9583e;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 8px 8px 0;
 }
 
 .prose blockquote p {
@@ -251,7 +251,7 @@ pre code.hljs {
 /* ========== 图片 ========== */
 .prose img {
   max-width: 100%;
-  border-radius: 6px;
+  border-radius: 8px;
   margin: 1em 0;
   border: 1px solid #e6dfd8;
 }

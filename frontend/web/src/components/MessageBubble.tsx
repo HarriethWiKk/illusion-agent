@@ -42,7 +42,7 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
   if (item.role === 'user') {
     return (
       <div className="flex justify-end py-1.5">
-        <div className="max-w-[min(82%,64ch)] bg-surface-card-alt border border-border-light rounded-[6px] px-3 py-2 text-sm text-content-primary whitespace-pre-wrap break-words select-text">
+        <div className="max-w-[min(82%,64ch)] bg-surface-card-alt border border-border-light rounded-lg px-3 py-2 text-sm text-content-primary whitespace-pre-wrap break-words select-text">
           {item.text}
         </div>
       </div>
@@ -107,7 +107,7 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
         </span>
       </button>
       {open && text && (
-        <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-[6px] select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
+        <div className={`mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-60 overflow-y-auto rounded-lg select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
           {text}
         </div>
       )}
