@@ -1257,6 +1257,22 @@ def main(
     if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
         return
 
+    # 读取settings.json中的working_directory字段，切换工作目录
+    from illusion.config import load_settings
+    settings = load_settings()
+    if settings.working_directory:
+        import os
+        working_dir = Path(settings.working_directory)
+        if working_dir.exists() and working_dir.is_dir():
+            os.chdir(working_dir)
+            cwd = str(working_dir)
+        else:
+            import logging
+            logging.getLogger(__name__).warning(
+                "settings.json中配置的working_directory不存在或不是目录: %s",
+                settings.working_directory
+            )
+
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
     _daemon_proc = None
     try:
