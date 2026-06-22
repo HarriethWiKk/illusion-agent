@@ -67,7 +67,7 @@ export default function RightPanel({
   // 折叠态
   if (collapsed) {
     return (
-      <aside className="w-12 bg-surface-card border-l border-border-light flex flex-col items-center py-4 shrink-0 select-none">
+      <aside className="w-12 bg-surface-main border-l border-border-light flex flex-col items-center py-4 shrink-0 select-none">
         <button onClick={onToggle} title={t(lang, 'expand_panel')}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -87,7 +87,7 @@ export default function RightPanel({
   const projectRules = rules.filter((r) => r.source === 'project');
 
   return (
-    <aside className="bg-surface-card border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
+    <aside className="bg-surface-main border-l border-border-light flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
       {/* 折叠按钮 */}
       <div className="px-5 pt-3 pb-1 flex justify-end">
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
