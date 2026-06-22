@@ -113,6 +113,7 @@ export interface WebSocketSessionState {
   clearDeleteSessions: () => void;
   suppressInlineOptions: () => void;
   suppressCommandResult: (count?: number) => void;
+  suppressTranscript: (duration?: number) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -166,11 +167,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
   const suppressInlineRef = useRef(false);
   const suppressCommandResultCountRef = useRef(0);
+  const suppressTranscriptRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
   const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
   const suppressCommandResult = useCallback((count: number = 1) => { suppressCommandResultCountRef.current += count; }, []);
+  const suppressTranscript = useCallback((duration: number = 1000) => {
+    suppressTranscriptRef.current = true;
+    setTimeout(() => { suppressTranscriptRef.current = false; }, duration);
+  }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -324,6 +330,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       // === 转录 ===
       if (evt.type === 'transcript_item' && evt.item) {
         if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
+        if (suppressTranscriptRef.current) return;
         pushStatic(evt.item as TranscriptItem);
         return;
       }
@@ -498,7 +505,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
-    suppressCommandResult, clearModal, requestSelectCommand,
+    suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
   }), [
@@ -506,7 +513,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
-    suppressCommandResult, clearModal, requestSelectCommand,
+    suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
   ]);
