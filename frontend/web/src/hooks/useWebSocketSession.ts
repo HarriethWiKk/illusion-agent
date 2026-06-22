@@ -112,7 +112,7 @@ export interface WebSocketSessionState {
   deleteSessions: { value: string; label: string }[];
   clearDeleteSessions: () => void;
   suppressInlineOptions: () => void;
-  suppressCommandResult: () => void;
+  suppressCommandResult: (count?: number) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -165,12 +165,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
   const suppressInlineRef = useRef(false);
-  const suppressCommandResultRef = useRef(false);
+  const suppressCommandResultCountRef = useRef(0);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
   const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
-  const suppressCommandResult = useCallback(() => { suppressCommandResultRef.current = true; }, []);
+  const suppressCommandResult = useCallback((count: number = 1) => { suppressCommandResultCountRef.current += count; }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -476,8 +476,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           }
         }
         // 检查是否需要抑制显示
-        if (suppressCommandResultRef.current) {
-          suppressCommandResultRef.current = false;
+        if (suppressCommandResultCountRef.current > 0) {
+          suppressCommandResultCountRef.current--;
           return;
         }
         // 通知 App 显示 toast

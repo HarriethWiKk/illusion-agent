@@ -200,7 +200,7 @@ export default function App() {
    */
   const handleSelectSession = (id: string) => {
     session.suppressInlineOptions();
-    session.suppressCommandResult();
+    session.suppressCommandResult(2); // 抑制 resume 和 list_sessions 两个命令结果
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
     setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
   };
