@@ -118,7 +118,9 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
 /**
  * 思考过程块组件
  *
- * 显示助手的思考/推理过程。
+ * 显示助手的思考/推理过程，支持 Markdown 渲染。
+ * 使用与主消息相同的渲染链（ReactMarkdown + remark-gfm + rehype-highlight），
+ * 但以更柔和的样式呈现，与正文形成视觉层次区分。
  *
  * @param props - 组件属性
  * @param props.text - 思考过程文本
@@ -126,8 +128,12 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
 function ThinkingBlock({ text }: { text: string }) {
   if (!text?.trim()) return null;
   return (
-    <div className="text-sm text-content-secondary whitespace-pre-wrap leading-relaxed select-text mb-3 opacity-75">
-      {text}
+    <div className="text-sm text-content-secondary leading-relaxed select-text mb-3 opacity-80 py-1">
+      <div className="prose prose-sm max-w-full">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+          {text}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }
@@ -249,8 +255,12 @@ export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?:
   return (
     <div className="py-1.5">
       {hasReasoning && (
-        <div className="text-sm text-content-secondary whitespace-pre-wrap leading-relaxed select-text mb-3 opacity-75">
-          {reasoning}
+        <div className="text-sm text-content-secondary leading-relaxed select-text mb-3 opacity-80 py-1">
+          <div className="prose prose-sm max-w-full">
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+              {reasoning}
+            </ReactMarkdown>
+          </div>
           {!hasText && <span className="inline-block w-0.5 h-4 bg-content-secondary animate-blink ml-0.5 align-middle" />}
         </div>
       )}

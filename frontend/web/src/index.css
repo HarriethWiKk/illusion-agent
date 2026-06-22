@@ -3,37 +3,45 @@
 @tailwind utilities;
 
 :root {
-  /* 主色 - coral (claude风格) */
-  --primary: #cc785c;
-  --primary-hover: #a9583e;
-  --primary-light: rgba(204, 120, 92, 0.1);
+  /* 主色 - 青绿色系 (清新风格) */
+  --primary: #2a9d99;
+  --primary-hover: #238b87;
+  --primary-light: rgba(42, 157, 153, 0.1);
 
-  /* 辅助色 - 暖色调 */
-  --secondary: #8B7355;
+  /* 辅助色 - 淡紫色 */
+  --secondary: #7c6fb0;
 
-  /* 强调色 - 琥珀 */
-  --accent: #e8a55a;
+  /* 强调色 - 珊瑚橙 */
+  --accent: #e8856c;
 
   /* 语义色 */
-  --success: #5db872;
-  --warning: #d4a017;
-  --error: #c64545;
+  --success: #4caf7d;
+  --warning: #e8a84c;
+  --error: #d45b5b;
 
-  /* 背景色 - cream (claude风格) */
-  --bg-main: #faf9f5;
+  /* 背景色 - 清新白 */
+  --bg-main: #ffffff;
   --bg-card: #ffffff;
-  --bg-card-alt: #f5f0e8;
-  --bg-hover: #e6dfd8;
+  --bg-card-alt: #f7f8fa;
+  --bg-hover: #eef0f4;
   --bg-input: #ffffff;
 
-  /* 边框色 - 暖色调 */
-  --border-light: #e6dfd8;
-  --border-medium: #d4c8b8;
+  /* 边框色 - 蓝灰调 */
+  --border-light: #e8ebf0;
+  --border-medium: #d0d5e0;
 
-  /* 文本色 - 深色 */
-  --text-primary: #141413;
-  --text-secondary: #3d3d3a;
-  --text-disabled: #6c6a64;
+  /* 文本色 - 深灰 */
+  --text-primary: #1a1d23;
+  --text-secondary: #4a5068;
+  --text-disabled: #8b92a8;
+
+  /* 粉彩色块 */
+  --pastel-mint: #d4f5e0;
+  --pastel-lilac: #e8dff5;
+  --pastel-cream: #fef7e6;
+  --pastel-pink: #fde0e8;
+  --pastel-sky: #dcecfa;
+  --pastel-coral: #fde0d4;
 }
 
 * {
@@ -51,8 +59,8 @@ html {
 body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-feature-settings: 'cv01', 'ss01', 'ss03';
-  background: #faf9f5;
-  color: #141413;
+  background: #ffffff;
+  color: #1a1d23;
   min-height: 100vh;
 }
 
@@ -63,8 +71,8 @@ pre code.hljs,
   font-size: 13px;
   line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  background: #f5f0e8;
-  border: 1px solid #e6dfd8;
+  background: #f7f8fa;
+  border: 1px solid #e8ebf0;
 }
 
 pre code.hljs {
@@ -76,11 +84,11 @@ pre code.hljs {
 /* 行内代码 */
 .prose code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
+  background: rgba(42, 157, 153, 0.08);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
   font-size: 0.85em;
-  color: #cc785c;
+  color: #2a9d99;
   font-weight: 500;
 }
 
@@ -109,8 +117,8 @@ pre code.hljs {
 /* 代码块外层容器 */
 .prose pre {
   border-radius: 8px;
-  border: 1px solid #e6dfd8;
-  background: #f5f0e8;
+  border: 1px solid #e8ebf0;
+  background: #f7f8fa;
   margin: 1em 0;
   overflow: hidden;
 }
@@ -120,7 +128,7 @@ pre code.hljs {
   padding: 0;
   border: none;
   font-size: 13px;
-  color: #141413;
+  color: #1a1d23;
 }
 
 /* ========== 表格样式 ========== */
@@ -129,11 +137,13 @@ pre code.hljs {
   border-collapse: collapse;
   font-size: 0.875rem;
   margin: 1em 0;
-  border: 1px solid #e6dfd8;
+  border: 1px solid #e8ebf0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .prose thead {
-  background: #f5f0e8;
+  background: #f7f8fa;
 }
 
 .prose th,
@@ -141,9 +151,9 @@ pre code.hljs {
   padding: 0.5rem 0.75rem;
   text-align: center !important;
   font-weight: 600;
-  color: #141413;
-  border-bottom: 1px solid #e6dfd8;
-  border-right: 1px solid #e6dfd8;
+  color: #1a1d23;
+  border-bottom: 1px solid #e8ebf0;
+  border-right: 1px solid #e8ebf0;
   font-size: 0.8125rem;
 }
 
@@ -153,9 +163,9 @@ pre code.hljs {
 
 .prose td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid rgba(230, 223, 216, 0.5);
-  border-right: 1px solid rgba(230, 223, 216, 0.5);
-  color: #3d3d3a;
+  border-bottom: 1px solid rgba(232, 235, 240, 0.5);
+  border-right: 1px solid rgba(232, 235, 240, 0.5);
+  color: #4a5068;
 }
 
 .prose td:last-child {
@@ -163,25 +173,89 @@ pre code.hljs {
 }
 
 .prose tbody tr:hover {
-  background: rgba(204, 120, 92, 0.05);
+  background: rgba(42, 157, 153, 0.04);
 }
 
 .prose tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* ========== 引用块 ========== */
+/* ========== 引用块 (精致设计) ========== */
 .prose blockquote {
-  border-left: 4px solid #cc785c;
-  padding: 0.75em 1em;
+  position: relative;
+  border-left: 3px solid #2a9d99;
+  padding: 0.875em 1em 0.875em 1.25em;
   margin: 1em 0;
-  background: rgba(204, 120, 92, 0.05);
-  color: #a9583e;
+  background: linear-gradient(135deg, rgba(42, 157, 153, 0.06) 0%, rgba(212, 245, 224, 0.15) 100%);
+  color: #4a5068;
   border-radius: 0 8px 8px 0;
+  font-style: normal;
+}
+
+.prose blockquote::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, #2a9d99, rgba(42, 157, 153, 0.2));
 }
 
 .prose blockquote p {
   margin: 0;
+}
+
+.prose blockquote p + p {
+  margin-top: 0.5em;
+}
+
+/* 引用块内的强调文本 */
+.prose blockquote strong {
+  color: #2a9d99;
+  font-weight: 600;
+}
+
+.prose blockquote em {
+  color: #7c6fb0;
+}
+
+/* 引用块内的代码 */
+.prose blockquote code {
+  background: rgba(42, 157, 153, 0.1);
+  color: #238b87;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+/* 引用块内的列表 */
+.prose blockquote ul,
+.prose blockquote ol {
+  margin: 0.375em 0;
+  padding-left: 1.25em;
+}
+
+.prose blockquote li {
+  margin: 0.25em 0;
+  color: #4a5068;
+}
+
+.prose blockquote li::marker {
+  color: #2a9d99;
+}
+
+/* 引用块内的链接 */
+.prose blockquote a {
+  color: #2a9d99;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+
+.prose blockquote a:hover {
+  color: #238b87;
+  text-decoration-thickness: 2px;
 }
 
 /* ========== 列表样式 ========== */
@@ -198,11 +272,11 @@ pre code.hljs {
 
 .prose li {
   margin: 0.25em 0;
-  color: #141413;
+  color: #1a1d23;
 }
 
 .prose li::marker {
-  color: #cc785c;
+  color: #2a9d99;
   font-size: 0.85em;
 }
 
@@ -217,19 +291,19 @@ pre code.hljs {
 
 /* ========== 链接样式 ========== */
 .prose a {
-  color: #cc785c;
+  color: #2a9d99;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .prose a:hover {
-  color: #a9583e;
+  color: #238b87;
 }
 
 /* ========== 分割线 ========== */
 .prose hr {
   border: none;
-  border-top: 1px solid #e6dfd8;
+  border-top: 1px solid #e8ebf0;
   margin: 1.5em 0;
 }
 
@@ -238,14 +312,14 @@ pre code.hljs {
 .prose h2,
 .prose h3,
 .prose h4 {
-  color: #141413;
+  color: #1a1d23;
   font-weight: 700;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
 }
 
-.prose h1 { font-size: 1.5em; border-bottom: 2px solid #e6dfd8; padding-bottom: 0.3em; }
-.prose h2 { font-size: 1.25em; border-bottom: 1px solid rgba(230, 223, 216, 0.5); padding-bottom: 0.3em; }
+.prose h1 { font-size: 1.5em; border-bottom: 2px solid #e8ebf0; padding-bottom: 0.3em; }
+.prose h2 { font-size: 1.25em; border-bottom: 1px solid rgba(232, 235, 240, 0.5); padding-bottom: 0.3em; }
 .prose h3 { font-size: 1.125em; }
 
 /* ========== 图片 ========== */
@@ -253,7 +327,7 @@ pre code.hljs {
   max-width: 100%;
   border-radius: 8px;
   margin: 1em 0;
-  border: 1px solid #e6dfd8;
+  border: 1px solid #e8ebf0;
 }
 
 /* ========== Markdown 内容字体 ========== */
@@ -261,7 +335,7 @@ pre code.hljs {
   font-size: 1rem;
   line-height: 1.8;
   font-family: 'Inter', sans-serif;
-  color: #141413;
+  color: #1a1d23;
 }
 
 /* ========== 滚动条样式 ========== */
@@ -275,23 +349,23 @@ pre code.hljs {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d4c8b8;
+  background: #d0d5e0;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6c6a64;
+  background: #8b92a8;
 }
 
 /* ========== 选中文本样式 ========== */
 ::selection {
-  background: rgba(204, 120, 92, 0.2);
-  color: #141413;
+  background: rgba(42, 157, 153, 0.15);
+  color: #1a1d23;
 }
 
 /* ========== 焦点样式 ========== */
 *:focus-visible {
-  outline: 2px solid #cc785c;
+  outline: 2px solid #2a9d99;
   outline-offset: 2px;
 }
 
@@ -310,5 +384,36 @@ pre code.hljs {
 }
 .animate-blink {
   animation: blink 0.8s ease-in-out infinite;
+}
+
+/* ========== 思考过程的 prose-sm 样式 ========== */
+.prose-sm {
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.prose-sm p {
+  margin: 0.375em 0;
+}
+
+.prose-sm p:first-child {
+  margin-top: 0;
+}
+
+.prose-sm p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-sm code {
+  font-size: 0.85em;
+}
+
+.prose-sm pre {
+  margin: 0.75em 0;
+}
+
+.prose-sm blockquote {
+  margin: 0.75em 0;
+  padding: 0.625em 0.875em 0.625em 1em;
 }
 
