@@ -246,7 +246,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         </div>
       )}
 
-      <div className="flex items-end bg-white rounded-[12px] border border-border-light shadow-soft">
+      <div className="flex items-end bg-surface-card rounded-md border border-border-light shadow-soft">
         <textarea
           value={value}
           onChange={handleChange}
@@ -254,7 +254,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           placeholder={connected ? t(lang, 'input_placeholder') : t(lang, 'disconnected')}
           rows={1}
           disabled={!connected}
-          className="flex-1 resize-none bg-transparent outline-none text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] disabled:opacity-50 leading-normal py-2.5 pl-3 pr-2"
+          className="flex-1 resize-none bg-transparent text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed leading-normal py-2.5 pl-3 pr-2"
           style={{ height: 'auto', overflow: 'hidden' }}
           onInput={(e) => {
             const el = e.currentTarget;
@@ -267,7 +267,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           disabled={!connected && !busy}
           className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             busy
-              ? 'bg-red-100 text-danger hover:bg-red-200 animate-pulse'
+              ? 'bg-primary-light text-danger hover:bg-surface-hover animate-pulse'
               : 'bg-primary text-white hover:bg-primary-hover'
           }`}
           title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}
