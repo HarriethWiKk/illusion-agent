@@ -261,6 +261,7 @@ class Settings(BaseModel):
     effort: str = "medium"
     passes: int = 1
     verbose: bool = False
+    working_directory: str | None = None  # 固定工作目录
 
     # --- env_N 配置辅助方法 ---
 
