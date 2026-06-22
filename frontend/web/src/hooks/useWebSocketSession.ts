@@ -243,6 +243,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
+        // 连接后自动获取 session 列表
+        setTimeout(() => {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            suppressInlineRef.current = true;
+            ws.send(JSON.stringify({ type: 'list_sessions' }));
+          }
+        }, 100);
         // 连接后自动获取 skills/plugins/rules 信息
         setTimeout(() => {
           const ws = wsRef.current;
