@@ -649,6 +649,9 @@ class WebBackendHost:
             await self._emit(BackendEvent(type="error", message=f"Unknown select command: {command_name}"))
             await self._emit(BackendEvent(type="line_complete"))
             return True
+        # resume 命令不显示转录，避免左侧栏操作触发输入框命令交互
+        if command == "resume":
+            return await self._process_line(line, transcript_line=None)
         return await self._process_line(line, transcript_line=f"/{command}")
 
     def _build_select_command_line(self, command: str, value: str) -> str | None:
