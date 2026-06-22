@@ -149,7 +149,7 @@ export default function App() {
     }
 
     // 通过 select_command 获取内联选项的命令
-    const selectCommands = ['context', 'rewind', 'model', 'delete'];
+    const selectCommands = ['context', 'rewind', 'model', 'delete', 'rules', 'skills'];
     const cmdName = trimmed.startsWith('/') ? (trimmed.slice(1).split(/\s+/)[0] ?? '') : '';
     if (cmdName && selectCommands.includes(cmdName)) {
       session.setBusyTrue();
