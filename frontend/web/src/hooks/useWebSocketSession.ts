@@ -112,6 +112,7 @@ export interface WebSocketSessionState {
   deleteSessions: { value: string; label: string }[];
   clearDeleteSessions: () => void;
   suppressInlineOptions: () => void;
+  suppressCommandResult: () => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -164,10 +165,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
   const suppressInlineRef = useRef(false);
+  const suppressCommandResultRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
   const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
+  const suppressCommandResult = useCallback(() => { suppressCommandResultRef.current = true; }, []);
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -472,6 +475,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             return;
           }
         }
+        // 检查是否需要抑制显示
+        if (suppressCommandResultRef.current) {
+          suppressCommandResultRef.current = false;
+          return;
+        }
         // 通知 App 显示 toast
         if (onCommandResultRef.current) {
           onCommandResultRef.current(msg, evt.command_result_data.type || 'info');
@@ -490,7 +498,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
-    clearModal, requestSelectCommand,
+    suppressCommandResult, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
   }), [
@@ -498,7 +506,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
-    clearModal, requestSelectCommand,
+    suppressCommandResult, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
   ]);

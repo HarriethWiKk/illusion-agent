@@ -200,32 +200,36 @@ export default function App() {
    */
   const handleSelectSession = (id: string) => {
     session.suppressInlineOptions();
+    session.suppressCommandResult();
     session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
-    setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+    setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
   };
 
   /** 处理列出会话 */
   const handleListSessions = useCallback(() => {
     session.suppressInlineOptions();
+    session.suppressCommandResult();
     session.sendRequest({ type: 'list_sessions' });
-  }, [session.suppressInlineOptions, session.sendRequest]);
+  }, [session.suppressInlineOptions, session.suppressCommandResult, session.sendRequest]);
 
   /** 处理删除会话 */
   const handleDeleteSessions = useCallback(() => {
     session.suppressInlineOptions();
+    session.suppressCommandResult();
     session.requestSelectCommand('delete');
-  }, [session.suppressInlineOptions, session.requestSelectCommand]);
+  }, [session.suppressInlineOptions, session.suppressCommandResult, session.requestSelectCommand]);
   /**
    * 处理确认删除
    *
    * 删除所有选中的会话。
    */
   const handleConfirmDelete = useCallback(() => {
+    session.suppressCommandResult();
     for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
     session.clearDeleteSessions();
     setDeleteSelected(new Set());
-    setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
-  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions]);
+    setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions, session.suppressCommandResult]);
 
   /**
    * 处理关闭删除模态框
