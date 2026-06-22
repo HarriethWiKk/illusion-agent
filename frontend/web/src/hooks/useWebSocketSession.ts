@@ -501,14 +501,22 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 function _parseSkillsResult(text: string): SkillSnapshot[] {
   const skills: SkillSnapshot[] = [];
   for (const line of text.split('\n')) {
-    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*:\s*(.*)$/);
+    // 匹配格式: "  1. skill_name [source]  —  description"
+    const m = line.match(/^\s*\d+\.\s*(.+?)\s*\[(\w+)\]\s*(?:[—-]\s*(.*))?$/);
     if (m) {
-      skills.push({ name: m[1]!.trim(), description: m[3]!.trim(), source: m[2]!.trim() });
+      skills.push({ name: m[1]!.trim(), description: m[3]?.trim() ?? '', source: m[2]!.trim() });
       continue;
     }
-    const m2 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
+    // 匹配格式: "- skill_name [source]: description"
+    const m2 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*:\s*(.*)$/);
     if (m2) {
-      skills.push({ name: m2[1]!.trim(), description: '', source: m2[2]!.trim() });
+      skills.push({ name: m2[1]!.trim(), description: m2[3]!.trim(), source: m2[2]!.trim() });
+      continue;
+    }
+    // 匹配格式: "- skill_name [source]"
+    const m3 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
+    if (m3) {
+      skills.push({ name: m3[1]!.trim(), description: '', source: m3[2]!.trim() });
     }
   }
   return skills;

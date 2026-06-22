@@ -57,9 +57,12 @@ export default {
         'glow': '0 0 20px rgba(204, 120, 92, 0.15)',
       },
       borderRadius: {
+        'xs': '4px',
         'sm': '6px',
-        'md': '12px',
-        'lg': '20px',
+        'md': '8px',
+        'lg': '12px',
+        'xl': '16px',
+        'pill': '9999px',
       },
       keyframes: {
         'fade-in': {
