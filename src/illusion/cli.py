@@ -925,6 +925,18 @@ def web_start(
     from illusion.ui.web.server import create_app
     from illusion.ui.web.ws_host import WebHostConfig
 
+    # 读取settings.json中的working_directory字段，切换工作目录
+    from illusion.config import load_settings
+    settings = load_settings()
+    if settings.working_directory:
+        from pathlib import Path
+        import os
+        working_dir = Path(settings.working_directory).expanduser().resolve()
+        if working_dir.exists() and working_dir.is_dir():
+            os.chdir(working_dir)
+        else:
+            typer.echo(_t("cwd_invalid", path=settings.working_directory), err=True)
+
     config = WebHostConfig(
         model=model,
     )
