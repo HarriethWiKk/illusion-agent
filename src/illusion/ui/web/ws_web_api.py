@@ -381,8 +381,28 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(type="web_sessions", web_sessions=options))
 
     async def handle_web_request_models(self, request: FrontendRequest) -> None:
-        """拉取模型选项（Task 3.2 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_request_models 尚未实现"))
+        """拉取模型选项并发送 web_models 事件。
+
+        Args:
+            request: 前端请求（无额外载荷）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            return
+        await self._push_models(bundle)
+
+    async def _push_models(self, bundle) -> None:
+        """推送模型选项列表（供多处复用）。
+
+        复用 ws_host._model_select_options 生成选项（含 active 态）。
+
+        Args:
+            bundle: 运行时 bundle
+        """
+        settings = bundle.current_settings()
+        current_model = settings.active_model_name
+        options = self._host._model_select_options(current_model, settings.provider)  # type: ignore[attr-defined]
+        await self._emit(BackendEvent(type="web_models", web_models=options))
 
     async def handle_web_request_resources(self, request: FrontendRequest) -> None:
         """拉取右侧栏资源快照（Task 3.3 实现）。"""

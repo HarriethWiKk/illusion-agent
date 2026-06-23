@@ -279,3 +279,32 @@ class TestWebSetSetting:
         calls = dispatcher._host._emit.call_args_list
         types = [c.args[0].type for c in calls]
         assert "error" in types
+
+
+class TestWebModels:
+    """web_models 推送与 web_request_models 测试"""
+
+    @pytest.fixture
+    def dispatcher_models(self):
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 复用 ws_host 的 _model_select_options 生成模型选项
+        host._model_select_options = MagicMock(return_value=[
+            {"value": "env_1.model_1", "label": "M1", "active": True},
+        ])
+        dispatcher = WebApiDispatcher(host)
+        return dispatcher
+
+    @pytest.mark.asyncio
+    async def test_request_models_emits_web_models(self, dispatcher_models):
+        """测试拉取模型选项发送 web_models 事件"""
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_request_models")
+        await dispatcher_models.handle(req)
+        calls = dispatcher_models._host._emit.call_args_list
+        models_evts = [c.args[0] for c in calls if c.args[0].type == "web_models"]
+        assert len(models_evts) == 1
+        assert models_evts[0].web_models[0]["active"] is True
