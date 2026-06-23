@@ -307,11 +307,9 @@ export default function App() {
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
         <Toolbar lang={lang} status={session.status}
-          effortOptions={session.effortOptions} modelOptions={session.modelOptions}
-          onModeChange={(v) => session.sendRequest({ type: 'submit_line', line: `/permissions set ${v}` })}
-          onModelChange={session.setModelValue}
-          onEffortChange={session.setEffortValue}
-          onRequestModelList={() => session.requestSelectCommand('model')} />
+          modelOptions={session.modelOptions}
+          onSetSetting={(key, value) => session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value })}
+          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })} />
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"

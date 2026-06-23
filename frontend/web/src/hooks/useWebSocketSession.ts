@@ -97,7 +97,6 @@ export interface WebSocketSessionState {
   plugins: PluginSnapshot[];
   rules: RuleSnapshot[];
   modal: Record<string, unknown> | null;
-  effortOptions: Option[];
   modelOptions: Option[];
   busy: boolean;
   ready: boolean;
@@ -141,7 +140,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [plugins, setPlugins] = useState<PluginSnapshot[]>([]);
   const [rules, setRules] = useState<RuleSnapshot[]>([]);
   const [modal, setModal] = useState<Record<string, unknown> | null>(null);
-  const [effortOptions, setEffortOptions] = useState<Option[]>([]);
   const [modelOptions, setModelOptions] = useState<Option[]>([]);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
@@ -166,7 +164,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const assistantFlushedForToolRef = useRef(false);
   const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
   const showThinkingRef = useRef(true);
-  const pendingInfoCommandRef = useRef<string | null>(null);
 
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
@@ -257,31 +254,15 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
-        // 会话列表改由后端在 ready 后主动推送 web_sessions，无需前端 setTimeout 拉取
-        // 连接后自动获取 skills/plugins/rules 信息
-        setTimeout(() => {
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            pendingInfoCommandRef.current = 'skills';
-            ws.send(JSON.stringify({ type: 'submit_line', line: '/skills' }));
-          }
-        }, 300);
+        // 会话列表、skills/plugins/rules、模型选项均由后端在 ready 后主动推送
+        // （web_sessions / web_resources / web_models），无需前端 setTimeout 拉取
         return;
       }
       if (evt.type === 'state_snapshot') {
         const newState = evt.state ?? {};
-        const oldModel = typeof status.model === 'string' ? status.model : '';
-        const newModel = typeof newState.model === 'string' ? newState.model : '';
-        if (newModel && newModel !== oldModel) {
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'select_command', command: 'model' }));
-        }
-        const oldEffort = typeof status.effort === 'string' ? status.effort : '';
-        const newEffort = typeof newState.effort === 'string' ? newState.effort : '';
-        if (newEffort && newEffort !== oldEffort) {
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'select_command', command: 'effort' }));
-        }
+        // 工具栏状态权威来源：web_setting_changed 即时更新 + state_snapshot 兜底合并。
+        // 移除旧的"status.model/effort 变化时主动发 select_command 重新拉选项"补偿逻辑，
+        // 模型选项改由后端 web_models 推送驱动。
         setStatus(newState);
         const st = newState.show_thinking;
         if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
@@ -460,6 +441,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         suppressInlineRef.current = false;
 
         // resume：始终更新 sessions，仅在非抑制时通知内联选项
+        // （web 端会话恢复已由 web_restore_session 处理，此分支保留以防 select_request 仍被触发）
         if (cmd === 'resume') {
           setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
           if (!suppressed && onSelectRequestRef.current) {
@@ -480,21 +462,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           }
           setBusy(false); return;
         }
-        if (cmd === 'effort') {
-          const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
-          setEffortOptions(opts); setBusy(false); return;
-        }
-        if (cmd === 'model') {
-          const opts = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
-          setModelOptions(opts); setBusy(false); return;
-        }
-        if (cmd === 'permissions') {
-          const activeMode = rawOpts.find((o) => o.active)?.value;
-          if (activeMode) setStatus((s) => ({ ...s, permission_mode: activeMode }));
-          setBusy(false); return;
-        }
+        // 注：effort/model/permissions 分支已删除——这三个设置已转 web_set_setting /
+        // web_models 推送驱动，不再通过 select_request 拉取
 
-        // 其他命令（context、context-window、language 等）→ 通知 App 显示内联选项
+        // 其他命令（context、rewind 等）→ 通知 App 显示内联选项
         if (onSelectRequestRef.current) {
           const title = String(m.title ?? cmd);
           const options = rawOpts.map((o) => ({
@@ -517,36 +488,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
       if (evt.type === 'command_result' && evt.command_result_data) {
         const msg = evt.command_result_data.message ?? '';
-        const pending = pendingInfoCommandRef.current;
-        if (pending) {
-          pendingInfoCommandRef.current = null;
-          if (pending === 'skills') {
-            setSkills(_parseSkillsResult(msg));
-            setTimeout(() => {
-              const ws = wsRef.current;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                pendingInfoCommandRef.current = 'plugins';
-                ws.send(JSON.stringify({ type: 'submit_line', line: '/plugin list' }));
-              }
-            }, 100);
-            return;
-          }
-          if (pending === 'plugins') {
-            setPlugins(_parsePluginsResult(msg));
-            setTimeout(() => {
-              const ws = wsRef.current;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                pendingInfoCommandRef.current = 'rules';
-                ws.send(JSON.stringify({ type: 'submit_line', line: '/rules' }));
-              }
-            }, 100);
-            return;
-          }
-          if (pending === 'rules') {
-            setRules(_parseRulesResult(msg));
-            return;
-          }
-        }
+        // skills/plugins/rules 已由后端 web_resources 推送驱动，
+        // 移除旧的 pendingInfoCommand 链式发指令 + 文本正则解析逻辑
         // 检查是否需要抑制显示
         if (suppressCommandResultCountRef.current > 0) {
           suppressCommandResultCountRef.current--;
@@ -567,7 +510,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
   return useMemo(() => ({
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearDeleteSessions, suppressInlineOptions,
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
@@ -575,64 +518,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setOnSelectRequest, setOnCommandResult,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearDeleteSessions, suppressInlineOptions,
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
   ]);
-}
-
-// ---- 命令结果解析器 ----
-
-function _parseSkillsResult(text: string): SkillSnapshot[] {
-  const skills: SkillSnapshot[] = [];
-  for (const line of text.split('\n')) {
-    // 匹配格式: "  1. skill_name [source]  —  description"
-    const m = line.match(/^\s*\d+\.\s*(.+?)\s*\[(\w+)\]\s*(?:[—-]\s*(.*))?$/);
-    if (m) {
-      skills.push({ name: m[1]!.trim(), description: m[3]?.trim() ?? '', source: m[2]!.trim() });
-      continue;
-    }
-    // 匹配格式: "- skill_name [source]: description"
-    const m2 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*:\s*(.*)$/);
-    if (m2) {
-      skills.push({ name: m2[1]!.trim(), description: m2[3]!.trim(), source: m2[2]!.trim() });
-      continue;
-    }
-    // 匹配格式: "- skill_name [source]"
-    const m3 = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
-    if (m3) {
-      skills.push({ name: m3[1]!.trim(), description: '', source: m3[2]!.trim() });
-    }
-  }
-  return skills;
-}
-
-function _parsePluginsResult(text: string): PluginSnapshot[] {
-  const plugins: PluginSnapshot[] = [];
-  for (const line of text.split('\n')) {
-    const m = line.match(/^-?\s*(.+?)\s*\[(\w+)\]\s*$/);
-    if (m) {
-      plugins.push({
-        name: m[1]!.trim(),
-        description: '',
-        enabled: m[2] === 'enabled',
-        skill_count: 0, mcp_count: 0, command_count: 0,
-      });
-    }
-  }
-  return plugins;
-}
-
-function _parseRulesResult(text: string): RuleSnapshot[] {
-  const rules: RuleSnapshot[] = [];
-  for (const line of text.split('\n')) {
-    const m = line.match(/^\s*\d+\.\s*(.+?)\s*[—-]/);
-    if (m) {
-      rules.push({ name: m[1]!.trim(), source: 'project' });
-    }
-  }
-  return rules;
 }
