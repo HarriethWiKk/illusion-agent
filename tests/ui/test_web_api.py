@@ -35,6 +35,28 @@ class TestWebApiDispatcherRouting:
         # handle 内部应调用 host._emit 发送 error 或对应事件
         assert dispatcher._host._emit.called
 
+    @pytest.mark.asyncio
+    async def test_handle_isolates_handler_exception(self, monkeypatch):
+        """测试 handle 捕获处理异常并发 error 事件，不向主循环冒泡（回归：异常拖垮 host）"""
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._bundle = MagicMock()
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+
+        # 让 handle_web_restore_session 抛异常
+        async def boom(request):
+            raise RuntimeError("模拟 resume_handler 内部失败")
+        monkeypatch.setattr(dispatcher, "handle_web_restore_session", boom)
+
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_restore_session", session_id="s1")
+        # 不应抛异常
+        await dispatcher.handle(req)
+        calls = host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "error" in types
+
 
 class TestWebHostDispatch:
     """ws_host 主循环分发 web_* 请求到 WebApiDispatcher 测试"""
@@ -279,6 +301,37 @@ class TestWebSetSetting:
         calls = dispatcher._host._emit.call_args_list
         types = [c.args[0].type for c in calls]
         assert "error" in types
+
+    @pytest.mark.asyncio
+    async def test_set_permission_mode_with_real_enum(self, monkeypatch):
+        """测试设置 permission_mode 使用真实 PermissionMode 枚举（回归 Enum 只读 value 问题）"""
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+
+        # 使用真实 Settings 实例（含真实 PermissionMode 枚举）
+        from illusion.config.settings import Settings
+        real_settings = Settings()
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._load_settings", lambda: real_settings
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._save_settings", lambda s: None
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_set_setting", setting_key="permission_mode", setting_value="plan")
+        await dispatcher.handle(req)
+        # 验证权限模式确实切换为 plan
+        assert real_settings.permission.mode.value == "plan"
+        # 验证发送了 web_setting_changed 而非 error
+        calls = host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_setting_changed" in types
+        assert "error" not in types
 
 
 class TestWebModels:

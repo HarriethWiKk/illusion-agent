@@ -32,6 +32,7 @@ from illusion.config.settings import (
     load_settings as _load_settings,
     save_settings as _save_settings,
 )
+from illusion.permissions import PermissionMode
 from illusion.services.session_storage import (
     delete_session_by_id as _delete_session_by_id,
     list_session_snapshots as _list_session_snapshots,
@@ -62,6 +63,10 @@ class WebApiDispatcher:
     async def handle(self, request: FrontendRequest) -> None:
         """分发 web_* 请求到对应的 handle_* 方法。
 
+        所有 handler 异常在此隔离，转译为 error 事件发送给前端，不向主循环冒泡——
+        否则任一 web_* 处理异常都会拖垮整个 WebSocket host（表现为后续 emit 报
+        "WebSocket write error"）。
+
         Args:
             request: 前端请求（type 以 web_ 开头）
         """
@@ -72,7 +77,21 @@ class WebApiDispatcher:
                 message=f"未实现的 web 请求类型: {request.type}",
             ))
             return
-        await handler(request)
+        try:
+            await handler(request)
+        except Exception as exc:
+            log.exception("处理 web 请求 %s 时发生异常", request.type)
+            # 异常隔离：发 error 事件而非冒泡，避免拖垮 host
+            try:
+                await self._emit(BackendEvent(
+                    type="error",
+                    message=f"处理 {request.type} 失败: {exc}",
+                ))
+                # 尝试恢复 busy 态，避免前端卡在 loading
+                await self._emit(BackendEvent(type="line_complete"))
+            except Exception:
+                # 连发 error 都失败时只能记录，不再冒泡
+                log.exception("发送 web 异常 error 事件也失败")
 
     def _dispatch_table(self) -> dict[str, object]:
         """返回请求类型到处理方法的映射表。
@@ -281,9 +300,19 @@ class WebApiDispatcher:
         ))
         # 2. 发送完整状态快照（兜底，保证派生字段一致）
         await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
-        # 3. 若是 model 切换，额外推送模型选项（重建 active 态）
+        # 3. 若是 model 切换：先推送模型选项让 UI 即时更新 active 态，
+        #    再重建 API 客户端（重建可能耗时，如 copilot token 刷新，放最后避免阻塞 UI）
         if key == "model":
             await self._push_models(bundle)
+            try:
+                from illusion.ui.runtime import _rebuild_api_client
+                _rebuild_api_client(bundle, _load_settings())
+            except Exception as exc:
+                log.exception("重建 API 客户端失败")
+                await self._emit(BackendEvent(
+                    type="error",
+                    message=f"模型已切换但 API 客户端重建失败: {exc}",
+                ))
 
     async def _apply_setting(self, bundle, key: str, value) -> tuple[bool, str | None]:
         """应用设置到 settings 与 app_state（A/B 通道共用）。
@@ -310,9 +339,10 @@ class WebApiDispatcher:
 
         try:
             if key == "permission_mode":
-                settings.permission.mode.value = str(value)
+                # PermissionMode 是枚举，必须整体赋值（.value 只读，不能直接设）
+                settings.permission.mode = PermissionMode(str(value))
                 _save_settings(settings)
-                bundle.app_state.set(permission_mode=str(value))
+                bundle.app_state.set(permission_mode=settings.permission.mode.value)
             elif key == "fast":
                 settings.fast_mode = str(value).lower() in ("on", "true", "1")
                 _save_settings(settings)
@@ -329,9 +359,8 @@ class WebApiDispatcher:
                 settings.model = str(value)
                 _save_settings(settings)
                 bundle.app_state.set(model=str(value))
-                # 跨 env 切换重建 API 客户端
-                from illusion.ui.runtime import _rebuild_api_client
-                _rebuild_api_client(bundle, settings)
+                # 注：API 客户端重建（_rebuild_api_client）延迟到 emit 之后执行，
+                # 避免重建耗时（如 copilot token 刷新）阻塞前端 UI 反馈
             else:
                 # effort / context_window / ui_language / passes / output_style
                 # settings 字段名与 key 相同（output_style / ui_language / passes / context_window / effort）
