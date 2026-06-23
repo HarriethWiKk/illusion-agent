@@ -70,6 +70,7 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（type 以 web_ 开头）
         """
+        print(f"[DEBUG-DISPATCH] handle called: type={request.type}", flush=True)
         handler = self._dispatch_table().get(request.type)
         if handler is None:
             await self._emit(BackendEvent(
@@ -172,6 +173,7 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（session_id 必填）
         """
+        log.warning("[RESTORE] handle_web_restore_session 被调用, session_id=%s", request.session_id)
         bundle = self._host._bundle  # type: ignore[attr-defined]
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
@@ -180,13 +182,16 @@ class WebApiDispatcher:
 
         # WebSocket 已关闭：直接返回，不尝试 emit（_emit 会静默丢弃，前端收不到任何事件）
         if self._host._ws_closed:  # type: ignore[attr-defined]
+            log.warning("[RESTURE] WebSocket 已关闭(_ws_closed=True), 直接返回")
             return
 
         error_msg = None
         replay_items = []
 
         # 1. 发送恢复开始事件（前端据此显示动画）
+        print(f"[DEBUG-RESTORE] 开始恢复: session_id={session_id}", flush=True)
         await self._emit(BackendEvent(type="web_restore_started", session_id=session_id))
+        print(f"[DEBUG-RESTORE] web_restore_started 已发送", flush=True)
 
         # 2. 构建命令上下文并调用 resume_handler
         try:
@@ -200,19 +205,26 @@ class WebApiDispatcher:
                 app_state=bundle.app_state,
                 session_id=bundle.session_id,
             )
+            log.info("web_restore_session: 调用 resume_handler")
             result = await _resume_handler(session_id, context)
+            log.info("web_restore_session: resume_handler 返回, restored_id=%s, replay_count=%s",
+                     result.restored_session_id, len(result.replay_messages) if result.replay_messages else 0)
             if result.restored_session_id:
                 bundle.session_id = result.restored_session_id
+            log.info("web_restore_session: 构建 replay_items")
             replay_items = self._build_replay_items(result.replay_messages)
+            log.info("web_restore_session: replay_items 构建完成, count=%d", len(replay_items))
         except Exception as exc:
-            log.exception("恢复会话 %s 失败", session_id)
+            log.exception("web_restore_session: 恢复会话 %s 失败", session_id)
             error_msg = str(exc)
 
         # 3. WebSocket 在恢复过程中关闭：跳过 emit（会静默丢弃），直接返回
         if self._host._ws_closed:  # type: ignore[attr-defined]
+            log.warning("web_restore_session: WebSocket 已关闭，跳过 emit")
             return
 
         # 4. 始终发 web_restore_completed——前端据此清除 restoringSessionId
+        log.info("web_restore_session: 发送 web_restore_completed, error=%s, items=%d", error_msg, len(replay_items))
         await self._emit(BackendEvent(
             type="web_restore_completed",
             session_id=bundle.session_id,
@@ -220,8 +232,10 @@ class WebApiDispatcher:
             state=_state_payload(bundle.app_state.get()),
             web_error=error_msg,
         ))
+        log.info("web_restore_session: web_restore_completed 已发送")
         # 5. 推送会话列表刷新
         await self._push_sessions()
+        log.info("web_restore_session: 恢复流程完成")
         # 7. 发送任务快照与状态快照
         from illusion.tasks import get_task_manager
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
