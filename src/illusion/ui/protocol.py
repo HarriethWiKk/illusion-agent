@@ -42,17 +42,27 @@ class FrontendRequest(BaseModel):
     """前端请求模型。
 
     表示从 React 前端发送到 Python 后端的请求。
+    web_* 类型为 Web 前端专属通道（A/B 通道），与 terminal 共用的
+    submit_line/apply_select_command 等类型隔离，避免 web 端操作
+    与 terminal 端命令流程相互干扰。
 
     Attributes:
         type: 请求类型
         line: 提交的行内容
-        command: 命令名称
-        command: 命令值
-        request_id: 请求 ID
+        command: 命令名称（web_query 用）
+        value: 命令值
+        request_id: 请求 ID（web_query 用）
         allowed: 是否允许
         always_allow: 是否总是允许
         tool_name: 工具名称
         answer: 用户答案
+        session_id: 会话 ID（web_restore_session 用）
+        session_ids: 会话 ID 列表（web_delete_sessions 用）
+        delete_all: 是否删除全部会话（web_delete_sessions 用）
+        setting_key: 设置键名（web_set_setting 用）
+        setting_value: 设置值（web_set_setting 用）
+        limit: 拉取数量上限（web_request_sessions 用）
+        offset: 拉取偏移量（web_request_sessions 用）
     """
 
     type: Literal[
@@ -64,6 +74,15 @@ class FrontendRequest(BaseModel):
         "select_command",
         "apply_select_command",
         "shutdown",
+        # === Web 前端专属通道（web_* 命名空间）===
+        "web_new_session",
+        "web_restore_session",
+        "web_delete_sessions",
+        "web_set_setting",
+        "web_request_sessions",
+        "web_request_models",
+        "web_request_resources",
+        "web_query",
     ]
     line: str | None = None
     command: str | None = None
@@ -74,6 +93,15 @@ class FrontendRequest(BaseModel):
     tool_name: str | None = None
     answer: str | None = None
     feedback: str | None = None
+    # === web_* 专属字段 ===
+    session_id: str | None = None
+    session_ids: list[str] | None = None
+    delete_all: bool | None = None
+    setting_key: str | None = None
+    setting_value: Any = None
+    limit: int | None = None
+    offset: int | None = None
+    args: str | None = None
 
 
 class TranscriptItem(BaseModel):
