@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 
+from illusion.services.session_storage import list_session_snapshots as _list_session_snapshots
 from illusion.ui.protocol import BackendEvent, FrontendRequest
 
 log = logging.getLogger(__name__)
@@ -107,8 +108,41 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(type="error", message="web_set_setting 尚未实现"))
 
     async def handle_web_request_sessions(self, request: FrontendRequest) -> None:
-        """拉取会话列表（Task 2.1 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_request_sessions 尚未实现"))
+        """拉取会话列表并推送 web_sessions 事件。
+
+        Args:
+            request: 前端请求（limit/offset 可选）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        await self._push_sessions()
+
+    async def _push_sessions(self) -> None:
+        """推送会话列表（供多处复用）。
+
+        从 session_storage 读取会话快照，格式化为前端需要的结构后推送。
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            return
+        locale = str(bundle.app_state.get().ui_language or "zh-CN")
+        zh = locale.lower().startswith("zh")
+        sessions = _list_session_snapshots(bundle.cwd, limit=20)
+        import time as _time
+        options = []
+        for s in sessions:
+            ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
+            summary = (s.get("summary", "") or ("（无摘要）" if zh else "(no summary)"))[:50]
+            options.append({
+                "id": s["session_id"],
+                "label": f"{ts}  {s['message_count']}msg  {summary}",
+                "created_at": s["created_at"],
+                "message_count": s["message_count"],
+                "summary": s.get("summary", ""),
+            })
+        await self._emit(BackendEvent(type="web_sessions", web_sessions=options))
 
     async def handle_web_request_models(self, request: FrontendRequest) -> None:
         """拉取模型选项（Task 3.2 实现）。"""
