@@ -26,7 +26,8 @@ import logging
 
 from illusion.commands.session import resume_handler as _resume_handler
 from illusion.commands.session import new_handler as _new_handler
-from illusion.commands.types import CommandContext
+from illusion.commands.types import CommandContext, CommandResult
+from illusion.commands.registry import create_default_command_registry
 from illusion.config.settings import (
     load_settings as _load_settings,
     save_settings as _save_settings,
@@ -428,8 +429,105 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(type="web_resources", web_resources=resources))
 
     async def handle_web_query(self, request: FrontendRequest) -> None:
-        """B 通道精细化指令（Task 4.1 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_query 尚未实现"))
+        """B 通道精细化指令处理。
+
+        复用 CommandRegistry 的 handler 拿到 CommandResult，但渲染层映射到
+        web_query_result（不产生 command_result 事件）。设置类指令（fast/passes/
+        turns/output-style/language）内部调用 _apply_setting，触发与 A 通道相同的
+        web_setting_changed + state_snapshot 同步。
+
+        不经过 _process_line/handle_line，避免 transcript_item/hook reload 副作用。
+
+        rewind/context 需要多步选择，仍走 select_request 机制。
+
+        Args:
+            request: 前端请求（command/args/request_id 必填）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        command = request.command or ""
+        args = request.args or ""
+        request_id = request.request_id or ""
+
+        # rewind/context 需要多步选择，仍走 select_request 机制（保留旧 _handle_select_command）
+        if command in ("rewind", "context"):
+            await self._host._handle_select_command(command)  # type: ignore[attr-defined]
+            return
+
+        # 设置类指令：内部走 _apply_setting（与 A 通道共用写入逻辑，DRY）
+        setting_commands = {
+            "fast": "fast",
+            "passes": "passes",
+            "turns": "turns",
+            "output-style": "output_style",
+            "language": "ui_language",
+        }
+        if command in setting_commands and args:
+            key = setting_commands[command]
+            tokens = args.split()
+            # 参数解析：language set zh-CN → "zh-CN"；fast/passes/turns/output-style → 首个 token
+            if command == "language" and len(tokens) >= 2 and tokens[0] == "set":
+                value = " ".join(tokens[1:])
+            else:
+                value = tokens[0] if tokens else ""
+            ok, error = await self._apply_setting(bundle, key, value)
+            if ok:
+                await self._emit(BackendEvent(
+                    type="web_setting_changed", setting_key=key, setting_value=value,
+                ))
+                await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+                payload = "已更新"
+            else:
+                payload = error or "设置失败"
+            await self._emit(BackendEvent(
+                type="web_query_result", web_request_id=request_id, web_command=command,
+                web_query_kind="text", web_query_payload=payload,
+            ))
+            return
+
+        # 执行型/查询型（compact/export/init 及无参查询）：复用 registry handler
+        result = await _run_command_via_registry(f"/{command} {args}".strip(), bundle)
+        if result is None:
+            # 已通过 select_request 或其他机制处理
+            return
+        payload = result.message or ""
+        await self._emit(BackendEvent(
+            type="web_query_result", web_request_id=request_id, web_command=command,
+            web_query_kind="text", web_query_payload=payload,
+        ))
+
+
+async def _run_command_via_registry(line: str, bundle) -> CommandResult | None:
+    """通过 CommandRegistry 执行命令并返回结果（不经过 handle_line）。
+
+    B 通道（web_query）的执行型/查询型指令复用此函数，避免触发
+    transcript_item/hook reload 等 terminal 副作用。
+
+    Args:
+        line: 完整命令行（如 "/compact"）
+        bundle: 运行时 bundle
+
+    Returns:
+        CommandResult | None: 命令结果，None 表示命令未识别或已通过其他机制处理
+    """
+    registry = create_default_command_registry()
+    parsed = registry.lookup(line)
+    if parsed is None:
+        return None
+    command, args = parsed
+    context = CommandContext(
+        engine=bundle.engine,
+        hooks_summary=bundle.hook_summary(),
+        mcp_summary=bundle.mcp_summary(),
+        plugin_summary=bundle.plugin_summary(),
+        cwd=bundle.cwd,
+        tool_registry=bundle.tool_registry,
+        app_state=bundle.app_state,
+        session_id=bundle.session_id,
+    )
+    return await command.handler(args, context)
 
 
 def _collect_resources(bundle) -> dict:

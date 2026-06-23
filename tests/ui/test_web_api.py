@@ -354,3 +354,50 @@ class TestWebResources:
         )
         await dispatcher._push_resources(bundle)
         assert host._emit.called
+
+
+class TestWebQuery:
+    """web_query B 通道精细化指令测试"""
+
+    @pytest.fixture
+    def dispatcher_query(self, monkeypatch):
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+        return dispatcher
+
+    @pytest.mark.asyncio
+    async def test_query_setting_emits_web_query_result(self, dispatcher_query, monkeypatch):
+        """测试设置类指令(/fast on)走 web_query 后返回 web_query_result"""
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_query", command="fast", args="on", request_id="r1")
+        await dispatcher_query.handle(req)
+        calls = dispatcher_query._host._emit.call_args_list
+        result_evts = [c.args[0] for c in calls if c.args[0].type == "web_query_result"]
+        assert len(result_evts) == 1
+        assert result_evts[0].web_request_id == "r1"
+        assert result_evts[0].web_query_kind == "text"
+
+    @pytest.mark.asyncio
+    async def test_query_unknown_command_emits_result(self, dispatcher_query, monkeypatch):
+        """测试未知/执行型指令返回 web_query_result"""
+        async def fake_run(line, bundle):
+            from illusion.commands.types import CommandResult
+            return CommandResult(message="结果文本")
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._run_command_via_registry", fake_run
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_query", command="compact", args="", request_id="r2")
+        await dispatcher_query.handle(req)
+        calls = dispatcher_query._host._emit.call_args_list
+        result_evts = [c.args[0] for c in calls if c.args[0].type == "web_query_result"]
+        assert len(result_evts) == 1
+        assert result_evts[0].web_query_payload == "结果文本"
