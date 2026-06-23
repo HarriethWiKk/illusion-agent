@@ -241,6 +241,8 @@ export interface RuleSnapshot {
  * 前端请求类型
  *
  * 前端发送到后端的所有可能请求类型。
+ * web_* 类型为 Web 前端专属通道（A/B 通道），与 terminal 共用的
+ * submit_line/apply_select_command 等类型隔离。
  */
 export type FrontendRequest =
   | { type: 'submit_line'; line: string }
@@ -250,7 +252,16 @@ export type FrontendRequest =
   | { type: 'list_sessions' }
   | { type: 'select_command'; command: string }
   | { type: 'apply_select_command'; command: string; value: string }
-  | { type: 'shutdown' };
+  | { type: 'shutdown' }
+  // === Web 前端专属通道（web_* 命名空间）===
+  | { type: 'web_new_session' }
+  | { type: 'web_restore_session'; session_id: string }
+  | { type: 'web_delete_sessions'; session_ids?: string[]; delete_all?: boolean }
+  | { type: 'web_set_setting'; setting_key: string; setting_value: string | number | boolean }
+  | { type: 'web_request_sessions'; limit?: number; offset?: number }
+  | { type: 'web_request_models' }
+  | { type: 'web_request_resources' }
+  | { type: 'web_query'; command: string; args?: string; request_id: string };
 
 // ---- 后端事件 ----
 
@@ -309,4 +320,48 @@ export interface BackendEvent {
   swarm_notifications?: SwarmNotificationSnapshot[];
   /** 指令结果数据（可选） */
   command_result_data?: { message: string; type: 'success' | 'error' | 'info' };
+  // === web_* 推送事件字段 ===
+  /** web_restore_started/completed 的会话 ID（可选） */
+  session_id?: string;
+  /** web_sessions 推送的会话列表（可选） */
+  web_sessions?: WebSessionItem[];
+  /** web_resources 推送的资源快照（可选） */
+  web_resources?: {
+    skills: SkillSnapshot[];
+    plugins: PluginSnapshot[];
+    rules: RuleSnapshot[];
+    mcp_servers: McpServerSnapshot[];
+  };
+  /** web_models 推送的模型选项（可选） */
+  web_models?: SelectOption[];
+  /** web_setting_changed 的键名（可选） */
+  setting_key?: string;
+  /** web_setting_changed 的值（可选） */
+  setting_value?: string | number | boolean;
+  /** web_query_result 的结果类型（可选） */
+  web_query_kind?: 'text' | 'transcript_replace' | 'download';
+  /** web_query_result 的载荷（可选） */
+  web_query_payload?: unknown;
+  /** web_query_result 关联的请求 ID（可选） */
+  web_request_id?: string;
+  /** web_query_result 关联的命令名（可选） */
+  web_command?: string;
+}
+
+/**
+ * Web 会话项接口
+ *
+ * web_sessions 推送事件中的单个会话条目。
+ */
+export interface WebSessionItem {
+  /** 会话唯一标识符 */
+  id: string;
+  /** 会话显示标签 */
+  label: string;
+  /** 创建时间戳（可选） */
+  created_at?: number;
+  /** 消息数量（可选） */
+  message_count?: number;
+  /** 会话摘要（可选） */
+  summary?: string;
 }

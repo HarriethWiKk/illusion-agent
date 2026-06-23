@@ -110,6 +110,10 @@ export interface WebSocketSessionState {
   connected: boolean;
   sessions: { value: string; label: string }[];
   deleteSessions: { value: string; label: string }[];
+  /** 正在恢复的会话 ID（null 表示无恢复进行中） */
+  restoringSessionId: string | null;
+  /** 设置正在恢复的会话 ID */
+  setRestoringSessionId: (id: string | null) => void;
   clearDeleteSessions: () => void;
   suppressInlineOptions: () => void;
   suppressCommandResult: (count?: number) => void;
@@ -150,6 +154,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
   const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
+  // 正在恢复的会话 ID（用于显示加载动画），由发出恢复请求时即设置
+  const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -251,14 +257,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
-        // 连接后自动获取 session 列表
-        setTimeout(() => {
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            suppressInlineRef.current = true;
-            ws.send(JSON.stringify({ type: 'list_sessions' }));
-          }
-        }, 100);
+        // 会话列表改由后端在 ready 后主动推送 web_sessions，无需前端 setTimeout 拉取
         // 连接后自动获取 skills/plugins/rules 信息
         setTimeout(() => {
           const ws = wsRef.current;
@@ -390,6 +389,68 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
       }
 
+      // === Web 专属推送事件（web_* 命名空间）===
+      if (evt.type === 'web_sessions') {
+        // 后端推送的会话列表，格式化为 sessions 状态
+        const opts = (evt.web_sessions ?? []).map((o) => ({ value: String(o.id ?? ''), label: String(o.label ?? '') }));
+        setSessions(opts);
+        setBusy(false);
+        return;
+      }
+      if (evt.type === 'web_restore_started') {
+        // 恢复开始：动画由发出请求时即设置，此处无需重复设置
+        return;
+      }
+      if (evt.type === 'web_restore_completed') {
+        // 恢复完成：清除加载动画并一次性替换转录
+        setRestoringSessionId(null);
+        const items = (evt.items ?? []) as TranscriptItem[];
+        setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+        clearAssistantDelta();
+        pendingToolCallsRef.current = [];
+        setPendingToolCalls([]);
+        // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
+        if (evt.state) setStatus(evt.state as Record<string, unknown>);
+        return;
+      }
+      if (evt.type === 'web_setting_changed') {
+        // 单项设置变更：合并到 status，前端工具栏读 status 字段即时更新
+        const key = evt.setting_key;
+        const value = evt.setting_value;
+        if (key && value !== undefined && value !== null) {
+          setStatus((s) => ({ ...s, [key]: value }));
+        }
+        return;
+      }
+      if (evt.type === 'web_models') {
+        // 后端推送的模型选项，更新 modelOptions（含 active 态）
+        const opts = (evt.web_models ?? []).map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
+        setModelOptions(opts);
+        return;
+      }
+      if (evt.type === 'web_resources') {
+        // 后端推送的资源快照，结构化更新（废弃旧的文本正则解析）
+        const res = evt.web_resources;
+        if (res) {
+          setSkills((res.skills as SkillSnapshot[]) ?? []);
+          setPlugins((res.plugins as PluginSnapshot[]) ?? []);
+          setRules((res.rules as RuleSnapshot[]) ?? []);
+          setMcpServers((res.mcp_servers as McpServerSnapshot[]) ?? []);
+        }
+        return;
+      }
+      if (evt.type === 'web_query_result') {
+        // B 通道精细化指令结果：在 transcript 区域渲染，不走 command_result toast
+        const payload = evt.web_query_payload;
+        if (evt.web_query_kind === 'text' && typeof payload === 'string') {
+          if (payload.trim()) pushStatic({ role: 'system', text: payload });
+        } else if (evt.web_query_kind === 'transcript_replace' && Array.isArray(payload)) {
+          setStaticItems((payload as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+        }
+        setBusy(false);
+        return;
+      }
+
       // === 选择请求 ===
       if (evt.type === 'select_request') {
         const m = evt.modal ?? {};
@@ -508,7 +569,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearDeleteSessions, suppressInlineOptions,
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
@@ -516,7 +577,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, effortOptions, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, clearDeleteSessions, suppressInlineOptions,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearDeleteSessions, suppressInlineOptions,
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
