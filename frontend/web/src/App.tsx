@@ -182,54 +182,55 @@ export default function App() {
    */
   const handleInlineClose = useCallback(() => setInlineOptions(null), []);
 
-  // 删除会话弹窗状态
+  // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
 
   /** 处理新建会话 */
   const handleNewSession = () => {
-    session.sendRequest({ type: 'submit_line', line: '/new' });
+    session.sendRequest({ type: 'web_new_session' });
   };
 
   /**
-   * 处理选择会话
+   * 处理选择会话（A 通道，零 suppress）
+   *
+   * 点击会话项 → 发送 web_restore_session，前端立即进入 restoring 态显示加载动画，
+   * 收到 web_restore_completed 后清除动画并替换转录。不再有 /resume 弹框副作用。
    *
    * @param id - 会话 ID
    */
   const handleSelectSession = useCallback((id: string) => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult(1); // 抑制 apply_select_command 的命令结果
-    session.suppressTranscript(); // 抑制转录事件，直到收到 replace_transcript
-    session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.suppressTranscript, session.sendRequest]);
+    session.setRestoringSessionId(id);
+    session.sendRequest({ type: 'web_restore_session', session_id: id });
+  }, [session.setRestoringSessionId, session.sendRequest]);
 
-  /** 处理列出会话 */
+  /** 处理列出会话（A 通道，后端推送 web_sessions） */
   const handleListSessions = useCallback(() => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult();
-    session.sendRequest({ type: 'list_sessions' });
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.sendRequest]);
+    session.sendRequest({ type: 'web_request_sessions' });
+  }, [session.sendRequest]);
 
-  /** 处理删除会话 */
+  /** 处理删除会话：打开删除弹窗（数据源来自 session.sessions 主列表） */
   const handleDeleteSessions = useCallback(() => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult();
-    session.requestSelectCommand('delete');
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.requestSelectCommand]);
+    setDeleteSelected(new Set());
+    setDeleteModalOpen(true);
+  }, []);
   /**
    * 处理确认删除
    *
    * 删除所有选中的会话。
    */
   const handleConfirmDelete = useCallback(() => {
-    session.suppressCommandResult();
-    for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
-    session.clearDeleteSessions();
+    const ids = Array.from(deleteSelected);
+    if (ids.length > 0) {
+      // A 通道批量删除，后端删除后推送 web_sessions 刷新列表
+      session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+    }
+    setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-    setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
-  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions, session.suppressCommandResult]);
+  }, [deleteSelected, session.sendRequest]);
 
   /**
    * 处理关闭删除模态框
@@ -237,9 +238,9 @@ export default function App() {
    * 关闭删除会话弹窗并清除选中状态。
    */
   const handleCloseDeleteModal = useCallback(() => {
-    session.clearDeleteSessions();
+    setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-  }, [session.clearDeleteSessions]);
+  }, []);
 
   /**
    * 切换删除项选中状态
@@ -250,12 +251,12 @@ export default function App() {
     setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
   }, []);
 
-  /** 是否显示删除模态框 */
-  const showDeleteModal = session.deleteSessions.length > 0;
-  /** 普通会话列表（排除 __all__ 选项） */
-  const regularSessions = session.deleteSessions.filter((s) => s.value !== '__all__');
-  /** 是否有全部删除选项 */
-  const hasAllOption = session.deleteSessions.some((s) => s.value === '__all__');
+  /** 是否显示删除模态框（本地控制，不再依赖 select_request:delete 填充） */
+  const showDeleteModal = deleteModalOpen;
+  /** 待删除的普通会话列表（来自主会话列表 session.sessions） */
+  const regularSessions = session.sessions;
+  /** 总是提供"删除全部"入口 */
+  const hasAllOption = session.sessions.length > 0;
 
   /**
    * 处理权限响应
@@ -344,9 +345,9 @@ export default function App() {
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  session.sendRequest({ type: 'apply_select_command', command: 'delete', value: '__all__' });
-                  session.clearDeleteSessions(); setDeleteSelected(new Set());
-                  setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+                  // A 通道删除全部，后端删除后推送 web_sessions 刷新列表
+                  session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
+                  setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>
               <div className="flex gap-2">
