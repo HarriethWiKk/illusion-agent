@@ -137,8 +137,36 @@ export default function App() {
     // 通道 1：B 类斜杠指令 → web_query（精细化处理，不经过命令注册表）
     if (trimmed.startsWith('/')) {
       const cmdName = trimmed.slice(1).split(/\s+/)[0] ?? '';
+      const args = trimmed.slice(1 + cmdName.length).trim();
+
+      // /language（无参数）→ 弹出语言选择框，不走 web_query
+      if (cmdName === 'language' && !args) {
+        const current = String(session.status?.ui_language ?? 'zh-CN');
+        setInlineOptions({
+          command: 'language',
+          title: t(lang, 'language'),
+          options: [
+            { value: 'set zh-CN', label: '简体中文', description: '中文界面', active: current === 'zh-CN' },
+            { value: 'set en', label: 'English', description: 'English UI', active: current === 'en' },
+          ],
+        });
+        return;
+      }
+      // /fast（无参数）→ 弹出开关选择框，不走 web_query
+      if (cmdName === 'fast' && !args) {
+        const currentFast = Boolean(session.status?.fast_mode);
+        setInlineOptions({
+          command: 'fast',
+          title: t(lang, 'fast'),
+          options: [
+            { value: 'on', label: t(lang, 'fast_on'), description: t(lang, 'fast_on_desc'), active: currentFast },
+            { value: 'off', label: t(lang, 'fast_off'), description: t(lang, 'fast_off_desc'), active: !currentFast },
+          ],
+        });
+        return;
+      }
+
       if (B_COMMANDS.includes(cmdName)) {
-        const args = trimmed.slice(1 + cmdName.length).trim();
         session.setBusyTrue();
         session.sendRequest({
           type: 'web_query',
@@ -166,7 +194,18 @@ export default function App() {
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
     setInlineOptions(null);
-    session.sendRequest({ type: 'apply_select_command', command, value });
+    // language 和 fast 走 web_query 通道（前端弹出选择框后提交）
+    if (command === 'language' || command === 'fast') {
+      session.sendRequest({
+        type: 'web_query',
+        command,
+        args: value,
+        request_id: `q-${Date.now()}`,
+      });
+    } else {
+      // rewind/context 等多步指令仍走 apply_select_command
+      session.sendRequest({ type: 'apply_select_command', command, value });
+    }
   }, [session.sendRequest]);
 
   /**
@@ -219,12 +258,18 @@ export default function App() {
   const handleConfirmDelete = useCallback(() => {
     const ids = Array.from(deleteSelected);
     if (ids.length > 0) {
-      // A 通道批量删除，后端删除后推送 web_sessions 刷新列表
+      // 检查是否删除了当前会话——如果是，删除后自动新建会话
+      const currentSessionId = String(session.status?.session_id ?? '');
+      const deletingCurrent = ids.includes(currentSessionId);
       session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+      if (deletingCurrent) {
+        // 延迟一小段时间确保删除完成后再新建
+        setTimeout(() => session.sendRequest({ type: 'web_new_session' }), 200);
+      }
     }
     setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-  }, [deleteSelected, session.sendRequest]);
+  }, [deleteSelected, session.sendRequest, session.status]);
 
   /**
    * 处理关闭删除模态框
@@ -302,8 +347,12 @@ export default function App() {
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
         <Toolbar lang={lang} status={session.status}
           modelOptions={session.modelOptions}
-          onSetSetting={(key, value) => session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value })}
-          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })} />
+          onSetSetting={(key, value) => {
+            if (key === 'model') session.setModelSwitching(true);
+            session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
+          }}
+          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
+          modelSwitching={session.modelSwitching} />
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
@@ -337,8 +386,9 @@ export default function App() {
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  // A 通道删除全部，后端删除后推送 web_sessions 刷新列表
+                  // A 通道删除全部，删除后自动新建会话
                   session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
+                  setTimeout(() => session.sendRequest({ type: 'web_new_session' }), 200);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>

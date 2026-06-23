@@ -149,6 +149,9 @@ class WebApiDispatcher:
         # new_handler 内部已重置会话，此处重新生成 session_id 保持一致
         from uuid import uuid4
         bundle.session_id = uuid4().hex[:12]
+        # 同步 app_state（含 context_tokens），使新建会话后右侧栏上下文窗口显示正确（0 tokens）
+        from illusion.ui.runtime import sync_app_state
+        sync_app_state(bundle)
         # 发送空 transcript 的恢复完成事件，前端据此清空主区域
         await self._emit(BackendEvent(
             type="web_restore_completed",
@@ -213,6 +216,10 @@ class WebApiDispatcher:
                 bundle.session_id = result.restored_session_id
             log.info("web_restore_session: 构建 replay_items")
             replay_items = self._build_replay_items(result.replay_messages)
+            # 同步 app_state（含 context_tokens），使 web_restore_completed 的
+            # state 快照包含正确的上下文窗口使用量，避免右侧栏显示旧会话数据
+            from illusion.ui.runtime import sync_app_state
+            sync_app_state(bundle)
             log.info("web_restore_session: replay_items 构建完成, count=%d", len(replay_items))
         except Exception as exc:
             log.exception("web_restore_session: 恢复会话 %s 失败", session_id)

@@ -113,6 +113,10 @@ export interface WebSocketSessionState {
   restoringSessionId: string | null;
   /** 设置正在恢复的会话 ID */
   setRestoringSessionId: (id: string | null) => void;
+  /** 模型是否正在切换中 */
+  modelSwitching: boolean;
+  /** 设置模型切换状态 */
+  setModelSwitching: (v: boolean) => void;
   clearDeleteSessions: () => void;
   suppressInlineOptions: () => void;
   suppressCommandResult: (count?: number) => void;
@@ -154,6 +158,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
   // 正在恢复的会话 ID（用于显示加载动画），由发出恢复请求时即设置
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
+  // 模型切换中（用于 Toolbar 显示加载动画）
+  const [modelSwitching, setModelSwitching] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -428,6 +434,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         // 后端推送的模型选项，更新 modelOptions（含 active 态）
         const opts = (evt.web_models ?? []).map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), active: o.active === true }));
         setModelOptions(opts);
+        setModelSwitching(false); // 模型切换完成，清除加载态
         return;
       }
       if (evt.type === 'web_resources') {
@@ -442,10 +449,20 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'web_query_result') {
-        // B 通道精细化指令结果：在 transcript 区域渲染，不走 command_result toast
         const payload = evt.web_query_payload;
+        const cmd = evt.web_command ?? '';
+        // 简单消息型指令（passes/turns/compact/context 等）→ 结果走 toast 而非主会话渲染
+        const TOAST_COMMANDS = ['passes', 'turns', 'compact', 'context'];
         if (evt.web_query_kind === 'text' && typeof payload === 'string') {
-          if (payload.trim()) pushStatic({ role: 'system', text: payload });
+          if (TOAST_COMMANDS.includes(cmd)) {
+            // toast 显示
+            if (payload.trim() && onCommandResultRef.current) {
+              onCommandResultRef.current(payload, 'info');
+            }
+          } else {
+            // 其他指令（rewind/export/init 等）→ 在主会话渲染
+            if (payload.trim()) pushStatic({ role: 'system', text: payload });
+          }
         } else if (evt.web_query_kind === 'transcript_replace' && Array.isArray(payload)) {
           setStaticItems((payload as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
         }
@@ -513,6 +530,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
+    modelSwitching, setModelSwitching,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
@@ -521,5 +539,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
+    modelSwitching,
   ]);
 }
