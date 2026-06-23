@@ -11,8 +11,19 @@
  * @module PromptInput
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+
+/**
+ * Web 端允许的 B 类指令集合（自动补全只显示这些）
+ *
+ * A 类指令（new/resume/delete/model/effort/permissions/plan）已完全交由 UI 控件承载，
+ * 输入框不识别；其余指令当作普通文本发给 LLM。因此自动补全只列出 B 类 10 个指令。
+ */
+const WEB_COMMANDS = [
+  '/rewind', '/compact', '/context', '/export', '/init',
+  '/fast', '/passes', '/turns', '/output-style', '/language',
+];
 
 /**
  * 内联选项接口
@@ -78,7 +89,14 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const filteredCommands = commands.filter((cmd) => {
+  // 自动补全仅显示 B 类指令（与后端 ready 推送的完整命令列表取交集，无交集则用静态集合）
+  const webCommands = useMemo(() => {
+    return commands.length > 0
+      ? WEB_COMMANDS.filter((c) => commands.some((cmd) => cmd === c || cmd === c.slice(1)))
+      : WEB_COMMANDS;
+  }, [commands]);
+
+  const filteredCommands = webCommands.filter((cmd) => {
     const query = value.toLowerCase();
     return cmd.toLowerCase().startsWith(query) || cmd.toLowerCase().includes(query.slice(1));
   });

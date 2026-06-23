@@ -114,50 +114,44 @@ export default function App() {
   }, [sidebarWidth, rightPanelWidth]);
 
   /**
-   * 处理用户提交的命令
+   * 处理用户提交的命令（三通道有序判定）
    *
-   * 根据命令类型进行不同处理：
-   * - /language: 前端本地构建语言选择选项
-   * - /resume: 发送 list_sessions 请求
-   * - /context, /rewind, /model, /delete: 通过 select_command 获取内联选项
-   * - 其他命令: 直接提交到后端
+   * 通道隔离原则：
+   * - B 通道（web_query）：输入框识别的精细化指令（rewind/compact/context/export/init/
+   *   fast/passes/turns/output-style/language），走 web_query 结构化处理。
+   * - 文本通道（submit_line）：普通文本，或未被识别的斜杠指令（A 类如 /resume /model
+   *   以及已删除指令），全部当普通文本发给 LLM。
+   *
+   * A 类指令（new/resume/delete/model/effort/permissions/plan）已完全交由 UI 控件承载，
+   * 输入框不识别，落入文本通道。
    *
    * @param line - 用户输入的命令
    */
+  /** B 通道允许的指令集合（前端识别并走 web_query） */
+  const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
+
   const handleSubmit = (line: string) => {
     if (!line.trim()) return;
     const trimmed = line.trim();
 
-    // /language → 前端本地构建选项
-    if (trimmed === '/language' || trimmed === '/language show') {
-      const current = normalizeLanguage(session.status?.ui_language);
-      setInlineOptions({
-        command: 'language',
-        title: t(lang, 'language'),
-        options: [
-          { value: 'set zh-CN', label: '简体中文', description: '中文界面', active: current === 'zh-CN' },
-          { value: 'set en', label: 'English', description: 'English UI', active: current === 'en' },
-        ],
-      });
-      return;
+    // 通道 1：B 类斜杠指令 → web_query
+    if (trimmed.startsWith('/')) {
+      const cmdName = trimmed.slice(1).split(/\s+/)[0] ?? '';
+      if (B_COMMANDS.includes(cmdName)) {
+        const args = trimmed.slice(1 + cmdName.length).trim();
+        session.setBusyTrue();
+        session.sendRequest({
+          type: 'web_query',
+          command: cmdName,
+          args,
+          request_id: `q-${Date.now()}`,
+        });
+        return;
+      }
+      // A 类指令 + 已删除指令 → 落到通道 2/3 当普通文本
     }
 
-    // /resume → 发送 list_sessions（和 terminal 端一致）
-    if (trimmed === '/resume') {
-      session.sendRequest({ type: 'list_sessions' });
-      return;
-    }
-
-    // 通过 select_command 获取内联选项的命令
-    const selectCommands = ['context', 'rewind', 'model', 'delete', 'rules', 'skills'];
-    const cmdName = trimmed.startsWith('/') ? (trimmed.slice(1).split(/\s+/)[0] ?? '') : '';
-    if (cmdName && selectCommands.includes(cmdName)) {
-      session.setBusyTrue();
-      session.requestSelectCommand(cmdName);
-      return;
-    }
-
-    // 其他所有命令（含 /effort）→ 直接提交，结果走 toast
+    // 通道 2/3：普通文本或未识别的斜杠 → submit_line（发给 LLM）
     session.setBusyTrue();
     session.sendRequest({ type: 'submit_line', line: trimmed });
   };
