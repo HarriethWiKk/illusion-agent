@@ -67,6 +67,3 @@ yarn-error.log*
 # Frontend build artifacts
 frontend/terminal/dist/
 frontend/web/dist/
-
-# Superpowers design docs and plans (do not commit)
-docs/superpowers/
