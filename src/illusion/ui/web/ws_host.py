@@ -679,7 +679,7 @@ class WebBackendHost:
                 return
 
         # 直接调用 engine.submit_message，跳过 handle_line 的命令注册表
-        from illusion.engine.stream_events import MaxTurnsExceeded
+        from illusion.engine.query import MaxTurnsExceeded
         settings = self._bundle.current_settings()
         self._bundle.engine.set_max_turns(settings.max_turns)
         from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state
@@ -1561,11 +1561,14 @@ class WebBackendHost:
             try:
                 await self._websocket.send_text(event.model_dump_json())
             except Exception:
-                if not self._ws_closed:
-                    # WebSocket 写入失败：标记已关闭，但不终止主循环。
-                    # 读取循环会通过 WebSocketDisconnect 检测到断连并正常清理。
-                    # 设 _running = False 会导致单次写入失败就杀死 host。
-                    self._ws_closed = True
+                # 写入失败：重试一次（可能是瞬态错误），两次都失败才标记关闭。
+                # 一次失败就设 _ws_closed=True 会导致后续所有事件（如
+                # web_restore_completed）被静默丢弃，前端卡在加载态白屏。
+                try:
+                    await self._websocket.send_text(event.model_dump_json())
+                except Exception:
+                    if not self._ws_closed:
+                        self._ws_closed = True
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]
