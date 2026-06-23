@@ -149,3 +149,60 @@ class TestWebRestoreSession:
         types = [c.args[0].type for c in calls]
         assert "select_request" not in types
         assert "command_result" not in types
+
+
+class TestWebNewAndDeleteSession:
+    """web_new_session 与 web_delete_sessions 测试"""
+
+    @pytest.fixture
+    def dispatcher(self, monkeypatch):
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.session_id = "old-sid"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._list_session_snapshots", lambda cwd, limit=20: []
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._delete_session_by_id", lambda cwd, sid: True
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
+        )
+        return dispatcher
+
+    @pytest.mark.asyncio
+    async def test_new_session_emits_web_restore_completed_empty(self, dispatcher, monkeypatch):
+        """测试新建会话发送空 transcript 的 web_restore_completed"""
+        async def fake_new_handler(args, context):
+            result = MagicMock()
+            result.reset_session = True
+            result.message = None
+            result.replay_messages = None
+            result.restored_session_id = None
+            result.should_exit = False
+            result.needs_api_rebuild = False
+            return result
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._new_handler", fake_new_handler
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_new_session")
+        await dispatcher.handle(req)
+        calls = dispatcher._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_restore_completed" in types
+
+    @pytest.mark.asyncio
+    async def test_delete_sessions_emits_web_sessions(self, dispatcher):
+        """测试批量删除后推送 web_sessions"""
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_delete_sessions", session_ids=["s1", "s2"])
+        await dispatcher.handle(req)
+        calls = dispatcher._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_sessions" in types

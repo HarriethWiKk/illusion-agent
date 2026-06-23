@@ -25,8 +25,12 @@ from __future__ import annotations
 import logging
 
 from illusion.commands.session import resume_handler as _resume_handler
+from illusion.commands.session import new_handler as _new_handler
 from illusion.commands.types import CommandContext
-from illusion.services.session_storage import list_session_snapshots as _list_session_snapshots
+from illusion.services.session_storage import (
+    delete_session_by_id as _delete_session_by_id,
+    list_session_snapshots as _list_session_snapshots,
+)
 from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
 
 log = logging.getLogger(__name__)
@@ -94,8 +98,41 @@ class WebApiDispatcher:
     # === 以下方法在后续 Task 中实现，骨架阶段先返回 error 占位 ===
 
     async def handle_web_new_session(self, request: FrontendRequest) -> None:
-        """新建会话（Task 2.3 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_new_session 尚未实现"))
+        """新建会话。
+
+        复用 new_handler 重置会话状态，然后发送空的 web_restore_completed
+        让前端清空主区域。
+
+        Args:
+            request: 前端请求（无额外载荷）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        context = CommandContext(
+            engine=bundle.engine,
+            hooks_summary=bundle.hook_summary(),
+            mcp_summary=bundle.mcp_summary(),
+            plugin_summary=bundle.plugin_summary(),
+            cwd=bundle.cwd,
+            tool_registry=bundle.tool_registry,
+            app_state=bundle.app_state,
+            session_id=bundle.session_id,
+        )
+        await _new_handler("", context)
+        # new_handler 内部已重置会话，此处重新生成 session_id 保持一致
+        from uuid import uuid4
+        bundle.session_id = uuid4().hex[:12]
+        # 发送空 transcript 的恢复完成事件，前端据此清空主区域
+        await self._emit(BackendEvent(
+            type="web_restore_completed",
+            session_id=bundle.session_id,
+            items=[],
+            state=_state_payload(bundle.app_state.get()),
+        ))
+        await self._push_sessions()
+        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
 
     async def handle_web_restore_session(self, request: FrontendRequest) -> None:
         """恢复指定会话（零 suppress 流程）。
@@ -190,8 +227,26 @@ class WebApiDispatcher:
         return items
 
     async def handle_web_delete_sessions(self, request: FrontendRequest) -> None:
-        """批量删除会话（Task 2.3 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_delete_sessions 尚未实现"))
+        """批量删除会话。
+
+        支持指定 session_ids 列表或 delete_all 删除全部。
+
+        Args:
+            request: 前端请求（session_ids 或 delete_all）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        if request.delete_all:
+            sessions = _list_session_snapshots(bundle.cwd, limit=1000)
+            for s in sessions:
+                _delete_session_by_id(bundle.cwd, s["session_id"])
+        elif request.session_ids:
+            for sid in request.session_ids:
+                _delete_session_by_id(bundle.cwd, sid)
+        # 删除后推送刷新的会话列表
+        await self._push_sessions()
 
     async def handle_web_set_setting(self, request: FrontendRequest) -> None:
         """统一设置标量（Task 3.1 实现）。"""
