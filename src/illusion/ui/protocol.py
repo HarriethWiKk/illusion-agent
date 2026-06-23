@@ -281,6 +281,7 @@ class BackendEvent(BaseModel):
     web_query_payload: Any = None                       # web_query_result 的载荷
     web_request_id: str | None = None                   # web_query_result 关联的请求 ID
     web_command: str | None = None                      # web_query_result 关联的命令名
+    web_error: str | None = None                        # web_restore_completed 等事件的错误信息（非空表示操作失败）
 
     @classmethod
     def ready(

@@ -236,7 +236,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
-    ws.onclose = () => { setConnected(false); setReady(false); };
+    ws.onclose = () => {
+      setConnected(false);
+      setReady(false);
+      // WebSocket 关闭时清除恢复加载状态，避免前端卡在白屏加载卡片
+      setRestoringSessionId(null);
+    };
     ws.onerror = () => setConnected(false);
     ws.onmessage = (event) => {
       let parsed: BackendEvent;
@@ -383,15 +388,21 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'web_restore_completed') {
-        // 恢复完成：清除加载动画并一次性替换转录
+        // 恢复完成（或失败）：始终清除加载动画
         setRestoringSessionId(null);
-        const items = (evt.items ?? []) as TranscriptItem[];
-        setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
         clearAssistantDelta();
         pendingToolCallsRef.current = [];
         setPendingToolCalls([]);
-        // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
-        if (evt.state) setStatus(evt.state as Record<string, unknown>);
+        if (evt.web_error) {
+          // 恢复失败：显示错误提示，不替换转录（保留当前内容）
+          pushStatic({ role: 'system', text: `恢复会话失败: ${evt.web_error}` });
+        } else {
+          // 恢复成功：一次性替换转录
+          const items = (evt.items ?? []) as TranscriptItem[];
+          setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+          // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
+          if (evt.state) setStatus(evt.state as Record<string, unknown>);
+        }
         return;
       }
       if (evt.type === 'web_setting_changed') {

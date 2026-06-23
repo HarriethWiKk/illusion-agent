@@ -346,6 +346,8 @@ export interface BackendEvent {
   web_request_id?: string;
   /** web_query_result 关联的命令名（可选） */
   web_command?: string;
+  /** web_restore_completed 等事件的错误信息（非空表示操作失败）（可选） */
+  web_error?: string;
 }
 
 /**

@@ -165,6 +165,9 @@ class WebApiDispatcher:
         select_request/command_result/transcript_item 等 terminal 副作用。
         通过 web_restore_started/completed 显式标注，前端据此显示加载动画。
 
+        异常保护：任何阶段失败都发 web_restore_completed（含 web_error），
+        确保前端始终能清除 restoringSessionId，不陷入白屏加载状态。
+
         Args:
             request: 前端请求（session_id 必填）
         """
@@ -173,35 +176,44 @@ class WebApiDispatcher:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
         session_id = request.session_id or ""
+        error_msg = None
+        replay_items = []
+
         # 1. 发送恢复开始事件（前端据此显示动画）
         await self._emit(BackendEvent(type="web_restore_started", session_id=session_id))
-        # 2. 构建命令上下文并调用 resume_handler
-        context = CommandContext(
-            engine=bundle.engine,
-            hooks_summary=bundle.hook_summary(),
-            mcp_summary=bundle.mcp_summary(),
-            plugin_summary=bundle.plugin_summary(),
-            cwd=bundle.cwd,
-            tool_registry=bundle.tool_registry,
-            app_state=bundle.app_state,
-            session_id=bundle.session_id,
-        )
-        result = await _resume_handler(session_id, context)
-        # 3. 处理恢复结果：更新 session_id
-        if result.restored_session_id:
-            bundle.session_id = result.restored_session_id
-        # 4. 构建 replay_items（复用消息转换逻辑）
-        replay_items = self._build_replay_items(result.replay_messages)
-        # 5. 发送恢复完成事件（携带完整 state 快照，前端据此同步工具栏）
-        # replay_items 是字典列表，BackendEvent.items 为 list[TranscriptItem]，
-        # pydantic 会自动校验转换
+
+        # 2. 构建命令上下文并调用 resume_handler（异常保护）
+        try:
+            context = CommandContext(
+                engine=bundle.engine,
+                hooks_summary=bundle.hook_summary(),
+                mcp_summary=bundle.mcp_summary(),
+                plugin_summary=bundle.plugin_summary(),
+                cwd=bundle.cwd,
+                tool_registry=bundle.tool_registry,
+                app_state=bundle.app_state,
+                session_id=bundle.session_id,
+            )
+            result = await _resume_handler(session_id, context)
+            # 处理恢复结果：更新 session_id
+            if result.restored_session_id:
+                bundle.session_id = result.restored_session_id
+            # 构建 replay_items（复用消息转换逻辑）
+            replay_items = self._build_replay_items(result.replay_messages)
+        except Exception as exc:
+            log.exception("恢复会话 %s 失败", session_id)
+            error_msg = str(exc)
+
+        # 3. 始终发 web_restore_completed——前端据此清除 restoringSessionId，
+        #    避免异常时白屏。成功时带 replay_items，失败时带 web_error。
         await self._emit(BackendEvent(
             type="web_restore_completed",
             session_id=bundle.session_id,
             items=replay_items,
             state=_state_payload(bundle.app_state.get()),
+            web_error=error_msg,
         ))
-        # 6. 推送会话列表刷新
+        # 4. 推送会话列表刷新
         await self._push_sessions()
         # 7. 发送任务快照与状态快照
         from illusion.tasks import get_task_manager
