@@ -200,6 +200,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         const line = value.trim();
         if (!line) return;
         onSubmit(line);
+        // 始终清空输入框（包括 B 指令触发 inline popup 的情况）
         setValue('');
         setShowCommands(false);
       }

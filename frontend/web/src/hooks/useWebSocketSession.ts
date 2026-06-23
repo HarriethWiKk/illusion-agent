@@ -310,9 +310,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
       // === 转录 ===
       if (evt.type === 'transcript_item' && evt.item) {
-        // 注：不再过滤以 / 开头的 user 消息——已删除的旧拦截逻辑（/resume、/model 等）已由
-        // 前端 handleSubmit 的 UI_COMMANDS 拦截，不会到达此处。B 通道指令（/rewind 等）走
-        // web_query 也不会产生 transcript_item。此 filter 已无存在必要，移除以避免吞掉用户消息。
+        // 过滤 / 开头的 user 消息：这些是 apply_select_command → _process_line 产生的
+        // 命令产物（如 /context set 512000），不是真实用户输入，不应显示在会话中
+        if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
         if (suppressTranscriptRef.current) return;
         pushStatic(evt.item as TranscriptItem);
         return;
@@ -396,9 +396,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           // 恢复失败：显示错误提示，不替换转录（保留当前内容）
           pushStatic({ role: 'system', text: `恢复会话失败: ${evt.web_error}` });
         } else {
-          // 恢复成功：一次性替换转录
+          // 恢复成功：一次性替换转录（过滤历史中的命令产物 user 消息）
           const items = (evt.items ?? []) as TranscriptItem[];
-          setStaticItems(items);
+          setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
           // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
           if (evt.state) setStatus(evt.state as Record<string, unknown>);
         }
@@ -433,18 +433,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       }
       if (evt.type === 'web_query_result') {
         const payload = evt.web_query_payload;
-        const cmd = evt.web_command ?? '';
-        // 简单消息型指令（passes/turns/compact/context 等）→ 结果走 toast 而非主会话渲染
-        const TOAST_COMMANDS = ['passes', 'turns', 'compact', 'context'];
         if (evt.web_query_kind === 'text' && typeof payload === 'string') {
-          if (TOAST_COMMANDS.includes(cmd)) {
-            // toast 显示
-            if (payload.trim() && onCommandResultRef.current) {
-              onCommandResultRef.current(payload, 'info');
-            }
-          } else {
-            // 其他指令（rewind/export/init 等）→ 在主会话渲染
-            if (payload.trim()) pushStatic({ role: 'system', text: payload });
+          // 所有 B 通道指令的文本结果统一走 toast，不渲染到主会话
+          if (payload.trim() && onCommandResultRef.current) {
+            onCommandResultRef.current(payload, 'info');
           }
         } else if (evt.web_query_kind === 'transcript_replace' && Array.isArray(payload)) {
           setStaticItems(payload as TranscriptItem[]);
