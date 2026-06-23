@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import logging
 
+from illusion.commands.session import resume_handler as _resume_handler
+from illusion.commands.types import CommandContext
 from illusion.services.session_storage import list_session_snapshots as _list_session_snapshots
-from illusion.ui.protocol import BackendEvent, FrontendRequest
+from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
 
 log = logging.getLogger(__name__)
 
@@ -96,8 +98,96 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(type="error", message="web_new_session 尚未实现"))
 
     async def handle_web_restore_session(self, request: FrontendRequest) -> None:
-        """恢复指定会话（Task 2.2 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_restore_session 尚未实现"))
+        """恢复指定会话（零 suppress 流程）。
+
+        直接调用 resume_handler，不经过 handle_line，避免触发
+        select_request/command_result/transcript_item 等 terminal 副作用。
+        通过 web_restore_started/completed 显式标注，前端据此显示加载动画。
+
+        Args:
+            request: 前端请求（session_id 必填）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        session_id = request.session_id or ""
+        # 1. 发送恢复开始事件（前端据此显示动画）
+        await self._emit(BackendEvent(type="web_restore_started", session_id=session_id))
+        # 2. 构建命令上下文并调用 resume_handler
+        context = CommandContext(
+            engine=bundle.engine,
+            hooks_summary=bundle.hook_summary(),
+            mcp_summary=bundle.mcp_summary(),
+            plugin_summary=bundle.plugin_summary(),
+            cwd=bundle.cwd,
+            tool_registry=bundle.tool_registry,
+            app_state=bundle.app_state,
+            session_id=bundle.session_id,
+        )
+        result = await _resume_handler(session_id, context)
+        # 3. 处理恢复结果：更新 session_id
+        if result.restored_session_id:
+            bundle.session_id = result.restored_session_id
+        # 4. 构建 replay_items（复用消息转换逻辑）
+        replay_items = self._build_replay_items(result.replay_messages)
+        # 5. 发送恢复完成事件（携带完整 state 快照，前端据此同步工具栏）
+        # replay_items 是字典列表，BackendEvent.items 为 list[TranscriptItem]，
+        # pydantic 会自动校验转换
+        await self._emit(BackendEvent(
+            type="web_restore_completed",
+            session_id=bundle.session_id,
+            items=replay_items,
+            state=_state_payload(bundle.app_state.get()),
+        ))
+        # 6. 推送会话列表刷新
+        await self._push_sessions()
+        # 7. 发送任务快照与状态快照
+        from illusion.tasks import get_task_manager
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+
+    def _build_replay_items(self, replay_messages: list | None) -> list:
+        """将重放消息转换为 TranscriptItem 载荷列表。
+
+        复用 ws_host._restore_session 中的转换逻辑，确保恢复后的转录项
+        与正常对话流格式一致。
+
+        Args:
+            replay_messages: ConversationMessage 列表（可能为 None）
+
+        Returns:
+            list: 转录项字典列表
+        """
+        if not replay_messages:
+            return []
+        from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+        tool_uses_by_id: dict[str, dict] = {}
+        items: list[dict] = []
+        for msg in replay_messages:
+            if msg.role == "user":
+                if msg.text.strip():
+                    items.append({"role": "user", "text": msg.text})
+                for block in msg.content:
+                    if isinstance(block, ToolResultBlock):
+                        tool_info = tool_uses_by_id.get(block.tool_use_id, {})
+                        items.append({
+                            "role": "tool_result",
+                            "text": block.text_content,
+                            "tool_name": tool_info.get("name"),
+                            "tool_use_id": block.tool_use_id,
+                            "is_error": block.is_error,
+                        })
+            elif msg.role == "assistant":
+                reasoning = msg.thinking_text.strip()
+                assistant_text = msg.text.strip()
+                has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
+                if not has_tool_use and (assistant_text or reasoning):
+                    item = {"role": "assistant", "text": assistant_text}
+                    if reasoning:
+                        item["reasoning"] = reasoning
+                    items.append(item)
+        return items
 
     async def handle_web_delete_sessions(self, request: FrontendRequest) -> None:
         """批量删除会话（Task 2.3 实现）。"""

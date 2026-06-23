@@ -84,3 +84,68 @@ class TestWebRequestSessions:
         sessions_evt = next(c.args[0] for c in calls if c.args[0].type == "web_sessions")
         assert len(sessions_evt.web_sessions) == 2
         assert sessions_evt.web_sessions[0]["id"] == "s1"
+
+
+class TestWebRestoreSession:
+    """web_restore_session 零 suppress 恢复流程测试"""
+
+    @pytest.fixture
+    def dispatcher_restore(self, monkeypatch):
+        """创建带 mock 恢复流程的分发器"""
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.session_id = "old-sid"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+
+        # mock resume_handler 返回带 restored_session_id 和 replay_messages 的结果
+        async def fake_resume_handler(args, context):
+            result = MagicMock()
+            result.restored_session_id = "restored-sid"
+            result.replay_messages = []
+            result.message = None
+            result.reset_session = False
+            result.should_exit = False
+            result.needs_api_rebuild = False
+            return result
+
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._resume_handler", fake_resume_handler
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._list_session_snapshots", lambda cwd, limit=20: []
+        )
+        # mock _state_payload
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
+        )
+        return dispatcher
+
+    @pytest.mark.asyncio
+    async def test_restore_emits_started_and_completed(self, dispatcher_restore):
+        """测试恢复流程发送 web_restore_started 与 web_restore_completed"""
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_restore_session", session_id="s1")
+        await dispatcher_restore.handle(req)
+        calls = dispatcher_restore._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_restore_started" in types
+        assert "web_restore_completed" in types
+        # web_restore_completed 必须携带 state 快照
+        completed = next(c.args[0] for c in calls if c.args[0].type == "web_restore_completed")
+        assert completed.state is not None
+        assert completed.session_id == "restored-sid"
+
+    @pytest.mark.asyncio
+    async def test_restore_no_select_request_or_command_result(self, dispatcher_restore):
+        """测试恢复流程不产生 select_request/command_result（零 suppress 保证）"""
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_restore_session", session_id="s1")
+        await dispatcher_restore.handle(req)
+        calls = dispatcher_restore._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "select_request" not in types
+        assert "command_result" not in types
