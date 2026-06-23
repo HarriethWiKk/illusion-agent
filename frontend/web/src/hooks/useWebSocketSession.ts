@@ -437,33 +437,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const m = evt.modal ?? {};
         const cmd = String(m.command ?? '');
         const rawOpts = evt.select_options ?? [];
-        const suppressed = suppressInlineRef.current;
-        suppressInlineRef.current = false;
-
-        // resume：始终更新 sessions，仅在非抑制时通知内联选项
-        // （web 端会话恢复已由 web_restore_session 处理，此分支保留以防 select_request 仍被触发）
-        if (cmd === 'resume') {
-          setSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
-          if (!suppressed && onSelectRequestRef.current) {
-            const title = String(m.title ?? cmd);
-            const options = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), description: o.description ? String(o.description) : undefined, active: o.active === true }));
-            onSelectRequestRef.current({ command: cmd, title, options });
-          }
-          setBusy(false); return;
-        }
-        // delete：抑制时走 deleteSessions 弹窗，否则走内联选项
-        if (cmd === 'delete') {
-          if (suppressed) {
-            setDeleteSessions(rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? '') })));
-          } else if (onSelectRequestRef.current) {
-            const title = String(m.title ?? cmd);
-            const options = rawOpts.map((o) => ({ value: String(o.value ?? ''), label: String(o.label ?? ''), description: o.description ? String(o.description) : undefined, active: o.active === true }));
-            onSelectRequestRef.current({ command: cmd, title, options });
-          }
-          setBusy(false); return;
-        }
-        // 注：effort/model/permissions 分支已删除——这三个设置已转 web_set_setting /
-        // web_models 推送驱动，不再通过 select_request 拉取
+        // 注：resume/delete/effort/model/permissions 分支已全部删除——会话管理转
+        // web_restore_session/web_delete_sessions，设置类转 web_set_setting/web_models。
+        // select_request 现仅服务 B 通道的 rewind/context 多步选择。
 
         // 其他命令（context、rewind 等）→ 通知 App 显示内联选项
         if (onSelectRequestRef.current) {
