@@ -227,6 +227,14 @@ class BackendEvent(BaseModel):
         "command_result",
         "bg_agent_status",
         "error",
+        # === Web 前端专属推送事件（web_* 命名空间）===
+        "web_sessions",
+        "web_resources",
+        "web_setting_changed",
+        "web_models",
+        "web_restore_started",
+        "web_restore_completed",
+        "web_query_result",
         "shutdown",
     ]
     select_options: list[dict[str, Any]] | None = None
@@ -262,6 +270,17 @@ class BackendEvent(BaseModel):
     progress_type: str | None = None
     # 新增：会话回退
     rewind_to_index: int | None = None
+    # === web_* 推送事件字段 ===
+    session_id: str | None = None                       # web_restore_started/completed 的会话 ID
+    web_sessions: list[dict[str, Any]] | None = None    # web_sessions 推送的会话列表
+    web_resources: dict[str, Any] | None = None         # web_resources 推送的资源快照
+    web_models: list[dict[str, Any]] | None = None      # web_models 推送的模型选项
+    setting_key: str | None = None                      # web_setting_changed 的键名
+    setting_value: Any = None                           # web_setting_changed 的值
+    web_query_kind: str | None = None                   # web_query_result 的结果类型（text/transcript_replace/download）
+    web_query_payload: Any = None                       # web_query_result 的载荷
+    web_request_id: str | None = None                   # web_query_result 关联的请求 ID
+    web_command: str | None = None                      # web_query_result 关联的命令名
 
     @classmethod
     def ready(
