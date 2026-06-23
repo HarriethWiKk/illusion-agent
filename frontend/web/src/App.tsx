@@ -289,7 +289,7 @@ export default function App() {
         onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
         collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        width={sidebarWidth} />
+        width={sidebarWidth} restoringSessionId={session.restoringSessionId} />
       {!sidebarCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
@@ -302,7 +302,7 @@ export default function App() {
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
           busy={session.busy} connected={session.connected}
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
-          onQuestionResponse={handleQuestionResponse} />
+          onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
