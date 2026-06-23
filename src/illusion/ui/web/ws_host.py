@@ -1428,9 +1428,10 @@ class WebBackendHost:
                 await self._websocket.send_text(event.model_dump_json())
             except Exception:
                 if not self._ws_closed:
-                    log.warning("WebSocket write error, marking host as stopped")
+                    # WebSocket 写入失败：标记已关闭，但不终止主循环。
+                    # 读取循环会通过 WebSocketDisconnect 检测到断连并正常清理。
+                    # 设 _running = False 会导致单次写入失败就杀死 host。
                     self._ws_closed = True
-                    self._running = False
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]

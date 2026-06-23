@@ -355,6 +355,12 @@ class WebApiDispatcher:
                 settings.permission.mode = PermissionMode(str(value))
                 _save_settings(settings)
                 bundle.app_state.set(permission_mode=settings.permission.mode.value)
+                # 更新引擎的权限检查器——引擎初始化时创建的 PermissionChecker 持有旧的
+                # PermissionSettings 引用，必须重建并注入，否则计划模式等权限限制不生效
+                from illusion.permissions import PermissionChecker
+                checker = PermissionChecker(settings.permission)
+                checker.sync_sandbox_restrictions(settings.sandbox)
+                bundle.engine.set_permission_checker(checker)
             elif key == "fast":
                 settings.fast_mode = str(value).lower() in ("on", "true", "1")
                 _save_settings(settings)

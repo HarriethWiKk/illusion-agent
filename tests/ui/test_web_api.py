@@ -327,6 +327,8 @@ class TestWebSetSetting:
         await dispatcher.handle(req)
         # 验证权限模式确实切换为 plan
         assert real_settings.permission.mode.value == "plan"
+        # 验证引擎的权限检查器被更新（回归：旧实现未更新 PermissionChecker）
+        host._bundle.engine.set_permission_checker.assert_called_once()
         # 验证发送了 web_setting_changed 而非 error
         calls = host._emit.call_args_list
         types = [c.args[0].type for c in calls]

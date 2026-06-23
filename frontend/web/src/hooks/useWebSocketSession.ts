@@ -313,7 +313,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
       // === 转录 ===
       if (evt.type === 'transcript_item' && evt.item) {
-        if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
+        // 注：不再过滤以 / 开头的 user 消息——已删除的旧拦截逻辑（/resume、/model 等）已由
+        // 前端 handleSubmit 的 UI_COMMANDS 拦截，不会到达此处。B 通道指令（/rewind 等）走
+        // web_query 也不会产生 transcript_item。此 filter 已无存在必要，移除以避免吞掉用户消息。
         if (suppressTranscriptRef.current) return;
         pushStatic(evt.item as TranscriptItem);
         return;

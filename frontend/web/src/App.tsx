@@ -130,6 +130,18 @@ export default function App() {
   /** B 通道允许的指令集合（前端识别并走 web_query） */
   const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
 
+  /** UI 控件已承载的 A 类指令——输入框输入时拦截并提示使用 UI 控件 */
+  const UI_COMMANDS: Record<string, string> = {
+    resume: t(lang, 'ui_cmd_resume'),
+    new: t(lang, 'ui_cmd_new'),
+    clear: t(lang, 'ui_cmd_new'),
+    delete: t(lang, 'ui_cmd_delete'),
+    model: t(lang, 'ui_cmd_model'),
+    effort: t(lang, 'ui_cmd_effort'),
+    permissions: t(lang, 'ui_cmd_permissions'),
+    plan: t(lang, 'ui_cmd_permissions'),
+  };
+
   const handleSubmit = (line: string) => {
     if (!line.trim()) return;
     const trimmed = line.trim();
@@ -148,7 +160,11 @@ export default function App() {
         });
         return;
       }
-      // A 类指令 + 已删除指令 → 落到通道 2/3 当普通文本
+      // 通道 1.5：UI 控件已承载的指令 → 拦截并提示，不提交后端
+      if (cmdName && UI_COMMANDS[cmdName]) {
+        showToast(UI_COMMANDS[cmdName], 'info');
+        return;
+      }
     }
 
     // 通道 2/3：普通文本或未识别的斜杠 → submit_line（发给 LLM）
