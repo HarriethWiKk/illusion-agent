@@ -308,3 +308,49 @@ class TestWebModels:
         models_evts = [c.args[0] for c in calls if c.args[0].type == "web_models"]
         assert len(models_evts) == 1
         assert models_evts[0].web_models[0]["active"] is True
+
+
+class TestWebResources:
+    """web_resources 推送测试"""
+
+    @pytest.mark.asyncio
+    async def test_request_resources_emits_web_resources(self, monkeypatch):
+        """测试拉取资源发送 web_resources 事件"""
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._collect_resources",
+            lambda bundle: {
+                "skills": [{"name": "s1", "description": "d", "source": "project"}],
+                "plugins": [],
+                "rules": [],
+                "mcp_servers": [],
+            },
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_request_resources")
+        await dispatcher.handle(req)
+        calls = host._emit.call_args_list
+        res_evts = [c.args[0] for c in calls if c.args[0].type == "web_resources"]
+        assert len(res_evts) == 1
+        assert res_evts[0].web_resources["skills"][0]["name"] == "s1"
+
+    @pytest.mark.asyncio
+    async def test_push_resources_reuses_collect(self, monkeypatch):
+        """测试 _push_resources 复用 _collect_resources"""
+        host = MagicMock()
+        host._emit = AsyncMock()
+        bundle = MagicMock()
+        bundle.cwd = "/fake/cwd"
+        dispatcher = WebApiDispatcher(host)
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._collect_resources",
+            lambda b: {"skills": [], "plugins": [], "rules": [], "mcp_servers": []},
+        )
+        await dispatcher._push_resources(bundle)
+        assert host._emit.called

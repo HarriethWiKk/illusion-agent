@@ -405,12 +405,107 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(type="web_models", web_models=options))
 
     async def handle_web_request_resources(self, request: FrontendRequest) -> None:
-        """拉取右侧栏资源快照（Task 3.3 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_request_resources 尚未实现"))
+        """拉取右侧栏资源快照并发送 web_resources 事件。
+
+        Args:
+            request: 前端请求（无额外载荷）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            return
+        await self._push_resources(bundle)
+
+    async def _push_resources(self, bundle) -> None:
+        """推送资源快照（供多处复用）。
+
+        复用 _collect_resources 收集 skills/plugins/rules/mcp_servers，
+        废弃旧的命令文本正则解析（_parseSkillsResult 等）。
+
+        Args:
+            bundle: 运行时 bundle
+        """
+        resources = _collect_resources(bundle)
+        await self._emit(BackendEvent(type="web_resources", web_resources=resources))
 
     async def handle_web_query(self, request: FrontendRequest) -> None:
         """B 通道精细化指令（Task 4.1 实现）。"""
         await self._emit(BackendEvent(type="error", message="web_query 尚未实现"))
+
+
+def _collect_resources(bundle) -> dict:
+    """收集右侧栏资源快照（skills/plugins/rules/mcp_servers）。
+
+    直接调用各注册表/管理器的结构化接口，废弃旧的命令文本正则解析
+    （_parseSkillsResult / _parsePluginsResult / _parseRulesResult）。
+
+    Args:
+        bundle: 运行时 bundle
+
+    Returns:
+        dict: {skills, plugins, rules, mcp_servers} 结构化快照
+    """
+    # skills：从技能注册表读取结构化数据
+    from illusion.skills import load_skill_registry
+    skill_registry = load_skill_registry(bundle.cwd)
+    skills = [
+        {"name": s.name, "description": s.description or "", "source": s.source}
+        for s in skill_registry.list_skills()
+    ]
+
+    # plugins：从当前可见插件读取（复用 bundle.current_plugins）
+    plugins = []
+    try:
+        for plugin in bundle.current_plugins():
+            manifest = getattr(plugin, "manifest", None)
+            name = getattr(manifest, "name", "") if manifest else ""
+            description = getattr(manifest, "description", "") if manifest else ""
+            plugins.append({
+                "name": name,
+                "description": description,
+                "enabled": bool(getattr(plugin, "enabled", False)),
+                "skill_count": 0,
+                "mcp_count": 0,
+                "command_count": 0,
+            })
+    except Exception:
+        log.exception("收集插件快照失败")
+
+    # rules：从项目规则目录读取，过滤被权限禁用的规则
+    rules = []
+    try:
+        from illusion.skills.loader import get_project_rules_dir
+        from illusion.permissions.loader import (
+            is_rules_disabled,
+            filter_rules_by_permissions,
+            load_project_permissions,
+        )
+        project_permissions = load_project_permissions(bundle.cwd)
+        if not is_rules_disabled(project_permissions):
+            rules_dir = get_project_rules_dir(bundle.cwd)
+            if rules_dir.exists():
+                rule_files = filter_rules_by_permissions(
+                    sorted(rules_dir.glob("*.md")), project_permissions
+                )
+                for path in rule_files:
+                    content = path.read_text(encoding="utf-8", errors="replace").strip()
+                    first_line = content.split("\n", 1)[0][:60] if content else ""
+                    rules.append({"name": path.stem, "source": "project"})
+    except Exception:
+        log.exception("收集规则快照失败")
+
+    # mcp_servers：复用 mcp_manager 的连接状态
+    mcp_servers = []
+    try:
+        for server in bundle.mcp_manager.list_statuses():
+            mcp_servers.append({
+                "name": server.name,
+                "state": server.state,
+                "tool_count": len(server.tools) if hasattr(server, "tools") else 0,
+            })
+    except Exception:
+        log.exception("收集 MCP 服务器快照失败")
+
+    return {"skills": skills, "plugins": plugins, "rules": rules, "mcp_servers": mcp_servers}
 
 
 __all__ = ["WebApiDispatcher"]
