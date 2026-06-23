@@ -27,6 +27,10 @@ import logging
 from illusion.commands.session import resume_handler as _resume_handler
 from illusion.commands.session import new_handler as _new_handler
 from illusion.commands.types import CommandContext
+from illusion.config.settings import (
+    load_settings as _load_settings,
+    save_settings as _save_settings,
+)
 from illusion.services.session_storage import (
     delete_session_by_id as _delete_session_by_id,
     list_session_snapshots as _list_session_snapshots,
@@ -249,8 +253,95 @@ class WebApiDispatcher:
         await self._push_sessions()
 
     async def handle_web_set_setting(self, request: FrontendRequest) -> None:
-        """统一设置标量（Task 3.1 实现）。"""
-        await self._emit(BackendEvent(type="error", message="web_set_setting 尚未实现"))
+        """统一设置标量（A 通道：工具栏/会话控件触发）。
+
+        复用 _apply_setting 私有函数（B 通道的 web_query 设置类指令也调用它），
+        设置成功后发送 web_setting_changed + state_snapshot 强同步事件。
+        若 key == model 额外发送 web_models 推送。
+
+        Args:
+            request: 前端请求（setting_key/setting_value 必填）
+        """
+        bundle = self._host._bundle  # type: ignore[attr-defined]
+        if bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        key = request.setting_key or ""
+        value = request.setting_value
+        ok, error = await self._apply_setting(bundle, key, value)
+        if not ok:
+            await self._emit(BackendEvent(type="error", message=error or f"设置 {key} 失败"))
+            return
+        # 1. 发送单项变更事件（前端工具栏即时更新）
+        await self._emit(BackendEvent(
+            type="web_setting_changed",
+            setting_key=key,
+            setting_value=value,
+        ))
+        # 2. 发送完整状态快照（兜底，保证派生字段一致）
+        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+        # 3. 若是 model 切换，额外推送模型选项（重建 active 态）
+        if key == "model":
+            await self._push_models(bundle)
+
+    async def _apply_setting(self, bundle, key: str, value) -> tuple[bool, str | None]:
+        """应用设置到 settings 与 app_state（A/B 通道共用）。
+
+        复用各设置项的写入模式：settings.<field> = value → save_settings →
+        app_state.set。model 跨 env 切换时重建 API 客户端。
+
+        Args:
+            bundle: 运行时 bundle
+            key: 设置键名（effort/permission_mode/model/context_window/
+                 ui_language/fast/passes/turns/output_style）
+            value: 设置值
+
+        Returns:
+            tuple[bool, str | None]: (是否成功, 错误消息)
+        """
+        settings = _load_settings()
+        # 键名 → app_state 字段名映射（settings 字段名可能与 key 不同）
+        if key not in (
+            "effort", "permission_mode", "model", "context_window",
+            "ui_language", "fast", "passes", "turns", "output_style",
+        ):
+            return False, f"不支持的设置键: {key}"
+
+        try:
+            if key == "permission_mode":
+                settings.permission.mode.value = str(value)
+                _save_settings(settings)
+                bundle.app_state.set(permission_mode=str(value))
+            elif key == "fast":
+                settings.fast_mode = str(value).lower() in ("on", "true", "1")
+                _save_settings(settings)
+                bundle.app_state.set(fast_mode=settings.fast_mode)
+            elif key == "turns":
+                # turns: unlimited → None，否则 int；影响 engine.max_turns
+                turns_val: int | None
+                if str(value) == "unlimited":
+                    turns_val = None
+                else:
+                    turns_val = int(value)
+                bundle.engine.set_max_turns(turns_val)
+            elif key == "model":
+                settings.model = str(value)
+                _save_settings(settings)
+                bundle.app_state.set(model=str(value))
+                # 跨 env 切换重建 API 客户端
+                from illusion.ui.runtime import _rebuild_api_client
+                _rebuild_api_client(bundle, settings)
+            else:
+                # effort / context_window / ui_language / passes / output_style
+                # settings 字段名与 key 相同（output_style / ui_language / passes / context_window / effort）
+                setattr(settings, key, value)
+                _save_settings(settings)
+                # app_state 字段名与 key 相同
+                bundle.app_state.set(**{key: value})
+        except Exception as exc:
+            log.exception("应用设置 %s 失败", key)
+            return False, f"设置 {key} 失败: {exc}"
+        return True, None
 
     async def handle_web_request_sessions(self, request: FrontendRequest) -> None:
         """拉取会话列表并推送 web_sessions 事件。

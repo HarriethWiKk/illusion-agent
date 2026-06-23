@@ -206,3 +206,76 @@ class TestWebNewAndDeleteSession:
         calls = dispatcher._host._emit.call_args_list
         types = [c.args[0].type for c in calls]
         assert "web_sessions" in types
+
+
+class TestWebSetSetting:
+    """web_set_setting 统一设置入口测试"""
+
+    @pytest.fixture
+    def dispatcher_setting(self, monkeypatch):
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        dispatcher = WebApiDispatcher(host)
+
+        # mock settings 读写：用真实 Settings 实例便于断言字段写入
+        fake_settings = MagicMock()
+        fake_settings.effort = "medium"
+        fake_settings.permission.mode.value = "default"
+        fake_settings.fast_mode = False
+        fake_settings.ui_language = "zh-CN"
+        fake_settings.context_window = 200000
+        fake_settings.output_style = "default"
+        fake_settings.passes = 1
+        fake_settings.model = "env_1.model_1"
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._load_settings", lambda: fake_settings
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._save_settings", lambda s: None
+        )
+        return dispatcher, fake_settings
+
+    @pytest.mark.asyncio
+    async def test_set_effort_writes_and_emits(self, dispatcher_setting):
+        """测试设置 effort 后写入 settings 并发送 web_setting_changed + state_snapshot"""
+        dispatcher, fake_settings = dispatcher_setting
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_set_setting", setting_key="effort", setting_value="high")
+        await dispatcher.handle(req)
+        assert fake_settings.effort == "high"
+        calls = dispatcher._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_setting_changed" in types
+
+    @pytest.mark.asyncio
+    async def test_set_permission_mode_writes(self, dispatcher_setting):
+        """测试设置 permission_mode 写入 settings.permission.mode"""
+        dispatcher, fake_settings = dispatcher_setting
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_set_setting", setting_key="permission_mode", setting_value="plan")
+        await dispatcher.handle(req)
+        assert fake_settings.permission.mode.value == "plan"
+
+    @pytest.mark.asyncio
+    async def test_set_fast_writes_fast_mode(self, dispatcher_setting):
+        """测试设置 fast 写入 settings.fast_mode"""
+        dispatcher, fake_settings = dispatcher_setting
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_set_setting", setting_key="fast", setting_value="on")
+        await dispatcher.handle(req)
+        assert fake_settings.fast_mode is True
+
+    @pytest.mark.asyncio
+    async def test_set_unknown_key_emits_error(self, dispatcher_setting):
+        """测试未知设置键返回 error"""
+        dispatcher, _ = dispatcher_setting
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_set_setting", setting_key="nonexistent", setting_value="x")
+        await dispatcher.handle(req)
+        calls = dispatcher._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "error" in types
