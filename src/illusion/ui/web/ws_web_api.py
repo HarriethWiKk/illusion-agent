@@ -37,7 +37,49 @@ from illusion.services.session_storage import (
     delete_session_by_id as _delete_session_by_id,
     list_session_snapshots as _list_session_snapshots,
 )
+import time as _time
+
 from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
+
+
+def build_replay_items(replay_messages: list | None) -> list:
+    """将重放消息转换为 TranscriptItem 载荷列表。
+
+    供 WebApiDispatcher.handle_web_restore_session 和
+    ws_host.WebBackendHost._restore_session 共用，消除重复逻辑。
+
+    Args:
+        replay_messages: ConversationMessage 列表（可能为 None）
+
+    Returns:
+        list: 转录项字典列表（role/text/reasoning/tool_name 等）
+    """
+    if not replay_messages:
+        return []
+    from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+    items: list[dict] = []
+    for msg in replay_messages:
+        if msg.role == "user":
+            if msg.text.strip():
+                items.append({"role": "user", "text": msg.text})
+            for block in msg.content:
+                if isinstance(block, ToolResultBlock):
+                    items.append({
+                        "role": "tool_result",
+                        "text": block.text_content,
+                        "tool_use_id": block.tool_use_id,
+                        "is_error": block.is_error,
+                    })
+        elif msg.role == "assistant":
+            reasoning = msg.thinking_text.strip()
+            assistant_text = msg.text.strip()
+            has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
+            if not has_tool_use and (assistant_text or reasoning):
+                item: dict = {"role": "assistant", "text": assistant_text}
+                if reasoning:
+                    item["reasoning"] = reasoning
+                items.append(item)
+    return items
 
 log = logging.getLogger(__name__)
 
@@ -206,7 +248,7 @@ class WebApiDispatcher:
             result = await _resume_handler(session_id, context)
             if result.restored_session_id:
                 bundle.session_id = result.restored_session_id
-            replay_items = self._build_replay_items(result.replay_messages)
+            replay_items = build_replay_items(result.replay_messages)
             # 同步 app_state（含 context_tokens），使 web_restore_completed 的
             # state 快照包含正确的上下文窗口使用量
             from illusion.ui.runtime import sync_app_state
@@ -234,47 +276,7 @@ class WebApiDispatcher:
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
 
-    def _build_replay_items(self, replay_messages: list | None) -> list:
-        """将重放消息转换为 TranscriptItem 载荷列表。
-
-        复用 ws_host._restore_session 中的转换逻辑，确保恢复后的转录项
-        与正常对话流格式一致。
-
-        Args:
-            replay_messages: ConversationMessage 列表（可能为 None）
-
-        Returns:
-            list: 转录项字典列表
-        """
-        if not replay_messages:
-            return []
-        from illusion.engine.messages import ToolUseBlock, ToolResultBlock
-        tool_uses_by_id: dict[str, dict] = {}
-        items: list[dict] = []
-        for msg in replay_messages:
-            if msg.role == "user":
-                if msg.text.strip():
-                    items.append({"role": "user", "text": msg.text})
-                for block in msg.content:
-                    if isinstance(block, ToolResultBlock):
-                        tool_info = tool_uses_by_id.get(block.tool_use_id, {})
-                        items.append({
-                            "role": "tool_result",
-                            "text": block.text_content,
-                            "tool_name": tool_info.get("name"),
-                            "tool_use_id": block.tool_use_id,
-                            "is_error": block.is_error,
-                        })
-            elif msg.role == "assistant":
-                reasoning = msg.thinking_text.strip()
-                assistant_text = msg.text.strip()
-                has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
-                if not has_tool_use and (assistant_text or reasoning):
-                    item = {"role": "assistant", "text": assistant_text}
-                    if reasoning:
-                        item["reasoning"] = reasoning
-                    items.append(item)
-        return items
+    # _build_replay_items 已提取为模块级函数 build_replay_items()，供本类和 ws_host 共用
 
     async def handle_web_delete_sessions(self, request: FrontendRequest) -> None:
         """批量删除会话。
@@ -428,7 +430,6 @@ class WebApiDispatcher:
         locale = str(bundle.app_state.get().ui_language or "zh-CN")
         zh = locale.lower().startswith("zh")
         sessions = _list_session_snapshots(bundle.cwd, limit=20)
-        import time as _time
         options = []
         for s in sessions:
             ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
@@ -646,8 +647,6 @@ def _collect_resources(bundle) -> dict:
                     sorted(rules_dir.glob("*.md")), project_permissions
                 )
                 for path in rule_files:
-                    content = path.read_text(encoding="utf-8", errors="replace").strip()
-                    first_line = content.split("\n", 1)[0][:60] if content else ""
                     rules.append({"name": path.stem, "source": "project"})
     except Exception:
         log.exception("收集规则快照失败")

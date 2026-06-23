@@ -61,7 +61,7 @@ export default function Sidebar({
         <button
           onClick={onToggle}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer"
-          title="展开侧边栏"
+          title={t(lang, 'expand_panel')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M6 3l5 5-5 5" />
@@ -77,7 +77,7 @@ export default function Sidebar({
         <button
           onClick={onToggle}
           className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer"
-          title="收起侧边栏"
+          title={t(lang, 'collapse_panel')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M10 3l-5 5 5 5" />

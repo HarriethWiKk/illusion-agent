@@ -118,9 +118,6 @@ export interface WebSocketSessionState {
   /** 设置模型切换状态 */
   setModelSwitching: (v: boolean) => void;
   clearDeleteSessions: () => void;
-  suppressInlineOptions: () => void;
-  suppressCommandResult: (count?: number) => void;
-  suppressTranscript: (duration?: number) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -174,17 +171,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
-  const suppressInlineRef = useRef(false);
   const suppressCommandResultCountRef = useRef(0);
   const suppressTranscriptRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
-  const suppressInlineOptions = useCallback(() => { suppressInlineRef.current = true; }, []);
-  const suppressCommandResult = useCallback((count: number = 1) => { suppressCommandResultCountRef.current += count; }, []);
-  const suppressTranscript = useCallback(() => {
-    suppressTranscriptRef.current = true;
-  }, []);
+  // suppress 方法不再导出，仅内部使用（refs 保留用于 transcript_item/replace_transcript/command_result 处理）
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
     setStaticItems((prev) => [...prev, item]);
@@ -378,7 +370,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           suppressTranscriptRef.current = false;
           return;
         }
-        setStaticItems((evt.items as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+        setStaticItems(evt.items as TranscriptItem[]);
         clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
       }
 
@@ -406,7 +398,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         } else {
           // 恢复成功：一次性替换转录
           const items = (evt.items ?? []) as TranscriptItem[];
-          setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+          setStaticItems(items);
           // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
           if (evt.state) setStatus(evt.state as Record<string, unknown>);
         }
@@ -455,7 +447,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             if (payload.trim()) pushStatic({ role: 'system', text: payload });
           }
         } else if (evt.web_query_kind === 'transcript_replace' && Array.isArray(payload)) {
-          setStaticItems((payload as TranscriptItem[]).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
+          setStaticItems(payload as TranscriptItem[]);
         }
         setBusy(false);
         return;
@@ -517,8 +509,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearDeleteSessions, suppressInlineOptions,
-    suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearDeleteSessions, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching, setModelSwitching,
@@ -526,8 +517,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearDeleteSessions, suppressInlineOptions,
-    suppressCommandResult, suppressTranscript, clearModal, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearDeleteSessions, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching,

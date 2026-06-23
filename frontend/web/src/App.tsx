@@ -28,6 +28,9 @@ const WS_URL = `ws://${window.location.host}/ws`;
 /** Toast 通知显示时长（毫秒） */
 const TOAST_DURATION = 5000;
 
+/** B 通道允许的指令集合（前端识别并走 web_query） */
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
+
 /**
  * 应用主组件
  *
@@ -86,6 +89,24 @@ export default function App() {
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
 
+  // 事件驱动删除：新建会话完成后（restoringSessionId 从非 null 变为 null），
+  // 如果有待删除的会话 ID，立即发送删除请求
+  const prevRestoringRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevRestoringRef.current !== null && session.restoringSessionId === null) {
+      if (pendingDeleteIdsRef.current) {
+        const ids = pendingDeleteIdsRef.current;
+        pendingDeleteIdsRef.current = null;
+        if (ids.length === 1 && ids[0] === '__all__') {
+          session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
+        } else {
+          session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+        }
+      }
+    }
+    prevRestoringRef.current = session.restoringSessionId;
+  }, [session.restoringSessionId, session.sendRequest]);
+
   /**
    * 处理面板大小调整开始
    *
@@ -127,9 +148,6 @@ export default function App() {
    *
    * @param line - 用户输入的命令
    */
-  /** B 通道允许的指令集合（前端识别并走 web_query） */
-  const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
-
   const handleSubmit = (line: string) => {
     if (!line.trim()) return;
     const trimmed = line.trim();
@@ -218,6 +236,8 @@ export default function App() {
   // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  // 待删除的会话 ID（事件驱动：先新建会话，等 web_restore_completed 后再删除）
+  const pendingDeleteIdsRef = useRef<string[] | null>(null);
 
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
@@ -258,12 +278,12 @@ export default function App() {
   const handleConfirmDelete = useCallback(() => {
     const ids = Array.from(deleteSelected);
     if (ids.length > 0) {
-      // 检查是否删除了当前会话——如果是，先新建再删除（避免删除期间旧会话被恢复）
       const currentSessionId = String(session.status?.session_id ?? '');
       const deletingCurrent = ids.includes(currentSessionId);
       if (deletingCurrent) {
+        // 事件驱动：先新建会话，等 web_restore_completed 到达后再删除
+        pendingDeleteIdsRef.current = ids;
         session.sendRequest({ type: 'web_new_session' });
-        setTimeout(() => session.sendRequest({ type: 'web_delete_sessions', session_ids: ids }), 200);
       } else {
         session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
       }
@@ -387,9 +407,9 @@ export default function App() {
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  // 先新建会话再删除全部（避免删除期间旧会话被恢复）
+                  // 事件驱动：先新建会话，等 web_restore_completed 到达后再删除全部
+                  pendingDeleteIdsRef.current = ['__all__'];
                   session.sendRequest({ type: 'web_new_session' });
-                  setTimeout(() => session.sendRequest({ type: 'web_delete_sessions', delete_all: true }), 200);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>

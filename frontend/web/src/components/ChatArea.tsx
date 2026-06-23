@@ -172,7 +172,7 @@ function ThinkingIndicator({ lang }: { lang: UiLanguage }) {
         <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
       </span>
       <span className="text-xs text-content-secondary animate-pulse">
-        {lang === 'zh-CN' ? '正在思考...' : 'Thinking...'}
+        {t(lang, 'thinking')}
       </span>
     </div>
   );
