@@ -54,7 +54,7 @@ from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
-from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
@@ -143,6 +143,9 @@ class WebBackendHost:
         self._last_tool_inputs: dict[str, dict] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
+        from illusion.ui.web.ws_web_api import WebApiDispatcher
+        self._web_api = WebApiDispatcher(self)
 
     async def run(self) -> int:
         """运行后端主机主循环。"""
@@ -180,6 +183,11 @@ class WebBackendHost:
         )
         # 发送状态快照
         await self._emit(self._status_snapshot())
+        # Web 前端专属：ready 后推送会话列表（替代旧 list_sessions setTimeout hack）
+        await self._web_api._push_sessions()
+        # Web 前端专属：ready 后推送资源与模型选项（替代旧 setTimeout 串行发指令 hack）
+        await self._web_api._push_resources(self._bundle)
+        await self._web_api._push_models(self._bundle)
 
         # 创建请求读取任务
         reader = asyncio.create_task(self._read_requests())
@@ -197,6 +205,10 @@ class WebBackendHost:
             # 主循环：处理请求
             while self._running:
                 request = await self._request_queue.get()
+                # Web 前端专属请求：委托给 WebApiDispatcher（与 terminal 路径隔离）
+                if request.type.startswith("web_"):
+                    await self._web_api.handle(request)
+                    continue
                 # 关闭请求
                 if request.type == "shutdown":
                     await self._emit(BackendEvent(type="shutdown"))
@@ -278,7 +290,12 @@ class WebBackendHost:
                     continue
                 self._busy = True
                 try:
-                    self._active_line_task = asyncio.create_task(self._process_line(line))
+                    # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
+                    # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
+                    if request.treat_as_text:
+                        self._active_line_task = asyncio.create_task(self._submit_line_as_text(line))
+                    else:
+                        self._active_line_task = asyncio.create_task(self._process_line(line))
                     should_continue = await self._active_line_task
                 except asyncio.CancelledError:
                     should_continue = True
@@ -320,7 +337,9 @@ class WebBackendHost:
                 continue
             try:
                 request = FrontendRequest.model_validate_json(payload)
+                log.info("_read_requests: 解析请求 type=%s", request.type)
             except Exception as exc:  # 防御性协议处理
+                log.warning("_read_requests: 请求解析失败: %s, payload=%s", exc, payload[:200])
                 await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
                 continue
 
@@ -349,25 +368,15 @@ class WebBackendHost:
 
             await self._request_queue.put(request)
 
-    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
-        """处理用户输入的行内容。"""
-        assert self._bundle is not None
-        # 清除上一轮的工具调用去重记录
-        self._emitted_tool_started_ids.clear()
-        # 更新会话阶段为思考中
-        await self._update_phase("thinking")
-        # 发送用户消息（transcript_line 为 None 时不发送转录，用于左侧栏操作等静默场景）
-        if transcript_line is not None:
-            await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
-            )
+    async def _make_render_event(self) -> "Callable[[StreamEvent], Awaitable[None]]":
+        """创建共享的流式事件渲染器。
 
-        async def _print_system(message: str) -> None:
-            """打印系统消息。"""
-            await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
-            )
+        返回一个 _render_event 闭包，供 _process_line 和 _submit_line_as_text 共用，
+        消除重复代码并确保 TodoWrite/plan_mode_change 等事件处理一致。
 
+        Returns:
+            异步事件渲染函数
+        """
         async def _render_event(event: StreamEvent) -> None:
             """渲染流式事件。"""
             # 助手文本增量
@@ -383,96 +392,59 @@ class WebBackendHost:
             if isinstance(event, AssistantTurnComplete):
                 reasoning = event.message.thinking_text
                 cleaned = _strip_tool_previews(event.message.text.strip(), event.message.tool_uses)
-                await self._emit(
-                    BackendEvent(
-                        type="assistant_complete",
-                        message=cleaned,
-                        reasoning=reasoning if reasoning else None,
-                        item=TranscriptItem(
-                            role="assistant",
-                            text=cleaned,
-                            reasoning=reasoning if reasoning else None,
-                        ),
-                        )
-                    )
-                self._brief_assistant_text = None
+                await self._emit(BackendEvent(
+                    type="assistant_complete",
+                    message=cleaned,
+                    reasoning=reasoning if reasoning else None,
+                    item=TranscriptItem(role="assistant", text=cleaned, reasoning=reasoning if reasoning else None),
+                ))
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):
                 await self._update_phase("tool_executing")
-                await self._emit(
-                    BackendEvent(
-                        type="tool_chain_started",
-                        tool_count=event.tool_count,
-                    )
-                )
+                await self._emit(BackendEvent(type="tool_chain_started", tool_count=event.tool_count))
                 return
             # 工具链完成
             if isinstance(event, ToolChainCompleted):
                 await self._update_phase("thinking")
-                await self._emit(
-                    BackendEvent(
-                        type="tool_chain_completed",
-                        phase="thinking",
-                    )
-                )
+                await self._emit(BackendEvent(type="tool_chain_completed", phase="thinking"))
                 return
             # 工具开始执行
             if isinstance(event, ToolExecutionStarted):
                 tool_use_id = getattr(event, "tool_use_id", "") or ""
-                # 始终更新 _last_tool_inputs（即使已提前通知，也需要完整参数用于后续逻辑）
                 if event.tool_input:
                     self._last_tool_inputs[event.tool_name] = event.tool_input
-                # 通过 tool_use_id 去重：如果已发送过 tool_started 事件，则发送 tool_input_updated 更新参数
                 if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
-                    # 已提前通知过，发送参数更新事件让前端显示实际操作
                     if event.tool_input:
-                        await self._emit(
-                            BackendEvent(
-                                type="tool_input_updated",
-                                tool_name=event.tool_name,
-                                tool_input=event.tool_input,
-                                tool_use_id=tool_use_id,
-                            )
-                        )
+                        await self._emit(BackendEvent(
+                            type="tool_input_updated", tool_name=event.tool_name,
+                            tool_input=event.tool_input, tool_use_id=tool_use_id,
+                        ))
                     return
                 if tool_use_id:
                     self._emitted_tool_started_ids.add(tool_use_id)
-                await self._emit(
-                    BackendEvent(
-                        type="tool_started",
-                        tool_name=event.tool_name,
-                        tool_input=event.tool_input,
-                        item=TranscriptItem(
-                            role="tool",
-                            text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
-                            tool_name=event.tool_name,
-                            tool_input=event.tool_input if event.tool_input else None,
-                            tool_use_id=tool_use_id or None,
-                        ),
-                    )
-                )
+                await self._emit(BackendEvent(
+                    type="tool_started", tool_name=event.tool_name, tool_input=event.tool_input,
+                    item=TranscriptItem(
+                        role="tool", tool_name=event.tool_name,
+                        tool_input=event.tool_input if event.tool_input else None,
+                        tool_use_id=tool_use_id or None,
+                        text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
+                    ),
+                ))
                 return
             # 工具执行完成
             if isinstance(event, ToolExecutionCompleted):
                 tool_use_id = getattr(event, "tool_use_id", "") or ""
-                await self._emit(
-                    BackendEvent(
-                        type="tool_completed",
-                        tool_name=event.tool_name,
-                        output=event.output,
-                        is_error=event.is_error,
-                        tool_use_id=tool_use_id or None,
-                        item=TranscriptItem(
-                            role="tool_result",
-                            text=event.output,
-                            tool_name=event.tool_name,
-                            is_error=event.is_error,
-                            tool_use_id=tool_use_id or None,
-                        ),
-                    )
-                )
+                await self._emit(BackendEvent(
+                    type="tool_completed", tool_name=event.tool_name, output=event.output,
+                    is_error=event.is_error, tool_use_id=tool_use_id or None,
+                    item=TranscriptItem(
+                        role="tool_result", text=event.output, tool_name=event.tool_name,
+                        is_error=event.is_error, tool_use_id=tool_use_id or None,
+                    ),
+                ))
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 await self._emit(self._status_snapshot())
                 # TodoWrite 工具执行时发送 todo_update 事件
@@ -494,32 +466,51 @@ class WebBackendHost:
                 # 计划相关工具完成时发送 plan_mode_change 事件
                 if event.tool_name in ("set_permission_mode", "plan_mode", "enter_plan_mode", "exit_plan_mode"):
                     assert self._bundle is not None
-                    # 从设置中读取最新模式（app_state 可能尚未同步）
                     raw_mode = self._bundle.current_settings().permission.mode.value
                     formatted_mode = format_permission_mode(raw_mode)
-                    # 同步 app_state 以保持一致
                     self._bundle.app_state.set(permission_mode=raw_mode)
                     await self._emit(BackendEvent(type="plan_mode_change", plan_mode=formatted_mode))
                     await self._emit(self._status_snapshot())
                 return
             # 错误事件
             if isinstance(event, ErrorEvent):
-                await self._emit(
-                    BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
-                )
+                await self._emit(BackendEvent(
+                    type="transcript_item", item=TranscriptItem(role="system", text=event.message),
+                ))
                 return
             # 状态事件
             if isinstance(event, StatusEvent):
                 if event.bg_agent:
-                    # 后台代理状态事件：发送到前端 shimmer 区域，不注入 UI
-                    await self._emit(
-                        BackendEvent(type="bg_agent_status", message=event.message)
-                    )
+                    await self._emit(BackendEvent(type="bg_agent_status", message=event.message))
                 else:
-                    await self._emit(
-                        BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
-                    )
+                    await self._emit(BackendEvent(
+                        type="transcript_item", item=TranscriptItem(role="system", text=event.message),
+                    ))
                 return
+
+        return _render_event
+
+    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
+        """处理用户输入的行内容。"""
+        assert self._bundle is not None
+        # 清除上一轮的工具调用去重记录
+        self._emitted_tool_started_ids.clear()
+        # 更新会话阶段为思考中
+        await self._update_phase("thinking")
+        # 发送用户消息（transcript_line 为 None 时不发送转录，用于左侧栏操作等静默场景）
+        if transcript_line is not None:
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
+            )
+
+        async def _print_system(message: str) -> None:
+            """打印系统消息。"""
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
+            )
+
+        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event()
 
         async def _replay_transcript_item(item: dict) -> None:
             """重播 transcript_item。"""
@@ -561,6 +552,60 @@ class WebBackendHost:
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
+
+    async def _submit_line_as_text(self, line: str) -> bool:
+        """直接将用户输入当文本提交给 LLM，跳过命令注册表。
+
+        用于前端 treat_as_text=True 的 submit_line 请求（非指定命令如
+        /resume、/model 等），确保输入不被 commands.lookup 匹配为命令执行，
+        而是作为普通 user 消息发给 LLM。
+
+        Args:
+            line: 用户输入的文本
+
+        Returns:
+            bool: 是否继续会话（始终返回 True）
+        """
+        assert self._bundle is not None
+        self._emitted_tool_started_ids.clear()
+        await self._update_phase("thinking")
+        # 发送 user 消息到转录
+        await self._emit(
+            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=line))
+        )
+
+        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event()
+
+        # 直接调用 engine.submit_message，跳过 handle_line 的命令注册表
+        from illusion.engine.query import MaxTurnsExceeded
+        settings = self._bundle.current_settings()
+        self._bundle.engine.set_max_turns(settings.max_turns)
+        from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state
+        system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line)
+        for ctx in self._bundle.hook_additional_contexts:
+            if ctx:
+                system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
+        self._bundle.engine.set_system_prompt(system_prompt)
+        try:
+            async for event in self._bundle.engine.submit_message(line):
+                await _render_event(event)
+        except MaxTurnsExceeded as exc:
+            await self._emit(BackendEvent(
+                type="transcript_item", item=TranscriptItem(role="system", text=f"Stopped after {exc.max_turns} turns (max_turns)."),
+            ))
+        # 保存会话快照
+        save_session_snapshot(
+            cwd=self._bundle.cwd, model=settings.model, system_prompt=system_prompt,
+            messages=self._bundle.engine.messages, usage=self._bundle.engine.total_usage,
+            session_id=self._bundle.session_id,
+        )
+        sync_app_state(self._bundle)
+        await self._update_phase("idle")
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"))
+        return True
 
     # rewind 两步选择的中间状态
     _rewind_target_idx: int | None = None
@@ -684,46 +729,10 @@ class WebBackendHost:
         if result.restored_session_id:
             self._bundle.session_id = result.restored_session_id
 
-        # 如果有 replay_messages，替换转录项
+        # 如果有 replay_messages，替换转录项（复用共享的 build_replay_items 函数）
         if result.replay_messages:
-            from illusion.engine.messages import ToolUseBlock, ToolResultBlock
-
-            tool_uses_by_id: dict[str, dict] = {}
-            all_tool_use_ids: set[str] = set()
-            all_tool_result_ids: set[str] = set()
-            for msg in result.replay_messages:
-                for block in msg.content:
-                    if isinstance(block, ToolUseBlock):
-                        all_tool_use_ids.add(block.id)
-                    elif isinstance(block, ToolResultBlock):
-                        all_tool_result_ids.add(block.tool_use_id)
-
-            replay_items: list[dict] = []
-            for msg in result.replay_messages:
-                if msg.role == "user":
-                    if msg.text.strip():
-                        replay_items.append({"role": "user", "text": msg.text})
-                    for block in msg.content:
-                        if isinstance(block, ToolResultBlock):
-                            tool_info = tool_uses_by_id.get(block.tool_use_id, {})
-                            replay_items.append({
-                                "role": "tool_result",
-                                "text": block.text_content,
-                                "tool_name": tool_info.get("name"),
-                                "tool_use_id": block.tool_use_id,
-                                "is_error": block.is_error,
-                            })
-                elif msg.role == "assistant":
-                    reasoning = msg.thinking_text.strip()
-                    assistant_text = msg.text.strip()
-                    has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
-                    if not has_tool_use and (assistant_text or reasoning):
-                        item = {"role": "assistant", "text": assistant_text}
-                        if reasoning:
-                            item["reasoning"] = reasoning
-                        replay_items.append(item)
-
-            # 替换转录项
+            from illusion.ui.web.ws_web_api import build_replay_items
+            replay_items = build_replay_items(result.replay_messages)
             transcript_items = [TranscriptItem(**item) for item in replay_items]
             await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
 
@@ -753,8 +762,6 @@ class WebBackendHost:
             return f"/turns {value}"
         if command == "fast":
             return f"/fast {value}"
-        if command == "language":
-            return f"/language {value}"
         if command == "model":
             return f"/model set {value}"
         if command == "delete":
@@ -1415,10 +1422,12 @@ class WebBackendHost:
             try:
                 await self._websocket.send_text(event.model_dump_json())
             except Exception:
+                # 写入失败：不设 _ws_closed（该标记仅由读取循环的
+                # WebSocketDisconnect 设置）。写入失败可能是瞬态错误，
+                # 设 _ws_closed 会永久阻塞后续所有事件（如
+                # web_restore_completed），导致前端白屏。
                 if not self._ws_closed:
-                    log.warning("WebSocket write error, marking host as stopped")
-                    self._ws_closed = True
-                    self._running = False
+                    log.debug("WebSocket 写入失败，跳过本次发送")
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]

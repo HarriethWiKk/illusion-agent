@@ -25,18 +25,14 @@ interface ToolbarProps {
   lang: UiLanguage;
   /** 后端状态 */
   status: Record<string, unknown>;
-  /** 思考强度选项列表 */
-  effortOptions: Option[];
-  /** 模型选项列表 */
+  /** 模型选项列表（由后端 web_models 推送） */
   modelOptions: Option[];
-  /** 权限模式变更回调 */
-  onModeChange: (value: string) => void;
-  /** 模型变更回调 */
-  onModelChange: (value: string) => void;
-  /** 思考强度变更回调 */
-  onEffortChange: (value: string) => void;
-  /** 请求模型列表回调 */
-  onRequestModelList: () => void;
+  /** 统一设置变更回调（A 通道：web_set_setting） */
+  onSetSetting: (key: string, value: string | number | boolean) => void;
+  /** 请求模型列表回调（首次空时拉取兜底） */
+  onRequestModels: () => void;
+  /** 模型是否正在切换中（用于显示加载动画） */
+  modelSwitching?: boolean;
 }
 
 /**
@@ -51,9 +47,9 @@ interface ToolbarProps {
  * @param props.onChange - 变更回调
  * @param props.onOpen - 展开回调（可选）
  */
-function Dropdown({ value, placeholder, options, onChange, onOpen }: {
+function Dropdown({ value, placeholder, options, onChange, onOpen, loading }: {
   value: string; placeholder?: string; options: Option[];
-  onChange: (v: string) => void; onOpen?: () => void;
+  onChange: (v: string) => void; onOpen?: () => void; loading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const displayValue = value || placeholder || '-';
@@ -62,8 +58,17 @@ function Dropdown({ value, placeholder, options, onChange, onOpen }: {
     <div className="relative">
       <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary rounded-lg transition-colors cursor-pointer border border-border-light bg-surface-main">
-        <span className={!value ? 'text-content-disabled' : ''}>{displayValue}</span>
-        <span className="text-content-disabled text-[10px]">▾</span>
+        {loading ? (
+          <svg className="animate-spin w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <>
+            <span className={!value ? 'text-content-disabled' : ''}>{displayValue}</span>
+            <span className="text-content-disabled text-[10px]">▾</span>
+          </>
+        )}
       </button>
       {open && (
         <>
@@ -82,32 +87,37 @@ function Dropdown({ value, placeholder, options, onChange, onOpen }: {
   );
 }
 
-export default function Toolbar({ lang, status, effortOptions, modelOptions, onModeChange, onModelChange, onEffortChange, onRequestModelList }: ToolbarProps) {
+export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRequestModels, modelSwitching }: ToolbarProps) {
+  // 权限模式选项为前端静态常量（固定枚举，无需从后端拉取）
   const modeOptions = useMemo(() => [
     { value: 'default', label: t(lang, 'mode_default') },
     { value: 'plan', label: t(lang, 'mode_plan') },
     { value: 'full_auto', label: t(lang, 'mode_auto') },
   ], [lang]);
 
-  // 当前值从 status 读取（后端 state_payload 发送的最新值）
+  // 推理强度选项为前端静态常量（固定枚举 low/medium/high/xhigh/max）
+  const effortOpts = useMemo(() => [
+    { value: 'low', label: t(lang, 'effort_low') },
+    { value: 'medium', label: t(lang, 'effort_medium') },
+    { value: 'high', label: t(lang, 'effort_high') },
+    { value: 'xhigh', label: t(lang, 'effort_xhigh') },
+    { value: 'max', label: t(lang, 'effort_max') },
+  ], [lang]);
+
+  // 当前值从 status 读取（后端 state_snapshot / web_setting_changed 维护的最新值）
   const currentMode = String(status?.permission_mode ?? 'Default');
   const currentEffort = String(status?.effort ?? '');
   const currentModel = String(status?.model ?? '');
   // model 显示名：优先从 modelOptions 的 active 选项取 label，回退到 status.model
   const currentModelLabel = modelOptions.find((o) => o.active)?.label || currentModel;
-
-  const effortOpts = effortOptions.length > 0 ? effortOptions : [
-    { value: 'low', label: t(lang, 'effort_low') }, { value: 'medium', label: t(lang, 'effort_medium') },
-    { value: 'high', label: t(lang, 'effort_high') }, { value: 'xhigh', label: t(lang, 'effort_xhigh') },
-    { value: 'max', label: t(lang, 'effort_max') },
-  ];
+  // 模型选项来自后端 web_models 推送，空时仅显示当前值
   const modelOpts = modelOptions.length > 0 ? modelOptions : [{ value: currentModel, label: currentModel, active: true }];
 
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-t border-border-light bg-surface-card-alt select-none">
-      <Dropdown value={currentMode} options={modeOptions} onChange={onModeChange} />
-      <Dropdown value={currentModelLabel} placeholder="Model" options={modelOpts} onChange={onModelChange} onOpen={onRequestModelList} />
-      <Dropdown value={currentEffort} placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={onEffortChange} />
+      <Dropdown value={currentMode} options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
+      <Dropdown value={currentModelLabel} placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
+      <Dropdown value={currentEffort} placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
     </div>
   );
 }

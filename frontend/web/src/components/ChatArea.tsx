@@ -58,6 +58,8 @@ interface ChatAreaProps {
   onPermissionResponse: (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => void;
   /** 问答响应回调 */
   onQuestionResponse: (requestId: string, answer: string) => void;
+  /** 正在恢复的会话 ID（可选，非空时显示居中加载卡片覆盖转录区） */
+  restoringSessionId?: string | null;
 }
 
 /**
@@ -70,7 +72,7 @@ interface ChatAreaProps {
  */
 export default function ChatArea({
   lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, busy, connected,
-  modal, onPermissionResponse, onQuestionResponse,
+  modal, onPermissionResponse, onQuestionResponse, restoringSessionId,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -78,9 +80,8 @@ export default function ChatArea({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, modal]);
 
-  const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0 || !!modal;
-
   // 按用户消息分组为轮次(turn)，每轮以用户消息开头
+  // 注意：hooks 必须在任何条件返回之前调用（React Rules of Hooks）
   const turns = useMemo(() => {
     const result: TranscriptItem[][] = [];
     for (const item of staticItems) {
@@ -95,6 +96,24 @@ export default function ChatArea({
 
   // tool_use_id → tool_input 映射，用于 tool_result 摘要显示
   const toolInputMap = useMemo(() => buildToolInputMap(staticItems), [staticItems]);
+
+  const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0 || !!modal;
+
+  // 会话恢复中：显示居中加载卡片，覆盖正常转录区
+  // 此条件返回在所有 hooks 之后，不违反 React Rules of Hooks
+  if (restoringSessionId) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-surface-main">
+        <div className="flex flex-col items-center gap-3">
+          <svg className="animate-spin w-8 h-8 text-primary" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-sm text-content-secondary">{t(lang, 'restoring_session')}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto bg-surface-main">
@@ -153,7 +172,7 @@ function ThinkingIndicator({ lang }: { lang: UiLanguage }) {
         <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
       </span>
       <span className="text-xs text-content-secondary animate-pulse">
-        {lang === 'zh-CN' ? '正在思考...' : 'Thinking...'}
+        {t(lang, 'thinking')}
       </span>
     </div>
   );

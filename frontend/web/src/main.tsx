@@ -12,6 +12,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
 /**
@@ -19,9 +20,12 @@ import './index.css';
  *
  * 使用 React 18 的 createRoot API 创建根节点，
  * 并在严格模式下渲染 App 组件。
+ * ErrorBoundary 捕获渲染错误，防止白屏崩溃。
  */
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

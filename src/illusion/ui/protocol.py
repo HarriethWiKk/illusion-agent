@@ -42,17 +42,27 @@ class FrontendRequest(BaseModel):
     """前端请求模型。
 
     表示从 React 前端发送到 Python 后端的请求。
+    web_* 类型为 Web 前端专属通道（A/B 通道），与 terminal 共用的
+    submit_line/apply_select_command 等类型隔离，避免 web 端操作
+    与 terminal 端命令流程相互干扰。
 
     Attributes:
         type: 请求类型
         line: 提交的行内容
-        command: 命令名称
-        command: 命令值
-        request_id: 请求 ID
+        command: 命令名称（web_query 用）
+        value: 命令值
+        request_id: 请求 ID（web_query 用）
         allowed: 是否允许
         always_allow: 是否总是允许
         tool_name: 工具名称
         answer: 用户答案
+        session_id: 会话 ID（web_restore_session 用）
+        session_ids: 会话 ID 列表（web_delete_sessions 用）
+        delete_all: 是否删除全部会话（web_delete_sessions 用）
+        setting_key: 设置键名（web_set_setting 用）
+        setting_value: 设置值（web_set_setting 用）
+        limit: 拉取数量上限（web_request_sessions 用）
+        offset: 拉取偏移量（web_request_sessions 用）
     """
 
     type: Literal[
@@ -64,6 +74,15 @@ class FrontendRequest(BaseModel):
         "select_command",
         "apply_select_command",
         "shutdown",
+        # === Web 前端专属通道（web_* 命名空间）===
+        "web_new_session",
+        "web_restore_session",
+        "web_delete_sessions",
+        "web_set_setting",
+        "web_request_sessions",
+        "web_request_models",
+        "web_request_resources",
+        "web_query",
     ]
     line: str | None = None
     command: str | None = None
@@ -74,6 +93,17 @@ class FrontendRequest(BaseModel):
     tool_name: str | None = None
     answer: str | None = None
     feedback: str | None = None
+    # === web_* 专属字段 ===
+    session_id: str | None = None
+    session_ids: list[str] | None = None
+    delete_all: bool | None = None
+    setting_key: str | None = None
+    setting_value: Any = None
+    limit: int | None = None
+    offset: int | None = None
+    args: str | None = None
+    # submit_line 专属：为 True 时跳过命令注册表，直接当 user 消息提交给 LLM
+    treat_as_text: bool | None = None
 
 
 class TranscriptItem(BaseModel):
@@ -199,6 +229,14 @@ class BackendEvent(BaseModel):
         "command_result",
         "bg_agent_status",
         "error",
+        # === Web 前端专属推送事件（web_* 命名空间）===
+        "web_sessions",
+        "web_resources",
+        "web_setting_changed",
+        "web_models",
+        "web_restore_started",
+        "web_restore_completed",
+        "web_query_result",
         "shutdown",
     ]
     select_options: list[dict[str, Any]] | None = None
@@ -234,6 +272,18 @@ class BackendEvent(BaseModel):
     progress_type: str | None = None
     # 新增：会话回退
     rewind_to_index: int | None = None
+    # === web_* 推送事件字段 ===
+    session_id: str | None = None                       # web_restore_started/completed 的会话 ID
+    web_sessions: list[dict[str, Any]] | None = None    # web_sessions 推送的会话列表
+    web_resources: dict[str, Any] | None = None         # web_resources 推送的资源快照
+    web_models: list[dict[str, Any]] | None = None      # web_models 推送的模型选项
+    setting_key: str | None = None                      # web_setting_changed 的键名
+    setting_value: Any = None                           # web_setting_changed 的值
+    web_query_kind: str | None = None                   # web_query_result 的结果类型（text/transcript_replace/download）
+    web_query_payload: Any = None                       # web_query_result 的载荷
+    web_request_id: str | None = None                   # web_query_result 关联的请求 ID
+    web_command: str | None = None                      # web_query_result 关联的命令名
+    web_error: str | None = None                        # web_restore_completed 等事件的错误信息（非空表示操作失败）
 
     @classmethod
     def ready(

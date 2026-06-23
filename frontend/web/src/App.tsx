@@ -28,6 +28,9 @@ const WS_URL = `ws://${window.location.host}/ws`;
 /** Toast 通知显示时长（毫秒） */
 const TOAST_DURATION = 5000;
 
+/** B 通道允许的指令集合（前端识别并走 web_query） */
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
+
 /**
  * 应用主组件
  *
@@ -86,6 +89,24 @@ export default function App() {
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
 
+  // 事件驱动删除：新建会话完成后（restoringSessionId 从非 null 变为 null），
+  // 如果有待删除的会话 ID，立即发送删除请求
+  const prevRestoringRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevRestoringRef.current !== null && session.restoringSessionId === null) {
+      if (pendingDeleteIdsRef.current) {
+        const ids = pendingDeleteIdsRef.current;
+        pendingDeleteIdsRef.current = null;
+        if (ids.length === 1 && ids[0] === '__all__') {
+          session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
+        } else {
+          session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+        }
+      }
+    }
+    prevRestoringRef.current = session.restoringSessionId;
+  }, [session.restoringSessionId, session.sendRequest]);
+
   /**
    * 处理面板大小调整开始
    *
@@ -114,13 +135,16 @@ export default function App() {
   }, [sidebarWidth, rightPanelWidth]);
 
   /**
-   * 处理用户提交的命令
+   * 处理用户提交的命令（三通道有序判定）
    *
-   * 根据命令类型进行不同处理：
-   * - /language: 前端本地构建语言选择选项
-   * - /resume: 发送 list_sessions 请求
-   * - /context, /rewind, /model, /delete: 通过 select_command 获取内联选项
-   * - 其他命令: 直接提交到后端
+   * 通道隔离原则：
+   * - B 通道（web_query）：输入框识别的精细化指令（rewind/compact/context/export/init/
+   *   fast/passes/turns/output-style/language），走 web_query 结构化处理。
+   * - 文本通道（submit_line）：普通文本，或未被识别的斜杠指令（A 类如 /resume /model
+   *   以及已删除指令），全部当普通文本发给 LLM。
+   *
+   * A 类指令（new/resume/delete/model/effort/permissions/plan）已完全交由 UI 控件承载，
+   * 输入框不识别，落入文本通道。
    *
    * @param line - 用户输入的命令
    */
@@ -128,38 +152,54 @@ export default function App() {
     if (!line.trim()) return;
     const trimmed = line.trim();
 
-    // /language → 前端本地构建选项
-    if (trimmed === '/language' || trimmed === '/language show') {
-      const current = normalizeLanguage(session.status?.ui_language);
-      setInlineOptions({
-        command: 'language',
-        title: t(lang, 'language'),
-        options: [
-          { value: 'set zh-CN', label: '简体中文', description: '中文界面', active: current === 'zh-CN' },
-          { value: 'set en', label: 'English', description: 'English UI', active: current === 'en' },
-        ],
-      });
-      return;
+    // 通道 1：B 类斜杠指令 → web_query（精细化处理，不经过命令注册表）
+    if (trimmed.startsWith('/')) {
+      const cmdName = trimmed.slice(1).split(/\s+/)[0] ?? '';
+      const args = trimmed.slice(1 + cmdName.length).trim();
+
+      // /language（无参数）→ 弹出语言选择框，不走 web_query
+      if (cmdName === 'language' && !args) {
+        const current = String(session.status?.ui_language ?? 'zh-CN');
+        setInlineOptions({
+          command: 'language',
+          title: t(lang, 'language'),
+          options: [
+            { value: 'set zh-CN', label: '简体中文', description: '中文界面', active: current === 'zh-CN' },
+            { value: 'set en', label: 'English', description: 'English UI', active: current === 'en' },
+          ],
+        });
+        return;
+      }
+      // /fast（无参数）→ 弹出开关选择框，不走 web_query
+      if (cmdName === 'fast' && !args) {
+        const currentFast = Boolean(session.status?.fast_mode);
+        setInlineOptions({
+          command: 'fast',
+          title: t(lang, 'fast'),
+          options: [
+            { value: 'on', label: t(lang, 'fast_on'), description: t(lang, 'fast_on_desc'), active: currentFast },
+            { value: 'off', label: t(lang, 'fast_off'), description: t(lang, 'fast_off_desc'), active: !currentFast },
+          ],
+        });
+        return;
+      }
+
+      if (B_COMMANDS.includes(cmdName)) {
+        session.setBusyTrue();
+        session.sendRequest({
+          type: 'web_query',
+          command: cmdName,
+          args,
+          request_id: `q-${Date.now()}`,
+        });
+        return;
+      }
     }
 
-    // /resume → 发送 list_sessions（和 terminal 端一致）
-    if (trimmed === '/resume') {
-      session.sendRequest({ type: 'list_sessions' });
-      return;
-    }
-
-    // 通过 select_command 获取内联选项的命令
-    const selectCommands = ['context', 'rewind', 'model', 'delete', 'rules', 'skills'];
-    const cmdName = trimmed.startsWith('/') ? (trimmed.slice(1).split(/\s+/)[0] ?? '') : '';
-    if (cmdName && selectCommands.includes(cmdName)) {
-      session.setBusyTrue();
-      session.requestSelectCommand(cmdName);
-      return;
-    }
-
-    // 其他所有命令（含 /effort）→ 直接提交，结果走 toast
+    // 通道 2：所有其他输入（含 /resume、/model 等非 B 类指令）→ 当 user 消息发给 LLM
+    // treat_as_text=true 告诉后端跳过命令注册表，直接当文本提交给 LLM
     session.setBusyTrue();
-    session.sendRequest({ type: 'submit_line', line: trimmed });
+    session.sendRequest({ type: 'submit_line', line: trimmed, treat_as_text: true });
   };
 
   /**
@@ -172,7 +212,18 @@ export default function App() {
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
     setInlineOptions(null);
-    session.sendRequest({ type: 'apply_select_command', command, value });
+    // language 和 fast 走 web_query 通道（前端弹出选择框后提交）
+    if (command === 'language' || command === 'fast') {
+      session.sendRequest({
+        type: 'web_query',
+        command,
+        args: value,
+        request_id: `q-${Date.now()}`,
+      });
+    } else {
+      // rewind/context 等多步指令仍走 apply_select_command
+      session.sendRequest({ type: 'apply_select_command', command, value });
+    }
   }, [session.sendRequest]);
 
   /**
@@ -182,54 +233,64 @@ export default function App() {
    */
   const handleInlineClose = useCallback(() => setInlineOptions(null), []);
 
-  // 删除会话弹窗状态
+  // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  // 待删除的会话 ID（事件驱动：先新建会话，等 web_restore_completed 后再删除）
+  const pendingDeleteIdsRef = useRef<string[] | null>(null);
 
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
 
   /** 处理新建会话 */
   const handleNewSession = () => {
-    session.sendRequest({ type: 'submit_line', line: '/new' });
+    session.sendRequest({ type: 'web_new_session' });
   };
 
   /**
-   * 处理选择会话
+   * 处理选择会话（A 通道，零 suppress）
+   *
+   * 点击会话项 → 发送 web_restore_session，前端立即进入 restoring 态显示加载动画，
+   * 收到 web_restore_completed 后清除动画并替换转录。不再有 /resume 弹框副作用。
    *
    * @param id - 会话 ID
    */
   const handleSelectSession = useCallback((id: string) => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult(1); // 抑制 apply_select_command 的命令结果
-    session.suppressTranscript(); // 抑制转录事件，直到收到 replace_transcript
-    session.sendRequest({ type: 'apply_select_command', command: 'resume', value: id });
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.suppressTranscript, session.sendRequest]);
+    session.setRestoringSessionId(id);
+    session.sendRequest({ type: 'web_restore_session', session_id: id });
+  }, [session.setRestoringSessionId, session.sendRequest]);
 
-  /** 处理列出会话 */
+  /** 处理列出会话（A 通道，后端推送 web_sessions） */
   const handleListSessions = useCallback(() => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult();
-    session.sendRequest({ type: 'list_sessions' });
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.sendRequest]);
+    session.sendRequest({ type: 'web_request_sessions' });
+  }, [session.sendRequest]);
 
-  /** 处理删除会话 */
+  /** 处理删除会话：打开删除弹窗（数据源来自 session.sessions 主列表） */
   const handleDeleteSessions = useCallback(() => {
-    session.suppressInlineOptions();
-    session.suppressCommandResult();
-    session.requestSelectCommand('delete');
-  }, [session.suppressInlineOptions, session.suppressCommandResult, session.requestSelectCommand]);
+    setDeleteSelected(new Set());
+    setDeleteModalOpen(true);
+  }, []);
   /**
    * 处理确认删除
    *
    * 删除所有选中的会话。
    */
   const handleConfirmDelete = useCallback(() => {
-    session.suppressCommandResult();
-    for (const id of deleteSelected) session.sendRequest({ type: 'apply_select_command', command: 'delete', value: id });
-    session.clearDeleteSessions();
+    const ids = Array.from(deleteSelected);
+    if (ids.length > 0) {
+      const currentSessionId = String(session.status?.session_id ?? '');
+      const deletingCurrent = ids.includes(currentSessionId);
+      if (deletingCurrent) {
+        // 事件驱动：先新建会话，等 web_restore_completed 到达后再删除
+        pendingDeleteIdsRef.current = ids;
+        session.sendRequest({ type: 'web_new_session' });
+      } else {
+        session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+      }
+    }
+    setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-    setTimeout(() => { session.suppressInlineOptions(); session.suppressCommandResult(); session.sendRequest({ type: 'list_sessions' }); }, 500);
-  }, [deleteSelected, session.sendRequest, session.clearDeleteSessions, session.suppressInlineOptions, session.suppressCommandResult]);
+  }, [deleteSelected, session.sendRequest, session.status]);
 
   /**
    * 处理关闭删除模态框
@@ -237,9 +298,9 @@ export default function App() {
    * 关闭删除会话弹窗并清除选中状态。
    */
   const handleCloseDeleteModal = useCallback(() => {
-    session.clearDeleteSessions();
+    setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-  }, [session.clearDeleteSessions]);
+  }, []);
 
   /**
    * 切换删除项选中状态
@@ -250,12 +311,12 @@ export default function App() {
     setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
   }, []);
 
-  /** 是否显示删除模态框 */
-  const showDeleteModal = session.deleteSessions.length > 0;
-  /** 普通会话列表（排除 __all__ 选项） */
-  const regularSessions = session.deleteSessions.filter((s) => s.value !== '__all__');
-  /** 是否有全部删除选项 */
-  const hasAllOption = session.deleteSessions.some((s) => s.value === '__all__');
+  /** 是否显示删除模态框（本地控制，不再依赖 select_request:delete 填充） */
+  const showDeleteModal = deleteModalOpen;
+  /** 待删除的普通会话列表（来自主会话列表 session.sessions） */
+  const regularSessions = session.sessions;
+  /** 总是提供"删除全部"入口 */
+  const hasAllOption = session.sessions.length > 0;
 
   /**
    * 处理权限响应
@@ -288,7 +349,7 @@ export default function App() {
         onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
         collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        width={sidebarWidth} />
+        width={sidebarWidth} restoringSessionId={session.restoringSessionId} />
       {!sidebarCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
@@ -301,16 +362,18 @@ export default function App() {
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
           busy={session.busy} connected={session.connected}
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
-          onQuestionResponse={handleQuestionResponse} />
+          onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
         <Toolbar lang={lang} status={session.status}
-          effortOptions={session.effortOptions} modelOptions={session.modelOptions}
-          onModeChange={(v) => session.sendRequest({ type: 'submit_line', line: `/permissions set ${v}` })}
-          onModelChange={session.setModelValue}
-          onEffortChange={session.setEffortValue}
-          onRequestModelList={() => session.requestSelectCommand('model')} />
+          modelOptions={session.modelOptions}
+          onSetSetting={(key, value) => {
+            if (key === 'model') session.setModelSwitching(true);
+            session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
+          }}
+          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
+          modelSwitching={session.modelSwitching} />
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
@@ -344,9 +407,10 @@ export default function App() {
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  session.sendRequest({ type: 'apply_select_command', command: 'delete', value: '__all__' });
-                  session.clearDeleteSessions(); setDeleteSelected(new Set());
-                  setTimeout(() => { session.suppressInlineOptions(); session.sendRequest({ type: 'list_sessions' }); }, 500);
+                  // 事件驱动：先新建会话，等 web_restore_completed 到达后再删除全部
+                  pendingDeleteIdsRef.current = ['__all__'];
+                  session.sendRequest({ type: 'web_new_session' });
+                  setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>
               <div className="flex gap-2">
