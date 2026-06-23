@@ -54,7 +54,7 @@ from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
-from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
@@ -290,7 +290,12 @@ class WebBackendHost:
                     continue
                 self._busy = True
                 try:
-                    self._active_line_task = asyncio.create_task(self._process_line(line))
+                    # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
+                    # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
+                    if request.treat_as_text:
+                        self._active_line_task = asyncio.create_task(self._submit_line_as_text(line))
+                    else:
+                        self._active_line_task = asyncio.create_task(self._process_line(line))
                     should_continue = await self._active_line_task
                 except asyncio.CancelledError:
                     should_continue = True
@@ -573,6 +578,135 @@ class WebBackendHost:
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
+
+    async def _submit_line_as_text(self, line: str) -> bool:
+        """直接将用户输入当文本提交给 LLM，跳过命令注册表。
+
+        用于前端 treat_as_text=True 的 submit_line 请求（非指定命令如
+        /resume、/model 等），确保输入不被 commands.lookup 匹配为命令执行，
+        而是作为普通 user 消息发给 LLM。
+
+        Args:
+            line: 用户输入的文本
+
+        Returns:
+            bool: 是否继续会话（始终返回 True）
+        """
+        assert self._bundle is not None
+        self._emitted_tool_started_ids.clear()
+        await self._update_phase("thinking")
+        # 发送 user 消息到转录
+        await self._emit(
+            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=line))
+        )
+
+        async def _render_event(event: StreamEvent) -> None:
+            """渲染流式事件（复用 _process_line 中的逻辑）。"""
+            if isinstance(event, AssistantTextDelta):
+                reasoning = getattr(event, "reasoning", None)
+                await self._emit(BackendEvent(
+                    type="assistant_delta",
+                    message=event.text,
+                    reasoning=reasoning if reasoning else None,
+                ))
+                return
+            if isinstance(event, AssistantTurnComplete):
+                reasoning = event.message.thinking_text
+                cleaned = _strip_tool_previews(event.message.text.strip(), event.message.tool_uses)
+                await self._emit(BackendEvent(
+                    type="assistant_complete",
+                    message=cleaned,
+                    reasoning=reasoning if reasoning else None,
+                    item=TranscriptItem(role="assistant", text=cleaned, reasoning=reasoning if reasoning else None),
+                ))
+                return
+            if isinstance(event, ToolChainStarted):
+                await self._update_phase("tool_executing")
+                await self._emit(BackendEvent(type="tool_chain_started", tool_count=event.tool_count))
+                return
+            if isinstance(event, ToolChainCompleted):
+                await self._update_phase("thinking")
+                await self._emit(BackendEvent(type="tool_chain_completed", phase="thinking"))
+                return
+            if isinstance(event, ToolExecutionStarted):
+                tool_use_id = getattr(event, "tool_use_id", "") or ""
+                if event.tool_input:
+                    self._last_tool_inputs[event.tool_name] = event.tool_input
+                if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
+                    if event.tool_input:
+                        await self._emit(BackendEvent(
+                            type="tool_input_updated", tool_name=event.tool_name,
+                            tool_input=event.tool_input, tool_use_id=tool_use_id,
+                        ))
+                    return
+                if tool_use_id:
+                    self._emitted_tool_started_ids.add(tool_use_id)
+                await self._emit(BackendEvent(
+                    type="tool_started", tool_name=event.tool_name, tool_input=event.tool_input,
+                    item=TranscriptItem(
+                        role="tool", tool_name=event.tool_name,
+                        tool_input=event.tool_input if event.tool_input else None,
+                        tool_use_id=tool_use_id or None,
+                        text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
+                    ),
+                ))
+                return
+            if isinstance(event, ToolExecutionCompleted):
+                tool_use_id = getattr(event, "tool_use_id", "") or ""
+                await self._emit(BackendEvent(
+                    type="tool_completed", tool_name=event.tool_name, output=event.output,
+                    is_error=event.is_error, tool_use_id=tool_use_id or None,
+                    item=TranscriptItem(
+                        role="tool_result", text=event.output, tool_name=event.tool_name,
+                        is_error=event.is_error, tool_use_id=tool_use_id or None,
+                    ),
+                ))
+                await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+                await self._emit(self._status_snapshot())
+                return
+            if isinstance(event, ErrorEvent):
+                await self._emit(BackendEvent(
+                    type="transcript_item", item=TranscriptItem(role="system", text=event.message),
+                ))
+                return
+            if isinstance(event, StatusEvent):
+                if event.bg_agent:
+                    await self._emit(BackendEvent(type="bg_agent_status", message=event.message))
+                else:
+                    await self._emit(BackendEvent(
+                        type="transcript_item", item=TranscriptItem(role="system", text=event.message),
+                    ))
+                return
+
+        # 直接调用 engine.submit_message，跳过 handle_line 的命令注册表
+        from illusion.engine.stream_events import MaxTurnsExceeded
+        settings = self._bundle.current_settings()
+        self._bundle.engine.set_max_turns(settings.max_turns)
+        from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state
+        system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line)
+        for ctx in self._bundle.hook_additional_contexts:
+            if ctx:
+                system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
+        self._bundle.engine.set_system_prompt(system_prompt)
+        try:
+            async for event in self._bundle.engine.submit_message(line):
+                await _render_event(event)
+        except MaxTurnsExceeded as exc:
+            await self._emit(BackendEvent(
+                type="transcript_item", item=TranscriptItem(role="system", text=f"Stopped after {exc.max_turns} turns (max_turns)."),
+            ))
+        # 保存会话快照
+        save_session_snapshot(
+            cwd=self._bundle.cwd, model=settings.model, system_prompt=system_prompt,
+            messages=self._bundle.engine.messages, usage=self._bundle.engine.total_usage,
+            session_id=self._bundle.session_id,
+        )
+        sync_app_state(self._bundle)
+        await self._update_phase("idle")
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"))
+        return True
 
     # rewind 两步选择的中间状态
     _rewind_target_idx: int | None = None

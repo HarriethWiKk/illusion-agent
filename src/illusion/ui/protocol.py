@@ -102,6 +102,8 @@ class FrontendRequest(BaseModel):
     limit: int | None = None
     offset: int | None = None
     args: str | None = None
+    # submit_line 专属：为 True 时跳过命令注册表，直接当 user 消息提交给 LLM
+    treat_as_text: bool | None = None
 
 
 class TranscriptItem(BaseModel):

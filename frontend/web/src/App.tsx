@@ -130,23 +130,11 @@ export default function App() {
   /** B 通道允许的指令集合（前端识别并走 web_query） */
   const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
 
-  /** UI 控件已承载的 A 类指令——输入框输入时拦截并提示使用 UI 控件 */
-  const UI_COMMANDS: Record<string, string> = {
-    resume: t(lang, 'ui_cmd_resume'),
-    new: t(lang, 'ui_cmd_new'),
-    clear: t(lang, 'ui_cmd_new'),
-    delete: t(lang, 'ui_cmd_delete'),
-    model: t(lang, 'ui_cmd_model'),
-    effort: t(lang, 'ui_cmd_effort'),
-    permissions: t(lang, 'ui_cmd_permissions'),
-    plan: t(lang, 'ui_cmd_permissions'),
-  };
-
   const handleSubmit = (line: string) => {
     if (!line.trim()) return;
     const trimmed = line.trim();
 
-    // 通道 1：B 类斜杠指令 → web_query
+    // 通道 1：B 类斜杠指令 → web_query（精细化处理，不经过命令注册表）
     if (trimmed.startsWith('/')) {
       const cmdName = trimmed.slice(1).split(/\s+/)[0] ?? '';
       if (B_COMMANDS.includes(cmdName)) {
@@ -160,16 +148,12 @@ export default function App() {
         });
         return;
       }
-      // 通道 1.5：UI 控件已承载的指令 → 拦截并提示，不提交后端
-      if (cmdName && UI_COMMANDS[cmdName]) {
-        showToast(UI_COMMANDS[cmdName], 'info');
-        return;
-      }
     }
 
-    // 通道 2/3：普通文本或未识别的斜杠 → submit_line（发给 LLM）
+    // 通道 2：所有其他输入（含 /resume、/model 等非 B 类指令）→ 当 user 消息发给 LLM
+    // treat_as_text=true 告诉后端跳过命令注册表，直接当文本提交给 LLM
     session.setBusyTrue();
-    session.sendRequest({ type: 'submit_line', line: trimmed });
+    session.sendRequest({ type: 'submit_line', line: trimmed, treat_as_text: true });
   };
 
   /**

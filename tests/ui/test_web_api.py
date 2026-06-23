@@ -117,6 +117,7 @@ class TestWebRestoreSession:
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._ws_closed = False  # 模拟 WebSocket 处于连接状态
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.session_id = "old-sid"

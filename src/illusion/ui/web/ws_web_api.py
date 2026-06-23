@@ -165,8 +165,9 @@ class WebApiDispatcher:
         select_request/command_result/transcript_item 等 terminal 副作用。
         通过 web_restore_started/completed 显式标注，前端据此显示加载动画。
 
-        异常保护：任何阶段失败都发 web_restore_completed（含 web_error），
-        确保前端始终能清除 restoringSessionId，不陷入白屏加载状态。
+        每个 emit 调用前检查 _ws_closed——WebSocket 已关闭时 _emit 静默返回
+        不抛异常，导致 handle() 的 try/except 不触发，前端永远收不到
+        web_restore_completed，restoringSessionId 不被清除，页面白屏。
 
         Args:
             request: 前端请求（session_id 必填）
@@ -176,13 +177,18 @@ class WebApiDispatcher:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
         session_id = request.session_id or ""
+
+        # WebSocket 已关闭：直接返回，不尝试 emit（_emit 会静默丢弃，前端收不到任何事件）
+        if self._host._ws_closed:  # type: ignore[attr-defined]
+            return
+
         error_msg = None
         replay_items = []
 
         # 1. 发送恢复开始事件（前端据此显示动画）
         await self._emit(BackendEvent(type="web_restore_started", session_id=session_id))
 
-        # 2. 构建命令上下文并调用 resume_handler（异常保护）
+        # 2. 构建命令上下文并调用 resume_handler
         try:
             context = CommandContext(
                 engine=bundle.engine,
@@ -195,17 +201,18 @@ class WebApiDispatcher:
                 session_id=bundle.session_id,
             )
             result = await _resume_handler(session_id, context)
-            # 处理恢复结果：更新 session_id
             if result.restored_session_id:
                 bundle.session_id = result.restored_session_id
-            # 构建 replay_items（复用消息转换逻辑）
             replay_items = self._build_replay_items(result.replay_messages)
         except Exception as exc:
             log.exception("恢复会话 %s 失败", session_id)
             error_msg = str(exc)
 
-        # 3. 始终发 web_restore_completed——前端据此清除 restoringSessionId，
-        #    避免异常时白屏。成功时带 replay_items，失败时带 web_error。
+        # 3. WebSocket 在恢复过程中关闭：跳过 emit（会静默丢弃），直接返回
+        if self._host._ws_closed:  # type: ignore[attr-defined]
+            return
+
+        # 4. 始终发 web_restore_completed——前端据此清除 restoringSessionId
         await self._emit(BackendEvent(
             type="web_restore_completed",
             session_id=bundle.session_id,
@@ -213,7 +220,7 @@ class WebApiDispatcher:
             state=_state_payload(bundle.app_state.get()),
             web_error=error_msg,
         ))
-        # 4. 推送会话列表刷新
+        # 5. 推送会话列表刷新
         await self._push_sessions()
         # 7. 发送任务快照与状态快照
         from illusion.tasks import get_task_manager

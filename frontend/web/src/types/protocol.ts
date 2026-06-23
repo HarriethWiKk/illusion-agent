@@ -245,7 +245,7 @@ export interface RuleSnapshot {
  * submit_line/apply_select_command 等类型隔离。
  */
 export type FrontendRequest =
-  | { type: 'submit_line'; line: string }
+  | { type: 'submit_line'; line: string; treat_as_text?: boolean }
   | { type: 'stop' }
   | { type: 'permission_response'; request_id: string; allowed: boolean; always_allow?: boolean; tool_name?: string }
   | { type: 'question_response'; request_id: string; answer: string }
