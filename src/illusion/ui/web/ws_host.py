@@ -143,6 +143,9 @@ class WebBackendHost:
         self._last_tool_inputs: dict[str, dict] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
+        from illusion.ui.web.ws_web_api import WebApiDispatcher
+        self._web_api = WebApiDispatcher(self)
 
     async def run(self) -> int:
         """运行后端主机主循环。"""
@@ -197,6 +200,10 @@ class WebBackendHost:
             # 主循环：处理请求
             while self._running:
                 request = await self._request_queue.get()
+                # Web 前端专属请求：委托给 WebApiDispatcher（与 terminal 路径隔离）
+                if request.type.startswith("web_"):
+                    await self._web_api.handle(request)
+                    continue
                 # 关闭请求
                 if request.type == "shutdown":
                     await self._emit(BackendEvent(type="shutdown"))

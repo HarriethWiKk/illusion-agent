@@ -34,3 +34,14 @@ class TestWebApiDispatcherRouting:
         await dispatcher.handle(req)
         # handle 内部应调用 host._emit 发送 error 或对应事件
         assert dispatcher._host._emit.called
+
+
+class TestWebHostDispatch:
+    """ws_host 主循环分发 web_* 请求到 WebApiDispatcher 测试"""
+
+    def test_host_holds_web_api_dispatcher(self):
+        """测试 WebBackendHost 实例持有 _web_api 属性"""
+        from illusion.ui.web.ws_host import WebBackendHost, WebHostConfig
+        host = WebBackendHost(WebHostConfig(model="test-model"), MagicMock())
+        assert hasattr(host, "_web_api")
+        assert host._web_api is not None
