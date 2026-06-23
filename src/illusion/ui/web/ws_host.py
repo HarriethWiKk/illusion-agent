@@ -183,6 +183,8 @@ class WebBackendHost:
         )
         # 发送状态快照
         await self._emit(self._status_snapshot())
+        # Web 前端专属：ready 后推送会话列表（替代旧 list_sessions setTimeout hack）
+        await self._web_api._push_sessions()
 
         # 创建请求读取任务
         reader = asyncio.create_task(self._read_requests())
