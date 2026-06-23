@@ -216,11 +216,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
   const sendRequest = useCallback((payload: Record<string, unknown>): void => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.log('[sendRequest] WebSocket 未连接, 请求被丢弃:', payload.type, 'readyState:', ws?.readyState);
-      return;
-    }
-    console.log('[sendRequest] 发送:', payload.type);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(payload));
   }, []);
 
@@ -247,10 +243,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
     ws.onopen = () => setConnected(true);
     ws.onclose = () => {
-      console.log('[ws.onclose] WebSocket 连接关闭');
       setConnected(false);
       setReady(false);
-      // WebSocket 关闭时清除恢复加载状态，避免前端卡在白屏加载卡片
       setRestoringSessionId(null);
     };
     ws.onerror = () => setConnected(false);
@@ -402,19 +396,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       }
       if (evt.type === 'web_restore_completed') {
         // 恢复完成（或失败）：始终清除加载动画
-        console.log('[web_restore_completed] 收到事件, web_error:', evt.web_error, 'items:', evt.items?.length, 'state:', !!evt.state);
         setRestoringSessionId(null);
         clearAssistantDelta();
         pendingToolCallsRef.current = [];
         setPendingToolCalls([]);
         if (evt.web_error) {
           // 恢复失败：显示错误提示，不替换转录（保留当前内容）
-          console.log('[web_restore_completed] 恢复失败:', evt.web_error);
           pushStatic({ role: 'system', text: `恢复会话失败: ${evt.web_error}` });
         } else {
           // 恢复成功：一次性替换转录
           const items = (evt.items ?? []) as TranscriptItem[];
-          console.log('[web_restore_completed] 恢复成功, 替换转录, items:', items.length);
           setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
           // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
           if (evt.state) setStatus(evt.state as Record<string, unknown>);

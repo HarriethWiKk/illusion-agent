@@ -337,7 +337,9 @@ class WebBackendHost:
                 continue
             try:
                 request = FrontendRequest.model_validate_json(payload)
+                log.info("_read_requests: 解析请求 type=%s", request.type)
             except Exception as exc:  # 防御性协议处理
+                log.warning("_read_requests: 请求解析失败: %s, payload=%s", exc, payload[:200])
                 await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
                 continue
 
@@ -1561,14 +1563,12 @@ class WebBackendHost:
             try:
                 await self._websocket.send_text(event.model_dump_json())
             except Exception:
-                # 写入失败：重试一次（可能是瞬态错误），两次都失败才标记关闭。
-                # 一次失败就设 _ws_closed=True 会导致后续所有事件（如
-                # web_restore_completed）被静默丢弃，前端卡在加载态白屏。
-                try:
-                    await self._websocket.send_text(event.model_dump_json())
-                except Exception:
-                    if not self._ws_closed:
-                        self._ws_closed = True
+                # 写入失败：不设 _ws_closed（该标记仅由读取循环的
+                # WebSocketDisconnect 设置）。写入失败可能是瞬态错误，
+                # 设 _ws_closed 会永久阻塞后续所有事件（如
+                # web_restore_completed），导致前端白屏。
+                if not self._ws_closed:
+                    log.debug("WebSocket 写入失败，跳过本次发送")
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]

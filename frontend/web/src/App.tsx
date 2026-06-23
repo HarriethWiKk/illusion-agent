@@ -258,13 +258,14 @@ export default function App() {
   const handleConfirmDelete = useCallback(() => {
     const ids = Array.from(deleteSelected);
     if (ids.length > 0) {
-      // 检查是否删除了当前会话——如果是，删除后自动新建会话
+      // 检查是否删除了当前会话——如果是，先新建再删除（避免删除期间旧会话被恢复）
       const currentSessionId = String(session.status?.session_id ?? '');
       const deletingCurrent = ids.includes(currentSessionId);
-      session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
       if (deletingCurrent) {
-        // 延迟一小段时间确保删除完成后再新建
-        setTimeout(() => session.sendRequest({ type: 'web_new_session' }), 200);
+        session.sendRequest({ type: 'web_new_session' });
+        setTimeout(() => session.sendRequest({ type: 'web_delete_sessions', session_ids: ids }), 200);
+      } else {
+        session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
       }
     }
     setDeleteModalOpen(false);
@@ -386,9 +387,9 @@ export default function App() {
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  // A 通道删除全部，删除后自动新建会话
-                  session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
-                  setTimeout(() => session.sendRequest({ type: 'web_new_session' }), 200);
+                  // 先新建会话再删除全部（避免删除期间旧会话被恢复）
+                  session.sendRequest({ type: 'web_new_session' });
+                  setTimeout(() => session.sendRequest({ type: 'web_delete_sessions', delete_all: true }), 200);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>
