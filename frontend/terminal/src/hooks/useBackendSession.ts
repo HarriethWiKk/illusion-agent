@@ -559,6 +559,14 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'replace_transcript' && event.items) {
+			// 先清空当前状态
+			setStaticItems([]);
+			setClearCount((c) => c + 1);
+			clearAssistantDelta();
+			pendingToolCallsRef.current = [];
+			setPendingToolCalls([]);
+
+			// 然后设置新内容
 			const newItems = (event.items as TranscriptItem[]).filter((item: TranscriptItem) => {
 				if (item.role === 'user' && item.text.startsWith('/')) {
 					return false;
@@ -566,10 +574,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				return true;
 			});
 			setStaticItems(newItems);
-			setClearCount((c) => c + 1);
-			clearAssistantDelta();
-			pendingToolCallsRef.current = [];
-			setPendingToolCalls([]);
 			return;
 		}
 		if (event.type === 'select_request') {
