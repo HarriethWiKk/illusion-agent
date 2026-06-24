@@ -24,7 +24,7 @@ def _find_frontend_dist() -> Path | None:
     # server.py 位于 src/illusion/ui/web/server.py，需要向上 5 级到项目根目录
     project_root = Path(__file__).parent.parent.parent.parent.parent
     # illusion/ 包根目录（wheel 安装后为 site-packages/illusion/）
-    pkg_root = Path(__file__).parent.parent.parent.parent
+    pkg_root = Path(__file__).parent.parent.parent
     candidates = [
         # 开发模式：项目根目录下的 frontend/web/dist
         project_root / "frontend" / "web" / "dist",
