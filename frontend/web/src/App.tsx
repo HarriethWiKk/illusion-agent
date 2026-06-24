@@ -260,11 +260,11 @@ export default function App() {
     if (ids.length > 0) {
       // 直接发送删除请求；若包含当前会话，后端会原子化地新建空会话，
       // 避免前端"先删后建"两阶段逻辑的竞态。
-      session.sendRequest({ type: 'web_delete_sessions', session_ids: ids });
+      session.deleteSessions(ids);
     }
     setDeleteModalOpen(false);
     setDeleteSelected(new Set());
-  }, [deleteSelected, session.sendRequest]);
+  }, [deleteSelected, session.deleteSessions]);
 
   /**
    * 处理关闭删除模态框
@@ -382,7 +382,7 @@ export default function App() {
               <div>{hasAllOption && (
                 <button onClick={() => {
                   // 直接删除全部；后端会原子化地新建空会话，避免两阶段竞态
-                  session.sendRequest({ type: 'web_delete_sessions', delete_all: true });
+                  session.deleteSessions([], true);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
                 }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>

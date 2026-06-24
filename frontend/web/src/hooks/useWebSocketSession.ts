@@ -108,7 +108,6 @@ export interface WebSocketSessionState {
   bgAgentLabel: string | null;
   connected: boolean;
   sessions: { value: string; label: string }[];
-  deleteSessions: { value: string; label: string }[];
   /** 正在恢复的会话 ID（null 表示无恢复进行中） */
   restoringSessionId: string | null;
   /** 设置正在恢复的会话 ID */
@@ -117,7 +116,7 @@ export interface WebSocketSessionState {
   modelSwitching: boolean;
   /** 设置模型切换状态 */
   setModelSwitching: (v: boolean) => void;
-  clearDeleteSessions: () => void;
+  deleteSessions: (sessionIds: string[], deleteAll?: boolean) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -152,7 +151,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
-  const [deleteSessions, setDeleteSessions] = useState<{ value: string; label: string }[]>([]);
   // 正在恢复的会话 ID（用于显示加载动画），由发出恢复请求时即设置
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
   // 模型切换中（用于 Toolbar 显示加载动画）
@@ -215,7 +213,21 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
 
   const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
-  const clearDeleteSessions = useCallback((): void => { setDeleteSessions([]); }, []);
+  const deleteSessions = useCallback((sessionIds: string[], deleteAll: boolean = false): void => {
+    // 立即从本地状态中移除
+    if (deleteAll) {
+      setSessions([]);
+    } else {
+      setSessions(prev => prev.filter(s => !sessionIds.includes(s.value)));
+    }
+
+    // 发送删除请求到后端
+    sendRequest({
+      type: 'web_delete_sessions',
+      session_ids: sessionIds,
+      delete_all: deleteAll,
+    });
+  }, [sendRequest]);
   const clearModal = useCallback((): void => { setModal(null); }, []);
   const requestSelectCommand = useCallback((command: string): void => {
     sendRequest({ type: 'select_command', command });
@@ -501,7 +513,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearDeleteSessions, clearModal, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching, setModelSwitching,
@@ -509,7 +521,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearDeleteSessions, clearModal, requestSelectCommand,
+    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching,
