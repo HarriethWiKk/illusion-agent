@@ -58,6 +58,8 @@ def build_replay_items(replay_messages: list | None) -> list:
         return []
     from illusion.engine.messages import ToolUseBlock, ToolResultBlock
     items: list[dict] = []
+    # 保存 tool_use_id -> tool_name 的映射
+    tool_name_map: dict[str, str] = {}
     for msg in replay_messages:
         if msg.role == "user":
             if msg.text.strip():
@@ -68,6 +70,7 @@ def build_replay_items(replay_messages: list | None) -> list:
                         "role": "tool_result",
                         "text": block.text_content,
                         "tool_use_id": block.tool_use_id,
+                        "tool_name": tool_name_map.get(block.tool_use_id, "tool"),
                         "is_error": block.is_error,
                     })
         elif msg.role == "assistant":
@@ -75,8 +78,18 @@ def build_replay_items(replay_messages: list | None) -> list:
             assistant_text = msg.text.strip()
             has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
             if has_tool_use:
-                # 有 tool_use 时跳过 assistant 文本（避免与流式 tool_started 重复），
-                # 但保留 reasoning/thinking（思考过程不应丢失）
+                # 添加工具调用信息
+                for block in msg.content:
+                    if isinstance(block, ToolUseBlock):
+                        tool_name_map[block.id] = block.name
+                        items.append({
+                            "role": "tool",
+                            "text": block.name,
+                            "tool_name": block.name,
+                            "tool_input": block.input,
+                            "tool_use_id": block.id,
+                        })
+                # 保留 reasoning
                 if reasoning:
                     items.append({"role": "assistant", "text": "", "reasoning": reasoning})
             elif assistant_text or reasoning:
