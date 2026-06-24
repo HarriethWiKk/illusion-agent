@@ -474,11 +474,13 @@ class WebApiDispatcher:
         for s in sessions:
             ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
             summary = (s.get("summary", "") or ("（无摘要）" if zh else "(no summary)"))[:50]
+            turn_count = s.get("turn_count", 0)
             options.append({
                 "id": s["session_id"],
-                "label": f"{ts}  {s['message_count']}msg  {summary}",
+                "label": f"{ts}  {turn_count}轮  {summary}",
                 "created_at": s["created_at"],
                 "message_count": s["message_count"],
+                "turn_count": turn_count,
                 "summary": s.get("summary", ""),
             })
         await self._emit(BackendEvent(type="web_sessions", web_sessions=options))
