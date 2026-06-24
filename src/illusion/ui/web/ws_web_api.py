@@ -74,7 +74,12 @@ def build_replay_items(replay_messages: list | None) -> list:
             reasoning = msg.thinking_text.strip()
             assistant_text = msg.text.strip()
             has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
-            if not has_tool_use and (assistant_text or reasoning):
+            if has_tool_use:
+                # 有 tool_use 时跳过 assistant 文本（避免与流式 tool_started 重复），
+                # 但保留 reasoning/thinking（思考过程不应丢失）
+                if reasoning:
+                    items.append({"role": "assistant", "text": "", "reasoning": reasoning})
+            elif assistant_text or reasoning:
                 item: dict = {"role": "assistant", "text": assistant_text}
                 if reasoning:
                     item["reasoning"] = reasoning
@@ -282,6 +287,9 @@ class WebApiDispatcher:
         """批量删除会话。
 
         支持指定 session_ids 列表或 delete_all 删除全部。
+        当删除当前会话或全部会话时，后端原子化地新建一个空会话并推送
+        web_restore_completed，避免前端"先删后建"两阶段逻辑的竞态
+        （delete_all 会误删刚建的新会话，导致状态不一致）。
 
         Args:
             request: 前端请求（session_ids 或 delete_all）
@@ -290,15 +298,34 @@ class WebApiDispatcher:
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
+        deleted_current = False
         if request.delete_all:
             sessions = _list_session_snapshots(bundle.cwd, limit=1000)
             for s in sessions:
                 _delete_session_by_id(bundle.cwd, s["session_id"])
+            deleted_current = True
         elif request.session_ids:
             for sid in request.session_ids:
                 _delete_session_by_id(bundle.cwd, sid)
-        # 删除后推送刷新的会话列表
+            deleted_current = bundle.session_id in request.session_ids
+        # 若删除了当前会话或全部会话，后端原子化地新建一个空会话：
+        # 清空引擎、切换 session_id 并推送 web_restore_completed（空转录），
+        # 使前端主区域即时进入新会话，无需前端编排两阶段删除。
+        if deleted_current:
+            bundle.engine.clear()
+            from uuid import uuid4
+            bundle.session_id = uuid4().hex[:12]
+            from illusion.ui.runtime import sync_app_state
+            sync_app_state(bundle)
+            await self._emit(BackendEvent(
+                type="web_restore_completed",
+                session_id=bundle.session_id,
+                items=[],
+                state=_state_payload(bundle.app_state.get()),
+            ))
+        # 删除后推送刷新的会话列表与状态快照
         await self._push_sessions()
+        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
 
     async def handle_web_set_setting(self, request: FrontendRequest) -> None:
         """统一设置标量（A 通道：工具栏/会话控件触发）。
