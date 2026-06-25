@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os  # 进程检测
 from pathlib import Path  # 路径处理
+from illusion.utils.atomic_write import atomic_write_text  # 原子写入工具
 
 
 def read_pid(path: Path) -> int | None:
@@ -40,7 +41,7 @@ def write_pid(path: Path, pid: int) -> None:
         pid: 进程 ID
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(str(pid), encoding="utf-8")
+    atomic_write_text(path, str(pid))
 
 
 def is_process_alive(pid: int) -> bool:

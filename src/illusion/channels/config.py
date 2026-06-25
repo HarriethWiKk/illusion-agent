@@ -24,6 +24,7 @@ import logging  # 日志记录
 from pathlib import Path  # 路径处理
 
 from pydantic import BaseModel, Field  # 数据模型
+from illusion.utils.atomic_write import atomic_write_text  # 原子写入工具
 
 logger = logging.getLogger(__name__)  # 模块日志器
 
@@ -216,7 +217,7 @@ def save_channels_config(config: ChannelsConfig, config_path: Path | None = None
         config_path = get_channels_file_path()
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
+    atomic_write_text(
+        config_path,
         config.model_dump_json(indent=2) + "\n",
-        encoding="utf-8",
     )

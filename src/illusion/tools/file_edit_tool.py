@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Any
 
 from difflib import unified_diff
@@ -22,21 +23,32 @@ from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.atomic_write import atomic_write_text
 
 
-# 模块级集合，跟踪本次会话中已读取的文件
-# FileReadTool 写入此集合；FileEditTool 从中读取
-_read_files: set[str] = set()
+# 会话级集合，跟踪本次会话中已读取的文件
+# 使用 ContextVar 实现会话隔离，避免多会话共享和线程安全问题
+_read_files_var: ContextVar[set[str]] = ContextVar("_read_files_var")
+
+
+def _get_read_files() -> set[str]:
+    """获取当前会话的已读取文件集合（懒初始化）"""
+    try:
+        return _read_files_var.get()
+    except LookupError:
+        s: set[str] = set()
+        _read_files_var.set(s)
+        return s
 
 
 def mark_file_read(abs_path: str) -> None:
     """记录文件已被读取（在 FileReadTool 读取后调用）。"""
-    _read_files.add(abs_path)
+    _get_read_files().add(abs_path)
 
 
 def has_file_been_read(abs_path: str) -> bool:
     """检查文件是否在本次会话中已被读取。"""
-    return abs_path in _read_files
+    return abs_path in _get_read_files()
 
 
 class FileEditToolInput(BaseModel):
@@ -121,7 +133,7 @@ Usage:
                 )
             # 创建新文件
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(arguments.new_string, encoding="utf-8")
+            atomic_write_text(path, arguments.new_string)
             mark_file_read(str(path))
             # 生成新文件内容预览
             preview = _generate_create_preview(str(path), arguments.new_string)
@@ -158,7 +170,7 @@ Usage:
 
         # 空文件上的空 old_string = 写入新内容
         if not arguments.old_string and not original.strip():
-            path.write_text(arguments.new_string, encoding="utf-8")
+            atomic_write_text(path, arguments.new_string)
             diff_text = _generate_diff(str(path), original, arguments.new_string)
             return ToolResult(output=f"Updated {path}\n{diff_text}")
 
@@ -190,7 +202,7 @@ Usage:
         else:
             updated = original.replace(arguments.old_string, arguments.new_string, 1)
 
-        path.write_text(updated, encoding="utf-8")
+        atomic_write_text(path, updated)
         # 生成差异文本
         diff_text = _generate_diff(str(path), original, updated)
         return ToolResult(output=f"Updated {path}\n{diff_text}")

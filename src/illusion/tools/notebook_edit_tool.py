@@ -22,6 +22,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.atomic_write import atomic_write_text
 
 
 class NotebookEditToolInput(BaseModel):
@@ -215,7 +216,7 @@ def _load_notebook(path: Path) -> dict[str, Any] | None:
 def _save_notebook(path: Path, notebook: dict[str, Any]) -> None:
     """将 notebook 保存到磁盘。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(notebook, indent=1) + "\n", encoding="utf-8")
+    atomic_write_text(path, json.dumps(notebook, indent=1) + "\n")
 
 
 def _generate_cell_id() -> str:

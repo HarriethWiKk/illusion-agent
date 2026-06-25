@@ -49,6 +49,7 @@ from typing import Any
 from croniter import croniter
 
 from illusion.config.paths import get_cron_registry_path
+from illusion.utils.atomic_write import atomic_write_text
 
 # 存储格式版本号，用于未来迁移
 _STORE_VERSION = 1
@@ -131,7 +132,7 @@ def save_cron_jobs(jobs: list[dict[str, Any]]) -> None:
     path = get_cron_registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     store = {"version": _STORE_VERSION, "jobs": jobs}
-    path.write_text(json.dumps(store, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write_text(path, json.dumps(store, indent=2, ensure_ascii=False) + "\n")
 
 
 def validate_cron_expression(expression: str) -> bool:

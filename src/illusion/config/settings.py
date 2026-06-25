@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, field_validator  # 导入 pydantic 模型
 
 from illusion.mcp.types import McpServerConfig  # 导入 MCP 服务器配置
 from illusion.permissions.modes import PermissionMode  # 导入权限模式
+from illusion.utils.atomic_write import atomic_write_text  # 导入原子写入工具
 
 
 class PathRuleConfig(BaseModel):
@@ -633,7 +634,7 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
         if not key.startswith("env_"):
             ordered[key] = value
 
-    config_path.write_text(
+    atomic_write_text(
+        config_path,
         json.dumps(ordered, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )

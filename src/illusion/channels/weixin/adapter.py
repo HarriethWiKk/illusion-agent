@@ -23,6 +23,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from illusion.channels.base import Channel, InboundMessage
+from illusion.utils.atomic_write import atomic_write_text
 
 if TYPE_CHECKING:
     from illusion.channels.config import WeixinChannelConfig
@@ -207,6 +208,22 @@ class WeixinChannel(Channel):
 
             except asyncio.CancelledError:
                 break
+            except RuntimeError as exc:
+                # 会话过期是不可恢复错误，暂停后重试（而非无限循环）
+                if "session_expired" in str(exc) or "会话过期" in str(exc):
+                    logger.warning("微信会话过期，暂停 %ds 等待重新扫码: %s", SESSION_PAUSE_SECONDS, exc)
+                    await asyncio.sleep(SESSION_PAUSE_SECONDS)
+                    consecutive_failures = 0
+                    continue
+                consecutive_failures += 1
+                if consecutive_failures < MAX_CONSECUTIVE_FAILURES:
+                    logger.warning("长轮询失败 (%d/3): %s，%ds 后重试",
+                                   consecutive_failures, exc, RETRY_DELAY_SECONDS)
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    logger.warning("连续失败 %d 次，%ds 退避", consecutive_failures, BACKOFF_DELAY_SECONDS)
+                    await asyncio.sleep(BACKOFF_DELAY_SECONDS)
+                    consecutive_failures = 0
             except Exception as exc:  # noqa: BLE001
                 consecutive_failures += 1
                 if consecutive_failures < MAX_CONSECUTIVE_FAILURES:
@@ -393,6 +410,14 @@ class WeixinChannel(Channel):
         if self._send_session is not None:
             await self._send_session.close()
 
+    def get_bot_id(self) -> str:
+        """返回微信 bot 自身 account_id
+
+        Returns:
+            str: bot 的 account_id
+        """
+        return self._account_id
+
     # ─── 持久化 ──────────────────────────────────────────────
 
     def _load_context_tokens(self) -> None:
@@ -410,7 +435,7 @@ class WeixinChannel(Channel):
         from illusion.config.paths import get_channels_data_dir
         path = get_channels_data_dir() / "weixin" / "context_tokens.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self._context_tokens, ensure_ascii=False), encoding="utf-8")
+        atomic_write_text(path, json.dumps(self._context_tokens, ensure_ascii=False))
 
     def _load_sync_buf(self) -> None:
         """从磁盘加载长轮询游标"""
@@ -428,7 +453,7 @@ class WeixinChannel(Channel):
         from illusion.config.paths import get_channels_data_dir
         path = get_channels_data_dir() / "weixin" / "sync_buf.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"sync_buf": self._sync_buf}), encoding="utf-8")
+        atomic_write_text(path, json.dumps({"sync_buf": self._sync_buf}))
 
 
 async def _poll_with_retry(

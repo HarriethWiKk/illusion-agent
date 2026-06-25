@@ -22,6 +22,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.atomic_write import atomic_write_text
 
 
 class FileWriteToolInput(BaseModel):
@@ -109,7 +110,7 @@ Usage:
             original = path.read_text(encoding="utf-8")
 
         # 写入文件内容
-        path.write_text(arguments.content, encoding="utf-8")
+        atomic_write_text(path, arguments.content)
 
         # 写入后将文件标记为已读，以便后续编辑
         from illusion.tools.file_edit_tool import mark_file_read

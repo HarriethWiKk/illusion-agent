@@ -26,6 +26,7 @@ from pathlib import Path
 from re import sub
 
 from illusion.memory.paths import get_memory_entrypoint, get_project_memory_dir
+from illusion.utils.atomic_write import atomic_write_text
 
 
 def is_memory_enabled(cwd: str | Path) -> bool:
@@ -91,13 +92,13 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
     memory_dir = get_project_memory_dir(cwd)  # 获取记忆目录
     slug = sub(r"[^a-zA-Z0-9]+", "_", title.strip().lower()).strip("_") or "memory"  # 转换为slug
     path = memory_dir / f"{slug}.md"  # 构建文件路径
-    path.write_text(content.strip() + "\n", encoding="utf-8")  # 写入内容
+    atomic_write_text(path, content.strip() + "\n")  # 写入内容
 
     entrypoint = get_memory_entrypoint(cwd)  # 获取入口点
     existing = entrypoint.read_text(encoding="utf-8") if entrypoint.exists() else "# Memory Index\n"  # 读取现有内容
     if path.name not in existing:  # 如果不存在
         existing = existing.rstrip() + f"\n- [{title}]({path.name})\n"  # 添加索引条目
-        entrypoint.write_text(existing, encoding="utf-8")  # 写入索引
+        atomic_write_text(entrypoint, existing)  # 写入索引
     return path  # 返回创建的文件路径
 
 
@@ -133,5 +134,5 @@ def remove_memory_entry(cwd: str | Path, name: str) -> bool:
             for line in entrypoint.read_text(encoding="utf-8").splitlines()
             if path.name not in line  # 排除包含删除文件名的行
         ]
-        entrypoint.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")  # 重写入口点
+        atomic_write_text(entrypoint, "\n".join(lines).rstrip() + "\n")  # 重写入口点
     return True  # 返回成功

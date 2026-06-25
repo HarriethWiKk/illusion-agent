@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from illusion.channels.base import InboundMessage
+from illusion.utils.atomic_write import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -125,21 +126,22 @@ class QQSessionStore:
             "session_id": session.session_id,
             "model": session.model,
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
     def check_signal(self) -> bool:
-        """检查是否有 /delete 信号"""
-        signal_path = self.data_dir / ".signal"
-        if signal_path.exists():
-            signal_path.unlink()
-            return True
-        return False
+        """检查 /delete 信号文件是否存在
+
+        Returns:
+            bool: 信号存在返回 True
+        """
+        return (self.data_dir / ".delete_signal").exists()
 
     def clear_signal(self) -> None:
-        """清除 /delete 信号"""
-        signal_path = self.data_dir / ".signal"
-        if signal_path.exists():
-            signal_path.unlink()
+        """删除信号文件"""
+        try:
+            (self.data_dir / ".delete_signal").unlink()
+        except OSError:
+            pass
 
     def _session_path(self, key: str) -> Path:
         """会话文件路径"""

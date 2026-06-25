@@ -19,6 +19,7 @@ from pathlib import Path  # 路径处理
 from uuid import uuid4  # 会话 ID 生成
 
 from illusion.channels.base import InboundMessage  # 入站消息类型
+from illusion.utils.atomic_write import atomic_write_text  # 原子写入工具
 
 
 @dataclass
@@ -162,7 +163,7 @@ class FeishuSessionStore:
             "chat_type": session.chat_type,
             "model": session.model,
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
     def clear(self, key: str) -> None:
         """清空指定键的会话（删除文件）

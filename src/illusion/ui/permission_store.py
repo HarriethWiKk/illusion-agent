@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from illusion.utils.atomic_write import atomic_write_text
+
 # 权限文件路径：.illusion/permissions.json
 _PERMISSIONS_PATH = Path(".illusion") / "permissions.json"
 
@@ -74,7 +76,7 @@ def save_always_allowed_tools(cwd: str | Path, tools: set[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # 序列化并写入文件
     payload = {"always_allow_tools": sorted({tool.strip() for tool in tools if tool.strip()})}
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
 
 
 def add_always_allowed_tool(cwd: str | Path, tool_name: str) -> set[str]:

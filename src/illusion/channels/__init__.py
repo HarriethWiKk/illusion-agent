@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from illusion.channels.config import load_channels_config
+from illusion.utils.atomic_write import atomic_write_text
 
 if TYPE_CHECKING:
     from illusion.channels.base import Channel, InboundMessage
@@ -126,7 +127,7 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
             env=env,
         )
         pid_file.acquire(proc.pid)
-        fingerprint_path.write_text(current_fp, encoding="utf-8")
+        atomic_write_text(fingerprint_path, current_fp)
         return proc
     except OSError as exc:
         logger.warning("启动渠道守护进程失败: %s", exc)
@@ -142,7 +143,7 @@ class ChannelRunner:
     Attributes:
         channel: 渠道实例
         settings: 主设置
-        session_store: 飞书会话存储
+        session_store: 渠道会话存储（按渠道类型自动创建）
     """
 
     def __init__(self, *, channel: "Channel", settings: "Settings",
@@ -159,9 +160,9 @@ class ChannelRunner:
         """
         self.channel = channel  # 渠道
         self.settings = settings  # 主设置
-        # 按渠道类型构造会话存储（当前仅飞书）
-        from illusion.channels.feishu.session_map import FeishuSessionStore
-        self.session_store = FeishuSessionStore(
+        # 按渠道类型构造对应的会话存储
+        self.session_store = _create_session_store(
+            channel=channel,
             data_dir=session_data_dir,
             group_sessions_per_user=group_sessions_per_user,
         )
@@ -210,7 +211,8 @@ class ChannelRunner:
                     pass
             from illusion.config.i18n import t as _t
             from illusion.channels.qq.adapter import QQChannel as _QQChannel
-            if isinstance(self.channel, _get_weixin_channel_class()):
+            weixin_cls = _get_weixin_channel_class()
+            if weixin_cls is not None and isinstance(self.channel, weixin_cls):
                 await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
             elif isinstance(self.channel, _QQChannel):
                 await self.channel.send_text(msg.chat_id, _t("qq_cmd_new"))
@@ -459,6 +461,59 @@ def _get_weixin_channel_class() -> Any:
         return WeixinChannel
     except ImportError:
         return None
+
+
+def _create_session_store(
+    *,
+    channel: "Channel",
+    data_dir: Path,
+    group_sessions_per_user: bool = True,
+) -> Any:
+    """根据渠道类型创建对应的 SessionStore
+
+    飞书 → FeishuSessionStore
+    QQ → QQSessionStore
+    微信 → WeixinSessionStore
+    未知 → FeishuSessionStore（向后兼容）
+
+    Args:
+        channel: 渠道实例
+        data_dir: 会话数据目录
+        group_sessions_per_user: 群组会话是否按用户隔离
+
+    Returns:
+        对应渠道的 SessionStore 实例
+    """
+    from illusion.channels.feishu.adapter import FeishuChannel
+    if isinstance(channel, FeishuChannel):
+        from illusion.channels.feishu.session_map import FeishuSessionStore
+        return FeishuSessionStore(
+            data_dir=data_dir,
+            group_sessions_per_user=group_sessions_per_user,
+        )
+    try:
+        from illusion.channels.qq.adapter import QQChannel
+        if isinstance(channel, QQChannel):
+            from illusion.channels.qq.session_map import QQSessionStore
+            return QQSessionStore(
+                data_dir=data_dir,
+                group_sessions_per_user=group_sessions_per_user,
+            )
+    except ImportError:
+        pass
+    try:
+        from illusion.channels.weixin.adapter import WeixinChannel
+        if isinstance(channel, WeixinChannel):
+            from illusion.channels.weixin.session_map import WeixinSessionStore
+            return WeixinSessionStore(data_dir=data_dir)
+    except ImportError:
+        pass
+    # 未知渠道回退到飞书（向后兼容）
+    from illusion.channels.feishu.session_map import FeishuSessionStore
+    return FeishuSessionStore(
+        data_dir=data_dir,
+        group_sessions_per_user=group_sessions_per_user,
+    )
 
 
 def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
