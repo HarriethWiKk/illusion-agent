@@ -424,11 +424,11 @@ function QuestionModal({
 	// ============ 复核/提交页 ============
 	if (isSubmitView) {
 		const allAnswered = questions.every((q) => q.question && state.answers[q.question] !== undefined);
-		return (
-			<Box flexDirection="column" marginTop={1}>
-				{/* 话题分割线：把提问与上方对话内容明显隔开 */}
-				<Text dimColor>{'─'.repeat(Math.max(0, terminalWidth - 2))}</Text>
-				<QuestionNavigationBar
+	return (
+		<Box flexDirection="column" marginTop={1}>
+			{/* 话题分割线：把提问与上方对话内容明显隔开 */}
+			<Text color={theme.colors.permission}>{'─'.repeat(Math.max(0, Math.min(terminalWidth, 80) - 2))}</Text>
+			<QuestionNavigationBar
 					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
 					currentQuestionIndex={currentQuestionIndex}
 					answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
@@ -515,7 +515,7 @@ function QuestionModal({
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			{/* 话题分割线：把提问与上方对话内容明显隔开，避免用户忽略提问 */}
-			<Text dimColor>{'─'.repeat(Math.max(0, terminalWidth - 2))}</Text>
+			<Text color={theme.colors.permission}>{'─'.repeat(Math.max(0, Math.min(terminalWidth, 80) - 2))}</Text>
 			{/* 标题行：header chip + 问题文本 */}
 			<Box>
 				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
@@ -544,18 +544,16 @@ function QuestionModal({
 
 			{/* 导航条（仅多问题时显示） */}
 			{questions.length > 1 ? (
-				<Box marginTop={1}>
-					<QuestionNavigationBar
-						headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
-						currentQuestionIndex={currentQuestionIndex}
-						answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
-						hideSubmitTab={questions.length === 1 && !isMultiSelect}
-					/>
-				</Box>
+				<QuestionNavigationBar
+					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
+					currentQuestionIndex={currentQuestionIndex}
+					answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
+					hideSubmitTab={questions.length === 1 && !isMultiSelect}
+				/>
 			) : null}
 
 			{hasOptions ? (
-				<Box flexDirection="column" marginTop={1}>
+				<Box flexDirection="column" marginTop={questions.length > 1 ? 0 : 1}>
 					<Text dimColor>{hintText}</Text>
 					{hasPreview ? (
 						// ===== 预览分栏：左选项列表 + 右预览框 =====
