@@ -139,3 +139,14 @@ class Channel(ABC):
             chat_id: 目标会话
         """
         pass  # 默认空操作
+
+    def get_bot_id(self) -> str:
+        """返回 bot 自身标识（用于自回显检测）
+
+        子类应在 connect() 后返回 bot 的 user_id / open_id。
+        默认返回空串，表示未获取到。
+
+        Returns:
+            str: bot 自身标识
+        """
+        return ""

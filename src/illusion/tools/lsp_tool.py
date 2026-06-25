@@ -2,13 +2,14 @@
 LSP 代码智能工具
 ================
 
-与 claude-code 参考项目的 LSP 工具对齐。
 支持所有已配置语言的代码智能操作。
 """
 
 from __future__ import annotations
 
 import asyncio
+import threading
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -28,22 +29,38 @@ from illusion.tools.lsp_formatters import (
 )
 from illusion.tools.lsp_schemas import LspToolInput
 
-# 全局 LSP 管理器实例（延迟初始化）
+# 全局 LSP 管理器实例（延迟初始化，线程安全）
+# LspManager 持有子进程，必须保证单例，不能用 ContextVar
 _manager: LspManager | None = None
-# 跟踪已打开的文件 URI -> language_id
-_opened_files: dict[str, str] = {}
+_manager_lock = threading.Lock()
+# 跟踪已打开的文件 URI -> language_id（会话级隔离，轻量数据用 ContextVar）
+_opened_files_var: ContextVar[dict[str, str]] = ContextVar("lsp_tool.opened_files")
+
+
+def _get_opened_files() -> dict[str, str]:
+    """获取当前会话的已打开文件映射（懒初始化）"""
+    try:
+        return _opened_files_var.get()
+    except LookupError:
+        d: dict[str, str] = {}
+        _opened_files_var.set(d)
+        return d
 
 
 def _get_manager() -> LspManager:
-    """获取或创建全局 LspManager 实例。"""
+    """获取或创建全局 LspManager 实例（线程安全单例）。"""
     global _manager
-    if _manager is None:
+    if _manager is not None:
+        return _manager
+    with _manager_lock:
+        if _manager is not None:
+            return _manager
         from illusion.config.paths import get_config_file_path
 
         settings_path = get_config_file_path()
         configs = load_lsp_config(settings_path)
         _manager = LspManager(configs)
-    return _manager
+        return _manager
 
 
 class LspTool(BaseTool[LspToolInput]):
@@ -136,7 +153,8 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         text_doc = {"uri": file_path.as_uri()}
 
         # 确保文件已打开（参考项目模式：先 openFile 再发请求）
-        if _opened_files.get(text_doc["uri"]) != lang_id:
+        opened_files = _get_opened_files()
+        if opened_files.get(text_doc["uri"]) != lang_id:
             await self._open_file(client, file_path, lang_id, text_doc["uri"])
 
         try:
@@ -190,7 +208,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                     "text": content,
                 },
             })
-            _opened_files[file_uri] = lang_id
+            _get_opened_files()[file_uri] = lang_id
 
             # 等待服务器分析完成（最长 10 秒）
             try:
@@ -278,11 +296,11 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                     content = file_path.read_text(encoding="utf-8", errors="replace")
                     file_uri = file_path.as_uri()
 
-                    if file_uri not in _opened_files:
+                    if file_uri not in _get_opened_files():
                         await client.notify("textDocument/didOpen", textDocument={
                             "uri": file_uri, "languageId": lang_id, "version": 1, "text": content,
                         })
-                        _opened_files[file_uri] = lang_id
+                        _get_opened_files()[file_uri] = lang_id
 
                     symbols = await client.request(
                         "textDocument/documentSymbol",
