@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 from illusion.config.i18n import t as _t
@@ -91,7 +93,7 @@ Ensure your plan is complete and unambiguous:
         save_settings(settings)
 
         # 4. 调用审批回调
-        plan_approval_prompt = context.metadata.get("plan_approval_prompt")
+        plan_approval_prompt: Any = context.metadata.get("plan_approval_prompt")
         if not callable(plan_approval_prompt):
             # 无审批回调时直接返回成功（非交互模式兼容）
             return ToolResult(
@@ -99,7 +101,7 @@ Ensure your plan is complete and unambiguous:
             )
 
         # 5. 将计划内容推入卡片展示，等待用户审批
-        approved, feedback = await plan_approval_prompt(plan_content)
+        approved, feedback = await plan_approval_prompt(plan_content)  # pyright: ignore[reportGeneralTypeIssues]
 
         if approved:
             return ToolResult(

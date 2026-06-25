@@ -14,6 +14,8 @@ MCP 资源列表工具
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from illusion.mcp.client import McpClientManager
@@ -60,7 +62,7 @@ Parameters:
         if not resources:
             statuses_getter = getattr(self._manager, "list_statuses", None)
             if callable(statuses_getter):
-                statuses = statuses_getter()
+                statuses: Any = statuses_getter()
                 if server is not None:
                     status = next((item for item in statuses if item.name == server), None)
                     if status is None:

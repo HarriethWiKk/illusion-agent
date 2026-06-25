@@ -146,7 +146,7 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
         context: ToolExecutionContext,
     ) -> ToolResult:
         # 获取用户提示回调函数
-        prompt = context.metadata.get("ask_user_prompt")
+        prompt: Any = context.metadata.get("ask_user_prompt")
         if not callable(prompt):
             return ToolResult(
                 output="ask_user_question is unavailable in this session",
@@ -167,7 +167,7 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
         question_text = "\n".join(parts)
 
         # 将结构化问题数据传给回调，使其能正确渲染单选/多选UI
-        answers = await prompt(question_text, arguments.questions)
+        answers = await prompt(question_text, arguments.questions)  # pyright: ignore[reportGeneralTypeIssues]
 
         if not answers:
             return ToolResult(output="(no response)")

@@ -149,7 +149,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
             "file_name": name,
             "file": path.read_bytes(),
         }
-        req = UploadAllFileRequest.builder().request_body(body).build()
+        req = UploadAllFileRequest.builder().request_body(body).build()  # pyright: ignore[reportArgumentType]
         resp = client.drive.v1.file.upload_all(req)
         if not resp.success():
             return ToolResult(
@@ -209,7 +209,7 @@ class FeishuDriveDownloadTool(BaseTool[FeishuDriveDownloadInput]):
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
 
-        req = DownloadFileRequest.builder().file_token(arguments.file_token).file_type(arguments.file_type).build()
+        req = DownloadFileRequest.builder().file_token(arguments.file_token).file_type(arguments.file_type).build()  # pyright: ignore[reportAttributeAccessIssue]
         resp = client.drive.v1.file.download(req)
         if not resp.success():
             return ToolResult(

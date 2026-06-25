@@ -176,7 +176,7 @@ class SupportsStreamingMessages(Protocol):
     查询引擎在测试和生产中使用的协议。
     """
 
-    async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
+    async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:  # pyright: ignore[reportReturnType]
         """为请求产生流式事件"""
 
 

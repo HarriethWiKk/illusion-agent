@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 # i18n 消息表
@@ -424,7 +425,7 @@ _COMMAND_EXACT: dict[str, str] = {
 
 # 命令消息正则替换表（pattern, replacement）
 # replacement 可以是字符串（含 \1 等反向引用）或 lambda(match) -> str
-_COMMAND_SUBSTITUTIONS: list[tuple[str, str | Any]] = [
+_COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] = [
     # 版本
     (r"^IllusionCode (.+)$", r"IllusionCode 版本 \1"),
     # 上下文窗口

@@ -135,7 +135,7 @@ class FeishuDocCreateTool(BaseTool[FeishuDocCreateInput]):
 
         # lark-oapi 用 builder + dict[str, Any] 构造请求（RequestBody 类不接受关键字参数）
         body = {"folder_token": arguments.folder_token, "title": arguments.title}
-        req = CreateDocumentRequest.builder().request_body(body).build()
+        req = CreateDocumentRequest.builder().request_body(body).build()  # pyright: ignore[reportArgumentType]
         resp = client.docx.v1.document.create(req)
         if not resp.success():
             return ToolResult(

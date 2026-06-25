@@ -141,6 +141,8 @@ class ReactBackendHost:
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # 跟踪助手简要文本（用于流式更新）
+        self._brief_assistant_text: str | None = None
 
     async def run(self) -> int:
         """运行后端主机主循环。"""

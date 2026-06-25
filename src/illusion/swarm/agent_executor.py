@@ -653,8 +653,10 @@ async def run_agent_in_process(
                     with contextlib.suppress(Exception):
                         if isinstance(event, ToolExecutionCompleted):
                             await on_progress(f"✓ {event.tool_name}")
-                        elif hasattr(event, "tool_name"):
-                            await on_progress(f"Running {event.tool_name}...")
+                        else:
+                            tool_name = getattr(event, "tool_name", None)
+                            if tool_name is not None:
+                                await on_progress(f"Running {tool_name}...")
 
                 with contextlib.suppress(AttributeError, TypeError):
                     if getattr(event, "type", None) in ("tool_use", "tool_call", "ToolExecutionCompleted"):

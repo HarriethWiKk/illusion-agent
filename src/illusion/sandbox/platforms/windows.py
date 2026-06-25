@@ -130,7 +130,7 @@ class WindowsSandboxPlatform(SandboxPlatform):
             None, f"IllusionSandbox_{id(command)}"
         )
         info = win32job.QueryInformationJobObject(
-            job_handle, win32job.JobObjectExtendedLimitInformation
+            job_handle, win32job.JobObjectExtendedLimitInformation  # pyright: ignore[reportArgumentType]
         )
         info["BasicLimitInformation"]["LimitFlags"] = (
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -142,7 +142,7 @@ class WindowsSandboxPlatform(SandboxPlatform):
         info["ProcessMemoryLimit"] = 512 * 1024 * 1024  # 512MB
         info["JobMemoryLimit"] = 1024 * 1024 * 1024  # 1GB
         win32job.SetInformationJobObject(
-            job_handle, win32job.JobObjectExtendedLimitInformation, info
+            job_handle, win32job.JobObjectExtendedLimitInformation, info  # pyright: ignore[reportArgumentType]
         )
 
         # 2. 创建受限令牌
@@ -166,7 +166,7 @@ class WindowsSandboxPlatform(SandboxPlatform):
         # 存储沙箱句柄供进程创建使用
         self._last_sandbox_result = WindowsSandboxResult(
             command=command,
-            job_handle=job_handle,
+            job_handle=job_handle,  # pyright: ignore[reportArgumentType]
             restricted_token=restricted_token,
         )
 

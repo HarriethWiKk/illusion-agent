@@ -571,7 +571,7 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
             self.end_headers()
             self.wfile.write(_build_html().encode())
 
-        def log_message(self, *args: Any) -> None:
+        def log_message(self, *args: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
             pass  # 静默日志
 
     http_server = HTTPServer(("127.0.0.1", 0), Handler)  # 0 = 系统分配端口

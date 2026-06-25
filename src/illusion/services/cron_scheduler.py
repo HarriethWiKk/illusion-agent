@@ -279,6 +279,7 @@ async def _execute_prompt_in_subprocess(
         # 非 Windows 平台该标志不存在，设为 0 不影响行为
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+        process: asyncio.subprocess.Process | None = None
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd),
@@ -295,11 +296,12 @@ async def _execute_prompt_in_subprocess(
         )
     except asyncio.TimeoutError:
         # 超时处理：终止子进程
-        try:
-            process.kill()
-            await process.wait()
-        except Exception:
-            pass
+        if process is not None:  # pyright: ignore[reportPossiblyUnboundVariable]
+            try:
+                process.kill()  # pyright: ignore[reportPossiblyUnboundVariable]
+                await process.wait()  # pyright: ignore[reportPossiblyUnboundVariable]
+            except Exception:
+                pass
         logger.warning("Cron subprocess timed out after %ds", timeout)
         return {
             "returncode": -1,

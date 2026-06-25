@@ -244,7 +244,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     req = (
         CreateMessageRequest.builder()
         .receive_id_type(receive_id_type)
-        .request_body(body)
+        .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
     resp = client.im.v1.message.create(req)
@@ -261,7 +261,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         req = (
             CreateMessageRequest.builder()
             .receive_id_type(receive_id_type)
-            .request_body(body)
+            .request_body(body)  # pyright: ignore[reportArgumentType]
             .build()
         )
         resp = client.im.v1.message.create(req)
@@ -295,7 +295,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
     req = (
         UpdateMessageRequest.builder()
         .message_id(message_id)
-        .request_body({"msg_type": "text", "content": content})
+        .request_body({"msg_type": "text", "content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
     resp = client.im.v1.message.update(req)
@@ -354,7 +354,7 @@ async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "")
     req = (
         CreateMessageRequest.builder()
         .receive_id_type(receive_id_type)
-        .request_body(body)
+        .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
     resp = client.im.v1.message.create(req)
@@ -380,7 +380,7 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
     req = (
         PatchMessageRequest.builder()
         .message_id(message_id)
-        .request_body({"content": content})
+        .request_body({"content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
     resp = client.im.v1.message.patch(req)

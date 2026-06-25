@@ -151,10 +151,11 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     from illusion.config.i18n import t
     from illusion.config.paths import get_channels_data_dir
 
+    from illusion.channels import ChannelRunner
+    from illusion.channels.base import Channel
+
     runners: list[Any] = []  # ChannelRunner 列表
     if cfg.feishu.enabled and settings is not None:
-        from illusion.channels import ChannelRunner
-        from illusion.channels.base import Channel
         from illusion.channels.feishu.adapter import FeishuChannel
 
         print(t("channel_starting", channel="feishu"))

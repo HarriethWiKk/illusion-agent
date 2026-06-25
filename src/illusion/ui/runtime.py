@@ -224,6 +224,7 @@ async def build_runtime(
     # 加载插件
     plugins = load_plugins(settings, cwd)
     # 解析 API 客户端
+    resolved_api_client: SupportsStreamingMessages
     if api_client:
         resolved_api_client = api_client
     elif settings.api_format == "openai":

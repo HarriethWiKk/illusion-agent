@@ -41,9 +41,9 @@ if TYPE_CHECKING:
 
 # 确保 Windows 上 stdout/stderr 使用 UTF-8，防止通过 tsx 继承 stdio 管道时的 UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _version_callback(value: bool) -> None:
@@ -116,7 +116,7 @@ def mcp_list() -> None:
         return
     for name, cfg in configs.items():
         if hasattr(cfg, "type"):
-            transport = cfg.type
+            transport = cfg.type  # pyright: ignore[reportAttributeAccessIssue]
             if transport == "stdio":
                 cmd = getattr(cfg, "command", "")
                 detail = f" ({cmd})" if cmd else ""
