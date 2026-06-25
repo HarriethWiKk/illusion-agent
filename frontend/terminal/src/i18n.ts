@@ -62,6 +62,26 @@ const ZH: Dict = {
 	planApproved: '计划已批准，开始实施。',
 	planRejected: '计划已拒绝。',
 	planFeedbackPrompt: '请输入修改意见（可选，Enter 提交，Esc 跳过）：',
+	// ---- ask_user_question 问答模态框文案 ----
+	questionOther: '其他',
+	questionOtherPlaceholder: '请输入...',
+	questionSelectOne: '选择一项',
+	questionSelectAll: '选择所有适用项',
+	questionSubmit: '提交',
+	questionNext: '下一题',
+	questionReviewTitle: '复核你的答案',
+	questionNotAllAnswered: '还有问题未作答',
+	questionReadyToSubmit: '准备好提交答案了吗？',
+	questionNoAnswer: '（未作答）',
+	// ---- 底部辅助行片段（每个片段单独 i18n，动态拼接）----
+	questionHintSelect: '选择',
+	questionHintNavigate: '上下导航',
+	questionHintSwitchTab: 'Tab/方向键切换问题',
+	questionHintToggle: 'Space 切换',
+	questionHintSubmit: 'Enter 提交',
+	questionHintCancel: 'Esc 取消',
+	questionHintNotes: 'n 添加备注',
+	questionHintQuickSelect: '数字键快捷选择',
 };
 
 /**
@@ -103,6 +123,26 @@ const EN: Dict = {
 	planApproved: 'Plan approved. Starting implementation.',
 	planRejected: 'Plan rejected.',
 	planFeedbackPrompt: 'Enter feedback (optional, Enter to submit, Esc to skip): ',
+	// ---- ask_user_question question modal strings ----
+	questionOther: 'Other',
+	questionOtherPlaceholder: 'Type something...',
+	questionSelectOne: 'Select one',
+	questionSelectAll: 'Select all that apply',
+	questionSubmit: 'Submit',
+	questionNext: 'Next',
+	questionReviewTitle: 'Review your answers',
+	questionNotAllAnswered: 'You have not answered all questions',
+	questionReadyToSubmit: 'Ready to submit your answers?',
+	questionNoAnswer: '(No answer)',
+	// ---- bottom hint line fragments (each fragment is i18n'd, composed dynamically) ----
+	questionHintSelect: 'select',
+	questionHintNavigate: '↑/↓ to navigate',
+	questionHintSwitchTab: 'Tab/Arrows to switch questions',
+	questionHintToggle: 'Space to toggle',
+	questionHintSubmit: 'Enter to submit',
+	questionHintCancel: 'Esc to cancel',
+	questionHintNotes: 'n to add notes',
+	questionHintQuickSelect: '1-N quick select',
 };
 
 /**
