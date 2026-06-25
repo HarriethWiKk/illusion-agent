@@ -53,7 +53,11 @@ def _make_mock_response(html: str) -> MagicMock:
 @pytest.mark.asyncio
 async def test_web_fetch_tool_reads_html(tmp_path):
     from illusion.tools import web_fetch_tool
-    web_fetch_tool._cache.clear()
+    # 清理会话级缓存（ContextVar 懒初始化，需先 set 再 clear）
+    try:
+        web_fetch_tool._get_cache().clear()
+    except LookupError:
+        pass
 
     mock_resp = _make_mock_response(
         "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
