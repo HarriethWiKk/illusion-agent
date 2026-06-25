@@ -9,6 +9,7 @@
     - 无 markdown 特征 → 纯 text
 
 所有方法均延迟导入 lark_oapi，确保未安装 SDK 时模块可导入。
+所有 lark-oapi SDK 调用均通过 asyncio.to_thread 包装，避免阻塞事件循环。
 
 函数说明：
     - build_lark_client: 构造飞书 lark 客户端
@@ -20,6 +21,7 @@
 """
 from __future__ import annotations
 
+import asyncio  # 异步
 import json  # JSON 构造
 import logging  # 日志
 import re  # markdown 探测
@@ -247,7 +249,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = client.im.v1.message.create(req)
+    resp = await asyncio.to_thread(client.im.v1.message.create, req)
     if resp.success():
         return resp.data.message_id  # type: ignore[no-any-return]
 
@@ -264,7 +266,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
             .request_body(body)  # pyright: ignore[reportArgumentType]
             .build()
         )
-        resp = client.im.v1.message.create(req)
+        resp = await asyncio.to_thread(client.im.v1.message.create, req)
         if resp.success():
             return resp.data.message_id  # type: ignore[no-any-return]
 
@@ -298,7 +300,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         .request_body({"msg_type": "text", "content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = client.im.v1.message.update(req)
+    resp = await asyncio.to_thread(client.im.v1.message.update, req)
     if not resp.success():
         # 230072 = 编辑次数超限（飞书硬限制），属预期，finalize 会新建消息补全
         if resp.code == 230072:
@@ -357,7 +359,7 @@ async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "")
         .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = client.im.v1.message.create(req)
+    resp = await asyncio.to_thread(client.im.v1.message.create, req)
     if not resp.success():
         raise RuntimeError(f"飞书卡片发送失败: code={resp.code} msg={resp.msg}")
     return resp.data.message_id  # type: ignore[no-any-return]
@@ -383,7 +385,7 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
         .request_body({"content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = client.im.v1.message.patch(req)
+    resp = await asyncio.to_thread(client.im.v1.message.patch, req)
     if not resp.success():
         logger.warning("飞书卡片更新失败: code=%s msg=%s", resp.code, resp.msg)
 

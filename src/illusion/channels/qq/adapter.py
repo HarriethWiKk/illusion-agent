@@ -95,7 +95,42 @@ class QQChannel(Channel):
         )
         await self._ws_client.connect()
 
+        # 获取 bot 自身 openid（用于自回显检测）
+        await self._hydrate_bot_openid()
+
         print(t("channel_starting_qq"))
+
+    async def _hydrate_bot_openid(self) -> None:
+        """从 QQ API 获取 bot 自身 openid
+
+        调用 /users/@me 接口获取 bot 的 openid，
+        用于自回显检测。
+        """
+        if not self._session:
+            return
+        try:
+            if not self._token:
+                self._token = await ensure_token(
+                    self._session, self.config.app_id, self.config.client_secret,
+                )
+            from illusion.channels.qq.api import API_BASE
+            headers = {"Authorization": f"QQBot {self._token}"}
+            async with self._session.get(f"{API_BASE}/users/@me", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    self._bot_openid = data.get("id", "") or ""
+                    if self._bot_openid:
+                        logger.info("QQ bot openid: %s", self._bot_openid)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("获取 QQ bot openid 失败: %s", exc)
+
+    def get_bot_id(self) -> str:
+        """返回 QQ bot 自身 openid
+
+        Returns:
+            str: bot 的 openid
+        """
+        return self._bot_openid
 
     async def _on_ws_event(self, event_type: str, data: dict[str, Any]) -> None:
         """WS 事件回调，标准化后放入队列

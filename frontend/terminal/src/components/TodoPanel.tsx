@@ -41,10 +41,6 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 	const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const completionTimeRef = useRef<Record<string, number>>({});
 
-	if (items.length === 0 || hidden) {
-		return <></>;
-	}
-
 	const completed = items.filter((t) => t.status === 'completed').length;
 	const inProgress = items.filter((t) => t.status === 'in_progress').length;
 	const pending = items.filter((t) => t.status === 'pending').length;
@@ -58,7 +54,7 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 		}
 	}
 
-	// 所有任务完成后延迟隐藏
+	// 所有任务完成后延迟隐藏（必须在所有条件 return 之前，遵守 Hooks 规则）
 	useEffect(() => {
 		if (allDone) {
 			if (hideTimerRef.current === null) {
@@ -81,6 +77,11 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 			}
 		};
 	}, [allDone]);
+
+	// 条件 return 放在 useEffect 之后，避免违反 React Hooks 规则
+	if (items.length === 0 || hidden) {
+		return <></>;
+	}
 
 	// 排序：最近完成 > in_progress > pending > 较早完成
 	const sorted = [...items].sort((a, b) => {

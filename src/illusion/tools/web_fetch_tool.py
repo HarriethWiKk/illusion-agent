@@ -17,6 +17,7 @@ from __future__ import annotations
 import html as _html_module
 import re
 import time
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 import httpx
@@ -27,10 +28,21 @@ from illusion.config.settings import load_settings
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 # ---------------------------------------------------------------------------
-# 15-minute TTL cache
+# 15-minute TTL cache（使用 ContextVar 实现会话隔离，避免跨会话泄漏）
 # ---------------------------------------------------------------------------
-_cache: dict[str, tuple[float, str]] = {}
+_cache_var: ContextVar[dict[str, tuple[float, str]]] = ContextVar("_cache_var")
 _CACHE_TTL = 15 * 60  # 15 minutes in seconds
+_CACHE_MAX_SIZE = 256  # 最大缓存条目数，防止内存无限增长
+
+
+def _get_cache() -> dict[str, tuple[float, str]]:
+    """获取当前会话的缓存字典（懒初始化）"""
+    try:
+        return _cache_var.get()
+    except LookupError:
+        c: dict[str, tuple[float, str]] = {}
+        _cache_var.set(c)
+        return c
 
 
 def _cache_key(url: str, prompt: str, max_chars: int) -> str:
@@ -38,18 +50,30 @@ def _cache_key(url: str, prompt: str, max_chars: int) -> str:
 
 
 def _cache_get(key: str) -> str | None:
-    entry = _cache.get(key)
+    cache = _get_cache()
+    entry = cache.get(key)
     if entry is None:
         return None
     ts, value = entry
     if time.time() - ts > _CACHE_TTL:
-        del _cache[key]
+        del cache[key]
         return None
     return value
 
 
 def _cache_set(key: str, value: str) -> None:
-    _cache[key] = (time.time(), value)
+    cache = _get_cache()
+    # 超过最大容量时清理过期条目
+    if len(cache) >= _CACHE_MAX_SIZE:
+        now = time.time()
+        expired = [k for k, (ts, _) in cache.items() if now - ts > _CACHE_TTL]
+        for k in expired:
+            del cache[k]
+        # 仍超容量则清理最旧的
+        if len(cache) >= _CACHE_MAX_SIZE:
+            oldest_key = min(cache, key=lambda k: cache[k][0])
+            del cache[oldest_key]
+    cache[key] = (time.time(), value)
 
 
 class WebFetchToolInput(BaseModel):
@@ -114,8 +138,10 @@ Usage notes:
         try:
             async with httpx.AsyncClient(follow_redirects=False, timeout=20.0) as client:
                 response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
-                # 检测跨主机重定向
-                while response.is_redirect:
+                # 检测跨主机重定向（限制最大次数，防止恶意服务器触发无限循环）
+                max_redirects = 10
+                redirect_count = 0
+                while response.is_redirect and redirect_count < max_redirects:
                     location = response.headers.get("location", "")
                     if not location:
                         break
@@ -125,6 +151,7 @@ Usage notes:
                     if not redirect_parsed.netloc or redirect_parsed.netloc == current_parsed.netloc:
                         url = location if redirect_parsed.netloc else f"{current_parsed.scheme}://{current_parsed.netloc}{location}"
                         response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
+                        redirect_count += 1
                     else:
                         return ToolResult(
                             output=(
@@ -133,6 +160,11 @@ Usage notes:
                                 f"Please make a new WebFetch request with the redirect URL."
                             )
                         )
+                if redirect_count >= max_redirects:
+                    return ToolResult(
+                        output=f"Too many redirects (>{max_redirects}) for {arguments.url}. Possible redirect loop.",
+                        is_error=True,
+                    )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             return ToolResult(output=f"web_fetch failed: {exc}", is_error=True)

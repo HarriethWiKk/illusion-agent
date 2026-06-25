@@ -61,6 +61,8 @@ class FeishuChannel(Channel):
 
         # 构造 lark 客户端
         self._client = build_lark_client(self.config)
+        # 获取 bot 自身 open_id（用于自回显检测和 @提及识别）
+        await self._hydrate_bot_id()
         # 构造 WS 包装
         domain = "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
         self._ws = FeishuWSClient(
@@ -74,6 +76,31 @@ class FeishuChannel(Channel):
         # 在 executor 线程跑阻塞的 start()
         self._loop.run_in_executor(None, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
+
+    async def _hydrate_bot_id(self) -> None:
+        """从飞书 API 获取 bot 自身 open_id
+
+        调用 bot_info 接口获取 bot 的 open_id，
+        用于自回显检测和 @提及识别。
+        """
+        try:
+            from lark_oapi.api.im.v1 import GetBotInfoRequest  # type: ignore[import-untyped]
+            req = GetBotInfoRequest.builder().build()
+            resp = await asyncio.to_thread(self._client.im.v1.bot_info.get, req)
+            if resp.success() and resp.data and getattr(resp.data, "bot", None):
+                self._bot_open_id = getattr(resp.data.bot, "open_id", "") or ""
+                if self._bot_open_id:
+                    logger.info("飞书 bot open_id: %s", self._bot_open_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("获取飞书 bot open_id 失败: %s", exc)
+
+    def get_bot_id(self) -> str:
+        """返回飞书 bot 自身 open_id
+
+        Returns:
+            str: bot 的 open_id
+        """
+        return self._bot_open_id
 
     def _on_raw_event(self, event: Any) -> None:
         """处理原始飞书事件（在 WS 客户端的 executor 线程调用）
