@@ -427,7 +427,7 @@ function QuestionModal({
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			{/* 话题分割线：把提问与上方对话内容明显隔开 */}
-			<Text color={theme.colors.permission}>{'─'.repeat(Math.max(0, Math.min(terminalWidth, 80) - 2))}</Text>
+			<Text color={theme.colors.suggestion}>{'─'.repeat(60)}</Text>
 			<QuestionNavigationBar
 					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
 					currentQuestionIndex={currentQuestionIndex}
@@ -515,7 +515,7 @@ function QuestionModal({
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			{/* 话题分割线：把提问与上方对话内容明显隔开，避免用户忽略提问 */}
-			<Text color={theme.colors.permission}>{'─'.repeat(Math.max(0, Math.min(terminalWidth, 80) - 2))}</Text>
+			<Text color={theme.colors.suggestion}>{'─'.repeat(60)}</Text>
 			{/* 标题行：header chip + 问题文本 */}
 			<Box>
 				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
