@@ -12,7 +12,7 @@
 """
 from __future__ import annotations
 
-from typing import Any,  TYPE_CHECKING  # 类型
+from typing import TYPE_CHECKING  # 类型
 
 from pydantic import BaseModel, Field  # 数据模型
 

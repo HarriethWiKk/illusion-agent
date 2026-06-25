@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
 
