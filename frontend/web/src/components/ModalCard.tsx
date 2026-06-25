@@ -131,31 +131,103 @@ interface QuestionCardProps {
 export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   const requestId = String(modal.request_id ?? '');
   const questions: QuestionItem[] = Array.isArray(modal.questions) ? (modal.questions as QuestionItem[]) : [];
-  const firstQuestion = questions.length > 0 ? questions[0]! : null;
-  const options = firstQuestion?.options ?? [];
+  // ---- 多问题状态 ----
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [multiAnswers, setMultiAnswers] = useState<Record<string, string>>({});
+  const isMultiQuestion = questions.length > 1;
+  const currentQuestion = questions.length > 0 ? (questions[currentIndex] ?? questions[0]!) : null;
+  const options = currentQuestion?.options ?? [];
   // 过滤掉LLM返回的"其他"选项，保留工具自动添加的
   const filteredOptions = useMemo(() => options.filter((opt) => {
     const lbl = opt.label.toLowerCase();
     return !(lbl === 'other' || lbl === '其他' || lbl.startsWith('other') || lbl.startsWith('其他'));
   }), [options]);
   const hasOptions = filteredOptions.length > 0;
-  const isMultiSelect = firstQuestion?.multiSelect === true && hasOptions;
-  const noCustomInput = firstQuestion?.noCustomInput === true;
+  const isMultiSelect = currentQuestion?.multiSelect === true && hasOptions;
+  const noCustomInput = currentQuestion?.noCustomInput === true;
   /** "其他"选项在 filteredOptions 之后的索引 */
   const otherIdx = filteredOptions.length;
 
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  /** "其他"选项的输入内容 */
-  const [otherText, setOtherText] = useState('');
+  // 按题索引持久化多选状态（切换问题不丢失）
+  const [allSelectedIndices, setAllSelectedIndices] = useState<Record<number, Set<number>>>({});
+  const selectedIndices = allSelectedIndices[currentIndex] ?? new Set<number>();
+  const setSelectedIndices = (updater: (prev: Set<number>) => Set<number>) => {
+    setAllSelectedIndices((prev) => ({
+      ...prev,
+      [currentIndex]: updater(prev[currentIndex] ?? new Set<number>()),
+    }));
+  };
+  /** "其他"选项的输入内容（按题索引持久化） */
+  const [allOtherText, setAllOtherText] = useState<Record<number, string>>({});
+  const otherText = allOtherText[currentIndex] ?? '';
+  const setOtherText = (updater: ((prev: string) => string) | string) => {
+    setAllOtherText((prev) => ({
+      ...prev,
+      [currentIndex]: typeof updater === 'function' ? updater(prev[currentIndex] ?? '') : updater,
+    }));
+  };
   /** "其他"选项是否聚焦（输入框可见） */
   const [isOtherFocused, setIsOtherFocused] = useState(false);
   const otherInputRef = useRef<HTMLInputElement>(null);
+  /** 问题卡片根元素引用，用于单问题多选的失焦提交 */
+  const cardRef = useRef<HTMLDivElement>(null);
 
+  // 切换问题时恢复"其他"输入框的聚焦/显示状态：
+  // 若该题已有"其他"输入内容（allOtherText 持久化），则显示输入框与选中态，
+  // 否则收起。这样回到已填"其他"的问题时，界面能正确回显勾选与文本。
   useEffect(() => {
-    setSelectedIndices(new Set());
-    setOtherText('');
-    setIsOtherFocused(false);
-  }, [hasOptions, filteredOptions.length, isMultiSelect]);
+    const persistedOther = allOtherText[currentIndex]?.trim() ?? '';
+    setIsOtherFocused(persistedOther.length > 0);
+  }, [currentIndex, allOtherText]);
+
+  // 单选已选答案（从 multiAnswers 回读）
+  const currentHeader = currentQuestion?.header ?? `Q${currentIndex + 1}`;
+  const singleSelectAnswer = !isMultiSelect && isMultiQuestion ? multiAnswers[currentHeader] : null;
+
+  // 多选：根据当前选中集合即时计算答案。
+  // - 多问题多选：选中即时写入 multiAnswers（无确认按钮，最后统一提交）
+  // - 单问题多选：选中只更新本地勾选状态，待失焦时统一提交（避免选一个就被提交）
+  const commitMultiSelect = useCallback(
+    (selected: Set<number>) => {
+      const labels = filteredOptions
+        .filter((_, i) => selected.has(i))
+        .map((o) => o.label);
+      // 选中了"其他"且有输入内容，加入结果
+      if (selected.has(otherIdx) && otherText.trim()) {
+        labels.push(otherText.trim());
+      }
+      if (labels.length === 0) {
+        // 空选：多问题下删除该 key 以保持 Submit 按钮可见性语义正确
+        if (isMultiQuestion) {
+          setMultiAnswers((prev) => {
+            const next = { ...prev };
+            delete next[currentHeader];
+            return next;
+          });
+        }
+        return;
+      }
+      if (isMultiQuestion) {
+        // 多问题：选中即时记入，无确认按钮
+        setMultiAnswers((prev) => ({ ...prev, [currentHeader]: JSON.stringify(labels) }));
+      }
+      // 单问题多选：不在此提交，交由卡片失焦时统一提交
+    },
+    [filteredOptions, otherIdx, otherText, currentHeader, isMultiQuestion],
+  );
+
+  // 单问题多选失焦提交：焦点离开问题卡片时，把当前全部选中项提交给后端
+  const submitSingleMultiSelect = useCallback(() => {
+    if (!isMultiSelect || isMultiQuestion) return;
+    const labels = filteredOptions
+      .filter((_, i) => selectedIndices.has(i))
+      .map((o) => o.label);
+    if (selectedIndices.has(otherIdx) && otherText.trim()) {
+      labels.push(otherText.trim());
+    }
+    if (labels.length === 0) return;
+    onRespond(requestId, JSON.stringify({ [currentHeader]: labels }));
+  }, [isMultiSelect, isMultiQuestion, filteredOptions, selectedIndices, otherIdx, otherText, requestId, onRespond, currentHeader]);
 
   const handleOptionClick = useCallback(
     (idx: number, label: string) => {
@@ -168,10 +240,12 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
               next.delete(idx);
               setIsOtherFocused(false);
               setOtherText('');
+              commitMultiSelect(next);
             } else {
               next.add(idx);
               setIsOtherFocused(true);
               setTimeout(() => otherInputRef.current?.focus(), 0);
+              // 选中"其他"暂不提交——需等用户输入文本后由 handleOtherSubmit 提交
             }
             return next;
           });
@@ -180,6 +254,8 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         setSelectedIndices((prev) => {
           const next = new Set(prev);
           if (next.has(idx)) next.delete(idx); else next.add(idx);
+          // 选中即时生效
+          commitMultiSelect(next);
           return next;
         });
         return;
@@ -190,23 +266,26 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         setTimeout(() => otherInputRef.current?.focus(), 0);
         return;
       }
-      onRespond(requestId, `${idx + 1}. ${label}`);
+      // 单选提交
+      if (isMultiQuestion) {
+        setMultiAnswers((prev) => ({ ...prev, [currentHeader]: `${idx + 1}. ${label}` }));
+      } else {
+        onRespond(requestId, `${idx + 1}. ${label}`);
+      }
     },
-    [isMultiSelect, requestId, onRespond, otherIdx],
+    [isMultiSelect, requestId, onRespond, otherIdx, isMultiQuestion, currentHeader, commitMultiSelect],
   );
 
+  // 多选"其他"输入回车时提交：
+  // - 单问题多选：把"其他"勾选并触发失焦式提交
+  // - 多问题多选：写入 multiAnswers（统一格式）
   const handleMultiConfirm = useCallback(() => {
-    const selected = filteredOptions
-      .filter((_, i) => selectedIndices.has(i))
-      .map((o) => o.label);
-    // 如果选中了"其他"且有输入内容，加入结果
-    if (selectedIndices.has(otherIdx) && otherText.trim()) {
-      selected.push(otherText.trim());
+    if (!isMultiQuestion) {
+      submitSingleMultiSelect();
+    } else {
+      commitMultiSelect(selectedIndices);
     }
-    if (selected.length === 0) return;
-    const header = firstQuestion?.header ?? 'answer';
-    onRespond(requestId, JSON.stringify({ [header]: selected }));
-  }, [selectedIndices, filteredOptions, otherIdx, otherText, firstQuestion, requestId, onRespond]);
+  }, [isMultiQuestion, selectedIndices, commitMultiSelect, submitSingleMultiSelect]);
 
   const handleOtherSubmit = useCallback(() => {
     if (isMultiSelect) {
@@ -216,17 +295,61 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
     // 单选"其他"提交
     const text = otherText.trim();
     if (!text) return;
-    onRespond(requestId, text);
-  }, [isMultiSelect, otherText, handleMultiConfirm, requestId, onRespond]);
+    if (isMultiQuestion) {
+      setMultiAnswers((prev) => ({ ...prev, [currentHeader]: text }));
+    } else {
+      onRespond(requestId, text);
+    }
+  }, [isMultiSelect, otherText, handleMultiConfirm, requestId, onRespond, isMultiQuestion, currentHeader]);
 
-  const questionText = firstQuestion?.question ?? String(modal.question ?? 'Question');
+  const questionText = currentQuestion?.question ?? String(modal.question ?? 'Question');
   const hintText = isMultiSelect
     ? (lang === 'zh-CN' ? '选择所有适用项' : 'Select all that apply')
     : (lang === 'zh-CN' ? '选择一项' : 'Select one');
 
   return (
-    <div className="my-3 rounded-xl border border-border-light overflow-hidden shadow-soft">
+    <div
+      ref={cardRef}
+      tabIndex={isMultiSelect && !isMultiQuestion ? -1 : undefined}
+      onBlur={(e) => {
+        // 单问题多选失焦提交：焦点离开问题卡片时提交当前全部选中项
+        if (!(isMultiSelect && !isMultiQuestion)) return;
+        // relatedTarget 为新聚焦元素；若它仍在卡片内，则不算失焦
+        const next = e.relatedTarget as Node | null;
+        if (next && cardRef.current?.contains(next)) return;
+        submitSingleMultiSelect();
+      }}
+      className={`my-3 rounded-xl border border-border-light overflow-hidden shadow-soft ${
+        isMultiSelect && !isMultiQuestion ? 'outline-none' : ''
+      }`}
+    >
       <div className="bg-surface-main px-4 py-3">
+        {/* Tab 导航栏 — 仅多问题时显示 */}
+        {isMultiQuestion && (
+          <div className="flex items-center gap-1 mb-2 overflow-x-auto">
+            {questions.map((q, idx) => {
+              const headerLabel = q.header ?? `Q${idx + 1}`;
+              const isActive = idx === currentIndex;
+              const isAnswered = headerLabel in multiAnswers;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentIndex(idx)}
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? 'bg-primary text-white'
+                      : isAnswered
+                        ? 'bg-primary-light text-primary border border-primary/20'
+                        : 'bg-surface-hover text-content-secondary hover:bg-surface-main'
+                  }`}
+                >
+                  {isAnswered && !isActive && <span className="mr-1">✓</span>}
+                  {headerLabel}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="text-sm font-medium text-content-primary">{questionText}</div>
         {hasOptions && (
           <div className="text-xs text-content-disabled mt-0.5">{hintText}</div>
@@ -243,7 +366,10 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         {hasOptions ? (
           <div className="space-y-1.5 mb-3">
             {filteredOptions.map((opt, i) => {
-              const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
+              // 多选：从持久化状态读取；单选：从 multiAnswers 回读
+              const isSelected = isMultiSelect
+                ? selectedIndices.has(i)
+                : singleSelectAnswer === `${i + 1}. ${opt.label}`;
               return (
                 <button
                   key={i}
@@ -261,8 +387,10 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                       {isSelected ? '✓' : ''}
                     </span>
                   ) : (
-                    <span className="mt-0.5 w-4 h-4 rounded-full border border-border-light shrink-0 flex items-center justify-center">
-                      <span className="w-2 h-2 rounded-full bg-transparent" />
+                    <span className={`mt-0.5 w-4 h-4 rounded-full border shrink-0 flex items-center justify-center ${
+                      isSelected ? 'border-primary' : 'border-border-light'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-primary' : 'bg-transparent'}`} />
                     </span>
                   )}
                   <div className="flex-1 min-w-0">
@@ -293,12 +421,16 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                     {selectedIndices.has(otherIdx) ? '✓' : ''}
                   </span>
                 ) : (
-                  <span className="mt-0.5 w-4 h-4 rounded-full border border-border-light shrink-0 flex items-center justify-center">
-                    <span className="w-2 h-2 rounded-full bg-transparent" />
+                  <span className={`mt-0.5 w-4 h-4 rounded-full border shrink-0 flex items-center justify-center transition-colors ${
+                    isOtherFocused ? 'border-primary' : 'border-border-light'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full transition-colors ${isOtherFocused ? 'bg-primary' : 'bg-transparent'}`} />
                   </span>
                 )}
                 <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                  <span className={`text-sm font-medium shrink-0 ${isMultiSelect && selectedIndices.has(otherIdx) ? 'text-primary' : ''}`}>
+                  <span className={`text-sm font-medium shrink-0 ${
+                    (isMultiSelect && selectedIndices.has(otherIdx)) || (!isMultiSelect && isOtherFocused) ? 'text-primary' : ''
+                  }`}>
                     {otherIdx + 1}. {lang === 'zh-CN' ? '其他' : 'Other'}
                   </span>{' '}
                   {isOtherFocused ? (
@@ -325,8 +457,14 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                         }
                         e.stopPropagation();
                       }}
+                      // 失焦自动提交：焦点离开输入框时提交已输入内容（无需回车）
+                      // 注意：不限制 relatedTarget 是否在卡片内——切问题 tab 也应提交"其他"内容，
+                      // 否则用户输入的文字会丢失
+                      onBlur={() => {
+                        handleOtherSubmit();
+                      }}
                       onClick={(e) => e.stopPropagation()}
-                      placeholder={lang === 'zh-CN' ? '请输入...' : 'Type something...'}
+                      placeholder={lang === 'zh-CN' ? '输入后离开输入框自动提交（或按 Enter）' : 'Auto-submit on blur (or press Enter)'}
                       className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-content-primary placeholder:text-content-disabled"
                       autoFocus
                     />
@@ -351,7 +489,14 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   const text = otherText.trim();
-                  if (text) onRespond(requestId, text);
+                  if (!text) return;
+                  if (isMultiQuestion) {
+                    const header = currentQuestion?.header ?? `Q${currentIndex + 1}`;
+                    setMultiAnswers((prev) => ({ ...prev, [header]: text }));
+                    setOtherText('');
+                  } else {
+                    onRespond(requestId, text);
+                  }
                 }
               }}
               placeholder={lang === 'zh-CN' ? '输入你的回答...' : 'Type your answer...'}
@@ -361,7 +506,14 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
             <button
               onClick={() => {
                 const text = otherText.trim();
-                if (text) onRespond(requestId, text);
+                if (!text) return;
+                if (isMultiQuestion) {
+                  const header = currentQuestion?.header ?? `Q${currentIndex + 1}`;
+                  setMultiAnswers((prev) => ({ ...prev, [header]: text }));
+                  setOtherText('');
+                } else {
+                  onRespond(requestId, text);
+                }
               }}
               className="px-3 py-2 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer shrink-0"
             >
@@ -371,16 +523,57 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         )}
       </div>
 
-      <div className="px-4 py-3 border-t border-border-light flex items-center justify-end gap-2">
-        {isMultiSelect && hasOptions && (
-          <button
-            onClick={handleMultiConfirm}
-            disabled={selectedIndices.size === 0}
-            className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {lang === 'zh-CN' ? '确认' : 'Confirm'}
-          </button>
-        )}
+      <div className="px-4 py-3 border-t border-border-light flex items-center justify-between">
+        {/* 左侧：重置按钮（多问题时） */}
+        <div>
+          {isMultiQuestion && Object.keys(multiAnswers).length > 0 && (
+            <button
+              onClick={() => {
+                setMultiAnswers({});
+                setAllSelectedIndices({});
+                setAllOtherText({});
+                setCurrentIndex(0);
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:bg-surface-hover rounded-md transition-colors cursor-pointer"
+            >
+              {lang === 'zh-CN' ? '重置' : 'Reset'}
+            </button>
+          )}
+        </div>
+        {/* 右侧：下一题 / 提交 / 确认 */}
+        <div className="flex items-center gap-2">
+          {isMultiQuestion && currentIndex < questions.length - 1 && (
+            <button
+              onClick={() => setCurrentIndex(currentIndex + 1)}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer"
+            >
+              {lang === 'zh-CN' ? '下一题' : 'Next'}
+            </button>
+          )}
+          {isMultiQuestion && Object.keys(multiAnswers).length === questions.length && (
+            <button
+              onClick={() => {
+                const result: Record<string, string | string[]> = {};
+                for (const [k, v] of Object.entries(multiAnswers)) {
+                  try {
+                    const parsed = JSON.parse(v);
+                    if (Array.isArray(parsed)) {
+                      result[k] = parsed;
+                    } else {
+                      result[k] = v;
+                    }
+                  } catch {
+                    result[k] = v;
+                  }
+                }
+                onRespond(requestId, JSON.stringify(result));
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer"
+            >
+              {lang === 'zh-CN' ? '提交' : 'Submit'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
