@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from dataclasses import dataclass, field
 
 from illusion.hooks.events import HookEvent
@@ -20,7 +22,7 @@ class SessionHookMatcher:
 
     matcher: str
     skill_root: str | None = None
-    hooks: list[HookDefinition] = field(default_factory=list)
+    hooks: list[HookDefinition] = field(default_factory=list[Any])
 
 
 @dataclass
@@ -104,13 +106,13 @@ def _hooks_equal(a: HookDefinition, b: HookDefinition) -> bool:
     a_cmd = getattr(a, "command", None)
     b_cmd = getattr(b, "command", None)
     if a_cmd is not None and b_cmd is not None:
-        return a_cmd == b_cmd
+        return bool(a_cmd == b_cmd)
     a_prompt = getattr(a, "prompt", None)
     b_prompt = getattr(b, "prompt", None)
     if a_prompt is not None and b_prompt is not None:
-        return a_prompt == b_prompt
+        return bool(a_prompt == b_prompt)
     a_url = getattr(a, "url", None)
     b_url = getattr(b, "url", None)
     if a_url is not None and b_url is not None:
-        return a_url == b_url
+        return bool(a_url == b_url)
     return False

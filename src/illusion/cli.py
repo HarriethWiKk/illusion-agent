@@ -22,7 +22,7 @@ IllusionCode CLI 入口模块
     >>> illusion                    # 启动交互式会话
     >>> illusion -p "你的提示词"     # 非交互式打印模式
     >>> illusion auth login         # 认证登录
-    >>> illusion mcp list           # 列出 MCP 服务器
+    >>> illusion mcp list      # 列出 MCP 服务器
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def mcp_list() -> None:
     """
     from illusion.config import load_settings
     from illusion.mcp.config import load_mcp_server_configs
-    from illusion.plugins import load_plugins
+    from illusion.plugins.loader import load_plugins
 
     settings = load_settings()
     cwd = str(Path.cwd())
@@ -152,7 +152,7 @@ def mcp_add(
         print(_t("mcp_invalid_json", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
     try:
-        cfg = McpServerConfig.model_validate(raw)
+        cfg = McpServerConfig.model_validate(raw)  # type: ignore[attr-defined]
     except Exception as exc:
         print(_t("mcp_invalid_config", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
@@ -189,7 +189,7 @@ def mcp_remove(
 def plugin_list() -> None:
     """列出已安装的插件"""
     from illusion.config import load_settings
-    from illusion.plugins import load_plugins
+    from illusion.plugins.loader import load_plugins
 
     settings = load_settings()
     plugins = load_plugins(settings, str(Path.cwd()))
@@ -1333,6 +1333,7 @@ def main(
         )
 
         session_data = None  # 会话数据
+        assert cwd is not None
         if continue_session:
             session_data = load_session_snapshot(cwd)
             if session_data is None:

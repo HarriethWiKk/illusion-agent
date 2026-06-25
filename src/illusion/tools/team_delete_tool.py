@@ -26,7 +26,7 @@ class TeamDeleteToolInput(BaseModel):
     """team_delete 输入参数（无参数）。"""
 
 
-class TeamDeleteTool(BaseTool):
+class TeamDeleteTool(BaseTool[TeamDeleteToolInput]):
     """删除当前团队并清理关联目录。"""
 
     name = "team_delete"

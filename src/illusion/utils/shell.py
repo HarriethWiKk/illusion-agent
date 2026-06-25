@@ -127,7 +127,7 @@ async def create_shell_subprocess(
             argv = sandbox_manager.wrap_command(argv, shell=argv[0])
 
     try:
-        kwargs: dict = {}
+        kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         process = await asyncio.create_subprocess_exec(

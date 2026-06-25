@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -39,7 +40,7 @@ class EnterWorktreeToolInput(BaseModel):
     )
 
 
-class EnterWorktreeTool(BaseTool):
+class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
     """创建 git 工作树。
 
     仅在用户明确要求使用工作树时使用。此工具创建隔离的 git 工作树并切换当前会话到其中。
@@ -99,15 +100,16 @@ class EnterWorktreeTool(BaseTool):
             worktree_path = _resolve_worktree_path(repo_root, branch_name)
             worktree_path.parent.mkdir(parents=True, exist_ok=True)
             cmd = ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"]
-            result = subprocess.run(
-                cmd,
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                check=False,
-                stdin=subprocess.DEVNULL,
-                **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
-            )
+            run_kwargs: dict[str, Any] = {
+                "cwd": repo_root,
+                "capture_output": True,
+                "text": True,
+                "check": False,
+                "stdin": subprocess.DEVNULL,
+            }
+            if sys.platform == "win32":
+                run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            result = subprocess.run(cmd, **run_kwargs)
             output = (result.stdout or result.stderr).strip() or f"Created worktree {worktree_path}"
             if result.returncode != 0:
                 return ToolResult(output=output, is_error=True)
@@ -147,15 +149,16 @@ def _git_output(cwd: Path, *args: str) -> str | None:
     返回：
         命令输出字符串，失败返回 None
     """
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        stdin=subprocess.DEVNULL,
-        **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
-    )
+    run_kwargs: dict[str, Any] = {
+        "cwd": cwd,
+        "capture_output": True,
+        "text": True,
+        "check": False,
+        "stdin": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    result = subprocess.run(["git", *args], **run_kwargs)
     if result.returncode != 0:
         return None
     return (result.stdout or "").strip()

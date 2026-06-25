@@ -151,7 +151,7 @@ class LspManager:
         )
 
     @staticmethod
-    def _handle_workspace_config(params: Any) -> list:
+    def _handle_workspace_config(params: Any) -> list[Any]:
         """处理 workspace/configuration 请求。"""
         items = params.get("items", []) if isinstance(params, dict) else []
         return [{}] * len(items)
@@ -162,7 +162,7 @@ class LspManager:
         return None
 
     @staticmethod
-    def _handle_workspace_folders(params: Any) -> list:
+    def _handle_workspace_folders(params: Any) -> list[Any]:
         """处理 workspace/workspaceFolders 请求。"""
         return []
 

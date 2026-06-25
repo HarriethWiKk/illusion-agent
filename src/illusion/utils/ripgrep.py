@@ -307,7 +307,7 @@ async def run_rg(args: list[str], cwd: str | None = None,
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
-        return stdout, stderr, process.returncode
+        return stdout, stderr, process.returncode if process.returncode is not None else 1
 
     except RipgrepError:
         raise

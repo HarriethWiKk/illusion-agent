@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import base64
 import json
 import mimetypes
@@ -65,14 +67,14 @@ class FileReadToolInput(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_fields(cls, values: dict) -> dict:
+    def _normalize_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
         """将旧参数名映射到新参数名，确保向后兼容。"""
         if "path" in values and "file_path" not in values:
             values["file_path"] = values.pop("path")
         return values
 
 
-class FileReadTool(BaseTool):
+class FileReadTool(BaseTool[FileReadToolInput]):
     """读取文本文件和图片文件。
 
     支持图片（PNG, JPG, GIF, WebP 等），通过 base64 编码传递给多模态模型。

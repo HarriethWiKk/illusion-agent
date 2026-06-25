@@ -32,7 +32,7 @@ class ReadMcpResourceToolInput(BaseModel):
     uri: str = Field(description="Resource URI")
 
 
-class ReadMcpResourceTool(BaseTool):
+class ReadMcpResourceTool(BaseTool[ReadMcpResourceToolInput]):
     """从 MCP 服务器读取一个资源。
 
     用于访问 MCP 服务器提供的资源内容。

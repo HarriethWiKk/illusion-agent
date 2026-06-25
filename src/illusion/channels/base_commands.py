@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from illusion.channels.base import InboundMessage
 from illusion.config.i18n import t
@@ -30,7 +30,7 @@ class BaseCommandHandler:
         session_store: 会话存储
     """
 
-    def __init__(self, channel: "Channel", session_store) -> None:
+    def __init__(self, channel: "Channel", session_store: Any) -> None:
         """初始化
 
         Args:
@@ -78,7 +78,7 @@ class BaseCommandHandler:
             await self.channel.send_text(msg.chat_id, t("feishu_cmd_unknown", cmd=f"/{cmd}"))
         return True
 
-    async def _cmd_model(self, msg, key, args):
+    async def _cmd_model(self, msg: InboundMessage, key: str, args: str) -> None:
         """处理 /model 命令
 
         Args:
@@ -99,7 +99,7 @@ class BaseCommandHandler:
         else:
             await self.channel.send_text(msg.chat_id, t("feishu_cmd_model_usage"))
 
-    async def _cmd_sessions(self, msg):
+    async def _cmd_sessions(self, msg: InboundMessage) -> None:
         """处理 /sessions 命令：列出本地终端会话
 
         Args:
@@ -120,7 +120,7 @@ class BaseCommandHandler:
             lines.append(f"  {i}. [{sid}] {summary} ({count} msgs)")
         await self.channel.send_text(msg.chat_id, "\n".join(lines))
 
-    async def _cmd_resume(self, msg, key, args):
+    async def _cmd_resume(self, msg: InboundMessage, key: str, args: str) -> None:
         """处理 /resume 命令：恢复本地会话
 
         Args:
@@ -161,7 +161,7 @@ class BaseCommandHandler:
         self.session_store.inject(key, messages)
         await self.channel.send_text(msg.chat_id, t("feishu_cmd_resumed", n=len(messages)))
 
-    async def _cmd_detach(self, msg, key):
+    async def _cmd_detach(self, msg: InboundMessage, key: str) -> None:
         """处理 /detach 命令：保存为本地 session
 
         Args:

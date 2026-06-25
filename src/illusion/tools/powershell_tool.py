@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -260,7 +260,7 @@ class PowerShellToolInput(BaseModel):
     )
 
 
-class PowerShellTool(BaseTool):
+class PowerShellTool(BaseTool[PowerShellToolInput]):
     """执行 PowerShell 命令并捕获标准输出/错误。
 
     用于在 Windows 平台上执行 PowerShell 命令。
@@ -289,7 +289,7 @@ class PowerShellTool(BaseTool):
             args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", arguments.command]
 
         # 创建子进程
-        kwargs: dict = {}
+        kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         process = await asyncio.create_subprocess_exec(
@@ -304,10 +304,12 @@ class PowerShellTool(BaseTool):
 
         # 后台运行模式
         if arguments.run_in_background:
-            async def _background_wait():
+            async def _background_wait() -> None:
                 try:
                     # 必须消费 stdout/stderr，避免管道缓冲区满导致进程挂起
+                    assert process.stdout is not None
                     stdout_task = asyncio.create_task(process.stdout.read())
+                    assert process.stderr is not None
                     stderr_task = asyncio.create_task(process.stderr.read())
                     await process.wait()
                     stdout_task.cancel()

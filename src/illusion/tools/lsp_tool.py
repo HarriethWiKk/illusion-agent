@@ -46,7 +46,7 @@ def _get_manager() -> LspManager:
     return _manager
 
 
-class LspTool(BaseTool):
+class LspTool(BaseTool[LspToolInput]):
     """LSP 代码智能工具。"""
 
     name = "lsp"
@@ -177,7 +177,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
             # 等待诊断通知
             diag_event = asyncio.Event()
-            def _on_diag(params: dict) -> None:
+            def _on_diag(params: dict[str, Any]) -> None:
                 if params.get("uri") == file_uri:
                     diag_event.set()
             client.on_notification("textDocument/publishDiagnostics", _on_diag)
@@ -200,7 +200,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         except Exception:
             pass
 
-    async def _go_to_definition(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _go_to_definition(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/definition",
             textDocument=text_doc, position=position,
@@ -208,21 +208,21 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         results = result if isinstance(result, list) else [result] if result else []
         return ToolResult(output=format_go_to_definition(results, root))
 
-    async def _find_references(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _find_references(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/references",
             textDocument=text_doc, position=position, context={"includeDeclaration": True},
         )
         return ToolResult(output=format_find_references(result or [], root))
 
-    async def _hover(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _hover(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/hover",
             textDocument=text_doc, position=position,
         )
         return ToolResult(output=format_hover(result, root))
 
-    async def _document_symbol(self, client: Any, root: Path, text_doc: dict) -> ToolResult:
+    async def _document_symbol(self, client: Any, root: Path, text_doc: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/documentSymbol",
             textDocument=text_doc,
@@ -237,7 +237,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 is_error=True,
             )
 
-        all_results: list[dict] = []
+        all_results: list[dict[str, Any]] = []
         query_lower = query.lower()
 
         # 收集项目中的所有源文件
@@ -313,7 +313,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             return ToolResult(output=f"No symbols matching '{query}' found in workspace.")
         return ToolResult(output=format_workspace_symbol(all_results, root))
 
-    async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/implementation",
             textDocument=text_doc, position=position,
@@ -321,14 +321,14 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         results = result if isinstance(result, list) else [result] if result else []
         return ToolResult(output=format_go_to_definition(results, root))
 
-    async def _prepare_call_hierarchy(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _prepare_call_hierarchy(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/prepareCallHierarchy",
             textDocument=text_doc, position=position,
         )
         return ToolResult(output=format_prepare_call_hierarchy(result or [], root))
 
-    async def _incoming_calls(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _incoming_calls(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         items = await client.request(
             "textDocument/prepareCallHierarchy",
             textDocument=text_doc, position=position,
@@ -339,7 +339,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         result = await client.request("callHierarchy/incomingCalls", item=item)
         return ToolResult(output=format_incoming_calls(result or [], root))
 
-    async def _outgoing_calls(self, client: Any, root: Path, text_doc: dict, position: dict) -> ToolResult:
+    async def _outgoing_calls(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         items = await client.request(
             "textDocument/prepareCallHierarchy",
             textDocument=text_doc, position=position,

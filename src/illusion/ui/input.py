@@ -46,7 +46,7 @@ class InputSession:
 
     def __init__(self) -> None:
         # 创建 prompt_toolkit 会话实例
-        self._session = PromptSession()
+        self._session: PromptSession[str] = PromptSession()
         # 设置默认提示符
         self._prompt = "> "
 
@@ -70,7 +70,8 @@ class InputSession:
         Returns:
             str: 用户输入的文本（已去除首尾空白）
         """
-        return await self._session.prompt_async(self._prompt)
+        result: str = await self._session.prompt_async(self._prompt)
+        return result
 
     async def ask(self, question: str) -> str:
         """提示用户回答一个问题。
@@ -83,4 +84,5 @@ class InputSession:
         """
         # 构建问答提示符，格式为 "[question] 问题内容\n> "
         prompt = f"[question] {question}\n> "
-        return await self._session.prompt_async(prompt)
+        result: str = await self._session.prompt_async(prompt)
+        return result

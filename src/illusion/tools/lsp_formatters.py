@@ -83,7 +83,7 @@ def format_hover(result: dict[str, Any] | None, root: Path) -> str:
     if isinstance(contents, str):
         return contents
     if isinstance(contents, dict):
-        return contents.get("value", str(contents))
+        return str(contents.get("value", str(contents)))
     if isinstance(contents, list):
         parts = []
         for item in contents:

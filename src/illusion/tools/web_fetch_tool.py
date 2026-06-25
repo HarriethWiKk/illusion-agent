@@ -69,7 +69,7 @@ class WebFetchToolInput(BaseModel):
     max_chars: int = Field(default=12000, ge=500, le=50000)
 
 
-class WebFetchTool(BaseTool):
+class WebFetchTool(BaseTool[WebFetchToolInput]):
     """抓取一个网页并使用 AI 模型处理内容。
 
     用于获取和分析网络内容。
@@ -216,7 +216,7 @@ def _html_to_markdown(html_text: str) -> str:
     for i in range(6, 0, -1):
         text = re.sub(
             rf"(?is)<h{i}[^>]*>\s*(.*?)\s*</h{i}>",
-            lambda m, n=i: "#" * n + " " + _strip_html(m.group(1)).strip() + "\n\n",
+            lambda m, n=i: "#" * n + " " + _strip_html(m.group(1)).strip() + "\n\n",  # type: ignore[misc]
             text,
         )
 

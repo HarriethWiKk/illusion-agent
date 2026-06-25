@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from illusion.tasks.manager import get_task_manager
@@ -57,7 +59,7 @@ class TaskUpdateToolInput(BaseModel):
         alias="statusNote",
         description="Short human-readable task note",
     )
-    metadata: dict | None = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Metadata keys to merge into the task (set a key to null to delete it)",
     )
@@ -77,7 +79,7 @@ class TaskUpdateToolInput(BaseModel):
     )
 
 
-class TaskUpdateTool(BaseTool):
+class TaskUpdateTool(BaseTool[TaskUpdateToolInput]):
     """更新任务元数据以进行进度跟踪。
 
     用于更新任务列表中的任务状态、进度和依赖关系。

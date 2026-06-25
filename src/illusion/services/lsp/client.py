@@ -3,7 +3,7 @@ LSP 客户端
 ==========
 
 参考 vscode-jsonrpc 的双向通信模式。
-使用 subprocess.Popen（同步）+ 线程读写，避免 Windows 上 asyncio 子进程的问题。
+使用 subprocess.Popen[Any]（同步）+ 线程读写，避免 Windows 上 asyncio 子进程的问题。
 """
 
 from __future__ import annotations
@@ -32,34 +32,34 @@ def _uri_to_path(uri: str) -> str:
     return unquote(uri)
 
 
-def _encode(msg: dict) -> bytes:
+def _encode(msg: dict[str, Any]) -> bytes:
     payload = json.dumps(msg, ensure_ascii=False).encode("utf-8")
     return f"Content-Length: {len(payload)}\r\n\r\n".encode() + payload
 
 
 class LspClient:
-    """LSP 客户端，使用 subprocess.Popen + 线程读写。"""
+    """LSP 客户端，使用 subprocess.Popen[Any] + 线程读写。"""
 
     def __init__(self) -> None:
-        self._proc: sp.Popen | None = None
+        self._proc: sp.Popen[Any] | None = None
         self._read_thread: threading.Thread | None = None
         self._write_thread: threading.Thread | None = None
         self._write_q: Any = None  # queue.Queue[bytes | None]
-        self._pending: dict[int, asyncio.Future] = {}
+        self._pending: dict[int, asyncio.Future[Any]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._notify_handlers: dict[str, list] = {}
+        self._notify_handlers: dict[str, list[Any]] = {}
         self._request_handlers: dict[str, Any] = {}
         self._buf = b""
         self._next_id = 1
         self._connected = False
-        self.capabilities: dict | None = None
+        self.capabilities: dict[str, Any] | None = None
         self.is_initialized = False
 
     @property
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    async def start(self, command: str, args: list[str], options: dict | None = None) -> None:
+    async def start(self, command: str, args: list[str], options: dict[str, Any] | None = None) -> None:
         if self._proc is not None:
             return
 
@@ -85,9 +85,9 @@ class LspClient:
             # Windows: shell=True 让 cmd.exe 解析 .cmd 包装器
             kw["shell"] = True
             cmd_str = command + " " + " ".join(args) if args else command
-            self._proc = sp.Popen(cmd_str, **kw)
+            self._proc = sp.Popen[Any](cmd_str, **kw)
         else:
-            self._proc = sp.Popen([command] + args, **kw)
+            self._proc = sp.Popen[Any]([command] + args, **kw)
         self._connected = True
 
         # 读取线程
@@ -102,10 +102,10 @@ class LspClient:
         threading.Thread(target=self._stderr_drain, daemon=True).start()
 
     async def initialize(
-        self, root_uri: str, capabilities: dict | None = None,
+        self, root_uri: str, capabilities: dict[str, Any] | None = None,
         root_path: str | None = None, process_id: int | None = None,
-        initialization_options: Any = None, workspace_folders: list | None = None,
-    ) -> dict:
+        initialization_options: Any = None, workspace_folders: list[Any] | None = None,
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "processId": process_id or os.getpid(),
             "rootUri": root_uri,
@@ -129,9 +129,9 @@ class LspClient:
         self.capabilities = result.get("capabilities", {})
         self.is_initialized = True
         await self.notify("initialized", {})
-        return result
+        return result  # type: ignore[no-any-return]
 
-    async def request(self, method: str, params: Any = None, timeout: float = 30, **kw) -> Any:
+    async def request(self, method: str, params: Any = None, timeout: float = 30, **kw: Any) -> Any:
         if not self._connected:
             raise RuntimeError("LSP client not connected")
         if self._proc and self._proc.poll() is not None:
@@ -141,7 +141,8 @@ class LspClient:
 
         msg_id = self._next_id
         self._next_id += 1
-        fut: asyncio.Future = self._loop.create_future()
+        assert self._loop is not None
+        fut: asyncio.Future[Any] = self._loop.create_future()
         self._pending[msg_id] = fut
 
         self._write_q.put(_encode({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}))
@@ -156,7 +157,7 @@ class LspClient:
             raise RuntimeError(f"LSP error: {resp['error'].get('message', resp['error'])}")
         return resp.get("result")
 
-    async def notify(self, method: str, params: Any = None, **kw) -> None:
+    async def notify(self, method: str, params: Any = None, **kw: Any) -> None:
         if not self._connected:
             raise RuntimeError("LSP client not connected")
         if params is None:
@@ -192,6 +193,7 @@ class LspClient:
                 if data is None:
                     break
                 try:
+                    assert self._proc is not None and self._proc.stdin is not None
                     self._proc.stdin.write(data)
                     self._proc.stdin.flush()
                 except (BrokenPipeError, OSError):
@@ -204,6 +206,7 @@ class LspClient:
         """专用读取线程。Windows 上 read(n>1) 会阻塞直到读满 n 字节，必须用 read(1)。"""
         try:
             while self._connected:
+                assert self._proc is not None and self._proc.stdout is not None
                 chunk = self._proc.stdout.read(1)
                 if not chunk:
                     break
@@ -239,11 +242,12 @@ class LspClient:
                         self._loop.call_soon_threadsafe(f.set_exception, RuntimeError("LSP connection lost"))
                 self._pending.clear()
 
-    def _dispatch(self, msg: dict) -> None:
+    def _dispatch(self, msg: dict[str, Any]) -> None:
         if "id" in msg and "method" not in msg:
             # 响应 — 通知 asyncio 事件循环
             fut = self._pending.pop(msg["id"], None)
             if fut and not fut.done():
+                assert self._loop is not None
                 self._loop.call_soon_threadsafe(fut.set_result, msg)
         elif "id" in msg and "method" in msg:
             # 服务器->客户端请求 — 同步处理，通过写入队列回复
@@ -268,6 +272,7 @@ class LspClient:
     def _stderr_drain(self) -> None:
         try:
             while True:
+                assert self._proc is not None and self._proc.stderr is not None
                 line = self._proc.stderr.readline()
                 if not line:
                     break

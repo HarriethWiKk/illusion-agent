@@ -94,12 +94,13 @@ class McpClientManager:
                 stdio_tasks.append((name, config))
             else:
                 # 其他传输类型标记为失败
+                transport_type = getattr(config, "type", "unknown")
                 self._statuses[name] = McpConnectionStatus(
                     name=name,
                     state="failed",
-                    transport=config.type,
+                    transport=transport_type,
                     auth_configured=bool(getattr(config, "headers", None)),
-                    detail=f"Unsupported MCP transport in current build: {config.type}",
+                    detail=f"Unsupported MCP transport in current build: {transport_type}",
                 )
 
         # 并行连接所有 STDIO 服务器
@@ -255,7 +256,7 @@ class McpClientManager:
             资源内容的字符串形式
         """
         session = self._require_session(server_name)
-        result: ReadResourceResult = await session.read_resource(uri)
+        result: ReadResourceResult = await session.read_resource(uri)  # type: ignore[arg-type]
         parts: list[str] = []
         for item in result.contents:
             text = getattr(item, "text", None)

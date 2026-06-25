@@ -48,7 +48,7 @@ class ToolUseBlock(BaseModel):
     type: Literal["tool_use"] = "tool_use"
     id: str = Field(default_factory=lambda: f"toolu_{uuid4().hex}")
     name: str
-    input: dict[str, Any] = Field(default_factory=dict)
+    input: dict[str, Any] = Field(default_factory=dict[str, Any])
 
 
 class ToolResultBlock(BaseModel):
@@ -109,7 +109,7 @@ class MediaBlock(BaseModel):
     file_path: str
     media_type: str
     data: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict[str, Any])
 
 
 def _build_tool_result_content(
@@ -195,7 +195,7 @@ class ConversationMessage(BaseModel):
     """
 
     role: Literal["user", "assistant"]
-    content: list[ContentBlock] = Field(default_factory=list)
+    content: list[ContentBlock] = Field(default_factory=list[Any])
 
     @classmethod
     def from_user_text(cls, text: str) -> "ConversationMessage":
@@ -298,7 +298,7 @@ def serialize_content_block(block: ContentBlock, *, provider_type: str = "anthro
 
     # tool_result
     if isinstance(block.content, list):
-        serialized_content = [
+        serialized_content: list[dict[str, Any]] | str = [
             serialize_content_block(inner, provider_type=provider_type)
             for inner in block.content
         ]

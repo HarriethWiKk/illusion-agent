@@ -364,7 +364,7 @@ def get_claude_code_version() -> str:
         return _claude_code_version_cache
     for command in ("claude", "claude-code"):
         try:
-            run_kwargs: dict = {}
+            run_kwargs: dict[str, Any] = {}
             if sys.platform == "win32":
                 run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             result = subprocess.run(

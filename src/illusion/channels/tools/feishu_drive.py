@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path  # 路径
-from typing import TYPE_CHECKING  # 类型
+from typing import Any,  TYPE_CHECKING  # 类型
 
 from pydantic import BaseModel, Field  # 数据模型
 
@@ -34,7 +34,7 @@ class FeishuDriveListInput(BaseModel):
     page_size: int = Field(50, description="Page size (max 200)")
 
 
-class FeishuDriveListTool(BaseTool):
+class FeishuDriveListTool(BaseTool[FeishuDriveListInput]):
     """列出飞书云盘文件夹下的文件"""
 
     name = "feishu_drive_list"
@@ -62,7 +62,7 @@ class FeishuDriveListTool(BaseTool):
         assert isinstance(arguments, FeishuDriveListInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-not-found]
+            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
                 ListFileRequest,
             )
         except ImportError:
@@ -105,7 +105,7 @@ class FeishuDriveUploadInput(BaseModel):
     name: str = Field("", description="Cloud file name (defaults to local name)")
 
 
-class FeishuDriveUploadTool(BaseTool):
+class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
     """上传本地文件到飞书云盘"""
 
     name = "feishu_drive_upload"
@@ -136,14 +136,14 @@ class FeishuDriveUploadTool(BaseTool):
             return ToolResult(output=f"File not found: {arguments.file_path}", is_error=True)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-not-found]
+            from lark_oapi.api.drive.v1 import (
                 UploadAllFileRequest,
             )
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
 
         name = arguments.name or path.name
-        # lark-oapi 用 builder + dict 构造请求（RequestBody 类不接受关键字参数）
+        # lark-oapi 用 builder + dict[str, Any] 构造请求（RequestBody 类不接受关键字参数）
         body = {
             "folder_token": arguments.folder_token,
             "file_name": name,
@@ -175,7 +175,7 @@ class FeishuDriveDownloadInput(BaseModel):
     save_path: str = Field(..., description="Local save path")
 
 
-class FeishuDriveDownloadTool(BaseTool):
+class FeishuDriveDownloadTool(BaseTool[FeishuDriveDownloadInput]):
     """下载飞书云盘文件到本地"""
 
     name = "feishu_drive_download"
@@ -203,7 +203,7 @@ class FeishuDriveDownloadTool(BaseTool):
         assert isinstance(arguments, FeishuDriveDownloadInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-not-found]
+            from lark_oapi.api.drive.v1 import (
                 DownloadFileRequest,
             )
         except ImportError:

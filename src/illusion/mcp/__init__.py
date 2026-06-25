@@ -53,7 +53,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     # 延迟导入 McpClientManager，避免不必要的导入开销
     if name == "McpClientManager":
         from illusion.mcp.client import McpClientManager

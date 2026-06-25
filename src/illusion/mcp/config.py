@@ -22,6 +22,7 @@ MCP 服务器配置加载模块
 from __future__ import annotations
 
 import json
+from typing import Any
 import logging
 from pathlib import Path
 
@@ -55,7 +56,7 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
     from illusion.config.paths import get_project_mcp_dir
     from illusion.mcp.types import McpJsonConfig, McpServerConfig
 
-    _server_adapter = TypeAdapter(McpServerConfig)
+    _server_adapter: TypeAdapter[McpServerConfig] = TypeAdapter(McpServerConfig)
     servers: dict[str, object] = {}
     mcp_dir = get_project_mcp_dir(cwd)
 
@@ -96,7 +97,7 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
     return servers
 
 
-def load_mcp_server_configs(settings, plugins: list[LoadedPlugin], cwd: str | Path | None = None) -> dict[str, object]:
+def load_mcp_server_configs(settings: Any, plugins: list[LoadedPlugin], cwd: str | Path | None = None) -> dict[str, object]:
     """
     加载 MCP 服务器配置
 

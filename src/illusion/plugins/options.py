@@ -36,7 +36,7 @@ def substitute_user_config_variables(
 
     缺少的 key 会抛出 KeyError。
     """
-    def replacer(match: re.Match) -> str:
+    def replacer(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in user_config:
             raise KeyError(f"Missing user_config variable: {key}")

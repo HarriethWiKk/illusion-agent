@@ -56,7 +56,7 @@ class ProjectData:
     config_files: dict[str, str]  # filename -> content excerpt
     pyproject_data: dict[str, Any] | None
     package_json_data: dict[str, Any] | None
-    modules: list  # list[ModuleInfo] from illusion.services.lsp.types
+    modules: list[Any]  # list[ModuleInfo] from illusion.services.lsp.types
 
 
 @dataclass

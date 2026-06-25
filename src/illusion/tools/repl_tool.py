@@ -38,7 +38,7 @@ class ReplToolInput(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1, le=600)
 
 
-class ReplTool(BaseTool):
+class ReplTool(BaseTool[ReplToolInput]):
     """使用类 REPL 的执行界面执行 shell 命令。
 
     用于在交互式环境中执行命令。

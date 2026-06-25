@@ -38,7 +38,7 @@ class EnterPlanModeToolInput(BaseModel):
     )
 
 
-class EnterPlanModeTool(BaseTool):
+class EnterPlanModeTool(BaseTool[EnterPlanModeToolInput]):
     """切换设置权限模式为计划模式
 
     此工具用于在开始非平凡的实现任务之前主动使用。

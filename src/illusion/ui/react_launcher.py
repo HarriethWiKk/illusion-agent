@@ -25,6 +25,7 @@ React Launcher React 启动器模块
 """
 
 from __future__ import annotations
+from typing import Any
 
 import asyncio
 import json
@@ -202,7 +203,7 @@ async def launch_react_tui(
 
     # 检查并安装依赖
     if not (frontend_dir / "node_modules").exists():
-        install_kwargs: dict = {}
+        install_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             install_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         install = await asyncio.create_subprocess_exec(

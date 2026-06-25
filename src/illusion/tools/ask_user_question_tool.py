@@ -106,7 +106,7 @@ class AskUserQuestionToolInput(BaseModel):
     )
 
 
-class AskUserQuestionTool(BaseTool):
+class AskUserQuestionTool(BaseTool[AskUserQuestionToolInput]):
     """向交互式用户提问并返回答案。
 
     用于收集用户偏好、澄清模糊指令、获取实现选择决策等。

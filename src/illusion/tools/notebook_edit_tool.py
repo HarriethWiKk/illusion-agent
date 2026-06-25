@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import secrets
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,7 +51,7 @@ class NotebookEditToolInput(BaseModel):
     )
 
 
-class NotebookEditTool(BaseTool):
+class NotebookEditTool(BaseTool[NotebookEditToolInput]):
     """编辑 notebook 单元格而不需要 nbformat。
 
     用于修改 Jupyter notebook (.ipynb 文件) 中的单元格内容。
@@ -171,7 +171,7 @@ def _resolve_path(base: Path, candidate: str) -> Path:
     return path.resolve()
 
 
-def _resolve_cell_index(cells: list[dict], cell_id: str | None) -> int | None:
+def _resolve_cell_index(cells: list[dict[str, Any]], cell_id: str | None) -> int | None:
     """将 cell_id 解析为数字索引。
 
     支持：
@@ -204,14 +204,15 @@ def _resolve_cell_index(cells: list[dict], cell_id: str | None) -> int | None:
     return None
 
 
-def _load_notebook(path: Path) -> dict | None:
+def _load_notebook(path: Path) -> dict[str, Any] | None:
     """从磁盘加载 notebook。如果文件不存在返回 None。"""
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
-def _save_notebook(path: Path, notebook: dict) -> None:
+def _save_notebook(path: Path, notebook: dict[str, Any]) -> None:
     """将 notebook 保存到磁盘。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(notebook, indent=1) + "\n", encoding="utf-8")
@@ -222,7 +223,7 @@ def _generate_cell_id() -> str:
     return secrets.token_hex(8)
 
 
-def _empty_cell(cell_type: str) -> dict:
+def _empty_cell(cell_type: str) -> dict[str, Any]:
     """创建空单元格。"""
     if cell_type == "markdown":
         return {"cell_type": "markdown", "metadata": {}, "source": ""}

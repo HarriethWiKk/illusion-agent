@@ -40,7 +40,7 @@ from anthropic.types import ThinkingBlock as _SDKThinkingBlock
 # 兼容第三方 API（如 MiMo）返回 "signature": null 的情况
 # anthropic SDK 的 ThinkingBlock 要求 signature 为 str，但部分提供商返回 null
 _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
-_sdk_sig_field.annotation = str | None
+_sdk_sig_field.annotation = str | None  # type: ignore[assignment]
 _SDKThinkingBlock.model_rebuild()
 
 from illusion.api.effort import EffortLevel  # noqa: E402
@@ -94,7 +94,7 @@ class ApiMessageRequest:
     messages: list[ConversationMessage]
     system_prompt: str | None = None
     max_tokens: int = 4096
-    tools: list[dict[str, Any]] = field(default_factory=list)
+    tools: list[dict[str, Any]] = field(default_factory=list[Any])
     effort: EffortLevel | None = None
 
 
@@ -261,7 +261,7 @@ def _get_retry_delay(attempt: int, exc: Exception | None = None) -> float:
     delay = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
     # 添加随机抖动（0-25%）
     jitter = random.uniform(0, delay * 0.25)
-    return delay + jitter
+    return float(delay + jitter)
 
 
 class AnthropicApiClient:

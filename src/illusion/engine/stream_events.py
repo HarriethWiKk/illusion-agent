@@ -105,9 +105,9 @@ class ToolExecutionCompleted:
     is_error: bool = False
     tool_use_id: str = ""
     # 结构化输出数据（可选，用于前端丰富渲染）
-    structured_output: dict | None = None
+    structured_output: dict[str, Any] | None = None
     output_type: str | None = None
-    tool_metadata: dict | None = None
+    tool_metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

@@ -38,7 +38,7 @@ async def ask_permission(tool_name: str, reason: str) -> bool:
         bool: 用户是否允许执行该工具
     """
     # 创建 prompt 会话
-    session = PromptSession()
+    session: PromptSession[str] = PromptSession()
     # 发送提示并获取用户响应
     response = await session.prompt_async(
         f"Allow tool '{tool_name}'? [{reason}] [y/N]: "

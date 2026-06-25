@@ -49,7 +49,7 @@ def _generate_unique_team_name(provided_name: str) -> str:
     return f"team-{uuid4().hex[:8]}"
 
 
-class TeamCreateTool(BaseTool):
+class TeamCreateTool(BaseTool[TeamCreateToolInput]):
     """创建新的多代理团队。"""
 
     name = "team_create"

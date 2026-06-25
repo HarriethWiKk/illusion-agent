@@ -158,7 +158,7 @@ class PermissionChecker:
         Args:
             sandbox_settings: SandboxSettings 对象
         """
-        self._sandbox_path_rules: list[PathRule] = []
+        self._sandbox_path_rules = []
         if not getattr(sandbox_settings, "enabled", False):
             return
 

@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import sys
 
+from typing import Any
+
 from illusion.api.client import SupportsStreamingMessages
 from illusion.engine.stream_events import StreamEvent
 from illusion.ui.backend_host import run_backend_host
@@ -47,7 +49,7 @@ async def run_repl(
     api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     backend_only: bool = False,
-    restore_messages: list[dict] | None = None,
+    restore_messages: list[dict[str, Any]] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
 ) -> None:
@@ -172,7 +174,7 @@ async def run_print_mode(
 
     # 收集输出
     collected_text = ""
-    events_list: list[dict] = []
+    events_list: list[dict[str, Any]] = []
 
     try:
         # 系统消息打印回调
@@ -188,6 +190,7 @@ async def run_print_mode(
         # 流式事件渲染回调
         async def _render_event(event: StreamEvent) -> None:
             nonlocal collected_text
+            obj: dict[str, Any]
             # 助手文本增量
             if isinstance(event, AssistantTextDelta):
                 collected_text += event.text

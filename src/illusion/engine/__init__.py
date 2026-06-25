@@ -51,7 +51,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     if name in {"ConversationMessage", "TextBlock", "ToolResultBlock", "ToolUseBlock"}:
         from illusion.engine.messages import (
             ConversationMessage,

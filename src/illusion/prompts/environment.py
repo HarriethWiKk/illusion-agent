@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import os
 import platform
 import shutil
@@ -59,7 +61,7 @@ class EnvironmentInfo:
     is_git_repo: bool  # 是否为 Git 仓库
     git_branch: str | None = None  # Git 分支名称
     hostname: str = ""  # 主机名
-    extra: dict[str, str] = field(default_factory=dict)  # 额外信息
+    extra: dict[str, str] = field(default_factory=dict[str, Any])  # 额外信息
 
 
 def detect_os() -> tuple[str, str]:
@@ -71,7 +73,7 @@ def detect_os() -> tuple[str, str]:
     system = platform.system()
     if system == "Linux":
         try:
-            import distro  # type: ignore[import-untyped]
+            import distro
             return "Linux", distro.version(pretty=True) or platform.release()
         except ImportError:
             return "Linux", platform.release()
@@ -121,7 +123,7 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
     Returns:
         tuple[bool, str | None]: (是否为 Git 仓库, 分支名称)
     """
-    run_kwargs: dict = {}
+    run_kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:

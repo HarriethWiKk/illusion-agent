@@ -54,11 +54,12 @@ class AuthManager:
 
     def get_active_env_key(self) -> str:
         """获取当前活动的环境键名（如 "env_1"）"""
-        return self.settings._active_env_key
+        return str(self.settings._active_env_key)
 
     def list_envs(self) -> dict[str, Any]:
         """获取所有环境配置"""
-        return self.settings.list_envs()
+        result: dict[str, Any] = self.settings.list_envs()
+        return result
 
     def get_env_credential_statuses(self) -> dict[str, Any]:
         """获取所有环境的凭据状态

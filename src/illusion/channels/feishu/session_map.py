@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+from typing import Any
 import json  # JSON 读写
 from dataclasses import dataclass, field  # 数据类
 from pathlib import Path  # 路径处理
@@ -27,7 +28,7 @@ class FeishuSession:
     Attributes:
         session_id: 会话唯一标识
         key: 存储键（build_session_key 生成）
-        messages: 对话历史（dict 列表，与 session_storage 格式一致）
+        messages: 对话历史（dict[str, Any] 列表，与 session_storage 格式一致）
         user_id: 关联用户
         chat_type: 会话类型
         model: 会话使用的模型（可被 /model 覆盖）
@@ -35,7 +36,7 @@ class FeishuSession:
 
     session_id: str  # 会话 ID
     key: str  # 存储键
-    messages: list[dict] = field(default_factory=list)  # 对话历史
+    messages: list[dict[str, Any]] = field(default_factory=list)  # 对话历史
     user_id: str = ""  # 用户 ID
     chat_type: str = "dm"  # 会话类型
     model: str = ""  # 会话模型
@@ -145,7 +146,7 @@ class FeishuSessionStore:
             chat_type=chat_type,
         )
 
-    def save(self, session: FeishuSession, messages: list[dict]) -> None:
+    def save(self, session: FeishuSession, messages: list[dict[str, Any]]) -> None:
         """保存会话历史
 
         Args:
@@ -196,7 +197,7 @@ class FeishuSessionStore:
                 continue
         return False
 
-    def inject(self, key: str, messages: list[dict]) -> None:
+    def inject(self, key: str, messages: list[dict[str, Any]]) -> None:
         """用外部消息替换指定键的会话历史（用于 /resume）
 
         Args:

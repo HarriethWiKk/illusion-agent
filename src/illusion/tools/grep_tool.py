@@ -50,7 +50,7 @@ class GrepToolInput(BaseModel):
     offset: int = Field(default=0, ge=0, description="Skip first N results")
 
 
-class GrepTool(BaseTool):
+class GrepTool(BaseTool[GrepToolInput]):
     """搜索文本文件的正则表达式模式
 
     使用说明：

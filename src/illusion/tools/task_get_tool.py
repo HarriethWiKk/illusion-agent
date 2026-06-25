@@ -31,7 +31,7 @@ class TaskGetToolInput(BaseModel):
     task_id: str = Field(description="Task identifier")
 
 
-class TaskGetTool(BaseTool):
+class TaskGetTool(BaseTool[TaskGetToolInput]):
     """返回详细的任务状态。
 
     用于获取任务的完整描述和上下文。

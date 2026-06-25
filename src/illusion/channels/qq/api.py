@@ -15,7 +15,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 
@@ -78,7 +78,7 @@ async def ensure_token(
     """
     cached = _token_cache.get(app_id)
     if cached and cached["expires_at"] > time.monotonic() + 300:
-        return cached["token"]
+        return str(cached["token"])
 
     payload = {"appId": app_id, "clientSecret": client_secret}
     async with session.post(TOKEN_URL, json=payload) as resp:
@@ -92,7 +92,7 @@ async def ensure_token(
         "expires_at": time.monotonic() + expires_in,
     }
     logger.info("QQ token 已刷新，有效期 %ds", expires_in)
-    return token
+    return str(token)
 
 
 # ── 网关 ──────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ async def get_gateway_url(
         data = await resp.json()
     url = data["url"]
     logger.info("QQ 网关地址: %s", url)
-    return url
+    return str(url)
 
 
 # ── 消息发送 ──────────────────────────────────────────────────
@@ -145,7 +145,7 @@ def _build_text_body(content: str, *, markdown: bool = False) -> dict[str, Any]:
         markdown: 是否使用 markdown 信封
 
     Returns:
-        dict: 请求体（含 msg_type、msg_seq、content/markdown）
+        dict[str, Any]: 请求体（含 msg_type、msg_seq、content/markdown）
     """
     msg_seq = _next_msg_seq()
     if markdown:
@@ -183,7 +183,7 @@ async def send_c2c_message(
         markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
-        dict: API 响应
+        dict[str, Any]: API 响应
     """
     url = f"{API_BASE}/v2/users/{openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
@@ -195,7 +195,7 @@ async def send_c2c_message(
             err_body = await resp.text()
             logger.error("QQ C2C 发送失败: status=%d body=%s", resp.status, err_body)
             resp.raise_for_status()
-        return await resp.json()
+        return cast(dict[str, Any], await resp.json())
 
 
 async def send_group_message(
@@ -220,7 +220,7 @@ async def send_group_message(
         markdown: 是否使用 markdown 信封（msg_type=2）
 
     Returns:
-        dict: API 响应
+        dict[str, Any]: API 响应
     """
     url = f"{API_BASE}/v2/groups/{group_openid}/messages"
     headers = {"Authorization": f"QQBot {token}"}
@@ -233,7 +233,7 @@ async def send_group_message(
             err_body = await resp.text()
             logger.error("QQ 群聊发送失败: status=%d body=%s", resp.status, err_body)
             resp.raise_for_status()
-        return await resp.json()
+        return cast(dict[str, Any], await resp.json())
 
 
 # ── 打字状态 ──────────────────────────────────────────────────
@@ -281,7 +281,7 @@ async def upload_file(
         is_group: 是否群聊目标
 
     Returns:
-        dict: file_info
+        dict[str, Any]: file_info
     """
     path = Path(file_path)
     if not path.exists():
@@ -328,7 +328,7 @@ async def upload_file(
         headers=headers, json=complete_body,
     ) as resp:
         resp.raise_for_status()
-        return await resp.json()
+        return cast(dict[str, Any], await resp.json())
 
 
 def _file_sha256(path: Path) -> str:

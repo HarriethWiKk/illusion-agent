@@ -54,18 +54,21 @@ from illusion.api.openai_client import OpenAICompatibleClient
 from illusion.api.provider import auth_status, detect_provider
 from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
+from illusion.commands.registry import CommandRegistry
 from illusion.config import load_settings
 from illusion.config.settings import Settings
 from illusion.engine import QueryEngine
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
 from illusion.engine.query import MaxTurnsExceeded
 from illusion.engine.stream_events import StreamEvent
-from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor, load_hook_registry
+from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor
+from illusion.hooks.loader import load_hook_registry
 from illusion.hooks.types import AggregatedHookResult
 from illusion.mcp.client import McpClientManager
 from illusion.mcp.config import load_mcp_server_configs
 from illusion.permissions import PermissionChecker
-from illusion.plugins import load_plugins
+from illusion.plugins.loader import load_plugins
+from illusion.plugins.types import LoadedPlugin
 from illusion.prompts import build_runtime_system_prompt
 from illusion.state import AppState, AppStateStore
 from illusion.services.session_storage import save_session_snapshot
@@ -78,9 +81,9 @@ PlanApprovalPrompt = Callable[[str], Awaitable[tuple[bool, str]]]  # 计划审�
 SystemPrinter = Callable[[str], Awaitable[None]]  # 系统消息打印回调
 StreamRenderer = Callable[[StreamEvent], Awaitable[None]]  # 流式事件渲染回调
 ClearHandler = Callable[[], Awaitable[None]]  # 清空输出回调
-TranscriptItemSender = Callable[[dict], Awaitable[None]]  # 发送 transcript_item 的回调
+TranscriptItemSender = Callable[[dict[str, Any]], Awaitable[None]]  # 发送 transcript_item 的回调
 CommandResultEmitter = Callable[[str, str], Awaitable[None]]  # 指令结果发射回调（message, type）
-ReplaceTranscriptItems = Callable[[list[dict]], Awaitable[None]]  # 替换转录项列表的回调
+ReplaceTranscriptItems = Callable[[list[dict[str, Any]]], Awaitable[None]]  # 替换转录项列表的回调
 
 
 @dataclass
@@ -111,14 +114,14 @@ class RuntimeBundle:
     app_state: AppStateStore
     hook_executor: HookExecutor
     engine: QueryEngine
-    commands: object
+    commands: CommandRegistry
     external_api_client: bool
     session_id: str = ""
-    settings_overrides: dict[str, Any] = field(default_factory=dict)
+    settings_overrides: dict[str, Any] = field(default_factory=dict[str, Any])
     # 钩子注入的 additionalContext（在 start_runtime 中设置，每次 handle_line 重建系统提示词后追加）
-    hook_additional_contexts: list[str] = field(default_factory=list)
+    hook_additional_contexts: list[str] = field(default_factory=list[Any])
 
-    def current_settings(self):
+    def current_settings(self) -> Settings:
         """返回会话的有效设置。
 
         大多数设置持久化到磁盘（~/.illusion/settings.json），
@@ -128,7 +131,7 @@ class RuntimeBundle:
         """
         return load_settings().merge_cli_overrides(**self.settings_overrides)
 
-    def current_plugins(self):
+    def current_plugins(self) -> list[LoadedPlugin]:
         """返回当前工作树的可见插件。"""
         return load_plugins(self.current_settings(), self.cwd)
 
@@ -176,11 +179,11 @@ async def build_runtime(
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
     plan_approval_prompt: PlanApprovalPrompt | None = None,
-    restore_messages: list[dict] | None = None,
+    restore_messages: list[dict[str, Any]] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
     is_interactive: bool = True,
-    channel_tools: list | None = None,
+    channel_tools: list[Any] | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -230,7 +233,7 @@ async def build_runtime(
             from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
             _copilot = CopilotAuth()
             _copilot_token = _copilot.get_valid_token()
-            resolved_api_client = OpenAICompatibleClient(
+            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
                 api_key=_copilot_token,
                 base_url=settings.base_url or "https://api.githubcopilot.com",
                 extra_headers=copilot_extra_headers(),
@@ -240,18 +243,18 @@ async def build_runtime(
             from illusion.api.codex_client import CodexApiClient
             _binding = default_binding_for_provider("openai_codex")
             _cred = load_external_credential(_binding)
-            resolved_api_client = CodexApiClient(
+            resolved_api_client = CodexApiClient(  # type: ignore[assignment]
                 auth_token=_cred.value,
                 base_url=settings.base_url,
             )
         else:
-            resolved_api_client = OpenAICompatibleClient(
+            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
                 api_key=settings.resolve_api_key(),
                 base_url=settings.base_url,
                 provider=_provider_info.name,
             )
     else:
-        resolved_api_client = AnthropicApiClient(
+        resolved_api_client = AnthropicApiClient(  # type: ignore[assignment]
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
         )
@@ -478,15 +481,15 @@ def _format_pending_tool_results(messages: list[ConversationMessage]) -> str | N
 
     max_results = 3
     for tr in tool_results[:max_results]:
-        tu = tool_uses_by_id.get(tr.tool_use_id)
-        if tu is not None:
-            raw_input = json.dumps(tu.input, ensure_ascii=True, sort_keys=True)
+        matching_tu: ToolUseBlock | None = tool_uses_by_id.get(tr.tool_use_id)
+        if matching_tu is not None:
+            raw_input = json.dumps(matching_tu.input, ensure_ascii=True, sort_keys=True)
             lines.append(
-                f"- {tu.name} {_truncate(raw_input, 200)} -> {_truncate(tr.content.strip(), 400)}"
+                f"- {matching_tu.name} {_truncate(raw_input, 200)} -> {_truncate(tr.content.strip() if isinstance(tr.content, str) else str(tr.content), 400)}"
             )
         else:
             lines.append(
-                f"- tool_result[{tr.tool_use_id}] -> {_truncate(tr.content.strip(), 400)}"
+                f"- tool_result[{tr.tool_use_id}] -> {_truncate(tr.content.strip() if isinstance(tr.content, str) else str(tr.content), 400)}"
             )
 
     if len(tool_results) > max_results:
@@ -553,7 +556,7 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
         from illusion.api.codex_client import CodexApiClient
         _binding = default_binding_for_provider("openai_codex")
         _cred = load_external_credential(_binding)
-        new_client = CodexApiClient(
+        new_client = CodexApiClient(  # type: ignore[assignment]
             auth_token=_cred.value,
             base_url=settings.base_url,
         )
@@ -564,14 +567,14 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
             provider=_provider_info.name,
         )
     else:
-        new_client = AnthropicApiClient(
+        new_client = AnthropicApiClient(  # type: ignore[assignment]
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
         )
 
-    bundle.api_client = new_client
-    bundle.engine.set_api_client(new_client)
-    bundle.hook_executor._context.api_client = new_client  # type: ignore[attr-defined]
+    bundle.api_client = new_client  # type: ignore[assignment]
+    bundle.engine.set_api_client(new_client)  # type: ignore[arg-type]
+    bundle.hook_executor._context.api_client = new_client  # type: ignore[assignment]
 
 
 async def handle_line(
@@ -735,7 +738,7 @@ async def _render_command_result(
 	if result.replay_messages and replace_transcript_items is not None:
 		from illusion.engine.messages import ToolUseBlock, ToolResultBlock
 
-		tool_uses_by_id: dict[str, dict] = {}
+		tool_uses_by_id: dict[str, dict[str, Any]] = {}
 		# 第一遍：收集所有 tool_use_id 和 tool_result 的 tool_use_id
 		all_tool_use_ids: set[str] = set()
 		all_tool_result_ids: set[str] = set()
@@ -746,7 +749,7 @@ async def _render_command_result(
 				elif isinstance(block, ToolResultBlock):
 					all_tool_result_ids.add(block.tool_use_id)
 
-		replay_items: list[dict] = []
+		replay_items: list[dict[str, Any]] = []
 		for msg in result.replay_messages:
 			if msg.role == "user":
 				if msg.text.strip():
@@ -801,13 +804,13 @@ async def _render_command_result(
 
 			await clear_output()
 			# 收集所有 tool_use_id 和 tool_result 的 tool_use_id，用于过滤孤立 tool_use
-			all_tool_result_ids: set[str] = set()
+			all_tool_result_ids2: set[str] = set()
 			for msg in result.replay_messages:
 				for block in msg.content:
 					if isinstance(block, ToolResultBlock):
-						all_tool_result_ids.add(block.tool_use_id)
+						all_tool_result_ids2.add(block.tool_use_id)
 
-			tool_uses_by_id: dict[str, dict] = {}
+			tool_uses_by_id2: dict[str, dict[str, Any]] = {}
 			for msg in result.replay_messages:
 				if msg.role == "user":
 					if msg.text.strip():
@@ -817,7 +820,7 @@ async def _render_command_result(
 							await print_system(f"> {msg.text}")
 					for block in msg.content:
 						if isinstance(block, ToolResultBlock) and replay_transcript_item is not None:
-							tool_info = tool_uses_by_id.get(block.tool_use_id, {})
+							tool_info = tool_uses_by_id2.get(block.tool_use_id, {})
 							await replay_transcript_item({
 								"role": "tool_result",
 								"text": block.text_content,
@@ -845,9 +848,9 @@ async def _render_command_result(
 					for block in msg.content:
 						if isinstance(block, ToolUseBlock):
 							# 跳过孤立的 tool_use（没有对应 tool_result 的）
-							if block.id not in all_tool_result_ids:
+							if block.id not in all_tool_result_ids2:
 								continue
-							tool_uses_by_id[block.id] = {"name": block.name, "input": block.input}
+							tool_uses_by_id2[block.id] = {"name": block.name, "input": block.input}
 							if replay_transcript_item is not None:
 								await replay_transcript_item({
 									"role": "tool",

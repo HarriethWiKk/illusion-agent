@@ -41,7 +41,7 @@ class WebSearchToolInput(BaseModel):
     )
 
 
-class WebSearchTool(BaseTool):
+class WebSearchTool(BaseTool[WebSearchToolInput]):
     """运行网络搜索并返回紧凑的顶部结果。
 
     用于获取超出 Illusion 知识截止日期的最新信息。

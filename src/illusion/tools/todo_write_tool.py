@@ -49,7 +49,7 @@ class TodoWriteToolInput(BaseModel):
     todos: list[TodoItem] = Field(description="List of todo items to update")
 
 
-class TodoWriteTool(BaseTool):
+class TodoWriteTool(BaseTool[TodoWriteToolInput]):
     """创建和管理当前编码会话的结构化任务列表。
     
     通过全量替换的方式更新任务列表，要删除某个任务只需在下一次调用中不再包含它。

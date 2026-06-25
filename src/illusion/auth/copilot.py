@@ -99,7 +99,8 @@ def _request_json(
 
     request = urllib.request.Request(url, data=body, headers=req_headers, method=method)
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        result: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+        return result
 
 
 def copilot_api_headers(token: str) -> dict[str, str]:
@@ -384,7 +385,7 @@ class CopilotAuth:
             self._data.github_token = github_token
         self._save()
         log.info("Copilot Token 获取成功，过期时间: %s", expires_at)
-        return copilot_token
+        return str(copilot_token)
 
     def get_valid_token(self) -> str:
         """获取有效的 Copilot token，自动刷新

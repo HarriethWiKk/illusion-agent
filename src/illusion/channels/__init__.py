@@ -53,7 +53,7 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def maybe_spawn_channel_daemon() -> None:
+def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
     """主程序启动时自动拉起渠道守护进程
 
     读取 channels.json，若有 enabled 渠道且守护进程未运行，
@@ -68,7 +68,7 @@ def maybe_spawn_channel_daemon() -> None:
 
     cfg = load_channels_config()
     if not cfg.has_enabled_channels():
-        return  # 无启用渠道，静默跳过
+        return None  # 无启用渠道，静默跳过
 
     data_dir = get_channels_data_dir()
     pid_file = PidFile(data_dir / "daemon.pid")
@@ -83,7 +83,7 @@ def maybe_spawn_channel_daemon() -> None:
         except (FileNotFoundError, OSError):
             pass
         if stored_fp == current_fp:
-            return  # 配置未变，跳过
+            return None  # 配置未变，跳过
 
         # 配置已变，终止旧守护进程后重启（is_running 已确认存活）
         from illusion.channels.pid import read_pid
@@ -92,7 +92,7 @@ def maybe_spawn_channel_daemon() -> None:
             try:
                 if os.name == "nt":
                     import ctypes
-                    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                    kernel32 = ctypes.windll.kernel32
                     handle = kernel32.OpenProcess(0x00010000, False, old_pid)  # PROCESS_TERMINATE
                     if handle:
                         kernel32.TerminateProcess(handle, 0)
@@ -116,7 +116,7 @@ def maybe_spawn_channel_daemon() -> None:
         log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
         # 继承当前环境并强制 UTF-8 编码，避免 Windows GBK 遇到 emoji 崩溃
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        proc = subprocess.Popen(
+        proc = subprocess.Popen[Any](
             [sys.executable, "-m", "illusion", "channel", "serve"],
             stdout=log_file,
             stderr=subprocess.STDOUT,
@@ -180,7 +180,7 @@ class ChannelRunner:
             task.add_done_callback(self._log_task_exception)
 
     @staticmethod
-    def _log_task_exception(task: asyncio.Task) -> None:
+    def _log_task_exception(task: asyncio.Task[None]) -> None:
         """任务完成后记录未捕获异常（避免静默吞掉错误）"""
         if task.cancelled():
             return
@@ -270,7 +270,7 @@ class ChannelRunner:
         """构造渠道内置工具列表（飞书文档/云盘等）
 
         Returns:
-            list: BaseTool 实例列表，渠道配置缺失时返回空列表
+            list[Any]: BaseTool 实例列表，渠道配置缺失时返回空列表
         """
         if self._feishu_config is None:
             return []
@@ -461,8 +461,8 @@ def _get_weixin_channel_class() -> Any:
         return None
 
 
-def _serialize_messages(messages: list[Any]) -> list[dict]:
-    """把 ConversationMessage 列表序列化为 dict 列表
+def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    """把 ConversationMessage 列表序列化为 dict[str, Any] 列表
 
     Args:
         messages: ConversationMessage 列表
@@ -470,7 +470,7 @@ def _serialize_messages(messages: list[Any]) -> list[dict]:
     Returns:
         list[dict]: 序列化后的消息
     """
-    result: list[dict] = []
+    result: list[dict[str, Any]] = []
     for m in messages:
         if hasattr(m, "model_dump"):
             result.append(m.model_dump(mode="json"))

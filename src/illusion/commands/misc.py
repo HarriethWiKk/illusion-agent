@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import importlib.metadata
 import subprocess
 import sys
@@ -21,9 +23,9 @@ from illusion.commands.helpers import copy_to_clipboard, last_message_text
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings
 from illusion.config.paths import get_feedback_log_path
-from illusion.plugins import load_plugins
+from illusion.plugins.loader import load_plugins
 from illusion.services import export_session_markdown
-from illusion.skills import load_skill_registry
+from illusion.skills.loader import load_skill_registry
 
 
 async def exit_handler(_: str, context: CommandContext) -> CommandResult:
@@ -77,7 +79,7 @@ async def feedback_handler(args: str, context: CommandContext) -> CommandResult:
     return CommandResult(message=f"Saved feedback to {path}")
 
 
-def make_help_handler(registry):
+def make_help_handler(registry: Any) -> Any:
     """创建 help 命令处理器（需要引用 registry 实例）"""
 
     async def help_handler(args: str, context: CommandContext) -> CommandResult:
@@ -208,7 +210,7 @@ def _check_pypi_latest() -> str | None:
             follow_redirects=True,
         )
         resp.raise_for_status()
-        return resp.json()["info"]["version"]
+        return str(resp.json()["info"]["version"])
     except Exception:
         return None
 

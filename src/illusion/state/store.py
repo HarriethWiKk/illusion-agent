@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 from dataclasses import replace
 
 from illusion.state.app_state import AppState
@@ -62,7 +63,7 @@ class AppStateStore:
         """
         return self._state  # 返回当前状态
 
-    def set(self, **updates) -> AppState:
+    def set(self, **updates: Any) -> AppState:
         """更新状态并通知所有监听器
         
         Keyword Args:

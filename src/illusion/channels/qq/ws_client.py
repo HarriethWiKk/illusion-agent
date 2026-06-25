@@ -121,6 +121,7 @@ class QQWSClient:
 
     async def _connect_ws(self) -> None:
         """获取网关地址并打开 WebSocket"""
+        assert self._session is not None
         token = await ensure_token(self._session, self.app_id, self.client_secret)
         gateway_url = await get_gateway_url(self._session, token)
 
@@ -300,7 +301,7 @@ class QQWSClient:
 
             # 业务事件交给 adapter
             if d and isinstance(d, dict):
-                asyncio.create_task(self._on_event(t, d))
+                asyncio.create_task(self._on_event(t, d))  # type: ignore[arg-type]
             return
 
         # op 7 = Server Reconnect
@@ -325,6 +326,7 @@ class QQWSClient:
 
     async def _send_identify(self) -> None:
         """发送 op 2 Identify"""
+        assert self._session is not None
         token = await ensure_token(self._session, self.app_id, self.client_secret)
         payload = {
             "op": 2,
@@ -344,6 +346,7 @@ class QQWSClient:
 
     async def _send_resume(self) -> None:
         """发送 op 6 Resume"""
+        assert self._session is not None
         token = await ensure_token(self._session, self.app_id, self.client_secret)
         payload = {
             "op": 6,

@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import logging
 import uuid
@@ -80,7 +82,7 @@ class AgentToolInput(BaseModel):
     )
 
 
-class AgentTool(BaseTool):
+class AgentTool(BaseTool[AgentToolInput]):
     """启动子代理处理复杂、多步骤任务。
 
     用于启动专门的代理来自动处理复杂任务。每个代理类型都有特定的能力和工具。
@@ -264,7 +266,7 @@ Terse command-style prompts produce shallow, generic work.
             )
 
         # 辅助函数：清理 worktree
-        async def _cleanup_worktree():
+        async def _cleanup_worktree() -> None:
             if worktree_info is not None and worktree_manager is not None:
                 try:
                     await worktree_manager.remove_worktree(worktree_info.slug)
@@ -285,7 +287,7 @@ Terse command-style prompts produce shallow, generic work.
                 if bg_tracker is not None:
                     bg_tracker.register(agent_id)
 
-                async def _run_background():
+                async def _run_background() -> None:
                     from illusion.swarm.agent_executor import (
                         AgentExecutionContext,
                         _register_agent,

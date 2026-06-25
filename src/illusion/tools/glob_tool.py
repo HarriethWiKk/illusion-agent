@@ -66,7 +66,7 @@ def split_absolute_glob_pattern(pattern: str) -> tuple[str, str]:
     return root, relative
 
 
-class GlobTool(BaseTool):
+class GlobTool(BaseTool[GlobToolInput]):
     """列出匹配glob模式的文件
 
     使用说明：

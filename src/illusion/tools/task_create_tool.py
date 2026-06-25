@@ -38,7 +38,7 @@ class TaskCreateToolInput(BaseModel):
     )
 
 
-class TaskCreateTool(BaseTool):
+class TaskCreateTool(BaseTool[TaskCreateToolInput]):
     """创建后台任务。
 
     用于创建结构化的任务列表来跟踪当前编码会话的进度。

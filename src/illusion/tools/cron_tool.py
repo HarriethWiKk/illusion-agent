@@ -110,7 +110,7 @@ class CronToolInput(BaseModel):
     )
 
 
-class CronTool(BaseTool):
+class CronTool(BaseTool[CronToolInput]):
     """Manage scheduled cron jobs (status/list/add/update/remove/run).
 
     Aligned with openclaw's cron tool design.

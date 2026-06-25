@@ -147,7 +147,8 @@ class QQChannel(Channel):
         try:
             msg_id = str(raw.get("id", ""))
             content = str(raw.get("content", "")).strip()
-            author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
+            _author = raw.get("author")
+            author = _author if isinstance(_author, dict) else {}
             user_id = str(author.get("id", ""))
             user_name = str(author.get("username", ""))
 
@@ -183,7 +184,8 @@ class QQChannel(Channel):
         try:
             msg_id = str(raw.get("id", ""))
             content = str(raw.get("content", "")).strip()
-            author = raw.get("author") if isinstance(raw.get("author"), dict) else {}
+            _author = raw.get("author")
+            author = _author if isinstance(_author, dict) else {}
             user_id = str(author.get("id", ""))
             user_name = str(author.get("username", ""))
             group_openid = str(raw.get("group_openid", ""))

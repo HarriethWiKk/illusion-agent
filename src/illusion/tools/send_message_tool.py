@@ -35,7 +35,7 @@ class SendMessageToolInput(BaseModel):
     message: str = Field(description="Message content to send")
 
 
-class SendMessageTool(BaseTool):
+class SendMessageTool(BaseTool[SendMessageToolInput]):
     """向运行中的代理发送消息。
 
     用于与代理通信或发送继续指令。

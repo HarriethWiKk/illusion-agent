@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from illusion.config.paths import get_config_dir
+from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig, McpWebSocketServerConfig
 from illusion.plugins.schemas import PluginManifest
 from illusion.plugins.types import LoadedPlugin
 from illusion.skills.types import SkillDefinition
@@ -229,10 +230,10 @@ def _load_md_skill(
     )
 
 
-def _load_plugin_hooks(path: Path, plugin_root: Path) -> dict[str, list]:
+def _load_plugin_hooks(path: Path, plugin_root: Path) -> dict[str, list[Any]]:
     """从平面 hooks.json 文件加载钩子。
 
-    返回 dict[str, list]，值是原始列表（在 load_hook_registry 中统一解析）。
+    返回 dict[str, list[Any]]，值是原始列表（在 load_hook_registry 中统一解析）。
     """
     if not path.exists():
         return {}
@@ -242,14 +243,15 @@ def _load_plugin_hooks(path: Path, plugin_root: Path) -> dict[str, list]:
         return {}
     # 应用变量替换
     raw = _substitute_plugin_vars_in_hooks(raw, plugin_root)
-    return raw
+    result: dict[str, list[Any]] = raw
+    return result
 
 
-def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, list]:
+def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, list[Any]]:
     """从结构化 hooks/hooks.json 格式加载钩子。
 
     格式：{ "hooks": { "EventName": [{ "matcher": "...", "hooks": [...] }] } }
-    返回 dict[str, list]，值是原始列表。
+    返回 dict[str, list[Any]]，值是原始列表。
     """
     if not path.exists():
         return {}
@@ -262,7 +264,8 @@ def _load_plugin_hooks_structured(path: Path, plugin_root: Path) -> dict[str, li
         return {}
     # 应用变量替换
     hooks_data = _substitute_plugin_vars_in_hooks(hooks_data, plugin_root)
-    return hooks_data
+    result: dict[str, list[Any]] = hooks_data
+    return result
 
 
 def _substitute_plugin_vars_in_hooks(data: Any, plugin_root: Path) -> Any:
@@ -278,7 +281,7 @@ def _substitute_plugin_vars_in_hooks(data: Any, plugin_root: Path) -> Any:
     return data
 
 
-def _load_plugin_mcp(path: Path) -> dict[str, object]:
+def _load_plugin_mcp(path: Path) -> dict[str, McpStdioServerConfig | McpHttpServerConfig | McpWebSocketServerConfig]:
     """从 JSON 文件加载 MCP 服务器配置。"""
     if not path.exists():
         return {}

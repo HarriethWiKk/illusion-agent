@@ -32,7 +32,7 @@ class ConfigToolInput(BaseModel):
     value: str | None = Field(default=None)
 
 
-class ConfigTool(BaseTool):
+class ConfigTool(BaseTool[ConfigToolInput]):
     """读取或更新 IllusionCode 配置设置。
 
     用于查看或更改 IllusionCode 设置。当用户请求配置更改、询问当前设置时使用此工具。

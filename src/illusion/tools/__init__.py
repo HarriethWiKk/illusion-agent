@@ -16,6 +16,8 @@
     >>> registry = create_default_tool_registry()
 """
 
+from typing import Any
+
 from illusion.tools.ask_user_question_tool import AskUserQuestionTool
 from illusion.tools.agent_tool import AgentTool
 from illusion.tools.bash_tool import BashTool
@@ -58,9 +60,9 @@ from illusion.tools.web_search_tool import WebSearchTool
 
 
 def create_default_tool_registry(
-    mcp_manager=None,
+    mcp_manager: Any = None,
     is_interactive: bool = True,
-    channel_tools: list[BaseTool] | None = None,
+    channel_tools: list[BaseTool[Any]] | None = None,
 ) -> ToolRegistry:
     """返回默认内置工具注册表
 
@@ -73,7 +75,7 @@ def create_default_tool_registry(
         ToolRegistry: 工具注册表
     """
     registry = ToolRegistry()
-    tools = [
+    tools: list[BaseTool[Any]] = [
         BashTool(),
         PowerShellTool(),
         ReplTool(),

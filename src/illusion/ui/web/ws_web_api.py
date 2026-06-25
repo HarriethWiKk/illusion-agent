@@ -23,6 +23,8 @@ Web 专属请求分发层模块
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from illusion.commands.session import resume_handler as _resume_handler
 from illusion.commands.session import new_handler as _new_handler
@@ -40,9 +42,10 @@ from illusion.services.session_storage import (
 import time as _time
 
 from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
+from illusion.ui.runtime import RuntimeBundle
 
 
-def build_replay_items(replay_messages: list | None) -> list:
+def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]]:
     """将重放消息转换为 TranscriptItem 载荷列表。
 
     供 WebApiDispatcher.handle_web_restore_session 和
@@ -52,12 +55,12 @@ def build_replay_items(replay_messages: list | None) -> list:
         replay_messages: ConversationMessage 列表（可能为 None）
 
     Returns:
-        list: 转录项字典列表（role/text/reasoning/tool_name 等）
+        list[Any]: 转录项字典列表（role/text/reasoning/tool_name 等）
     """
     if not replay_messages:
         return []
     from illusion.engine.messages import ToolUseBlock, ToolResultBlock
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     # 保存 tool_use_id -> tool_name 的映射
     tool_name_map: dict[str, str] = {}
     for msg in replay_messages:
@@ -93,7 +96,7 @@ def build_replay_items(replay_messages: list | None) -> list:
                 if reasoning:
                     items.append({"role": "assistant", "text": "", "reasoning": reasoning})
             elif assistant_text or reasoning:
-                item: dict = {"role": "assistant", "text": assistant_text}
+                item: dict[str, Any] = {"role": "assistant", "text": assistant_text}
                 if reasoning:
                     item["reasoning"] = reasoning
                 items.append(item)
@@ -153,11 +156,11 @@ class WebApiDispatcher:
                 # 连发 error 都失败时只能记录，不再冒泡
                 log.exception("发送 web 异常 error 事件也失败")
 
-    def _dispatch_table(self) -> dict[str, object]:
+    def _dispatch_table(self) -> dict[str, Callable[[FrontendRequest], Awaitable[None]]]:
         """返回请求类型到处理方法的映射表。
 
         Returns:
-            dict: {请求类型字符串: 异步处理方法}
+            dict[str, Any]: {请求类型字符串: 异步处理方法}
         """
         return {
             "web_new_session": self.handle_web_new_session,
@@ -283,7 +286,7 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(
             type="web_restore_completed",
             session_id=bundle.session_id,
-            items=replay_items,
+            items=replay_items,  # type: ignore[arg-type]
             state=_state_payload(bundle.app_state.get()),
             web_error=error_msg,
         ))
@@ -382,7 +385,7 @@ class WebApiDispatcher:
                     message=f"模型已切换但 API 客户端重建失败: {exc}",
                 ))
 
-    async def _apply_setting(self, bundle, key: str, value) -> tuple[bool, str | None]:
+    async def _apply_setting(self, bundle: RuntimeBundle, key: str, value: Any) -> tuple[bool, str | None]:
         """应用设置到 settings 与 app_state（A/B 通道共用）。
 
         复用各设置项的写入模式：settings.<field> = value → save_settings →
@@ -496,7 +499,7 @@ class WebApiDispatcher:
             return
         await self._push_models(bundle)
 
-    async def _push_models(self, bundle) -> None:
+    async def _push_models(self, bundle: RuntimeBundle) -> None:
         """推送模型选项列表（供多处复用）。
 
         复用 ws_host._model_select_options 生成选项（含 active 态）。
@@ -520,7 +523,7 @@ class WebApiDispatcher:
             return
         await self._push_resources(bundle)
 
-    async def _push_resources(self, bundle) -> None:
+    async def _push_resources(self, bundle: RuntimeBundle) -> None:
         """推送资源快照（供多处复用）。
 
         复用 _collect_resources 收集 skills/plugins/rules/mcp_servers，
@@ -603,7 +606,7 @@ class WebApiDispatcher:
         ))
 
 
-async def _run_command_via_registry(line: str, bundle) -> CommandResult | None:
+async def _run_command_via_registry(line: str, bundle: RuntimeBundle) -> CommandResult | None:
     """通过 CommandRegistry 执行命令并返回结果（不经过 handle_line）。
 
     B 通道（web_query）的执行型/查询型指令复用此函数，避免触发
@@ -634,7 +637,7 @@ async def _run_command_via_registry(line: str, bundle) -> CommandResult | None:
     return await command.handler(args, context)
 
 
-def _collect_resources(bundle) -> dict:
+def _collect_resources(bundle: RuntimeBundle) -> dict[str, Any]:
     """收集右侧栏资源快照（skills/plugins/rules/mcp_servers）。
 
     直接调用各注册表/管理器的结构化接口，废弃旧的命令文本正则解析
@@ -644,10 +647,10 @@ def _collect_resources(bundle) -> dict:
         bundle: 运行时 bundle
 
     Returns:
-        dict: {skills, plugins, rules, mcp_servers} 结构化快照
+        dict[str, Any]: {skills, plugins, rules, mcp_servers} 结构化快照
     """
     # skills：从技能注册表读取结构化数据
-    from illusion.skills import load_skill_registry
+    from illusion.skills.loader import load_skill_registry
     skill_registry = load_skill_registry(bundle.cwd)
     skills = [
         {"name": s.name, "description": s.description or "", "source": s.source}

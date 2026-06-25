@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import Any,  TYPE_CHECKING
 
 import pyperclip
 
@@ -31,7 +31,7 @@ def run_git_command(cwd: str, *args: str) -> tuple[bool, str]:
         tuple[bool, str]: (是否成功, 输出内容)
     """
     try:
-        run_kwargs: dict = {
+        run_kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
         }
         if sys.platform == "win32":
@@ -67,7 +67,7 @@ def copy_to_clipboard(text: str) -> tuple[bool, str]:
         pyperclip.copy(text)
         return True, "clipboard"
     except Exception:
-        clip_kwargs: dict = {}
+        clip_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             clip_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         for command in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard"]):
@@ -130,7 +130,7 @@ def rewind_turns(messages: list[ConversationMessage], turns: int) -> list[Conver
     return updated
 
 
-def coerce_setting_value(settings: "Settings", key: str, raw: str):
+def coerce_setting_value(settings: "Settings", key: str, raw: str) -> Any:
     """将字符串值强制转换为设置字段的正确类型
 
     Args:
@@ -162,7 +162,7 @@ def coerce_setting_value(settings: "Settings", key: str, raw: str):
         return int(raw)
     if annotation is str:
         return raw
-    if annotation is Literal or getattr(annotation, "__origin__", None) is Literal:
+    if getattr(annotation, "__origin__", None) is Literal:
         allowed = get_args(annotation)
         if raw not in allowed:
             raise ValueError(f"Invalid value for {key}: {raw}")

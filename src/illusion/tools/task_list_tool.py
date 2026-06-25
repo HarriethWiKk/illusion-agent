@@ -25,7 +25,7 @@ class TaskListToolInput(BaseModel):
     """任务列表参数。"""
 
 
-class TaskListTool(BaseTool):
+class TaskListTool(BaseTool[TaskListToolInput]):
     """列出后台任务。
 
     用于查看所有任务的概要信息。

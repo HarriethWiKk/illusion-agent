@@ -199,7 +199,7 @@ def upsert_cron_job(job: dict[str, Any]) -> str:
     jobs.sort(key=lambda item: str(item.get("name", "")))
 
     save_cron_jobs(jobs)
-    return job_id
+    return str(job_id)
 
 
 def delete_cron_job(identifier: str) -> bool:
@@ -335,4 +335,5 @@ def get_consecutive_error_count(identifier: str) -> int:
     job = get_cron_job(identifier)
     if job is None:
         return 0
-    return job.get("consecutive_errors", 0)
+    result: int = job.get("consecutive_errors", 0)
+    return result

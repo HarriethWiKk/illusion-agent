@@ -410,10 +410,10 @@ class HookExecutor:
 
         text_chunks: list[str] = []
         final_event: ApiMessageCompleteEvent | None = None
-        async for event_item in self._context.api_client.stream_message(request):
+        async for event_item in self._context.api_client.stream_message(request):  # type: ignore[attr-defined]
             if isinstance(event_item, ApiMessageCompleteEvent):
                 final_event = event_item
-            else:
+            elif hasattr(event_item, "text"):
                 text_chunks.append(event_item.text)
 
         text = "".join(text_chunks)

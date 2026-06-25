@@ -20,9 +20,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
+
+ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
 
 
 @dataclass
@@ -53,7 +55,7 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class BaseTool(ABC):
+class BaseTool(ABC, Generic[ToolInputT]):
     """所有 IllusionCode 工具的基类
     
     Attributes:
@@ -64,10 +66,10 @@ class BaseTool(ABC):
 
     name: str
     description: str
-    input_model: type[BaseModel]
+    input_model: type[ToolInputT]
 
     @abstractmethod
-    async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+    async def execute(self, arguments: ToolInputT, context: ToolExecutionContext) -> ToolResult:
         """执行工具
         
         Args:
@@ -78,7 +80,7 @@ class BaseTool(ABC):
             ToolResult: 工具执行结果
         """
 
-    def is_read_only(self, arguments: BaseModel) -> bool:
+    def is_read_only(self, arguments: ToolInputT) -> bool:
         """返回调用是否为只读
         
         Args:
@@ -111,9 +113,9 @@ class ToolRegistry:
     """
 
     def __init__(self) -> None:
-        self._tools: dict[str, BaseTool] = {}
+        self._tools: dict[str, BaseTool[Any]] = {}
 
-    def register(self, tool: BaseTool) -> None:
+    def register(self, tool: BaseTool[Any]) -> None:
         """注册工具实例
         
         Args:
@@ -121,7 +123,7 @@ class ToolRegistry:
         """
         self._tools[tool.name] = tool
 
-    def get(self, name: str) -> BaseTool | None:
+    def get(self, name: str) -> BaseTool[Any] | None:
         """按名称返回已注册的工具
         
         Args:
@@ -132,7 +134,7 @@ class ToolRegistry:
         """
         return self._tools.get(name)
 
-    def list_tools(self) -> list[BaseTool]:
+    def list_tools(self) -> list[BaseTool[Any]]:
         """返回所有已注册的工具
         
         Returns:

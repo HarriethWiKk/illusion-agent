@@ -34,7 +34,7 @@ class StructuredOutputToolInput(BaseModel):
     )
 
 
-class StructuredOutputTool(BaseTool):
+class StructuredOutputTool(BaseTool[StructuredOutputToolInput]):
     """以结构化 JSON 形式返回最终响应。
 
     用于按照请求的格式返回结构化输出。

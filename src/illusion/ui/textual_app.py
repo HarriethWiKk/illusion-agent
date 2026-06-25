@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from rich.panel import Panel
 from textual import on
@@ -51,7 +52,7 @@ from illusion.engine.stream_events import (
 from illusion.swarm.agent_executor import list_active_agents
 from illusion.tasks import get_task_manager
 from illusion.tasks.types import to_task_display_status
-from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime
 
 # Agent 状态指示器颜色（与 agent_definitions.py 中的 AGENT_COLORS 一致）
 _AGENT_INDICATOR_COLOR = "purple"
@@ -130,7 +131,7 @@ class PermissionScreen(ModalScreen[bool]):
         self.dismiss(False)  # 拒绝执行
 
 
-class QuestionScreen(ModalScreen):
+class QuestionScreen(ModalScreen[Any]):
     """用户问答模态对话框。
 
     支持两种模式：
@@ -143,10 +144,10 @@ class QuestionScreen(ModalScreen):
         # Enter 不再全局绑定提交。多选时 Space 切换，Tab 到 Submit 按钮后回车提交。
     ]
 
-    def __init__(self, question: str, questions_data: list | None = None) -> None:
+    def __init__(self, question: str, questions_data: list[Any] | None = None) -> None:
         super().__init__()
         self._question = question
-        self._questions_data: list[dict] = []
+        self._questions_data: list[dict[str, Any]] = []
         if questions_data:
             self._questions_data = [
                 q.model_dump() if hasattr(q, "model_dump") else q
@@ -178,7 +179,7 @@ class QuestionScreen(ModalScreen):
             for i, q in enumerate(self._questions_data):
                 header = q.get("header", "")
                 question_text = q.get("question", "")
-                options: list[dict] = q.get("options", [])
+                options: list[dict[str, Any]] = q.get("options", [])
                 multi: bool = q.get("multiSelect", False)
 
                 title = f"[{header}] {question_text}" if header else question_text
@@ -240,7 +241,7 @@ class QuestionScreen(ModalScreen):
         result: dict[str, list[str] | str] = {}
         for i, q in enumerate(self._questions_data):
             header = q.get("header", f"q{i}")
-            options: list[dict] = q.get("options", [])
+            options: list[dict[str, Any]] = q.get("options", [])
             multi: bool = q.get("multiSelect", False)
 
             if multi:
@@ -364,7 +365,7 @@ class illusionTerminalApp(App[None]):
             api_key=api_key,
             api_client=api_client,
         )
-        self._bundle = None                   # 运行时数据bundle
+        self._bundle: RuntimeBundle | None = None                   # 运行时数据bundle
         self._assistant_buffer = ""           # 助手输出缓冲区
         self._busy = False                  # 当前是否正在处理请求
         self.transcript_lines: list[str] = []  # 对话历史
@@ -400,8 +401,9 @@ class illusionTerminalApp(App[None]):
             api_key=self._config.api_key,
             api_client=self._config.api_client,
             permission_prompt=self._ask_permission,
-            ask_user_prompt=self._ask_question,
+            ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
         )
+        assert self._bundle is not None
         await start_runtime(self._bundle)  # 启动运行时（执行会话开始钩子）
         # 聚焦输入框
         self.query_one("#composer", Input).focus()
@@ -422,14 +424,14 @@ class illusionTerminalApp(App[None]):
         """权限确认回调函数。"""
         return bool(await self._open_modal(PermissionScreen(tool_name, reason)))
 
-    async def _ask_question(self, question: str, questions_data: object = None) -> str | dict:
+    async def _ask_question(self, question: str, questions_data: list[Any] | None = None) -> str | dict[Any, Any]:
         """用户问答回调函数。"""
-        result = await self._open_modal(QuestionScreen(question, questions_data)) or ""
+        result = await self._open_modal(QuestionScreen(question, questions_data))
         if isinstance(result, dict):
             return result  # 结构化答案（含多选 list）
         return str(result)
 
-    async def _open_modal(self, screen: ModalScreen) -> object:
+    async def _open_modal(self, screen: ModalScreen[Any]) -> object:
         """打开模态对话框并等待用户响应。"""
         loop = asyncio.get_running_loop()
         future: asyncio.Future[object] = loop.create_future()

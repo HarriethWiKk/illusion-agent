@@ -27,6 +27,7 @@ Web 后端主机模块
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 import contextlib
 import json
 import logging
@@ -55,13 +56,13 @@ from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
-from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
+from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
 
 
-def _strip_tool_previews(text: str, tool_uses: list | None) -> str:
+def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
     """从助手文本中移除工具预览行。
 
     使用实际工具名称精确匹配，不依赖前导空格数量。
@@ -100,7 +101,7 @@ class WebHostConfig:
     api_key: str | None = None
     api_format: str | None = None
     api_client: SupportsStreamingMessages | None = None
-    restore_messages: list[dict] | None = None
+    restore_messages: list[dict[str, Any]] | None = None
     restore_session_id: str | None = None
     enforce_max_turns: bool = True
     effort: str | None = None
@@ -118,7 +119,7 @@ class WebBackendHost:
         _bundle: 运行时数据 bundle
         _write_lock: 异步写入锁
         _request_queue: 请求队列
-        _permission_requests: 权限请求字典（request_id -> Future）
+        _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
         _always_allowed_tools: "总是允许"的工具集合
         _busy: 当前是否正在处理请求
@@ -130,18 +131,18 @@ class WebBackendHost:
     def __init__(self, config: WebHostConfig, websocket: WebSocket) -> None:
         self._config = config
         self._websocket = websocket
-        self._bundle = None
+        self._bundle: RuntimeBundle | None = None
         self._write_lock = asyncio.Lock()  # 异步写入锁
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
-        self._question_requests: dict[str, asyncio.Future[str]] = {}      # 用户问答
+        self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}      # 用户问答
         self._always_allowed_tools: set[str] = set()                # 总是允许的工具
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
         self._ws_closed = False        # WebSocket 是否已关闭
         self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
         # 跟踪每个工具名称的最后输入，用于富事件发射
-        self._last_tool_inputs: dict[str, dict] = {}
+        self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
         # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
@@ -163,7 +164,7 @@ class WebBackendHost:
                 restore_messages=self._config.restore_messages,
                 restore_session_id=self._config.restore_session_id,
                 permission_prompt=self._ask_permission,
-                ask_user_prompt=self._ask_question,
+                ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
                 plan_approval_prompt=self._ask_plan_approval,
                 effort=self._config.effort,
             )
@@ -171,6 +172,7 @@ class WebBackendHost:
             log.exception("Failed to build runtime")
             await self._emit(BackendEvent(type="error", message=f"Runtime init failed: {exc}"))
             return 1
+        assert self._bundle is not None
         await start_runtime(self._bundle)
         # 加载总是允许的工具列表
         self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
@@ -194,7 +196,7 @@ class WebBackendHost:
         reader = asyncio.create_task(self._read_requests())
 
         # 创建定期状态更新任务（每秒刷新一次，用于 agent 计数等实时状态）
-        async def _periodic_status_update():
+        async def _periodic_status_update() -> None:
             while self._running and not self._ws_closed:
                 await asyncio.sleep(1.0)
                 if self._running and not self._ws_closed and self._bundle is not None:
@@ -235,10 +237,10 @@ class WebBackendHost:
                 # 用户问答响应
                 if request.type == "question_response":
                     if request.request_id in self._question_requests:
-                        answer = request.answer or ""
+                        answer: str | dict[Any, Any] = request.answer or ""
                         # 尝试解析 JSON 格式的多选答案
                         try:
-                            parsed = json.loads(answer)
+                            parsed = json.loads(answer) if isinstance(answer, str) else answer
                             if isinstance(parsed, dict):
                                 answer = parsed
                         except (json.JSONDecodeError, TypeError):
@@ -513,7 +515,7 @@ class WebBackendHost:
         # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
         _render_event = await self._make_render_event()
 
-        async def _replay_transcript_item(item: dict) -> None:
+        async def _replay_transcript_item(item: dict[str, Any]) -> None:
             """重播 transcript_item。"""
             await self._emit(BackendEvent(type="transcript_item", item=TranscriptItem(**item)))
 
@@ -531,7 +533,7 @@ class WebBackendHost:
                 },
             ))
 
-        async def _replace_transcript_items(items: list[dict]) -> None:
+        async def _replace_transcript_items(items: list[dict[str, Any]]) -> None:
             """替换转录项列表（一次性清空并替换，避免 Ink Static 重复渲染）。"""
             transcript_items = [TranscriptItem(**item) for item in items]
             await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
@@ -582,7 +584,7 @@ class WebBackendHost:
         from illusion.engine.query import MaxTurnsExceeded
         settings = self._bundle.current_settings()
         self._bundle.engine.set_max_turns(settings.max_turns)
-        from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state
+        from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state  # type: ignore[attr-defined]
         system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line)
         for ctx in self._bundle.hook_additional_contexts:
             if ctx:
@@ -800,7 +802,7 @@ class WebBackendHost:
             markdown = "\n".join(checklist_lines)
             await self._emit(BackendEvent(type="todo_update", todo_markdown=markdown))
 
-    def _emit_swarm_status(self, teammates: list[dict], notifications: list[dict] | None = None) -> None:
+    def _emit_swarm_status(self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None) -> None:
         """同步发送 swarm_status 事件（调度为协程）。"""
         import asyncio
         loop = asyncio.get_event_loop()
@@ -848,7 +850,7 @@ class WebBackendHost:
         current_model = settings.active_model_name
 
         if command == "provider":
-            statuses = AuthManager(settings).get_env_statuses()
+            statuses = AuthManager(settings).get_env_credential_statuses()
             options = [
                 {
                     "value": env_key,
@@ -949,13 +951,13 @@ class WebBackendHost:
             return
 
         if command == "turns":
-            current = self._bundle.engine.max_turns
+            current_turns: int | None = self._bundle.engine.max_turns
             values = {32, 64, 128, 200, 256, 512}
-            if isinstance(current, int):
-                values.add(current)
-            options = [{"value": "unlimited", "label": "无限" if zh else "Unlimited", "description": "不对本会话硬性停止" if zh else "Do not hard-stop this session", "active": current is None}]
+            if isinstance(current_turns, int):
+                values.add(current_turns)
+            options = [{"value": "unlimited", "label": "无限" if zh else "Unlimited", "description": "不对本会话硬性停止" if zh else "Do not hard-stop this session", "active": current_turns is None}]
             options.extend(
-                {"value": str(value), "label": (f"{value} 轮" if zh else f"{value} turns"), "active": value == current}
+                {"value": str(value), "label": (f"{value} 轮" if zh else f"{value} turns"), "active": value == current_turns}
                 for value in sorted(values)
             )
             await self._emit(
@@ -983,10 +985,10 @@ class WebBackendHost:
             return
 
         if command == "language":
-            current = str(state.ui_language or "zh-CN")
+            current_lang = str(state.ui_language or "zh-CN")
             options = [
-                {"value": "set zh-CN", "label": "简体中文", "description": "中文界面", "active": current == "zh-CN"},
-                {"value": "set en", "label": "English", "description": "English UI", "active": current == "en"},
+                {"value": "set zh-CN", "label": "简体中文", "description": "中文界面", "active": current_lang == "zh-CN"},
+                {"value": "set en", "label": "English", "description": "English UI", "active": current_lang == "en"},
             ]
             await self._emit(
                 BackendEvent(
@@ -1109,7 +1111,7 @@ class WebBackendHost:
             return
 
         if command == "skills":
-            from illusion.skills import load_skill_registry
+            from illusion.skills.loader import load_skill_registry
 
             skill_registry = load_skill_registry(self._bundle.cwd)
             skills = skill_registry.list_skills()
@@ -1264,7 +1266,7 @@ class WebBackendHost:
         finally:
             self._permission_requests.pop(request_id, None)
 
-    async def _ask_question(self, question: str, questions: object = None) -> str | dict:
+    async def _ask_question(self, question: str, questions: object = None) -> str | dict[Any, Any]:
         """向用户提问并等待回答。
 
         Args:
@@ -1272,23 +1274,23 @@ class WebBackendHost:
             questions: 结构化问题数据（可选）
 
         Returns:
-            str | dict: 用户回答
+            str | dict[str, Any]: 用户回答
         """
         request_id = uuid4().hex
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
         self._question_requests[request_id] = future
         # 优先使用显式传入的结构化问题数据，回退到 _last_tool_inputs
         questions_data = questions
         if questions_data is None:
             tool_input = self._last_tool_inputs.get("ask_user_question", {})
             questions_data = tool_input.get("questions")
-        # 如果是 pydantic 模型列表，转为 dict
-        if questions_data is not None and not isinstance(questions_data, (dict, list)):
+        # 如果是 pydantic 模型列表，转为 dict[str, Any]
+        if questions_data is not None and isinstance(questions_data, list):
             questions_data = [
                 q.model_dump() if hasattr(q, "model_dump") else q
                 for q in questions_data
             ]
-        modal_payload: dict = {
+        modal_payload: dict[str, Any] = {
             "kind": "question",
             "request_id": request_id,
             "question": question,
@@ -1328,11 +1330,11 @@ class WebBackendHost:
         # 复用 question 模态，提供批准/拒绝选项
         from illusion.config.i18n import t as _t
         request_id = uuid4().hex
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
         self._question_requests[request_id] = future
         approve_label = _t("plan_approve")
         reject_label = _t("plan_reject")
-        modal_payload: dict = {
+        modal_payload: dict[str, Any] = {
             "kind": "question",
             "request_id": request_id,
             "question": _t("plan_approval"),

@@ -28,6 +28,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Slug 验证
@@ -110,7 +111,7 @@ def _worktree_branch(slug: str) -> str:
 
 async def _run_git(*args: str, cwd: Path) -> tuple[int, str, str]:
     """运行 git 命令，返回 (returncode, stdout, stderr)。"""
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     proc = await asyncio.create_subprocess_exec(

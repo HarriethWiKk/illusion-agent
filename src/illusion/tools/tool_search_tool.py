@@ -36,7 +36,7 @@ class ToolSearchToolInput(BaseModel):
     query: str = Field(description="Substring to search in tool names and descriptions")
 
 
-class ToolSearchTool(BaseTool):
+class ToolSearchTool(BaseTool[ToolSearchToolInput]):
     """搜索工具注册表内容并返回匹配工具的完整 schema 定义。
 
     支持三种查询模式：
@@ -78,7 +78,7 @@ Query forms:
         functions_xml = self._build_functions_block(matches)
         return ToolResult(output=functions_xml)
 
-    def _match_tools(self, query: str, all_tools: list[BaseTool]) -> list[BaseTool]:
+    def _match_tools(self, query: str, all_tools: list[BaseTool[Any]]) -> list[BaseTool[Any]]:
         """根据查询语法匹配工具。
 
         Args:
@@ -94,12 +94,12 @@ Query forms:
             return self._match_require(query, all_tools)
         return self._match_keyword(query, all_tools)
 
-    def _match_select(self, query: str, all_tools: list[BaseTool]) -> list[BaseTool]:
+    def _match_select(self, query: str, all_tools: list[BaseTool[Any]]) -> list[BaseTool[Any]]:
         """select:Name1,Name2,... — 按名称精确匹配。"""
         names = {n.strip() for n in query[len("select:"):].split(",") if n.strip()}
         return [t for t in all_tools if t.name in names]
 
-    def _match_require(self, query: str, all_tools: list[BaseTool]) -> list[BaseTool]:
+    def _match_require(self, query: str, all_tools: list[BaseTool[Any]]) -> list[BaseTool[Any]]:
         """+term other... — 名称必须包含 term，按剩余词排名，最多返回 5 个。"""
         parts = query.split()
         if not parts:
@@ -118,7 +118,7 @@ Query forms:
         )
         return scored[:5]
 
-    def _match_keyword(self, query: str, all_tools: list[BaseTool]) -> list[BaseTool]:
+    def _match_keyword(self, query: str, all_tools: list[BaseTool[Any]]) -> list[BaseTool[Any]]:
         """关键词搜索，按匹配度排序，最多返回 5 个。"""
         terms = query.lower().split()
         if not terms:
@@ -132,12 +132,12 @@ Query forms:
         return [t for t in scored if self._keyword_score(t, terms) > 0][:5]
 
     @staticmethod
-    def _keyword_score(tool: BaseTool, terms: list[str]) -> int:
+    def _keyword_score(tool: BaseTool[Any], terms: list[str]) -> int:
         """计算工具对关键词列表的匹配得分。"""
         text = (tool.name + " " + tool.description).lower()
         return sum(1 for term in terms if term in text)
 
-    def _build_functions_block(self, tools: list[BaseTool]) -> str:
+    def _build_functions_block(self, tools: list[BaseTool[Any]]) -> str:
         """将工具列表构建为 <function>JSONSchema</function> 格式。"""
         lines: list[str] = []
         for tool in tools:
@@ -146,7 +146,7 @@ Query forms:
         return "\n".join(lines)
 
     @staticmethod
-    def _tool_to_function_schema(tool: BaseTool) -> dict[str, Any]:
+    def _tool_to_function_schema(tool: BaseTool[Any]) -> dict[str, Any]:
         """将工具转换为 function schema 格式（使用 parameters 键）。"""
         api_schema = tool.to_api_schema()
         return {

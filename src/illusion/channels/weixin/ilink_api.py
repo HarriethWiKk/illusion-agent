@@ -20,7 +20,7 @@ import json
 import logging
 import random
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def _build_headers(token: str, body: str = "") -> dict[str, str]:
         body: 请求体字符串（用于计算 Content-Length）
 
     Returns:
-        dict: 请求头字典
+        dict[str, Any]: 请求头字典
     """
     headers = {
         "Content-Type": "application/json",
@@ -135,7 +135,7 @@ async def _api_post(
     *,
     base_url: str,
     endpoint: str,
-    payload: dict,
+    payload: dict[str, Any],
     token: str,
     timeout_ms: int,
 ) -> dict[str, Any]:
@@ -153,7 +153,7 @@ async def _api_post(
         timeout_ms: 超时（毫秒）
 
     Returns:
-        dict: 响应 JSON
+        dict[str, Any]: 响应 JSON
 
     Raises:
         asyncio.TimeoutError: 请求超时
@@ -167,7 +167,7 @@ async def _api_post(
         raw = await resp.text()
         if not resp.ok:
             raise RuntimeError(f"iLink POST {endpoint} HTTP {resp.status}: {raw[:200]}")
-        return json.loads(raw)
+        return cast(dict[str, Any], json.loads(raw))
 
 
 async def _api_get(
@@ -189,7 +189,7 @@ async def _api_get(
         timeout_ms: 超时（毫秒）
 
     Returns:
-        dict: 响应 JSON
+        dict[str, Any]: 响应 JSON
     """
     url = f"{base_url}/{endpoint}"
     headers = {
@@ -202,7 +202,7 @@ async def _api_get(
             raw = await response.text()
             if not response.ok:
                 raise RuntimeError(f"iLink GET {endpoint} HTTP {response.status}: {raw[:200]}")
-            return json.loads(raw)
+            return cast(dict[str, Any], json.loads(raw))
 
     return await asyncio.wait_for(_do(), timeout=timeout_ms / 1000)
 
@@ -228,7 +228,7 @@ async def poll_updates(
         timeout_ms: 超时（毫秒）
 
     Returns:
-        dict: {ret, msgs: [...], get_updates_buf: 新游标}
+        dict[str, Any]: {ret, msgs: [...], get_updates_buf: 新游标}
     """
     try:
         return await _api_post(
@@ -261,7 +261,7 @@ async def send_message(
         client_id: 客户端消息 ID（幂等去重用）
 
     Returns:
-        dict: API 响应（可能含 errcode）
+        dict[str, Any]: API 响应（可能含 errcode）
     """
     if not text or not text.strip():
         raise ValueError("微信消息内容不能为空")
@@ -331,7 +331,7 @@ async def get_config(
         ilink_user_id: 目标用户的 ilink_user_id（API 要求）
 
     Returns:
-        dict: 含 typing_ticket 等配置
+        dict[str, Any]: 含 typing_ticket 等配置
     """
     payload: dict[str, Any] = {"context_token": context_token}
     if ilink_user_id:
@@ -351,7 +351,7 @@ async def get_bot_qrcode(session: Any, *, base_url: str) -> dict[str, Any]:
         base_url: API 入口
 
     Returns:
-        dict: 含 qrcode（hex）和 qrcode_img_content
+        dict[str, Any]: 含 qrcode（hex）和 qrcode_img_content
     """
     return await _api_get(
         session, base_url=base_url,
@@ -369,7 +369,7 @@ async def get_qrcode_status(session: Any, *, base_url: str, qrcode: str) -> dict
         qrcode: 二维码 hex token
 
     Returns:
-        dict: 含 status（wait/scaned/confirmed/expired 等）
+        dict[str, Any]: 含 status（wait/scaned/confirmed/expired 等）
     """
     return await _api_get(
         session, base_url=base_url,
@@ -526,7 +526,7 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
         qr_hex: 二维码内容（hex）
 
     Returns:
-        dict: 含 server/port/state，供后续刷新/关闭
+        dict[str, Any]: 含 server/port/state，供后续刷新/关闭
     """
     import base64
     import io
@@ -539,7 +539,7 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
     # 生成二维码 PNG
     img = qrcode.make(qr_hex)
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf, format="PNG")  # type: ignore[call-arg]
     img_b64 = base64.b64encode(buf.getvalue()).decode()
 
     # 状态容器（供刷新时更新 HTML）
@@ -565,13 +565,13 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
 </body></html>"""
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
+        def do_GET(self) -> None:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(_build_html().encode())
 
-        def log_message(self, *args):
+        def log_message(self, *args: Any) -> None:
             pass  # 静默日志
 
     http_server = HTTPServer(("127.0.0.1", 0), Handler)  # 0 = 系统分配端口
@@ -590,7 +590,7 @@ def _refresh_qr_server(server_info: dict[str, Any], qr_hex: str) -> None:
     更新 state 中的 img_b64，页面自动刷新时会拿到新二维码。
 
     Args:
-        server_info: _serve_qr_in_browser 返回的 dict
+        server_info: _serve_qr_in_browser 返回的 dict[str, Any]
         qr_hex: 新二维码内容
     """
     import base64
@@ -600,5 +600,5 @@ def _refresh_qr_server(server_info: dict[str, Any], qr_hex: str) -> None:
 
     img = qrcode.make(qr_hex)
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf, format="PNG")  # type: ignore[call-arg]
     server_info["state"]["img_b64"] = base64.b64encode(buf.getvalue()).decode()

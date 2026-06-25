@@ -14,6 +14,8 @@ Bash 命令执行工具
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import os
 from pathlib import Path
@@ -146,7 +148,7 @@ def _build_sandbox_config_text() -> str:
         return "Sandbox configuration is not available.\n"
 
 
-def _format_sandbox_dict(d: dict) -> str:
+def _format_sandbox_dict(d: dict[str, Any]) -> str:
     """格式化沙箱配置字典为简洁文本。"""
     items = []
     for key, values in d.items():
@@ -342,7 +344,7 @@ def _build_bash_description() -> str:
     return "\n".join(sections)
 
 
-class BashTool(BaseTool):
+class BashTool(BaseTool[BashToolInput]):
     """执行 shell 命令并捕获标准输出/错误。
 
     用于执行终端操作，如 git、npm、docker 等命令。
@@ -383,10 +385,12 @@ class BashTool(BaseTool):
 
         # 后台运行模式
         if arguments.run_in_background:
-            async def _background_wait():
+            async def _background_wait() -> None:
                 try:
                     # 必须消费 stdout/stderr，避免管道缓冲区满导致进程挂起
+                    assert process.stdout is not None
                     stdout_task = asyncio.create_task(process.stdout.read())
+                    assert process.stderr is not None
                     stderr_task = asyncio.create_task(process.stderr.read())
                     await process.wait()
                     stdout_task.cancel()

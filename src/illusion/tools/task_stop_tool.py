@@ -30,7 +30,7 @@ class TaskStopToolInput(BaseModel):
     task_id: str = Field(description="Task identifier")
 
 
-class TaskStopTool(BaseTool):
+class TaskStopTool(BaseTool[TaskStopToolInput]):
     """停止后台任务。
 
     用于终止长时间运行的任务。

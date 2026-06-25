@@ -63,7 +63,7 @@ def is_process_alive(pid: int) -> bool:
         # Windows：用 OpenProcess 探测，返回句柄非零即存在
         # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         import ctypes
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32
         SYNCHRONIZE = 0x00100000
         handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
         if handle:

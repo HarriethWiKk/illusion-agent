@@ -29,7 +29,7 @@ class ExitPlanModeToolInput(BaseModel):
     """
 
 
-class ExitPlanModeTool(BaseTool):
+class ExitPlanModeTool(BaseTool[ExitPlanModeToolInput]):
     """退出计划模式并向用户展示计划以供审批。
 
     当代理在计划模式下完成计划编写后，使用此工具将计划提交给用户审批。

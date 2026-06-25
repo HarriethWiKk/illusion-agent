@@ -63,8 +63,8 @@ class FeishuWSClient:
 
         构造官方 lark WS 客户端并 start()。事件通过 _event_handler 回调投递。
         """
-        import lark_oapi as lark  # 延迟导入
-        from lark_oapi.ws.client import Client as WsClient  # type: ignore[import-not-found]
+        import lark_oapi as lark  # type: ignore[import-untyped]  # 延迟导入
+        from lark_oapi.ws.client import Client as WsClient  # type: ignore[import-untyped]
 
         event_handler = self._event_handler
 

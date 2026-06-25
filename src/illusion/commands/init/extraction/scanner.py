@@ -184,7 +184,7 @@ def _discover_files(root: Path) -> list[FileInfo]:
 def _try_git_ls_files(root: Path) -> list[FileInfo]:
     """尝试用 git ls-files 发现文件"""
     try:
-        run_kwargs: dict = {
+        run_kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
         }
         if sys.platform == "win32":
@@ -392,7 +392,7 @@ def _extract_commands(
     if makefile.exists():
         try:
             content = makefile.read_text(encoding="utf-8", errors="replace")
-            _MAKE_TARGETS = {
+            _MAKE_TARGETS: dict[str, tuple[list[str], str]] = {
                 "build:": (build, "make build"),
                 "test:": (test, "make test"),
                 "lint:": (lint, "make lint"),
@@ -400,9 +400,9 @@ def _extract_commands(
                 "format:": (fmt, "make format"),
                 "check:": (lint, "make check"),
             }
-            for target, (bucket, cmd) in _MAKE_TARGETS.items():
-                if target in content and cmd not in bucket:
-                    bucket.append(cmd)
+            for _target, (_bucket, _cmd) in _MAKE_TARGETS.items():
+                if _target in content and _cmd not in _bucket:
+                    _bucket.append(_cmd)
         except OSError:
             pass
 
@@ -504,7 +504,8 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return None
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            result: dict[str, Any] = json.load(f)
+            return result
     except (json.JSONDecodeError, OSError):
         return None
 

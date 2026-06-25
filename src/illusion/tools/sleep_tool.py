@@ -31,7 +31,7 @@ class SleepToolInput(BaseModel):
     seconds: float = Field(default=1.0, ge=0.0, le=30.0)
 
 
-class SleepTool(BaseTool):
+class SleepTool(BaseTool[SleepToolInput]):
     """短暂暂停执行。
 
     用于等待指定时间后继续执行。

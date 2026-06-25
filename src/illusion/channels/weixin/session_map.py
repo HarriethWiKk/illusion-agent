@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +26,7 @@ class WeixinSession:
     Attributes:
         session_id: 会话唯一标识
         key: 存储键
-        messages: 对话历史（dict 列表）
+        messages: 对话历史（dict[str, Any] 列表）
         user_id: 关联用户
         chat_type: 会话类型
         model: 会话使用的模型
@@ -33,7 +34,7 @@ class WeixinSession:
 
     session_id: str
     key: str
-    messages: list[dict] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
     user_id: str = ""
     chat_type: str = "dm"
     model: str = ""
@@ -110,7 +111,7 @@ class WeixinSessionStore:
             key=key, messages=[], user_id=user_id, chat_type=chat_type,
         )
 
-    def save(self, session: WeixinSession, messages: list[dict]) -> None:
+    def save(self, session: WeixinSession, messages: list[dict[str, Any]]) -> None:
         """保存会话历史
 
         Args:
@@ -140,7 +141,7 @@ class WeixinSessionStore:
         except FileNotFoundError:
             pass
 
-    def inject(self, key: str, messages: list[dict]) -> None:
+    def inject(self, key: str, messages: list[dict[str, Any]]) -> None:
         """用外部消息替换会话历史（/resume 用）
 
         Args:

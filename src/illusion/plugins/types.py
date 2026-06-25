@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,7 +43,7 @@ class LoadedPlugin:
     path: Path  # 插件目录路径
     enabled: bool  # 是否启用
     skills: list[SkillDefinition] = field(default_factory=list)  # 技能列表
-    hooks: dict[str, list] = field(default_factory=dict)  # 钩子字典
+    hooks: dict[str, list[Any]] = field(default_factory=dict)  # 钩子字典
     mcp_servers: dict[str, McpServerConfig] = field(default_factory=dict)  # MCP 服务器配置
     commands: list[SkillDefinition] = field(default_factory=list)  # 命令列表
 

@@ -29,7 +29,7 @@ class ListMcpResourcesToolInput(BaseModel):
     )
 
 
-class ListMcpResourcesTool(BaseTool):
+class ListMcpResourcesTool(BaseTool[ListMcpResourcesToolInput]):
     """列出从已连接服务器发现的 MCP 资源。
 
     用于查看可用的 MCP 服务器资源。

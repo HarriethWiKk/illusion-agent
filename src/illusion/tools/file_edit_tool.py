@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from difflib import unified_diff
 from pathlib import Path
 
@@ -56,7 +58,7 @@ class FileEditToolInput(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_fields(cls, values: dict) -> dict:
+    def _normalize_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
         """将旧参数名映射到新参数名，确保向后兼容。"""
         if "path" in values and "file_path" not in values:
             values["file_path"] = values.pop("path")
@@ -67,7 +69,7 @@ class FileEditToolInput(BaseModel):
         return values
 
 
-class FileEditTool(BaseTool):
+class FileEditTool(BaseTool[FileEditToolInput]):
     """替换现有文件中的文本。
 
     用于对文件进行精确的字符串替换编辑。

@@ -126,7 +126,7 @@ class WindowsSandboxPlatform(SandboxPlatform):
         import win32con
 
         # 1. 创建 Job Object
-        job_handle = win32job.CreateJobObject(
+        job_handle = win32job.CreateJobObject(  # type: ignore[func-returns-value]
             None, f"IllusionSandbox_{id(command)}"
         )
         info = win32job.QueryInformationJobObject(
@@ -152,7 +152,7 @@ class WindowsSandboxPlatform(SandboxPlatform):
         restricted_token = win32security.CreateRestrictedToken(
             current_token,
             win32security.DISABLE_MAX_PRIVILEGE | win32security.SANDBOX_INERT,
-            None, None, None,
+            (), (), (),
         )
 
         # 3. 设置 Low Integrity Level

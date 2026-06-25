@@ -17,7 +17,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,7 @@ class ExitWorktreeToolInput(BaseModel):
     )
 
 
-class ExitWorktreeTool(BaseTool):
+class ExitWorktreeTool(BaseTool[ExitWorktreeToolInput]):
     """移除 git 工作树。
 
     退出由 EnterWorktree 创建的工作树会话，并将会话返回到原始工作目录。
@@ -84,7 +84,7 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
         arguments: ExitWorktreeToolInput,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        run_kwargs: dict = {}
+        run_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
@@ -191,7 +191,7 @@ def _git_output(cwd: Path, *args: str) -> str | None:
     返回：
         命令输出字符串，失败返回 None
     """
-    run_kwargs: dict = {}
+    run_kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(

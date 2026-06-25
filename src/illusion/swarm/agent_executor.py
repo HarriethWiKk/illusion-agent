@@ -615,7 +615,7 @@ async def run_agent_in_process(
     try:
         from illusion.engine.query import run_query
 
-        async def _run_query_loop():
+        async def _run_query_loop() -> None:
             """执行查询循环的内部协程。"""
             logger.warning("[agent_executor] %s: entering query loop", agent_id)
             event_count = 0

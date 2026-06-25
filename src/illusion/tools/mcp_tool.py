@@ -13,6 +13,8 @@ MCP 工具适配器
 
 from __future__ import annotations
 
+from typing import Any
+
 import re
 
 from pydantic import BaseModel, Field, create_model
@@ -22,7 +24,7 @@ from illusion.mcp.types import McpToolInfo
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
-class McpToolAdapter(BaseTool):
+class McpToolAdapter(BaseTool[Any]):
     """将一个 MCP 工具作为普通 IllusionCode 工具暴露。
 
     用于集成 MCP 服务器提供的工具。
@@ -55,12 +57,14 @@ def _input_model_from_schema(tool_name: str, schema: dict[str, object]) -> type[
     if not isinstance(properties, dict):
         return create_model(f"{tool_name.title()}Input")
 
-    fields = {}
-    required = set(schema.get("required", [])) if isinstance(schema.get("required", []), list) else set()
+    fields: dict[str, Any] = {}
+    required_raw = schema.get("required", [])
+    required: set[str] = set(required_raw) if isinstance(required_raw, list) else set()
     for key in properties:
         default = ... if key in required else None
         fields[key] = (object | None, Field(default=default))
-    return create_model(f"{tool_name.title().replace('-', '_')}Input", **fields)
+    result: type[BaseModel] = create_model(f"{tool_name.title().replace('-', '_')}Input", **fields)
+    return result
 
 
 def _sanitize_tool_segment(value: str) -> str:

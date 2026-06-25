@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from illusion.skills import load_skill_registry
+from illusion.skills.loader import load_skill_registry
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -21,7 +21,7 @@ class SkillToolInput(BaseModel):
     args: str | None = Field(default=None, description="Optional arguments for the skill")
 
 
-class SkillTool(BaseTool):
+class SkillTool(BaseTool[SkillToolInput]):
     """返回已加载技能的内容，对齐 Claude Code SkillTool。
 
     支持：

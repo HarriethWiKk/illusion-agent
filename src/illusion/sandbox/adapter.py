@@ -60,6 +60,8 @@ class SandboxManager:
     """
 
     _instance: SandboxManager | None = None
+    _runtime: SandboxRuntime
+    _initialized: bool
 
     def __new__(cls) -> SandboxManager:
         if cls._instance is None:

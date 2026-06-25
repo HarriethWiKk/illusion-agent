@@ -106,7 +106,8 @@ def _request_json(
 
     request = urllib.request.Request(url, data=body, headers=req_headers, method=method)
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        result: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+        return result
 
 
 def _extract_account_id(token: str) -> str:
@@ -205,10 +206,10 @@ class CodexOAuthData:
         access_tokens: 内存缓存的 access_token（不持久化）
     """
 
-    accounts: list[CodexAccountData] = field(default_factory=list)
+    accounts: list[CodexAccountData] = field(default_factory=list[Any])
     default_account_id: str | None = None
     # 运行时缓存，不持久化
-    access_tokens: dict[str, tuple[str, float]] = field(default_factory=dict)
+    access_tokens: dict[str, tuple[str, float]] = field(default_factory=dict[str, Any])
 
 
 class CodexOAuth:
@@ -556,7 +557,7 @@ class CodexOAuth:
         expires_at = time.time() + expires_in
         self._data.access_tokens[account_id] = (access_token, expires_at)
 
-        return access_token
+        return str(access_token)
 
     def get_valid_token(self, account_id: str | None = None) -> str:
         """获取有效的 access_token，自动刷新

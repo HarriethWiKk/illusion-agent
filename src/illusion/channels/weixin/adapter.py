@@ -102,13 +102,13 @@ class WeixinChannel(Channel):
 
         print(t("channel_starting_weixin"))
 
-    def _normalize(self, raw_msg: dict) -> InboundMessage | None:
+    def _normalize(self, raw_msg: dict[str, Any]) -> InboundMessage | None:
         """把 iLink 入站消息标准化为 InboundMessage
 
         同时提取 context_token 并缓存（iLink 硬约束）。
 
         Args:
-            raw_msg: iLink 原始消息 dict
+            raw_msg: iLink 原始消息 dict[str, Any]
 
         Returns:
             InboundMessage | None: 标准化消息，无法解析返回 None
@@ -380,7 +380,7 @@ class WeixinChannel(Channel):
             if ticket:
                 self._typing_tickets[user_id] = ticket
                 self._typing_ticket_times[user_id] = time.monotonic()
-            return ticket
+            return str(ticket)
         except Exception as exc:  # noqa: BLE001
             logger.debug("获取打字 ticket 失败: %s", exc)
             return ""
@@ -447,7 +447,7 @@ async def _poll_with_retry(
         sync_buf: 游标
 
     Returns:
-        dict: 长轮询响应
+        dict[str, Any]: 长轮询响应
 
     Raises:
         RuntimeError: 会话过期需重新扫码

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from difflib import unified_diff
 from pathlib import Path
 
@@ -39,14 +41,14 @@ class FileWriteToolInput(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_fields(cls, values: dict) -> dict:
+    def _normalize_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
         """将旧参数名映射到新参数名，确保向后兼容。"""
         if "path" in values and "file_path" not in values:
             values["file_path"] = values.pop("path")
         return values
 
 
-class FileWriteTool(BaseTool):
+class FileWriteTool(BaseTool[FileWriteToolInput]):
     """写入完整的文件内容。
 
     用于创建新文件或完全重写现有文件。

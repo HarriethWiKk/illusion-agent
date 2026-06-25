@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
 
@@ -36,17 +38,19 @@ async def model_handler(args: str, context: CommandContext) -> CommandResult:
     model_ref = tokens[0] if tokens[0] != "set" else (tokens[1] if len(tokens) > 1 else "")
     if "." in model_ref:
         env_key, model_key = model_ref.split(".", 1)
-        env = settings.get_env(env_key)
-        if env and env.get_model(model_key):
-            old_env_key = settings._active_env_key
-            settings.model = model_ref
-            save_settings(settings)
-            context.engine.set_model(env.get_model(model_key))
-            if context.app_state is not None:
-                context.app_state.set(model=env.get_model(model_key))
-            needs_rebuild = env_key != old_env_key
-            return CommandResult(
-                message=i18n_t("model_set_to", ref=model_ref, name=env.get_model(model_key)),
-                needs_api_rebuild=needs_rebuild,
-            )
+        env = settings.get_env(env_key)  # type: ignore[assignment]
+        if env is not None:
+            model_name = env.get_model(model_key)  # type: ignore[assignment]
+            if model_name:
+                old_env_key = settings._active_env_key
+                settings.model = model_ref
+                save_settings(settings)
+                context.engine.set_model(model_name)
+                if context.app_state is not None:
+                    context.app_state.set(model=model_name)
+                needs_rebuild = env_key != old_env_key
+                return CommandResult(
+                    message=i18n_t("model_set_to", ref=model_ref, name=model_name),
+                    needs_api_rebuild=needs_rebuild,
+                )
     return CommandResult(message=i18n_t("model_unknown", ref=model_ref))

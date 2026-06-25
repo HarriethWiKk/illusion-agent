@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
 
@@ -59,7 +61,7 @@ async def sandbox_handler(args: str, context: CommandContext) -> CommandResult:
     )
 
 
-def _format_status(sandbox) -> CommandResult:
+def _format_status(sandbox: Any) -> CommandResult:
     """格式化沙箱状态信息"""
     lines = []
 
@@ -106,7 +108,7 @@ def _format_status(sandbox) -> CommandResult:
     return CommandResult(message="\n".join(lines))
 
 
-def _add_excluded_command(sandbox, pattern: str, settings) -> CommandResult:
+def _add_excluded_command(sandbox: Any, pattern: str, settings: Any) -> CommandResult:
     """添加排除命令模式"""
     if pattern in sandbox.excluded_commands:
         return CommandResult(message=f"Command pattern '{pattern}' is already in the excluded list")
@@ -116,7 +118,7 @@ def _add_excluded_command(sandbox, pattern: str, settings) -> CommandResult:
     return CommandResult(message=f"Added excluded command: {pattern}\nCurrent excluded list: {', '.join(sandbox.excluded_commands)}")
 
 
-def _remove_excluded_command(sandbox, pattern: str, settings) -> CommandResult:
+def _remove_excluded_command(sandbox: Any, pattern: str, settings: Any) -> CommandResult:
     """移除排除命令模式"""
     if pattern not in sandbox.excluded_commands:
         return CommandResult(message=f"Command pattern '{pattern}' is not in the excluded list")

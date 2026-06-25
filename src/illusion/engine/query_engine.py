@@ -28,9 +28,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any,  AsyncIterator
 
 from illusion.api.client import SupportsStreamingMessages
+from illusion.api.usage import UsageSnapshot
 from illusion.api.effort import EffortLevel
 from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
@@ -141,7 +142,7 @@ class QueryEngine:
         return self._max_turns
 
     @property
-    def total_usage(self):
+    def total_usage(self) -> "UsageSnapshot":
         """返回跨所有轮次的总使用量。
 
         Returns:
@@ -210,7 +211,7 @@ class QueryEngine:
         """返回文件历史状态。"""
         return self._file_history
 
-    def _extract_file_paths(self, tool_name: str, tool_input: dict) -> list[str]:
+    def _extract_file_paths(self, tool_name: str, tool_input: dict[str, Any]) -> list[str]:
         """从工具输入中提取文件路径。"""
         path_keys = ("path", "file_path", "notebook_path")
         paths = []
@@ -292,7 +293,7 @@ class QueryEngine:
         make_snapshot(self._file_history, str(len(self._messages)))
 
         # 文件历史回调：工具执行前备份文件
-        def _on_before_tool_execute(tool_name: str, tool_input: dict) -> None:
+        def _on_before_tool_execute(tool_name: str, tool_input: dict[str, Any]) -> None:
             if self._file_history is None:
                 return
             # 跳过只读工具（如 grep、glob），它们不会修改文件

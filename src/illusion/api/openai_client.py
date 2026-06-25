@@ -632,11 +632,11 @@ class OpenAICompatibleClient:
             elif role == "tool":
                 # tool 结果消息 → function_call_output item
                 if isinstance(content, list):
-                    text_parts = [
-                        p.get("text", "") for p in content
+                    text_items: list[str] = [
+                        str(p.get("text", "")) for p in content
                         if isinstance(p, dict) and p.get("type") == "text"
                     ]
-                    output = " ".join(text_parts) if text_parts else json.dumps(content, ensure_ascii=False)
+                    output = " ".join(text_items) if text_items else json.dumps(content, ensure_ascii=False)
                 else:
                     output = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
                 items.append({

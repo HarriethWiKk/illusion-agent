@@ -12,7 +12,7 @@
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING  # 类型
+from typing import Any,  TYPE_CHECKING  # 类型
 
 from pydantic import BaseModel, Field  # 数据模型
 
@@ -35,7 +35,7 @@ class FeishuDocReadInput(BaseModel):
     doc_type: str = Field("docx", description="Document type: docx or wiki")
 
 
-class FeishuDocReadTool(BaseTool):
+class FeishuDocReadTool(BaseTool[FeishuDocReadInput]):
     """读取飞书文档全文为纯文本
 
     调用 docx/v1/documents/:id/raw_content 接口获取文档原文。
@@ -66,7 +66,7 @@ class FeishuDocReadTool(BaseTool):
         assert isinstance(arguments, FeishuDocReadInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.docx.v1 import (  # type: ignore[import-not-found]
+            from lark_oapi.api.docx.v1 import (  # type: ignore[import-untyped]
                 RawContentDocumentRequest,
             )
         except ImportError:
@@ -99,7 +99,7 @@ class FeishuDocCreateInput(BaseModel):
     folder_token: str = Field("", description="Parent folder token (optional)")
 
 
-class FeishuDocCreateTool(BaseTool):
+class FeishuDocCreateTool(BaseTool[FeishuDocCreateInput]):
     """创建新飞书 Docx 文档"""
 
     name = "feishu_doc_create"
@@ -127,13 +127,13 @@ class FeishuDocCreateTool(BaseTool):
         assert isinstance(arguments, FeishuDocCreateInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.docx.v1 import (  # type: ignore[import-not-found]
+            from lark_oapi.api.docx.v1 import (
                 CreateDocumentRequest,
             )
         except ImportError:
             return ToolResult(output="lark_oapi docx API not available", is_error=True)
 
-        # lark-oapi 用 builder + dict 构造请求（RequestBody 类不接受关键字参数）
+        # lark-oapi 用 builder + dict[str, Any] 构造请求（RequestBody 类不接受关键字参数）
         body = {"folder_token": arguments.folder_token, "title": arguments.title}
         req = CreateDocumentRequest.builder().request_body(body).build()
         resp = client.docx.v1.document.create(req)

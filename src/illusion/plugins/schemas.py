@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from typing import Any
+
 
 class PluginManifest(BaseModel):
     """插件清单，对齐 Claude Code PluginManifestSchema。"""
@@ -20,12 +22,12 @@ class PluginManifest(BaseModel):
     skills_dir: str = "skills"
     hooks_file: str = "hooks.json"
     mcp_file: str = "mcp.json"
-    author: dict | None = None
-    commands: str | list | dict | None = None
-    agents: str | list | None = None
-    skills: str | list | None = None
-    hooks: str | dict | list | None = None
+    author: dict[str, Any] | None = None
+    commands: str | list[Any] | dict[str, Any] | None = None
+    agents: str | list[Any] | None = None
+    skills: str | list[Any] | None = None
+    hooks: str | dict[str, Any] | list[Any] | None = None
     # 对齐 Claude Code
-    output_styles: str | list | None = None
-    settings: dict | None = None
-    user_config: dict | None = None
+    output_styles: str | list[Any] | None = None
+    settings: dict[str, Any] | None = None
+    user_config: dict[str, Any] | None = None

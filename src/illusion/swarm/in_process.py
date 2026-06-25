@@ -191,7 +191,7 @@ class InProcessBackend:
             from illusion.swarm.agent_executor import get_active_agent
             agent_ctx = get_active_agent(agent_id)
             if agent_ctx is not None:
-                await agent_ctx.message_queue.put(message)
+                await agent_ctx.message_queue.put(message)  # type: ignore[arg-type]
                 logger.debug("[InProcessBackend] sent message to %s", agent_id)
                 return
 
@@ -204,7 +204,7 @@ class InProcessBackend:
             agent_ctx = get_active_agent_by_name(agent_name)
 
         if agent_ctx is not None:
-            await agent_ctx.message_queue.put(message)
+            await agent_ctx.message_queue.put(message)  # type: ignore[arg-type]
             logger.debug("[InProcessBackend] sent message to %s", agent_id)
         else:
             raise ValueError(f"No active agent found for {agent_id!r}")

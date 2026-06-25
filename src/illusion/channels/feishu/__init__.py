@@ -26,7 +26,7 @@ def ensure_feishu_dependencies() -> None:
     安装失败时打印错误并退出（typer.Exit）。
     """
     try:
-        import lark_oapi  # noqa: F401
+        import lark_oapi  # type: ignore[import-untyped]  # noqa: F401
         return  # 已安装，跳过
     except ImportError:
         pass

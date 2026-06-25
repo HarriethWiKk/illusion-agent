@@ -77,7 +77,8 @@ def _load_creds_file() -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return result
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("Failed to read credentials file: %s", exc)
         return {}
@@ -190,7 +191,8 @@ def load_credential(provider: str, key: str, *, use_keyring: bool | None = None)
             log.warning("Keyring load failed, falling back to file: %s", exc)
 
     data = _load_creds_file()
-    return data.get(provider, {}).get(key)
+    file_value: str | None = data.get(provider, {}).get(key)
+    return file_value
 
 
 def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None) -> None:
@@ -263,7 +265,8 @@ def load_env_credential(env_key: str, key: str) -> str | None:
         str | None: 凭据值或 None
     """
     data = _load_creds_file()
-    return data.get(env_key, {}).get(key)
+    value: str | None = data.get(env_key, {}).get(key)
+    return value
 
 
 def clear_env_credentials(env_key: str) -> None:

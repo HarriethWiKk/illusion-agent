@@ -288,6 +288,6 @@ def _extract_text(content: str) -> str:
     import json
     try:
         data = json.loads(content)
-        return data.get("text", "").strip()
+        return str(data.get("text", "")).strip()
     except (json.JSONDecodeError, AttributeError):
         return ""

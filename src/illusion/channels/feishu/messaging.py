@@ -71,7 +71,7 @@ def build_lark_client(cfg: "FeishuChannelConfig") -> Any:
     Returns:
         lark.Client 实例
     """
-    import lark_oapi as lark  # 延迟导入
+    import lark_oapi as lark  # type: ignore[import-untyped]  # 延迟导入
     return (
         lark.Client.builder()
         .app_id(cfg.app_id)
@@ -226,7 +226,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     Returns:
         str: 新消息 ID
     """
-    from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
+    from lark_oapi.api.im.v1 import (  # type: ignore[import-untyped]
         CreateMessageRequest,
     )
 
@@ -249,7 +249,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     )
     resp = client.im.v1.message.create(req)
     if resp.success():
-        return resp.data.message_id  # type: ignore[union-attr]
+        return resp.data.message_id  # type: ignore[no-any-return]
 
     # post 内容格式错误时降级为纯文本
     err_msg = str(getattr(resp, "msg", ""))
@@ -266,7 +266,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         )
         resp = client.im.v1.message.create(req)
         if resp.success():
-            return resp.data.message_id  # type: ignore[union-attr]
+            return resp.data.message_id  # type: ignore[no-any-return]
 
     raise RuntimeError(f"飞书发送失败: code={resp.code} msg={resp.msg}")
 
@@ -286,7 +286,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         message_id: 要编辑的消息 ID
         text: 新文本
     """
-    from lark_oapi.api.im.v1 import (  # type: ignore[import-not-found]
+    from lark_oapi.api.im.v1 import (  # noqa: F401
         UpdateMessageRequest,
     )
 
@@ -360,7 +360,7 @@ async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "")
     resp = client.im.v1.message.create(req)
     if not resp.success():
         raise RuntimeError(f"飞书卡片发送失败: code={resp.code} msg={resp.msg}")
-    return resp.data.message_id  # type: ignore[union-attr]
+    return resp.data.message_id  # type: ignore[no-any-return]
 
 
 async def patch_card(client: Any, message_id: str, text: str) -> None:

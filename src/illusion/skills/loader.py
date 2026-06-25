@@ -144,9 +144,9 @@ def load_user_skills() -> list[SkillDefinition]:
                             effort=sk.effort,
                         ))
         elif sub.suffix in (".yaml", ".yml"):
-            skill = _load_yaml_skill(sub, source="user")
-            if skill:
-                skills.append(skill)
+            yaml_skill = _load_yaml_skill(sub, source="user")
+            if yaml_skill is not None:
+                skills.append(yaml_skill)
         elif sub.suffix == ".md":
             content = sub.read_text(encoding="utf-8")
             skill = parse_skill_markdown(sub.stem, content)
@@ -226,9 +226,9 @@ def load_project_skills(cwd: str | Path) -> list[SkillDefinition]:
                         ))
         elif sub.suffix in (".yaml", ".yml"):
             # YAML 文件
-            skill = _load_yaml_skill(sub, source="project")
-            if skill:
-                skills.append(skill)
+            yaml_skill = _load_yaml_skill(sub, source="project")
+            if yaml_skill is not None:
+                skills.append(yaml_skill)
         elif sub.suffix == ".md":
             # 直接 .md 文件
             content = sub.read_text(encoding="utf-8")

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import Any,  TYPE_CHECKING, Awaitable, Callable
 
 from illusion.engine.query_engine import QueryEngine
 
@@ -34,7 +34,7 @@ class CommandResult:
     message: str | None = None  # 返回消息
     should_exit: bool = False  # 退出标志
     clear_screen: bool = False  # 清屏标志
-    replay_messages: list | None = None  # ConversationMessage列表用于TUI重放
+    replay_messages: list[Any] | None = None  # ConversationMessage列表用于TUI重放
     needs_api_rebuild: bool = False  # 需要重建 API 客户端（跨 env 切换模型时）
     continue_pending: bool = False  # 继续待处理标志
     continue_turns: int | None = None  # 继续回合数

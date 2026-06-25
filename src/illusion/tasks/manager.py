@@ -30,6 +30,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import os
 import shlex
@@ -167,7 +169,7 @@ class BackgroundTaskManager:
         owner: str | None = None,
         progress: int | None = None,
         status_note: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         add_blocks: list[str] | None = None,
         add_blocked_by: list[str] | None = None,
         comments: str | None = None,
@@ -241,6 +243,7 @@ class BackgroundTaskManager:
         task = self._require_task(task_id)
         async with self._input_locks[task_id]:
             process = await self._ensure_writable_process(task)
+            assert process.stdin is not None
             process.stdin.write((data.rstrip("\n") + "\n").encode("utf-8"))
             try:
                 await process.stdin.drain()
@@ -248,6 +251,7 @@ class BackgroundTaskManager:
                 if task.type not in {"local_agent", "remote_agent", "in_process_teammate"}:
                     raise ValueError(f"Task {task_id} does not accept input") from None
                 process = await self._restart_agent_task(task)
+                assert process.stdin is not None
                 process.stdin.write((data.rstrip("\n") + "\n").encode("utf-8"))
                 await process.stdin.drain()
 

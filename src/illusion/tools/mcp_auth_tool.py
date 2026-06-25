@@ -37,7 +37,7 @@ class McpAuthToolInput(BaseModel):
     key: str | None = Field(default=None, description="Header or env key override")
 
 
-class McpAuthTool(BaseTool):
+class McpAuthTool(BaseTool[McpAuthToolInput]):
     """为服务器持久化 MCP 认证设置。
 
     用于配置 MCP 服务器的认证信息。
@@ -68,7 +68,7 @@ class McpAuthTool(BaseTool):
             env_key = arguments.key or "MCP_AUTH_TOKEN"
             env = dict(config.env or {})
             env[env_key] = f"Bearer {arguments.value}" if arguments.mode == "bearer" else arguments.value
-            updated = config.model_copy(update={"env": env})
+            updated: McpStdioServerConfig | McpHttpServerConfig | McpWebSocketServerConfig = config.model_copy(update={"env": env})
         elif isinstance(config, (McpHttpServerConfig, McpWebSocketServerConfig)):
             # http/ws 服务器支持 header 或 bearer 模式
             if arguments.mode not in {"header", "bearer"}:

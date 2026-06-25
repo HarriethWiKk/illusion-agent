@@ -36,7 +36,7 @@ from illusion.api.client import (
 )
 from illusion.api.effort import EffortLevel
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, ToolResultBlock, _build_tool_result_content
+from illusion.engine.messages import ConversationMessage, MediaBlock, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, _build_tool_result_content
 from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -213,7 +213,7 @@ class QueryContext:
     bg_agent_tracker: BackgroundAgentTracker | None = None
     compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
     # 文件历史回调：工具执行前调用，参数为 (工具名称, 工具输入)
-    on_before_tool_execute: Callable[[str, dict], None] | None = None
+    on_before_tool_execute: Callable[[str, dict[str, Any]], None] | None = None
 
 
 async def run_query(
@@ -284,7 +284,7 @@ async def run_query(
 
         try:
             # 流式请求模型响应
-            async for event in context.api_client.stream_message(
+            async for event in context.api_client.stream_message(  # type: ignore[attr-defined]
                 ApiMessageRequest(
                     model=context.model,
                     messages=messages,
@@ -405,6 +405,7 @@ async def run_query(
         # 输出工具链开始事件
         yield ToolChainStarted(tool_count=len(tool_calls)), None
 
+        tool_results_list: list[ToolResultBlock | None] = []
         try:
             if len(tool_calls) == 1:
                 # 单个工具：顺序执行
@@ -420,7 +421,7 @@ async def run_query(
                     is_error=result.is_error,
                     tool_use_id=tc.id,
                 ), None
-                tool_results = [result]
+                tool_results_list.append(result)
             else:
                 # 多个工具：并发执行
                 for tc in tool_calls:
@@ -428,7 +429,7 @@ async def run_query(
                     # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
                     yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
 
-                async def _safe_run(idx: int, tc):
+                async def _safe_run(idx: int, tc: ToolUseBlock) -> tuple[int, ToolResultBlock, list[Any]]:
                     """并发执行单个工具，捕获非权限异常转为错误结果。"""
                     try:
                         result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
@@ -443,7 +444,7 @@ async def run_query(
                         ), []
 
                 # 并发执行所有工具调用，每个工具完成后立即发送完成事件
-                tool_results: list[ToolResultBlock] = [None] * len(tool_calls)
+                tool_results_list = [None] * len(tool_calls)
                 for coro in asyncio.as_completed(
                     [_safe_run(i, tc) for i, tc in enumerate(tool_calls)]
                 ):
@@ -451,7 +452,7 @@ async def run_query(
                     # 注入钩子 additionalContext
                     for ctx in hook_ctxs:
                         messages.append(ConversationMessage.from_user_text(_wrap_in_system_reminder(ctx)))
-                    tool_results[idx] = result
+                    tool_results_list[idx] = result
                     yield ToolExecutionCompleted(
                         tool_name=tool_calls[idx].name,
                         output=result.text_content,
@@ -467,12 +468,14 @@ async def run_query(
         yield ToolChainCompleted(
             results_summary=[
                 {"name": tc.name, "is_error": result.is_error}
-                for tc, result in zip(tool_calls, tool_results)
+                for tc, result in zip(tool_calls, tool_results_list)
+                if result is not None
             ]
         ), None
 
         # 将工具结果作为用户消息添加到历史记录
-        messages.append(ConversationMessage(role="user", content=tool_results))
+        filtered_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
+        messages.append(ConversationMessage(role="user", content=filtered_results))
 
     # 超出最大轮次限制
     if context.max_turns is not None:
@@ -594,7 +597,7 @@ async def _execute_tool_call(
                         "noCustomInput": True,
                     }
                 ]
-            answer = await context.ask_user_prompt(question_text, questions_data)
+            answer = await context.ask_user_prompt(question_text, questions_data)  # type: ignore[call-arg]
             # 解析用户选择
             answer_str = str(answer).strip() if answer else ""
             if "Allow for session" in answer_str or "当前会话允许" in answer_str:

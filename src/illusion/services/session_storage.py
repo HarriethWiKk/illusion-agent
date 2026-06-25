@@ -99,7 +99,8 @@ def load_session_snapshot(cwd: str | Path) -> dict[str, Any] | None:
     path = get_project_session_dir(cwd) / "latest.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, Any]]:
@@ -175,11 +176,12 @@ def load_session_by_id(cwd: str | Path, session_id: str) -> dict[str, Any] | Non
     # 先尝试命名会话
     path = session_dir / f"session-{session_id}.json"
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return result
     # 回退到 latest.json（如果 session_id 匹配）
     latest = session_dir / "latest.json"
     if latest.exists():
-        data = json.loads(latest.read_text(encoding="utf-8"))
+        data: dict[str, Any] = json.loads(latest.read_text(encoding="utf-8"))
         if data.get("session_id") == session_id or session_id == "latest":
             return data
     return None
@@ -234,9 +236,9 @@ def export_session_markdown(
             parts.append(text)
         for block in message.tool_uses:
             parts.append(f"\n```tool\n{block.name} {json.dumps(block.input, ensure_ascii=True)}\n```")
-        for block in message.content:
-            if getattr(block, "type", "") == "tool_result":
-                parts.append(f"\n```tool-result\n{block.content}\n```")
+        for content_block in message.content:
+            if getattr(content_block, "type", "") == "tool_result":
+                parts.append(f"\n```tool-result\n{getattr(content_block, 'content', '')}\n```")
     path.write_text("\n".join(parts).strip() + "\n", encoding="utf-8")
     return path
 

@@ -43,7 +43,7 @@ def run_channel_serve() -> None:
     # 检查飞书依赖
     if cfg.feishu.enabled:
         try:
-            import lark_oapi  # noqa: F401
+            import lark_oapi  # type: ignore[import-untyped]  # noqa: F401
         except ImportError:
             from illusion.config.i18n import t
             from illusion.channels.feishu import FEISHU_DEPENDENCIES
@@ -125,7 +125,7 @@ def _force_shutdown() -> None:
     """
     import threading
     # 尽力关闭：在守护线程里跑关闭逻辑，主线程不等待
-    def _shutdown():
+    def _shutdown() -> None:
         try:
             # 通过遍历获取 runner 列表（_serve_async 的局部变量，这里无法直接访问）
             # 实际关闭在 _serve_async 的 finally 里已处理，这里仅兜底退出
@@ -154,10 +154,11 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     runners: list[Any] = []  # ChannelRunner 列表
     if cfg.feishu.enabled and settings is not None:
         from illusion.channels import ChannelRunner
+        from illusion.channels.base import Channel
         from illusion.channels.feishu.adapter import FeishuChannel
 
         print(t("channel_starting", channel="feishu"))
-        channel = FeishuChannel(cfg.feishu, settings)
+        channel: Channel = FeishuChannel(cfg.feishu, settings)
         # 确保飞书会话目录存在
         feishu_data_dir = get_channels_data_dir() / "feishu" / "sessions"
         feishu_data_dir.mkdir(parents=True, exist_ok=True)
