@@ -88,6 +88,31 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭内联选项
+  useEffect(() => {
+    if (!inlineOptions || inlineOptions.options.length === 0) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        onInlineClose?.();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [inlineOptions, onInlineClose]);
+
+  // 点击外部关闭命令补全
+  useEffect(() => {
+    if (!showCommands) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowCommands(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCommands]);
 
   // 自动补全仅显示 B 类指令（与后端 ready 推送的完整命令列表取交集，无交集则用静态集合）
   const webCommands = useMemo(() => {
@@ -225,7 +250,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const showAutocomplete = showCommands && filteredCommands.length > 0 && !showInline;
 
   return (
-    <div className="px-4 md:px-5 pb-4 pt-2 relative">
+    <div className="px-4 md:px-5 pb-4 pt-2 relative" ref={containerRef}>
       {/* 内联选项 */}
       {showInline && (
         <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-64 overflow-y-auto py-1.5 z-20 animate-fade-in-up">

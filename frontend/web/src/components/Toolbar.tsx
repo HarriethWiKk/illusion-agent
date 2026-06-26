@@ -55,7 +55,7 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading, titl
   const displayValue = value || placeholder || '-';
 
   return (
-    <div className="relative">
+    <div className="relative" onBlur={(e) => { if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); } }}>
       <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
         className="pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:text-content-primary rounded-full cursor-pointer">
         {loading ? (

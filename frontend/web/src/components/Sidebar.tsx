@@ -123,7 +123,7 @@ export default function Sidebar({
           </svg>
         </button>
         <span className="font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'sidebar_title')}</span>
-        <div className="relative">
+        <div className="relative" onBlur={(e) => { if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget as Node)) { setMenuOpen(false); } }}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary glass-option-hover transition-colors cursor-pointer"
@@ -137,10 +137,10 @@ export default function Sidebar({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 glass-surface rounded-xl z-20 min-w-[180px] py-1.5 animate-scale-in dropdown-origin-top-left">
+              <div className="absolute right-0 top-full mt-2 glass-surface rounded-xl z-20 min-w-[180px] overflow-hidden animate-scale-in dropdown-origin-top-left">
                 <button
                   onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
-                  className="danger-action w-full text-left px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg"
+                  className="danger-action w-full text-left px-4 py-2.5 text-sm text-danger cursor-pointer flex items-center gap-2.5"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6" />
