@@ -372,8 +372,8 @@ export default function App() {
       {/* 删除会话弹窗（仅 sidebar 触发） */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-fade-in" onClick={handleCloseDeleteModal} />
-          <div className="relative glass-dropdown rounded-2xl w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
+          <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={handleCloseDeleteModal} />
+          <div className="relative glass-overlay rounded-2xl w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -381,7 +381,7 @@ export default function App() {
               {regularSessions.length === 0 ? (
                 <div className="px-6 py-8 text-center text-sm text-content-disabled">{t(lang, 'no_sessions')}</div>
               ) : regularSessions.map((s) => (
-                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-black/[0.03] transition-colors rounded-lg mx-1">
+                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer glass-option-hover transition-colors rounded-lg mx-1">
                   <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => toggleDeleteItem(s.value)} className="w-4 h-4 rounded accent-danger" />
                   <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
                 </label>
@@ -396,7 +396,7 @@ export default function App() {
                 }} className="danger-action px-4 py-2 text-sm text-danger rounded-lg cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>
               <div className="flex gap-2">
-                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary hover:bg-black/[0.03] rounded-lg transition-colors cursor-pointer border border-border-light/60">{t(lang, 'cancel')}</button>
+                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer border border-white/40">{t(lang, 'cancel')}</button>
                 <button onClick={handleConfirmDelete} disabled={deleteSelected.size === 0}
                   className="px-4 py-2 text-sm text-white bg-danger hover:bg-danger-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                   {t(lang, 'confirm_delete')} ({deleteSelected.size})
