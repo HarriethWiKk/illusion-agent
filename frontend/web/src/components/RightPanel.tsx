@@ -164,7 +164,7 @@ export default function RightPanel({
           <div className="text-xs text-content-secondary font-medium mb-1.5">{t(lang, 'context_window')}</div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-content-primary whitespace-nowrap tabular-nums">~{formatTokens(contextTokens)}/{formatTokens(contextWindow)}</span>
-            <div className="flex-1 h-1.5 bg-surface-hover rounded-full overflow-hidden">
+            <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${contextPercent >= 95 ? 'bg-gradient-to-r from-warning to-danger' : contextPercent >= 80 ? 'bg-gradient-to-r from-primary to-warning' : 'bg-primary'}`}
                 style={{ width: `${contextPercent}%` }}
@@ -199,7 +199,7 @@ function CollapsibleSection({
     <div className="border-t border-border-light">
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-black/[0.03] transition-colors cursor-pointer"
+        className="w-full px-5 py-2.5 flex items-center gap-2 glass-option-hover transition-colors cursor-pointer"
       >
         <svg
           className={`w-3 h-3 text-content-disabled shrink-0 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
@@ -208,7 +208,7 @@ function CollapsibleSection({
           <path d="M6 3l5 5-5 5" />
         </svg>
         <span className="text-xs font-semibold text-content-primary tracking-wide">{title}</span>
-        <span className="text-[10px] text-content-disabled bg-surface-card-alt px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
+        <span className="text-[10px] text-content-secondary bg-white/50 px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
         {subtitle && <span className="text-xs text-content-disabled ml-auto">{subtitle}</span>}
       </button>
       <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}>
@@ -232,12 +232,12 @@ function ItemRow({ name, description, tag }: { name: string; description: string
     <div>
       <button
         onClick={() => hasDesc && setExpanded((e) => !e)}
-        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${hasDesc ? 'hover:bg-black/[0.03] cursor-pointer' : 'cursor-default'}`}
+        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${hasDesc ? 'glass-option-hover cursor-pointer' : 'cursor-default'}`}
         title={hasDesc ? description : name}
       >
         <span className="text-content-primary font-medium truncate flex-1 text-left">{name}</span>
         {tag && (
-          <span className="text-[10px] text-primary/60 bg-primary-light px-1.5 py-0.5 rounded-full font-medium shrink-0">{tag}</span>
+          <span className="text-[10px] text-primary/80 bg-white/50 px-1.5 py-0.5 rounded-full font-medium shrink-0">{tag}</span>
         )}
       </button>
       {expanded && hasDesc && (
