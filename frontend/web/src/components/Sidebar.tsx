@@ -74,7 +74,7 @@ function SessionItem({ session, index, isRestoring, onSelect }: {
       ref={ref}
       onClick={() => onSelect(session.value)}
       onMouseMove={handleMouseMove}
-      className="spotlight-hover w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up"
+      className="spotlight-hover w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up"
       style={{ animationDelay: `${index * 30}ms` }}
       title={session.label}
     >
@@ -140,8 +140,7 @@ export default function Sidebar({
               <div className="absolute right-0 top-full mt-2 glass-dropdown rounded-xl z-20 min-w-[180px] py-1.5 animate-scale-in dropdown-origin-top-left">
                 <button
                   onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
-                  className="danger-action w-full text-left px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg mx-auto"
-                  style={{ width: 'calc(100% - 8px)', marginLeft: '4px' }}
+                  className="danger-action w-full text-left mx-1 px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6" />
@@ -160,7 +159,7 @@ export default function Sidebar({
         <button
           onClick={onNewSession}
           disabled={!connected}
-          className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary hover:bg-black/[0.03] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 border border-border-light bg-white"
+          className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary glass-surface glass-option-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
         >
           <span className="w-5 h-5 rounded-md bg-primary flex items-center justify-center text-white font-bold text-xs">+</span>
           {t(lang, 'new_session')}
@@ -186,7 +185,7 @@ export default function Sidebar({
           <button
             onClick={onListSessions}
             disabled={!connected}
-            className="w-full text-left px-3 py-2 rounded-lg text-sm text-content-disabled hover:bg-black/[0.03] hover:text-content-secondary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full text-left px-3 py-2 rounded-lg text-sm text-content-disabled glass-option-hover hover:text-content-secondary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {t(lang, 'load_more')}
           </button>
