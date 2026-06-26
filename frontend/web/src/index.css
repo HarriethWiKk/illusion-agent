@@ -44,9 +44,9 @@
   --pastel-coral: #fde0d4;
 
   /* ========== 玻璃拟态 token (macOS 风柔和玻璃) ========== */
-  --glass-bg:         rgba(255, 255, 255, 0.55);   /* 弹出/卡片/toast 主用 */
-  --glass-bg-panel:   rgba(255, 255, 255, 0.42);   /* 大面板（侧栏/工具栏），更透 */
-  --glass-bg-overlay: rgba(255, 255, 255, 0.68);   /* 居中大弹窗，对比更强 */
+  --glass-bg:         rgba(255, 255, 255, 0.58);   /* 弹出/卡片/toast 主用 */
+  --glass-bg-panel:   rgba(255, 255, 255, 0.5);    /* 大面板（侧栏/工具栏），让灰底透出更明显 */
+  --glass-bg-overlay: rgba(255, 255, 255, 0.72);   /* 居中大弹窗，对比更强 */
   --glass-blur:         20px;
   --glass-blur-panel:   16px;
   --glass-blur-overlay: 28px;
@@ -72,11 +72,11 @@ html {
 body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-feature-settings: 'cv01', 'ss01', 'ss03';
-  /* 简约高级：纯净近白底 + 极克制冷暖微渐变，供 backdrop-filter 磨出细腻层次 */
-  background-color: #f7f8fa;
+  /* 简约高级：冷灰底 + 亮高光，明暗对比拉大供 backdrop-filter 磨出清晰层次 */
+  background-color: #e9ecf2;
   background-image:
-    radial-gradient(at 0% 0%, #ffffff 0%, transparent 60%),
-    radial-gradient(at 100% 100%, #eef0f4 0%, transparent 65%);
+    radial-gradient(at 0% 0%, #ffffff 0%, transparent 55%),
+    radial-gradient(at 100% 100%, #dfe3ec 0%, transparent 60%);
   background-attachment: fixed;
   color: #1a1d23;
   min-height: 100vh;
