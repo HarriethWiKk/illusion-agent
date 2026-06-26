@@ -103,7 +103,7 @@ export default function ChatArea({
   // 此条件返回在所有 hooks 之后，不违反 React Rules of Hooks
   if (restoringSessionId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-surface-main">
+      <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <svg className="animate-spin w-8 h-8 text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -116,7 +116,7 @@ export default function ChatArea({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-surface-main">
+    <div className="flex-1 overflow-y-auto">
       {!connected && !hasContent && (
         <div className="flex items-center justify-center h-full text-content-disabled text-sm font-medium">
           {t(lang, 'connecting')}

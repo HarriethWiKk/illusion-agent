@@ -99,7 +99,7 @@ export default function Sidebar({
       <div className="w-14 glass-panel border-r border-white/30 flex flex-col items-center py-4 shrink-0 select-none">
         <button
           onClick={onToggle}
-          className="w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer"
           title={t(lang, 'expand_panel')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -115,7 +115,7 @@ export default function Sidebar({
       <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
         <button
           onClick={onToggle}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary hover:bg-black/[0.03] transition-colors cursor-pointer"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary glass-option-hover transition-colors cursor-pointer"
           title={t(lang, 'collapse_panel')}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -126,7 +126,7 @@ export default function Sidebar({
         <div className="relative">
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary hover:bg-black/[0.03] transition-colors cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary glass-option-hover transition-colors cursor-pointer"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <circle cx="8" cy="4" r="1.5" />
@@ -137,7 +137,7 @@ export default function Sidebar({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 glass-dropdown rounded-xl z-20 min-w-[180px] py-1.5 animate-scale-in dropdown-origin-top-left">
+              <div className="absolute right-0 top-full mt-2 glass-surface rounded-xl z-20 min-w-[180px] py-1.5 animate-scale-in dropdown-origin-top-left">
                 <button
                   onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
                   className="danger-action w-full text-left mx-1 px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg"

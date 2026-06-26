@@ -326,7 +326,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-surface-main">
+    <div className="flex h-screen">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={handleListSessions}
@@ -418,7 +418,7 @@ export default function App() {
             <div className="flex items-start gap-3 px-4 py-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
               <button onClick={closeToast}
-                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-black/[0.03] transition-colors cursor-pointer">
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-content-primary glass-option-hover transition-colors cursor-pointer">
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
               </button>
             </div>

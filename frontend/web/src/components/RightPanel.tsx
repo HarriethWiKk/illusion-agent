@@ -69,7 +69,7 @@ export default function RightPanel({
     return (
       <aside className="w-12 glass-panel border-l border-white/30 flex flex-col items-center py-4 shrink-0 select-none">
         <button onClick={onToggle} title={t(lang, 'expand_panel')}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer">
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 3l-5 5 5 5" />
           </svg>
@@ -91,7 +91,7 @@ export default function RightPanel({
       {/* 折叠按钮 */}
       <div className="px-5 pt-3 pb-1 flex justify-end">
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer">
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M6 3l5 5-5 5" />
           </svg>

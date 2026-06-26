@@ -73,7 +73,7 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading, titl
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 glass-dropdown rounded-xl z-20 min-w-[160px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
+          <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-xl z-20 min-w-[160px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
             {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
             {options.map((opt, idx) => (
               <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}

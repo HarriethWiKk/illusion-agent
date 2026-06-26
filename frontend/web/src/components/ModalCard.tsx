@@ -340,7 +340,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                       ? 'bg-primary text-white'
                       : isAnswered
                         ? 'bg-primary-light text-primary border border-primary/20'
-                        : 'bg-surface-hover text-content-secondary hover:bg-surface-main'
+                        : 'glass-option-hover text-content-secondary'
                   }`}
                 >
                   {isAnswered && !isActive && <span className="mr-1">✓</span>}

@@ -71,11 +71,11 @@ export default function TodoPanel({ items }: TodoPanelProps) {
   if (sorted.length === 0 || hidden) return null;
 
   return (
-    <div className="mb-4 rounded-xl border border-border-light bg-white overflow-hidden shadow-soft">
+    <div className="mb-4 rounded-xl glass-surface overflow-hidden">
       {/* 头部 */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-black/[0.03] transition-colors cursor-pointer"
+        className="w-full px-4 py-2.5 flex items-center gap-3 glass-option-hover transition-colors cursor-pointer"
       >
         {/* 进度计数 */}
         <span className="text-xs font-mono text-content-secondary tabular-nums shrink-0">
