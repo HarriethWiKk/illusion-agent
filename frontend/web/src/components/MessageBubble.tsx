@@ -11,7 +11,7 @@
  * @module MessageBubble
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
@@ -19,6 +19,94 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
+
+/** 从 rehype-highlight 注入的 className 中提取语言名 */
+function extractLanguage(props: Record<string, unknown>): string | undefined {
+  const className = (props.className as string) || '';
+  const match = className.match(/language-(\w+)/);
+  return match?.[1];
+}
+
+/** 递归提取 React children 中的纯文本 */
+function extractText(children: React.ReactNode): string {
+  return React.Children.toArray(children)
+    .map((c) => {
+      if (typeof c === 'string') return c;
+      if (typeof c === 'number') return String(c);
+      if (React.isValidElement(c) && (c.props as { children?: React.ReactNode }).children) {
+        return extractText((c.props as { children: React.ReactNode }).children);
+      }
+      return '';
+    })
+    .join('');
+}
+
+/** 去除代码块尾部空行，返回处理后的 children */
+function trimCodeTrailingLines(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child) => {
+    if (!React.isValidElement(child)) return child;
+    const el = child as React.ReactElement<{ children?: React.ReactNode }>;
+    if (typeof el.type === 'string' && el.type === 'code') {
+      const arr = React.Children.toArray(el.props.children);
+      while (arr.length > 0) {
+        const last = arr[arr.length - 1];
+        if (typeof last === 'string' && last.trim() === '') arr.pop();
+        else break;
+      }
+      if (arr.length > 0) {
+        const last = arr[arr.length - 1];
+        if (typeof last === 'string' && /\n+$/.test(last)) {
+          arr[arr.length - 1] = last.replace(/\n+$/, '');
+        }
+      }
+      return React.cloneElement(el, undefined, ...arr);
+    }
+    return el;
+  });
+}
+
+/** 复制按钮 — opencode 风格 SVG */
+function CodeCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button className={`code-copy-btn${copied ? ' copied' : ''}`} onClick={handleCopy} title="复制">
+      <span className="copy-icon">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="round">
+          <path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" />
+        </svg>
+      </span>
+      <span className="copy-check">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="square">
+          <path d="M5 11.9657L8.37838 14.7529L15 5.83398" />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
+/** 自定义 <pre> —— 顶栏：语言名 + 复制按钮 */
+const mdComponents = {
+  pre: ({ children, ...rest }: React.ComponentPropsWithoutRef<'pre'>) => {
+    const codeChild = children as React.ReactElement<{ className?: string; children?: React.ReactNode }> | undefined;
+    const lang = extractLanguage((codeChild?.props as Record<string, unknown>) || {}) || 'text';
+    const rawText = extractText(codeChild?.props?.children ?? children);
+    return (
+      <div className="code-block-wrap">
+        <div className="code-block-header">
+          <span className="code-lang-label">{lang}</span>
+          <CodeCopyButton text={rawText} />
+        </div>
+        <pre {...rest}>{trimCodeTrailingLines(children)}</pre>
+      </div>
+    );
+  },
+};
 
 /**
  * MessageBubble 组件属性接口
@@ -54,7 +142,7 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
       <div className="py-1.5 animate-fade-in-up">
         {item.reasoning && <ThinkingBlock text={item.reasoning} />}
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
             {item.text}
           </ReactMarkdown>
         </div>
@@ -130,7 +218,7 @@ function ThinkingBlock({ text }: { text: string }) {
   return (
     <div className="text-sm text-content-secondary leading-relaxed select-text mb-3 opacity-80 py-1">
       <div className="prose prose-sm max-w-full">
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
           {text}
         </ReactMarkdown>
       </div>
@@ -257,7 +345,7 @@ export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?:
       {hasReasoning && (
         <div className="text-sm text-content-secondary leading-relaxed select-text mb-3 opacity-80 py-1">
           <div className="prose prose-sm max-w-full">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
               {reasoning}
             </ReactMarkdown>
           </div>
@@ -266,7 +354,7 @@ export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?:
       )}
       {hasText && (
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
             {text}
           </ReactMarkdown>
           <span className="inline-block w-0.5 h-4 bg-primary animate-blink align-middle" />

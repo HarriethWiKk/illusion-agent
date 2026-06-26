@@ -83,29 +83,116 @@ body {
 }
 
 /* ========== 代码块样式 ========== */
-pre code.hljs,
+/* 代码块外层包裹 */
+.code-block-wrap {
+  position: relative;
+  margin: 1.5em 0;
+}
+/* 代码块顶栏 — 语言名 + 复制按钮 */
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: #f0f1f4;
+  border: 0.5px solid #e0e3e8;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+.code-lang-label {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  color: #6b7280;
+  user-select: none;
+}
+/* 复制按钮 */
+.code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9ca3af;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.code-copy-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #6b7280;
+}
+.code-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.code-copy-btn .copy-check {
+  display: none;
+}
+.code-copy-btn.copied .copy-icon {
+  display: none;
+}
+.code-copy-btn.copied .copy-check {
+  display: inline-flex;
+}
+/* 外层 <pre> 容器 */
+.prose pre {
+  border-radius: 0 0 6px 6px;
+  border: 0.5px solid #e0e3e8;
+  border-top: none;
+  background: #f8f9fb;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+/* 独立代码块（无顶栏时恢复完整圆角） */
+.code-block-wrap > pre:only-child {
+  border-radius: 6px;
+  border-top: 0.5px solid #e0e3e8;
+}
+.prose pre::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.prose pre::-webkit-scrollbar-thumb {
+  background: #d0d5e0;
+  border-radius: 3px;
+}
+
+/* <pre> 内的 <code> — 继承容器背景，只负责排版 */
 .prose pre code {
-  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
   font-size: 13px;
   line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  background: #f7f8fa;
-  border: 1px solid #e8ebf0;
+  color: #1a1d23;
 }
 
-pre code.hljs {
+/* hljs 语法高亮元素 — 仅着色，不设边框/背景/圆角 */
+pre code.hljs,
+.prose pre code.hljs {
+  background: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   display: block;
-  padding: 8px 12px;
   overflow-x: auto;
 }
 
 /* 行内代码 */
 .prose code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  background: rgba(42, 157, 153, 0.08);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  font-size: 0.85em;
+  background: transparent;
+  padding: 0;
+  font-size: 0.95em;
   color: #2a9d99;
   font-weight: 500;
 }
@@ -130,23 +217,6 @@ pre code.hljs {
   font-size: 0.75em;
   vertical-align: super;
   line-height: 0;
-}
-
-/* 代码块外层容器 */
-.prose pre {
-  border-radius: 8px;
-  border: 1px solid #e8ebf0;
-  background: #f7f8fa;
-  margin: 1em 0;
-  overflow: hidden;
-}
-
-.prose pre code {
-  background: transparent;
-  padding: 0;
-  border: none;
-  font-size: 13px;
-  color: #1a1d23;
 }
 
 /* ========== 表格样式 ========== */
@@ -240,11 +310,10 @@ pre code.hljs {
 
 /* 引用块内的代码 */
 .prose blockquote code {
-  background: rgba(42, 157, 153, 0.1);
+  background: transparent;
   color: #238b87;
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
-  font-size: 0.9em;
+  padding: 0;
+  font-size: 0.95em;
 }
 
 /* 引用块内的列表 */
@@ -423,11 +492,19 @@ pre code.hljs {
 }
 
 .prose-sm code {
-  font-size: 0.85em;
+  font-size: 0.95em;
 }
 
 .prose-sm pre {
+  margin: 0;
+}
+
+.prose-sm .code-block-wrap {
   margin: 0.75em 0;
+}
+
+.prose-sm .code-block-header {
+  padding: 4px 8px;
 }
 
 .prose-sm blockquote {
