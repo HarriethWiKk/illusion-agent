@@ -77,7 +77,7 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading, titl
             {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
             {options.map((opt, idx) => (
               <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-                className={`option-active-indicator ${opt.active ? 'is-active' : ''} w-full text-left px-3 py-2 text-sm hover:bg-black/[0.03] transition-colors cursor-pointer animate-fade-in-up ${opt.active ? 'text-primary font-medium' : 'text-content-secondary'}`}
+                className={`option-active-indicator ${opt.active ? 'is-active' : ''} w-full text-left px-3 py-2 text-sm glass-option-hover transition-colors cursor-pointer animate-fade-in-up ${opt.active ? 'text-primary font-medium' : 'text-content-secondary'}`}
                 style={{ animationDelay: `${idx * 30}ms`, paddingLeft: opt.active ? '20px' : '12px' }}>
                 {opt.label}
               </button>

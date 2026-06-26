@@ -529,18 +529,20 @@ pre code.hljs {
   transform: scaleY(1);
 }
 
-/* 工具栏胶囊 - 微妙渐变底色 */
+/* 工具栏胶囊 — 玻璃面板上的玻璃浮层（明显于纯白渐变） */
 .pill-badge {
   position: relative;
-  background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(247,248,250,0.95) 100%);
-  border: 1px solid rgba(232, 235, 240, 0.7);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255,255,255,0.8);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 3px rgba(31, 38, 135, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   transition: all 0.2s ease;
 }
 .pill-badge:hover {
-  background: linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(238,240,244,1) 100%);
-  border-color: rgba(208, 213, 224, 0.8);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(31, 38, 135, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 /* 危险操作按钮（删除）— 玻璃化危险态 */
