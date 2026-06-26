@@ -12,7 +12,7 @@ from illusion.tools.bash_tool import BashTool, BashToolInput
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.config_tool import ConfigTool, ConfigToolInput
 from illusion.tools.enter_worktree_tool import EnterWorktreeTool, EnterWorktreeToolInput
-from illusion.tools.file_edit_tool import FileEditTool, FileEditToolInput, mark_file_read
+from illusion.tools.file_edit_tool import FileEditTool, FileEditToolInput
 from illusion.tools.file_read_tool import FileReadTool, FileReadToolInput
 from illusion.tools.file_write_tool import FileWriteTool, FileWriteToolInput
 from illusion.tools.glob_tool import GlobTool, GlobToolInput
@@ -24,11 +24,18 @@ from illusion.tools.todo_write_tool import TodoWriteTool, TodoWriteToolInput
 from illusion.tools.tool_search_tool import ToolSearchTool, ToolSearchToolInput
 from illusion.tools import create_default_tool_registry
 from illusion.platforms import get_platform
+from illusion.utils.file_state_cache import FileStateCache
+
+
+def _make_context(tmp_path: Path) -> ToolExecutionContext:
+    """创建带有文件状态缓存的工具执行上下文。"""
+    cache = FileStateCache()
+    return ToolExecutionContext(cwd=tmp_path, metadata={"file_state_cache": cache})
 
 
 @pytest.mark.asyncio
 async def test_file_write_read_and_edit(tmp_path: Path):
-    context = ToolExecutionContext(cwd=tmp_path)
+    context = _make_context(tmp_path)
 
     write_result = await FileWriteTool().execute(
         FileWriteToolInput(path="notes.txt", content="one\ntwo\nthree\n"),
@@ -37,13 +44,16 @@ async def test_file_write_read_and_edit(tmp_path: Path):
     assert write_result.is_error is False
     assert (tmp_path / "notes.txt").exists()
 
+    # Write 工具创建新文件后会自动写入缓存，无需手动 mark_file_read
+
     read_result = await FileReadTool().execute(
         FileReadToolInput(path="notes.txt", offset=1, limit=2),
         context,
     )
     assert "2\ttwo" in read_result.output
     assert "3\tthree" in read_result.output
-    mark_file_read(str((tmp_path / "notes.txt").resolve()))
+
+    # Read 工具会自动写入缓存，无需手动 mark_file_read
 
     edit_result = await FileEditTool().execute(
         FileEditToolInput(path="notes.txt", old_str="two", new_str="TWO"),
@@ -147,15 +157,16 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_notebook_edit_tool(tmp_path: Path):
+    context = _make_context(tmp_path)
     nb_content = '{"cells": [{"cell_type": "code", "source": ["pass"], "metadata": {}, "outputs": [], "execution_count": null}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}\n'
     (tmp_path / "demo.ipynb").write_text(nb_content, encoding="utf-8")
     await FileReadTool().execute(
         FileReadToolInput(path=str(tmp_path / "demo.ipynb")),
-        ToolExecutionContext(cwd=tmp_path),
+        context,
     )
     result = await NotebookEditTool().execute(
         NotebookEditToolInput(notebook_path=str(tmp_path / "demo.ipynb"), new_source="print('nb ok')\n", edit_mode="insert", cell_type="code"),
-        ToolExecutionContext(cwd=tmp_path),
+        context,
     )
     assert result.is_error is False
     assert "demo.ipynb" in result.output

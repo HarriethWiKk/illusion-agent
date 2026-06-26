@@ -42,6 +42,7 @@ from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
 from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot
 from illusion.tools.base import ToolRegistry
+from illusion.utils.file_state_cache import FileStateCache
 
 
 class QueryEngine:
@@ -104,6 +105,7 @@ class QueryEngine:
         self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
         self._file_history: FileHistoryState | None = None  # 文件历史状态
         self._session_id: str = session_id or ""  # 会话 ID（用于文件历史目录）
+        self._file_state_cache = FileStateCache()  # 文件状态缓存（用于读写去重）
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -153,10 +155,11 @@ class QueryEngine:
     def clear(self) -> None:
         """清除内存中的对话历史。
 
-        同时重置成本跟踪器。
+        同时重置成本跟踪器和文件状态缓存。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
+        self._file_state_cache.clear()
 
     def set_system_prompt(self, prompt: str) -> None:
         """更新未来轮次的活跃系统提示词。
@@ -326,6 +329,7 @@ class QueryEngine:
             bg_agent_tracker=self._bg_agent_tracker,
             compact_state=self._compact_state,
             on_before_tool_execute=_on_before_tool_execute,
+            file_state_cache=self._file_state_cache,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
@@ -363,6 +367,7 @@ class QueryEngine:
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
             compact_state=self._compact_state,
+            file_state_cache=self._file_state_cache,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

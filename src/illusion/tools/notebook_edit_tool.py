@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from pathlib import Path
 from typing import Any, Literal
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.atomic_write import atomic_write_text
+from illusion.utils.file_state_cache import FileState, FileStateCache
 
 
 class NotebookEditToolInput(BaseModel):
@@ -77,14 +79,29 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
                 is_error=True,
             )
 
-        # 对现有文件进行读后编辑检查
-        if path.exists():
-            from illusion.tools.file_edit_tool import has_file_been_read
-            if not has_file_been_read(str(path)):
+        # 获取文件状态缓存
+        cache: FileStateCache | None = context.metadata.get("file_state_cache")
+
+        # 对现有文件进行读后编辑检查（基于缓存）
+        abs_path = str(path)
+        if path.exists() and cache is not None:
+            cached = cache.get(abs_path)
+            if cached is None:
                 return ToolResult(
                     output=f"You must read the file at {path} using the Read tool before you can edit it.",
                     is_error=True,
                 )
+
+            # mtime 过期检测
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime > cached.timestamp:
+                    return ToolResult(
+                        output=f"File {path} has been modified since last read. Please read it again before editing.",
+                        is_error=True,
+                    )
+            except OSError:
+                pass
 
         # 加载 notebook
         notebook = _load_notebook(path)
@@ -125,6 +142,8 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
                 )
             cells.pop(cell_index)
             _save_notebook(path, notebook)
+            # 更新缓存
+            _update_cache(cache, abs_path, path, notebook)
             return ToolResult(
                 output=f"Deleted cell {cell_index} from {path}"
             )
@@ -137,6 +156,8 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
             insert_at = min(cell_index, len(cells))
             cells.insert(insert_at, new_cell)
             _save_notebook(path, notebook)
+            # 更新缓存
+            _update_cache(cache, abs_path, path, notebook)
             return ToolResult(
                 output=f"Inserted cell at index {insert_at} in {path}"
             )
@@ -161,6 +182,8 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
         cell["source"] = arguments.new_source
 
         _save_notebook(path, notebook)
+        # 更新缓存
+        _update_cache(cache, abs_path, path, notebook)
         return ToolResult(output=f"Updated notebook cell {cell_index} in {path}")
 
 
@@ -217,6 +240,35 @@ def _save_notebook(path: Path, notebook: dict[str, Any]) -> None:
     """将 notebook 保存到磁盘。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(path, json.dumps(notebook, indent=1) + "\n")
+
+
+def _update_cache(
+    cache: FileStateCache | None,
+    abs_path: str,
+    path: Path,
+    notebook: dict[str, Any],
+) -> None:
+    """更新文件状态缓存。
+
+    Args:
+        cache: 文件状态缓存（可选）
+        abs_path: 绝对路径
+        path: Path 对象
+        notebook: notebook 内容
+    """
+    if cache is None:
+        return
+    try:
+        mtime = os.path.getmtime(path)
+        content = json.dumps(notebook, indent=1) + "\n"
+        cache.set(abs_path, FileState(
+            content=content,
+            timestamp=mtime,
+            offset=None,  # 标记为非 Read 来源
+            limit=None,
+        ))
+    except OSError:
+        pass  # 无法获取 mtime，跳过缓存
 
 
 def _generate_cell_id() -> str:

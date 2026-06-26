@@ -19,11 +19,13 @@ from typing import Any
 import base64
 import json
 import mimetypes
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.file_state_cache import FileState, FileStateCache
 
 # 图片文件扩展名集合
 _IMAGE_EXTENSIONS: frozenset[str] = frozenset({
@@ -114,16 +116,19 @@ Usage:
         if path.is_dir():
             return ToolResult(output=f"Cannot read directory: {path}", is_error=True)
 
+        # 获取文件状态缓存
+        cache: FileStateCache | None = context.metadata.get("file_state_cache")
+
         # 检测是否为 Jupyter notebook
         if path.suffix.lower() == ".ipynb":
-            return self._read_notebook_file(path, arguments)
+            return self._read_notebook_file(path, arguments, cache)
 
         # 检测是否为图片文件
         if _is_image_file(path):
             return self._read_image_file(path)
 
         # 读取文本文件
-        return self._read_text_file(path, arguments)
+        return self._read_text_file(path, arguments, cache)
 
     def _read_image_file(self, path: Path) -> ToolResult:
         """读取图片文件并返回 base64 编码数据。"""
@@ -156,8 +161,22 @@ Usage:
             },
         )
 
-    def _read_notebook_file(self, path: Path, arguments: FileReadToolInput) -> ToolResult:
-        """读取 Jupyter notebook 文件，解析所有单元格及其输出。"""
+    def _read_notebook_file(
+        self,
+        path: Path,
+        arguments: FileReadToolInput,
+        cache: FileStateCache | None,
+    ) -> ToolResult:
+        """读取 Jupyter notebook 文件，解析所有单元格及其输出。
+
+        Args:
+            path: notebook 文件路径
+            arguments: 读取参数
+            cache: 文件状态缓存（可选）
+
+        Returns:
+            ToolResult: 读取结果
+        """
         try:
             raw = path.read_text(encoding="utf-8")
             nb = json.loads(raw)
@@ -240,14 +259,60 @@ Usage:
 
             output_parts.append("")  # 单元格间空行
 
-        # 注册文件已被读取
-        from illusion.tools.file_edit_tool import mark_file_read
-        mark_file_read(str(path))
+        # 写入缓存
+        if cache is not None:
+            try:
+                mtime = os.path.getmtime(path)
+                cache.set(str(path), FileState(
+                    content=raw,
+                    timestamp=mtime,
+                    offset=arguments.offset,
+                    limit=arguments.limit,
+                ))
+            except OSError:
+                pass  # 无法获取 mtime，跳过缓存
 
         return ToolResult(output="\n".join(output_parts).strip())
 
-    def _read_text_file(self, path: Path, arguments: FileReadToolInput) -> ToolResult:
-        """读取文本文件。"""
+    def _read_text_file(
+        self,
+        path: Path,
+        arguments: FileReadToolInput,
+        cache: FileStateCache | None,
+    ) -> ToolResult:
+        """读取文本文件。
+
+        Args:
+            path: 文件路径
+            arguments: 读取参数
+            cache: 文件状态缓存（可选）
+
+        Returns:
+            ToolResult: 读取结果
+        """
+        abs_path = str(path)
+
+        # 缓存去重检查：如果文件未被修改且范围相同，返回存根
+        if cache is not None:
+            cached = cache.get(abs_path)
+            if (
+                cached is not None
+                and cached.offset is not None  # 来自之前的 Read（非 Edit/Write）
+                and cached.offset == arguments.offset
+                and cached.limit == arguments.limit
+            ):
+                # 检查 mtime
+                try:
+                    current_mtime = os.path.getmtime(path)
+                    if current_mtime == cached.timestamp:
+                        return ToolResult(
+                            output="File unchanged since last read. "
+                            "The content from the earlier Read is still current."
+                        )
+                except OSError:
+                    pass  # 文件可能已被删除，继续读取
+
+        # 实际读取文件
         raw = path.read_bytes()
         if b"\x00" in raw:
             return ToolResult(output=f"Binary file cannot be read as text: {path}", is_error=True)
@@ -264,9 +329,18 @@ Usage:
                 output=f"System reminder: The file at {path} exists but has empty contents."
             )
 
-        # 注册文件已被读取（用于读后编辑强制检查）
-        from illusion.tools.file_edit_tool import mark_file_read
-        mark_file_read(str(path))
+        # 写入缓存
+        if cache is not None:
+            try:
+                mtime = os.path.getmtime(path)
+                cache.set(abs_path, FileState(
+                    content=text,
+                    timestamp=mtime,
+                    offset=arguments.offset,
+                    limit=arguments.limit,
+                ))
+            except OSError:
+                pass  # 无法获取 mtime，跳过缓存
 
         return ToolResult(output="\n".join(numbered))
 

@@ -52,6 +52,7 @@ from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.base import ToolRegistry
+from illusion.utils.file_state_cache import FileStateCache
 
 
 # 权限提示回调类型：工具名称 -> 是否允许
@@ -214,6 +215,8 @@ class QueryContext:
     compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
     # 文件历史回调：工具执行前调用，参数为 (工具名称, 工具输入)
     on_before_tool_execute: Callable[[str, dict[str, Any]], None] | None = None
+    # 文件状态缓存：用于读写去重和 mtime 检测
+    file_state_cache: FileStateCache | None = None
 
 
 async def run_query(
@@ -631,6 +634,7 @@ async def _execute_tool_call(
                 "ask_user_prompt": context.ask_user_prompt,
                 "plan_approval_prompt": context.plan_approval_prompt,
                 "permission_checker": context.permission_checker,
+                "file_state_cache": context.file_state_cache,
                 **(context.tool_metadata or {}),
             },
         ),

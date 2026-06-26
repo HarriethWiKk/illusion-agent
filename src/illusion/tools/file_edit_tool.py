@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar
+import os
 from typing import Any
 
 from difflib import unified_diff
@@ -24,31 +24,25 @@ from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.atomic_write import atomic_write_text
-
-
-# 会话级集合，跟踪本次会话中已读取的文件
-# 使用 ContextVar 实现会话隔离，避免多会话共享和线程安全问题
-_read_files_var: ContextVar[set[str]] = ContextVar("_read_files_var")
-
-
-def _get_read_files() -> set[str]:
-    """获取当前会话的已读取文件集合（懒初始化）"""
-    try:
-        return _read_files_var.get()
-    except LookupError:
-        s: set[str] = set()
-        _read_files_var.set(s)
-        return s
+from illusion.utils.file_state_cache import FileState, FileStateCache
 
 
 def mark_file_read(abs_path: str) -> None:
-    """记录文件已被读取（在 FileReadTool 读取后调用）。"""
-    _get_read_files().add(abs_path)
+    """兼容性函数：记录文件已被读取。
+
+    注意：此函数现在仅用于向后兼容测试代码。
+    实际的缓存逻辑已迁移到 FileStateCache。
+    """
+    pass
 
 
 def has_file_been_read(abs_path: str) -> bool:
-    """检查文件是否在本次会话中已被读取。"""
-    return abs_path in _get_read_files()
+    """兼容性函数：检查文件是否已被读取。
+
+    注意：此函数现在仅用于向后兼容测试代码。
+    实际的缓存逻辑已迁移到 FileStateCache。
+    """
+    return True  # 始终返回 True，实际验证由缓存完成
 
 
 class FileEditToolInput(BaseModel):
@@ -105,12 +99,12 @@ Usage:
         arguments: FileEditToolInput,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        """执行文件编辑操作，替换指定文本并返回差异信息
-        
+        """执行文件编辑操作，替换指定文本并返回差异信息。
+
         Args:
             arguments: 文件编辑参数
             context: 工具执行上下文
-        
+
         Returns:
             ToolResult: 包含编辑结果和差异文本的执行结果
         """
@@ -124,6 +118,9 @@ Usage:
                 is_error=True,
             )
 
+        # 获取文件状态缓存
+        cache: FileStateCache | None = context.metadata.get("file_state_cache")
+
         # 处理新文件创建：仅当 old_string 为空时允许
         if not path.exists():
             if arguments.old_string:
@@ -134,21 +131,62 @@ Usage:
             # 创建新文件
             path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(path, arguments.new_string)
-            mark_file_read(str(path))
+            # 将新创建的文件写入缓存
+            if cache is not None:
+                try:
+                    mtime = os.path.getmtime(path)
+                    cache.set(str(path), FileState(
+                        content=arguments.new_string,
+                        timestamp=mtime,
+                        offset=None,
+                        limit=None,
+                    ))
+                except OSError:
+                    pass
             # 生成新文件内容预览
             preview = _generate_create_preview(str(path), arguments.new_string)
             return ToolResult(output=f"Created {path}\n{preview}")
 
-        # 读后编辑强制检查
-        if not has_file_been_read(str(path)):
-            return ToolResult(
-                output=(
-                    f"You must read the file at {path} using the Read tool "
-                    "before you can edit it. This tool will error if you attempt "
-                    "an edit without reading the file first."
-                ),
-                is_error=True,
-            )
+        # 读后编辑强制检查（基于缓存）
+        abs_path = str(path)
+        if cache is not None:
+            cached = cache.get(abs_path)
+            if cached is None:
+                return ToolResult(
+                    output=(
+                        f"You must read the file at {path} using the Read tool "
+                        "before you can edit it. This tool will error if you attempt "
+                        "an edit without reading the file first."
+                    ),
+                    is_error=True,
+                )
+
+            # mtime 过期检测
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime > cached.timestamp:
+                    # 对于完整读取（offset=None, limit=None），进行内容比较回退
+                    # 这解决了 Windows 上 mtime 误报的问题（云同步、杀毒软件等）
+                    if cached.offset is None and cached.limit is None:
+                        current_content = path.read_text(encoding="utf-8")
+                        if current_content != cached.content:
+                            return ToolResult(
+                                output=(
+                                    f"File {path} has been modified since last read. "
+                                    "Please read it again before editing."
+                                ),
+                                is_error=True,
+                            )
+                    else:
+                        return ToolResult(
+                            output=(
+                                f"File {path} has been modified since last read. "
+                                "Please read it again before editing."
+                            ),
+                            is_error=True,
+                        )
+            except OSError:
+                pass  # 无法获取 mtime，继续编辑
 
         # 空操作保护
         if arguments.old_string == arguments.new_string:
@@ -171,6 +209,18 @@ Usage:
         # 空文件上的空 old_string = 写入新内容
         if not arguments.old_string and not original.strip():
             atomic_write_text(path, arguments.new_string)
+            # 更新缓存
+            if cache is not None:
+                try:
+                    mtime = os.path.getmtime(path)
+                    cache.set(abs_path, FileState(
+                        content=arguments.new_string,
+                        timestamp=mtime,
+                        offset=None,
+                        limit=None,
+                    ))
+                except OSError:
+                    pass
             diff_text = _generate_diff(str(path), original, arguments.new_string)
             return ToolResult(output=f"Updated {path}\n{diff_text}")
 
@@ -203,6 +253,20 @@ Usage:
             updated = original.replace(arguments.old_string, arguments.new_string, 1)
 
         atomic_write_text(path, updated)
+
+        # 更新缓存
+        if cache is not None:
+            try:
+                mtime = os.path.getmtime(path)
+                cache.set(abs_path, FileState(
+                    content=updated,
+                    timestamp=mtime,
+                    offset=None,  # 标记为非 Read 来源
+                    limit=None,
+                ))
+            except OSError:
+                pass
+
         # 生成差异文本
         diff_text = _generate_diff(str(path), original, updated)
         return ToolResult(output=f"Updated {path}\n{diff_text}")

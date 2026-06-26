@@ -9,13 +9,14 @@ import pytest
 
 from illusion.tools import create_default_tool_registry
 from illusion.tools.base import ToolExecutionContext
-from illusion.tools.file_edit_tool import mark_file_read
+from illusion.utils.file_state_cache import FileStateCache
 
 
 @pytest.mark.asyncio
 async def test_search_edit_flow_across_registry(tmp_path: Path):
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     write = registry.get("write_file")
     glob = registry.get("glob")
@@ -28,7 +29,7 @@ async def test_search_edit_flow_across_registry(tmp_path: Path):
         context,
     )
     await read.execute(read.input_model(path="src/demo.py"), context)
-    mark_file_read(str((tmp_path / "src" / "demo.py").resolve()))
+    # Read 工具会自动写入缓存，无需手动 mark_file_read
     glob_result = await glob.execute(glob.input_model(pattern="**/*.py"), context)
     assert "src" in glob_result.output and "demo.py" in glob_result.output
 
@@ -52,7 +53,8 @@ async def test_search_edit_flow_across_registry(tmp_path: Path):
 async def test_task_and_todo_flow_across_registry(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     tool_search = registry.get("tool_search")
     todo_write = registry.get("todo_write")
@@ -102,7 +104,8 @@ async def test_skill_and_config_flow_across_registry(tmp_path: Path, monkeypatch
     )
 
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     config = registry.get("config")
     skill = registry.get("skill")
@@ -125,7 +128,8 @@ async def test_skill_and_config_flow_across_registry(tmp_path: Path, monkeypatch
 async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     agent = registry.get("agent")
     send_message = registry.get("send_message")
@@ -171,6 +175,7 @@ async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, 
 @pytest.mark.asyncio
 async def test_ask_user_question_flow_across_registry(tmp_path: Path):
     registry = create_default_tool_registry()
+    cache = FileStateCache()
 
     async def _answer(question: str, questions_data: object = None) -> str:
         assert "favorite color" in question
@@ -178,7 +183,7 @@ async def test_ask_user_question_flow_across_registry(tmp_path: Path):
 
     context = ToolExecutionContext(
         cwd=tmp_path,
-        metadata={"tool_registry": registry, "ask_user_prompt": _answer},
+        metadata={"tool_registry": registry, "ask_user_prompt": _answer, "file_state_cache": cache},
     )
     ask_user = registry.get("ask_user_question")
     write = registry.get("write_file")
@@ -202,7 +207,8 @@ async def test_ask_user_question_flow_across_registry(tmp_path: Path):
 async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     notebook = registry.get("notebook_edit")
     cron = registry.get("cron")
@@ -240,7 +246,8 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
 @pytest.mark.asyncio
 async def test_lsp_flow_across_registry(tmp_path: Path):
     registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
+    cache = FileStateCache()
+    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
     write = registry.get("write_file")
     lsp = registry.get("lsp")

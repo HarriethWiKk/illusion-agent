@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from difflib import unified_diff
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.atomic_write import atomic_write_text
+from illusion.utils.file_state_cache import FileState, FileStateCache
 
 
 class FileWriteToolInput(BaseModel):
@@ -72,22 +74,26 @@ Usage:
         arguments: FileWriteToolInput,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        """执行文件写入操作，对新文件返回内容预览，对已有文件返回差异信息
-        
+        """执行文件写入操作，对新文件返回内容预览，对已有文件返回差异信息。
+
         Args:
             arguments: 文件写入参数
             context: 工具执行上下文
-        
+
         Returns:
             ToolResult: 包含写入结果和差异/预览文本的执行结果
         """
         # 解析文件路径
         path = _resolve_path(context.cwd, arguments.file_path)
 
-        # 对于已有文件，执行读后写强制检查
-        if path.exists():
-            from illusion.tools.file_edit_tool import has_file_been_read, mark_file_read
-            if not has_file_been_read(str(path)):
+        # 获取文件状态缓存
+        cache: FileStateCache | None = context.metadata.get("file_state_cache")
+
+        # 对于已有文件，执行读后写强制检查（基于缓存）
+        abs_path = str(path)
+        if path.exists() and cache is not None:
+            cached = cache.get(abs_path)
+            if cached is None:
                 return ToolResult(
                     output=(
                         f"You must read the file at {path} using the Read tool "
@@ -96,6 +102,32 @@ Usage:
                     ),
                     is_error=True,
                 )
+
+            # mtime 过期检测
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime > cached.timestamp:
+                    # 对于完整读取，进行内容比较回退
+                    if cached.offset is None and cached.limit is None:
+                        current_content = path.read_text(encoding="utf-8")
+                        if current_content != cached.content:
+                            return ToolResult(
+                                output=(
+                                    f"File {path} has been modified since last read. "
+                                    "Please read it again before writing."
+                                ),
+                                is_error=True,
+                            )
+                    else:
+                        return ToolResult(
+                            output=(
+                                f"File {path} has been modified since last read. "
+                                "Please read it again before writing."
+                            ),
+                            is_error=True,
+                        )
+            except OSError:
+                pass
 
         # 如果需要，创建父目录
         if arguments.create_directories:
@@ -112,9 +144,18 @@ Usage:
         # 写入文件内容
         atomic_write_text(path, arguments.content)
 
-        # 写入后将文件标记为已读，以便后续编辑
-        from illusion.tools.file_edit_tool import mark_file_read
-        mark_file_read(str(path))
+        # 更新缓存
+        if cache is not None:
+            try:
+                mtime = os.path.getmtime(path)
+                cache.set(abs_path, FileState(
+                    content=arguments.content,
+                    timestamp=mtime,
+                    offset=None,  # 标记为非 Read 来源
+                    limit=None,
+                ))
+            except OSError:
+                pass
 
         # 生成差异或预览
         if is_update:
