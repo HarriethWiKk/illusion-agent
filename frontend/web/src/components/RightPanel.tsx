@@ -69,13 +69,13 @@ export default function RightPanel({
     return (
       <aside className="w-12 bg-surface-main border-l border-border-light flex flex-col items-center py-4 shrink-0 select-none">
         <button onClick={onToggle} title={t(lang, 'expand_panel')}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer">
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 3l-5 5 5 5" />
           </svg>
         </button>
         <div className="mt-auto mb-2">
-          <span className={`block w-2.5 h-2.5 rounded-full ${connected ? (busy ? 'bg-warning animate-pulse' : 'bg-success') : 'bg-danger'}`} />
+          <span className={`block w-2.5 h-2.5 rounded-full ${connected ? (busy ? 'bg-warning animate-pulse' : 'bg-success') : 'bg-danger'}`} style={connected && !busy ? { boxShadow: '0 0 6px rgba(76, 175, 125, 0.5)' } : busy ? { boxShadow: '0 0 6px rgba(232, 168, 76, 0.5)' } : { boxShadow: '0 0 6px rgba(212, 91, 91, 0.4)' }} />
         </div>
       </aside>
     );
@@ -91,7 +91,7 @@ export default function RightPanel({
       {/* 折叠按钮 */}
       <div className="px-5 pt-3 pb-1 flex justify-end">
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary hover:bg-surface-hover hover:text-content-primary transition-colors cursor-pointer">
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary hover:bg-black/[0.03] hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M6 3l5 5-5 5" />
           </svg>
@@ -199,7 +199,7 @@ function CollapsibleSection({
     <div className="border-t border-border-light">
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-surface-hover transition-colors cursor-pointer"
+        className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-black/[0.03] transition-colors cursor-pointer"
       >
         <svg
           className={`w-3 h-3 text-content-disabled shrink-0 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
@@ -232,7 +232,7 @@ function ItemRow({ name, description, tag }: { name: string; description: string
     <div>
       <button
         onClick={() => hasDesc && setExpanded((e) => !e)}
-        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${hasDesc ? 'hover:bg-surface-hover cursor-pointer' : 'cursor-default'}`}
+        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors ${hasDesc ? 'hover:bg-black/[0.03] cursor-pointer' : 'cursor-default'}`}
         title={hasDesc ? description : name}
       >
         <span className="text-content-primary font-medium truncate flex-1 text-left">{name}</span>

@@ -65,8 +65,8 @@ export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) 
   const requestId = String(modal.request_id ?? '');
 
   return (
-    <div className="my-3 rounded-xl border border-border-light overflow-hidden shadow-soft">
-      <div className="bg-surface-main px-4 py-3 flex items-center gap-2">
+    <div className="my-3 rounded-2xl glass-dropdown overflow-hidden">
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-border-light/40">
         <svg className="w-4 h-4 text-amber-500 shrink-0" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
         </svg>
@@ -85,13 +85,13 @@ export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) 
       <div className="px-4 py-3 border-t border-border-light flex items-center justify-end gap-2">
         <button
           onClick={() => onRespond(requestId, false, false, toolName)}
-          className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:bg-surface-hover rounded-md transition-colors cursor-pointer"
+          className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:bg-black/[0.03] rounded-md transition-colors cursor-pointer"
         >
           {t(lang, 'deny')}
         </button>
         <button
           onClick={() => onRespond(requestId, true, true, toolName)}
-          className="px-3 py-1.5 text-xs font-medium text-content-primary border border-border-light hover:bg-surface-hover rounded-md transition-colors cursor-pointer"
+          className="px-3 py-1.5 text-xs font-medium text-content-primary border border-border-light hover:bg-black/[0.03] rounded-md transition-colors cursor-pointer"
         >
           {t(lang, 'always_allow')}
         </button>
@@ -319,11 +319,11 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         if (next && cardRef.current?.contains(next)) return;
         submitSingleMultiSelect();
       }}
-      className={`my-3 rounded-xl border border-border-light overflow-hidden shadow-soft ${
+      className={`my-3 rounded-2xl glass-dropdown overflow-hidden ${
         isMultiSelect && !isMultiQuestion ? 'outline-none' : ''
       }`}
     >
-      <div className="bg-surface-main px-4 py-3">
+      <div className="px-4 py-3">
         {/* Tab 导航栏 — 仅多问题时显示 */}
         {isMultiQuestion && (
           <div className="flex items-center gap-1 mb-2 overflow-x-auto">
@@ -376,8 +376,8 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                   onClick={() => handleOptionClick(i, opt.label)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-start gap-2.5 ${
                     isSelected
-                      ? 'bg-primary-light border border-primary/20'
-                      : 'bg-white border border-border-light hover:bg-surface-hover'
+                      ? 'bg-black/[0.06] border border-black/[0.06]'
+                      : 'border border-transparent hover:bg-black/[0.03]'
                   }`}
                 >
                   {isMultiSelect ? (
@@ -407,10 +407,10 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
               <div
                 className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-start gap-2.5 ${
                   isMultiSelect && selectedIndices.has(otherIdx)
-                    ? 'bg-primary-light border border-primary/20'
+                    ? 'bg-black/[0.06] border border-black/[0.06]'
                     : isOtherFocused
-                      ? 'bg-white border border-primary/30'
-                      : 'text-content-disabled hover:bg-surface-hover border border-border-light border-dashed'
+                      ? 'bg-black/[0.04] border border-black/[0.08]'
+                      : 'text-content-disabled hover:bg-black/[0.03] border border-black/[0.06] border-dashed'
                 }`}
                 onClick={() => handleOptionClick(otherIdx, lang === 'zh-CN' ? '其他' : 'Other')}
               >
@@ -534,7 +534,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                 setAllOtherText({});
                 setCurrentIndex(0);
               }}
-              className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:bg-surface-hover rounded-md transition-colors cursor-pointer"
+              className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:bg-black/[0.03] rounded-md transition-colors cursor-pointer"
             >
               {lang === 'zh-CN' ? '重置' : 'Reset'}
             </button>

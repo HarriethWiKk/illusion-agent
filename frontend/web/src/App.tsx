@@ -373,7 +373,7 @@ export default function App() {
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-fade-in" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-white rounded-xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
+          <div className="relative glass-dropdown rounded-2xl w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -381,7 +381,7 @@ export default function App() {
               {regularSessions.length === 0 ? (
                 <div className="px-6 py-8 text-center text-sm text-content-disabled">{t(lang, 'no_sessions')}</div>
               ) : regularSessions.map((s) => (
-                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-surface-hover transition-colors">
+                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-black/[0.03] transition-colors rounded-lg mx-1">
                   <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => toggleDeleteItem(s.value)} className="w-4 h-4 rounded accent-danger" />
                   <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
                 </label>
@@ -393,10 +393,10 @@ export default function App() {
                   // 直接删除全部；后端会原子化地新建空会话，避免两阶段竞态
                   session.deleteSessions([], true);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
-                }} className="px-4 py-2 text-sm text-danger hover:bg-red-50 rounded-lg transition-colors cursor-pointer">{t(lang, 'delete_all')}</button>
+                }} className="danger-action px-4 py-2 text-sm text-danger rounded-lg cursor-pointer">{t(lang, 'delete_all')}</button>
               )}</div>
               <div className="flex gap-2">
-                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light">{t(lang, 'cancel')}</button>
+                <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary hover:bg-black/[0.03] rounded-lg transition-colors cursor-pointer border border-border-light/60">{t(lang, 'cancel')}</button>
                 <button onClick={handleConfirmDelete} disabled={deleteSelected.size === 0}
                   className="px-4 py-2 text-sm text-white bg-danger hover:bg-danger-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                   {t(lang, 'confirm_delete')} ({deleteSelected.size})
@@ -414,11 +414,11 @@ export default function App() {
           className={`fixed bottom-20 right-6 z-50 ${toastExiting ? 'animate-toast-out' : 'animate-toast-in'}`}
           onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}
         >
-          <div className="bg-white rounded-lg shadow-lg border-2 border-border-medium max-w-sm overflow-hidden">
+          <div className="glass-dropdown rounded-2xl max-w-sm overflow-hidden">
             <div className="flex items-start gap-3 px-4 py-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
               <button onClick={closeToast}
-                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer">
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-black/[0.03] transition-colors cursor-pointer">
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
               </button>
             </div>

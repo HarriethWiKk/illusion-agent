@@ -57,7 +57,7 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading, titl
   return (
     <div className="relative">
       <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary rounded-full transition-colors cursor-pointer border border-border-light bg-surface-main">
+        className="pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:text-content-primary rounded-full cursor-pointer">
         {loading ? (
           <svg className="animate-spin w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -73,12 +73,12 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading, titl
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-0.5 bg-surface-main border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
+          <div className="absolute bottom-full left-0 mb-1 glass-dropdown rounded-xl z-20 min-w-[160px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
             {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
             {options.map((opt, idx) => (
               <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-card-alt transition-colors cursor-pointer animate-fade-in-up ${opt.active ? 'text-primary font-medium bg-primary-light' : 'text-content-secondary'}`}
-                style={{ animationDelay: `${idx * 30}ms` }}>
+                className={`option-active-indicator ${opt.active ? 'is-active' : ''} w-full text-left px-3 py-2 text-sm hover:bg-black/[0.03] transition-colors cursor-pointer animate-fade-in-up ${opt.active ? 'text-primary font-medium' : 'text-content-secondary'}`}
+                style={{ animationDelay: `${idx * 30}ms`, paddingLeft: opt.active ? '20px' : '12px' }}>
                 {opt.label}
               </button>
             ))}

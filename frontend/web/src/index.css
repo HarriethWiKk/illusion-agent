@@ -417,6 +417,109 @@ pre code.hljs {
   padding: 0.625em 0.875em 0.625em 1em;
 }
 
+/* ========== 质感工具类（灵感：react-bits） ========== */
+
+/* 玻璃拟态下拉菜单 */
+.glass-dropdown {
+  background: linear-gradient(135deg, rgba(235, 240, 255, 0.82) 0%, rgba(240, 238, 250, 0.78) 100%);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid rgba(42, 157, 153, 0.12);
+  box-shadow:
+    0 8px 32px rgba(42, 157, 153, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* 聚光灯卡片悬停 */
+.spotlight-hover {
+  position: relative;
+  overflow: hidden;
+}
+.spotlight-hover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  background: radial-gradient(circle 120px at var(--spotlight-x, 50%) var(--spotlight-y, 50%), rgba(42, 157, 153, 0.08), transparent);
+}
+.spotlight-hover:hover::before {
+  opacity: 1;
+}
+
+/* 会话项活跃指示条 */
+.session-item-active {
+  position: relative;
+}
+.session-item-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(to bottom, #2a9d99, #7c6fb0);
+  opacity: 0;
+  transform: scaleY(0);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.session-item-active:hover::after {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* 工具栏胶囊 - 微妙渐变底色 */
+.pill-badge {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(247,248,250,0.95) 100%);
+  border: 1px solid rgba(232, 235, 240, 0.7);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255,255,255,0.8);
+  transition: all 0.2s ease;
+}
+.pill-badge:hover {
+  background: linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(238,240,244,1) 100%);
+  border-color: rgba(208, 213, 224, 0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+/* 危险操作按钮（删除） */
+.danger-action {
+  transition: all 0.2s ease;
+}
+.danger-action:hover {
+  background: rgba(212, 91, 91, 0.06);
+  color: #c34a4a;
+}
+.danger-action:active {
+  transform: scale(0.97);
+}
+
+/* 选项激活态指示 */
+.option-active-indicator {
+  position: relative;
+}
+.option-active-indicator::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #2a9d99;
+  box-shadow: 0 0 6px rgba(42, 157, 153, 0.4);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.option-active-indicator.is-active::before {
+  opacity: 1;
+}
+
 /* ========== 动画工具 ========== */
 .dropdown-origin-bottom-left { transform-origin: bottom left; }
 .dropdown-origin-top-left { transform-origin: top left; }
