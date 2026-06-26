@@ -42,6 +42,19 @@
   --pastel-pink: #fde0e8;
   --pastel-sky: #dcecfa;
   --pastel-coral: #fde0d4;
+
+  /* ========== 玻璃拟态 token (macOS 风柔和玻璃) ========== */
+  --glass-bg:         rgba(255, 255, 255, 0.55);   /* 弹出/卡片/toast 主用 */
+  --glass-bg-panel:   rgba(255, 255, 255, 0.42);   /* 大面板（侧栏/工具栏），更透 */
+  --glass-bg-overlay: rgba(255, 255, 255, 0.68);   /* 居中大弹窗，对比更强 */
+  --glass-blur:         20px;
+  --glass-blur-panel:   16px;
+  --glass-blur-overlay: 28px;
+  --glass-saturate:     1.8;
+  --glass-border:        rgba(255, 255, 255, 0.6);
+  --glass-border-strong: rgba(42, 157, 153, 0.18);
+  --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.12), 0 2px 8px rgba(31, 38, 135, 0.08);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 * {
@@ -59,7 +72,14 @@ html {
 body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-feature-settings: 'cv01', 'ss01', 'ss03';
-  background: #ffffff;
+  /* 玻璃质感根基：极淡灰蓝底 + 青绿/淡紫/珊瑚/薄荷光晕，供 backdrop-filter 磨 */
+  background-color: #f5f7fa;
+  background-image:
+    radial-gradient(at 12% 18%, rgba(42, 157, 153, 0.16) 0px, transparent 50%),
+    radial-gradient(at 88% 12%, rgba(124, 111, 176, 0.15) 0px, transparent 50%),
+    radial-gradient(at 75% 88%, rgba(232, 133, 108, 0.12) 0px, transparent 55%),
+    radial-gradient(at 25% 92%, rgba(76, 175, 125, 0.10) 0px, transparent 50%);
+  background-attachment: fixed;
   color: #1a1d23;
   min-height: 100vh;
 }
@@ -419,17 +439,54 @@ pre code.hljs {
 
 /* ========== 质感工具类（灵感：react-bits） ========== */
 
-/* 玻璃拟态下拉菜单 */
+/* ========== 玻璃拟态语义类 (macOS 风柔和玻璃) ========== */
+
+/* 最常用：弹出菜单 / 卡片 / toast / 命令栏 */
+.glass-surface {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+
+/* 大面板：左右侧栏 / 底部工具栏容器 */
+.glass-panel {
+  background: var(--glass-bg-panel);
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+
+/* 居中大弹窗：删除确认等 */
+.glass-overlay {
+  background: var(--glass-bg-overlay);
+  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+
+/* 向后兼容别名：现有 .glass-dropdown 自动获得 .glass-surface 质感 */
 .glass-dropdown {
-  background: linear-gradient(135deg, rgba(235, 240, 255, 0.82) 0%, rgba(240, 238, 250, 0.78) 100%);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  border: 1px solid rgba(42, 157, 153, 0.12);
-  box-shadow:
-    0 8px 32px rgba(42, 157, 153, 0.06),
-    0 2px 8px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+
+/* 玻璃面板内可交互项 — hover（白半透明 + 微高光，不含 blur，避免嵌套性能问题） */
+.glass-option-hover:hover {
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* 玻璃面板内可交互项 — 选中（更白 + 主色 inset 左边框） */
+.glass-option-active {
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 2px 0 0 var(--primary), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 /* 聚光灯卡片悬停 */
@@ -574,6 +631,11 @@ pre code.hljs {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* 降级：移除 backdrop-filter，保留半透明静态背景（仍有层次） */
+  .glass-surface, .glass-panel, .glass-overlay, .glass-dropdown {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }
 
