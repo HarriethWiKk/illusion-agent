@@ -319,7 +319,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           }`}
           title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}
         >
-          {busy ? '■' : '↑'}
+          {busy ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg> : '↑'}
         </button>
       </div>
     </div>
