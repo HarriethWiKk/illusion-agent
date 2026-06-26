@@ -159,7 +159,7 @@ export default function Sidebar({
         <button
           onClick={onNewSession}
           disabled={!connected}
-          className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary glass-surface glass-option-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          className="pill-badge w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
         >
           <span className="w-5 h-5 rounded-md bg-primary flex items-center justify-center text-white font-bold text-xs">+</span>
           {t(lang, 'new_session')}

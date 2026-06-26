@@ -414,7 +414,7 @@ export default function App() {
           className={`fixed bottom-20 right-6 z-50 ${toastExiting ? 'animate-toast-out' : 'animate-toast-in'}`}
           onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}
         >
-          <div className="glass-surface rounded-2xl max-w-sm overflow-hidden">
+          <div className="glass-surface border border-black/10 rounded-2xl max-w-sm overflow-hidden">
             <div className="flex items-start gap-3 px-4 py-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
               <button onClick={closeToast}
