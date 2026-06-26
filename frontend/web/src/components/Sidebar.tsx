@@ -72,7 +72,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="bg-surface-main border-r border-border-light flex flex-col h-full shrink-0 select-none" style={{ width: `${width}px` }}>
+    <aside className="bg-surface-main border-r border-border-light flex flex-col h-full shrink-0 select-none transition-[width] duration-300 ease-in-out" style={{ width: `${width}px` }}>
       <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
         <button
           onClick={onToggle}
@@ -83,7 +83,7 @@ export default function Sidebar({
             <path d="M10 3l-5 5 5 5" />
           </svg>
         </button>
-        <span className="font-display font-semibold text-content-primary text-sm tracking-wider">{t(lang, 'sidebar_title')}</span>
+        <span className="font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'sidebar_title')}</span>
         <div className="relative">
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -98,7 +98,7 @@ export default function Sidebar({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 bg-white border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1">
+              <div className="absolute right-0 top-full mt-2 bg-white border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 animate-scale-in dropdown-origin-top-left">
                 <button
                   onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
                   className="w-full text-left px-3 py-2 text-sm text-danger hover:bg-red-50 transition-colors cursor-pointer"
@@ -114,23 +114,24 @@ export default function Sidebar({
         <button
           onClick={onNewSession}
           disabled={!connected}
-          className="w-full text-left px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 border border-border-light bg-white"
+          className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 border border-border-light bg-white"
         >
           <span className="w-5 h-5 rounded-md bg-primary flex items-center justify-center text-white font-bold text-xs">+</span>
           {t(lang, 'new_session')}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-3">
-        <div className="py-2 text-[11px] text-content-secondary font-medium px-1 uppercase tracking-wider">
+        <div className="py-2 text-[11px] text-content-disabled font-semibold px-1 uppercase tracking-widest">
           {t(lang, 'resume_session')}
         </div>
         {sessions.length > 0 ? (
           <div className="space-y-0.5">
-            {sessions.map((s) => (
+            {sessions.map((s, idx) => (
               <button
                 key={s.value}
                 onClick={() => onSelectSession(s.value)}
-                className="w-full text-left px-3 py-2 rounded-lg text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary transition-colors cursor-pointer flex items-center gap-2"
+                className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up"
+                style={{ animationDelay: `${idx * 30}ms` }}
                 title={s.label}
               >
                 {restoringSessionId === s.value && (
@@ -155,8 +156,8 @@ export default function Sidebar({
       </div>
       <div className="px-4 py-3 border-t border-border-light">
         <div className="flex items-center gap-2 text-xs">
-          <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-content-secondary">{connected ? 'Connected' : t(lang, 'disconnected')}</span>
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`} />
+          <span className="text-content-disabled text-[11px]">{connected ? 'Connected' : t(lang, 'disconnected')}</span>
         </div>
       </div>
     </aside>

@@ -417,3 +417,60 @@ pre code.hljs {
   padding: 0.625em 0.875em 0.625em 1em;
 }
 
+/* ========== 动画工具 ========== */
+.dropdown-origin-bottom-left { transform-origin: bottom left; }
+.dropdown-origin-top-left { transform-origin: top left; }
+.modal-origin-center { transform-origin: center; }
+
+/* 下拉菜单隐藏滚动条 */
+.dropdown-scroll::-webkit-scrollbar { display: none; }
+.dropdown-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ========== 欢迎屏动画（灵感：react-bits） ========== */
+
+/* 渐变流动文字 — GradientText */
+.gradient-text {
+  background: linear-gradient(90deg, #2a9d99, #7c6fb0, #e8856c, #2a9d99);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-flow 6s ease-in-out infinite;
+}
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 闪光扫过文字 — ShinyText */
+.shiny-text {
+  background: linear-gradient(120deg, #8b92a8 0%, #8b92a8 36%, #e8ebf0 50%, #8b92a8 64%, #8b92a8 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shine-sweep 3s linear infinite;
+}
+@keyframes shine-sweep {
+  from { background-position: 150% center; }
+  to { background-position: -50% center; }
+}
+
+/* 模糊入场 — BlurText */
+@keyframes blur-in {
+  0% { filter: blur(8px); opacity: 0; transform: translateY(10px); }
+  100% { filter: blur(0); opacity: 1; transform: translateY(0); }
+}
+.animate-blur-in {
+  animation: blur-in 0.5s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

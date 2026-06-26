@@ -51,7 +51,7 @@ export default function MessageBubble({ item, toolInputMap }: MessageBubbleProps
 
   if (item.role === 'assistant') {
     return (
-      <div className="py-1.5">
+      <div className="py-1.5 animate-fade-in-up">
         {item.reasoning && <ThinkingBlock text={item.reasoning} />}
         <div className="text-content-primary text-sm prose max-w-full select-text">
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>

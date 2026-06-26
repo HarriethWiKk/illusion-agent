@@ -164,9 +164,9 @@ export default function RightPanel({
           <div className="text-xs text-content-secondary font-medium mb-1.5">{t(lang, 'context_window')}</div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-content-primary whitespace-nowrap tabular-nums">~{formatTokens(contextTokens)}/{formatTokens(contextWindow)}</span>
-            <div className="flex-1 h-2 bg-surface-hover rounded-full overflow-hidden">
+            <div className="flex-1 h-1.5 bg-surface-hover rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${contextPercent >= 95 ? 'bg-danger' : contextPercent >= 80 ? 'bg-warning' : 'bg-primary'}`}
+                className={`h-full rounded-full transition-all duration-500 ${contextPercent >= 95 ? 'bg-gradient-to-r from-warning to-danger' : contextPercent >= 80 ? 'bg-gradient-to-r from-primary to-warning' : 'bg-primary'}`}
                 style={{ width: `${contextPercent}%` }}
               />
             </div>
@@ -202,20 +202,22 @@ function CollapsibleSection({
         className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-surface-hover transition-colors cursor-pointer"
       >
         <svg
-          className={`w-3 h-3 text-content-disabled shrink-0 transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
+          className={`w-3 h-3 text-content-disabled shrink-0 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
           viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
         >
           <path d="M6 3l5 5-5 5" />
         </svg>
-        <span className="text-xs font-medium text-content-primary">{title}</span>
-        <span className="text-xs text-content-disabled tabular-nums">{count}</span>
+        <span className="text-xs font-semibold text-content-primary tracking-wide">{title}</span>
+        <span className="text-[10px] text-content-disabled bg-surface-card-alt px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
         {subtitle && <span className="text-xs text-content-disabled ml-auto">{subtitle}</span>}
       </button>
-      {!collapsed && (
-        <div className="px-5 pb-2.5 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto">
-          {children}
+      <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}>
+        <div className="overflow-hidden">
+          <div className={`px-5 pb-2.5 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto ${collapsed ? '' : 'animate-fade-in-up'}`} style={{ animationDelay: '80ms' }}>
+            {children}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -235,7 +237,7 @@ function ItemRow({ name, description, tag }: { name: string; description: string
       >
         <span className="text-content-primary font-medium truncate flex-1 text-left">{name}</span>
         {tag && (
-          <span className="text-[10px] text-content-disabled bg-surface-main px-1.5 py-0.5 rounded shrink-0">{tag}</span>
+          <span className="text-[10px] text-primary/60 bg-primary-light px-1.5 py-0.5 rounded-full font-medium shrink-0">{tag}</span>
         )}
       </button>
       {expanded && hasDesc && (

@@ -228,15 +228,16 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
     <div className="px-4 md:px-5 pb-4 pt-2 relative">
       {/* 内联选项 */}
       {showInline && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-64 overflow-y-auto py-1 z-20">
-          <div className="px-3 py-1.5 text-xs text-content-disabled font-medium">{inlineOptions.title}</div>
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-64 overflow-y-auto py-1 z-20 animate-fade-in-up">
+          <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">{inlineOptions.title}</div>
           {inlineOptions.options.map((opt, idx) => (
             <button
               key={opt.value}
               onClick={() => onInlineSelect?.(inlineOptions.command, opt.value)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 ${
-                idx === selectedIndex ? 'bg-primary-light text-primary' : opt.active ? 'bg-surface-hover text-content-primary' : 'text-content-secondary hover:bg-surface-hover'
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 animate-fade-in-up border-l-2 ${
+                idx === selectedIndex ? 'bg-primary-light text-primary border-l-primary' : opt.active ? 'bg-surface-hover text-content-primary border-l-transparent' : 'text-content-secondary hover:bg-surface-hover border-l-transparent'
               }`}
+              style={{ animationDelay: `${(idx + 1) * 30}ms` }}
             >
               <span className="font-medium">{opt.label}</span>
               {opt.description && <span className="text-xs text-content-disabled">{opt.description}</span>}
@@ -249,15 +250,17 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
       {showAutocomplete && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 z-20"
+          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 bg-white border border-border-light rounded-xl shadow-lg max-h-56 overflow-y-auto py-1 z-20 animate-fade-in-up"
         >
+          <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">Commands</div>
           {filteredCommands.map((cmd, idx) => (
             <button
               key={cmd}
               onClick={() => selectCommand(cmd)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer ${
-                idx === selectedIndex ? 'bg-primary-light text-primary' : 'text-content-secondary hover:bg-surface-hover'
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up border-l-2 ${
+                idx === selectedIndex ? 'bg-primary-light text-primary border-l-primary' : 'text-content-secondary hover:bg-surface-hover border-l-transparent'
               }`}
+              style={{ animationDelay: `${idx * 30}ms` }}
             >
               <span className="font-mono">{cmd}</span>
             </button>
@@ -265,7 +268,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         </div>
       )}
 
-      <div className="flex items-end bg-surface-card rounded-md border border-border-light shadow-soft focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+      <div className="flex items-end bg-surface-card rounded-lg border border-border-light shadow-soft transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-glow">
         <textarea
           value={value}
           onChange={handleChange}
@@ -284,10 +287,10 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         <button
           onClick={handleSend}
           disabled={!connected && !busy}
-          className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
             busy
               ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
-              : 'bg-primary text-white hover:bg-primary-hover'
+              : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
           }`}
           title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}
         >

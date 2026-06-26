@@ -47,9 +47,9 @@ interface ToolbarProps {
  * @param props.onChange - 变更回调
  * @param props.onOpen - 展开回调（可选）
  */
-function Dropdown({ value, placeholder, options, onChange, onOpen, loading }: {
+function Dropdown({ value, placeholder, options, onChange, onOpen, loading, title }: {
   value: string; placeholder?: string; options: Option[];
-  onChange: (v: string) => void; onOpen?: () => void; loading?: boolean;
+  onChange: (v: string) => void; onOpen?: () => void; loading?: boolean; title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const displayValue = value || placeholder || '-';
@@ -57,7 +57,7 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading }: {
   return (
     <div className="relative">
       <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary rounded-lg transition-colors cursor-pointer border border-border-light bg-surface-main">
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-card-alt hover:text-content-primary rounded-full transition-colors cursor-pointer border border-border-light bg-surface-main">
         {loading ? (
           <svg className="animate-spin w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -66,17 +66,19 @@ function Dropdown({ value, placeholder, options, onChange, onOpen, loading }: {
         ) : (
           <>
             <span className={!value ? 'text-content-disabled' : ''}>{displayValue}</span>
-            <span className="text-content-disabled text-[10px]">▾</span>
+            <span className={`text-content-disabled text-[10px] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
           </>
         )}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 bg-surface-main border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 max-h-[40vh] overflow-y-auto">
-            {options.map((opt) => (
+          <div className="absolute bottom-full left-0 mb-0.5 bg-surface-main border border-border-light rounded-xl shadow-lg z-20 min-w-[160px] py-1 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
+            {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
+            {options.map((opt, idx) => (
               <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-card-alt transition-colors cursor-pointer ${opt.active ? 'text-primary font-medium bg-primary-light' : 'text-content-secondary'}`}>
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-card-alt transition-colors cursor-pointer animate-fade-in-up ${opt.active ? 'text-primary font-medium bg-primary-light' : 'text-content-secondary'}`}
+                style={{ animationDelay: `${idx * 30}ms` }}>
                 {opt.label}
               </button>
             ))}
@@ -115,9 +117,9 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
 
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-t border-border-light bg-surface-card-alt select-none">
-      <Dropdown value={currentMode} options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
-      <Dropdown value={currentModelLabel} placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
-      <Dropdown value={currentEffort} placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
+      <Dropdown value={currentMode} title="Mode" options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
+      <Dropdown value={currentModelLabel} title="Model" placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
+      <Dropdown value={currentEffort} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
     </div>
   );
 }

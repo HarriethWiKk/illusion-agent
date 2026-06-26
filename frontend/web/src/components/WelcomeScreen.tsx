@@ -4,6 +4,8 @@
  * Web 前端的欢迎屏幕组件，在会话开始时显示。
  * 显示应用 Logo 和常用命令提示。
  *
+ * 动画灵感来源：react-bits (GradientText, ShinyText, BlurText)
+ *
  * @module WelcomeScreen
  */
 
@@ -27,22 +29,47 @@ interface WelcomeScreenProps {
  */
 export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
   return (
-    <div className="h-full flex flex-col items-center justify-center select-text">
-      {/* Logo — SVG 矢量渲染品牌名 */}
-      <svg viewBox="0 0 520 60" width="480" height="56" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Illusion Code">
-        <text x="260" y="46" textAnchor="middle" dominantBaseline="auto"
-          fontFamily="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif"
-          fontSize="48" fontWeight="700" letterSpacing="1.5" fill="#6366F1">
-          Illusion Code
-        </text>
-      </svg>
-      <p className="mt-3 text-base font-medium text-content-secondary tracking-wide">
+    <div className="h-full flex flex-col items-center justify-center select-text relative overflow-hidden">
+      {/* 背景装饰：点阵网格 */}
+      <div className="absolute inset-0 opacity-[0.03]" style={{
+        backgroundImage: 'radial-gradient(circle, #1a1d23 1px, transparent 1px)',
+        backgroundSize: '24px 24px',
+      }} />
+
+      {/* Logo — 渐变流动文字 */}
+      <h1 className="gradient-text text-6xl font-bold tracking-tight animate-blur-in relative z-10"
+        style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+        Illusion Code
+      </h1>
+
+      {/* 副标题 — 闪光扫过文字 */}
+      <p className="mt-4 text-base tracking-[0.3em] uppercase shiny-text animate-blur-in relative z-10"
+        style={{ animationDelay: '200ms' }}>
         AI Coding Assistant
       </p>
-      <div className="mt-8 flex flex-col gap-2 text-sm text-content-disabled">
-        <span><span className="text-primary font-medium">/context</span> {lang === 'zh-CN' ? '管理上下文窗口' : 'manage context window'}</span>
-        <span><span className="text-primary font-medium">/language</span> {lang === 'zh-CN' ? '切换语言' : 'switch language'}</span>
-        <span><span className="text-primary font-medium">/compact</span> {lang === 'zh-CN' ? '压缩历史消息' : 'compact history'}</span>
+
+      {/* 分割线 */}
+      <div className="mt-10 w-20 h-px bg-border-medium animate-blur-in relative z-10"
+        style={{ animationDelay: '350ms' }} />
+
+      {/* 命令提示 — 模糊入场 */}
+      <div className="mt-10 flex flex-col gap-3 relative z-10">
+        {[
+          { cmd: '/context', desc: lang === 'zh-CN' ? '管理上下文窗口' : 'manage context window', delay: 450 },
+          { cmd: '/language', desc: lang === 'zh-CN' ? '切换语言' : 'switch language', delay: 550 },
+          { cmd: '/compact', desc: lang === 'zh-CN' ? '压缩历史消息' : 'compact history', delay: 650 },
+        ].map((item) => (
+          <div key={item.cmd}
+            className="animate-blur-in flex items-center gap-3"
+            style={{ animationDelay: `${item.delay}ms` }}>
+            <span className="text-primary font-mono font-semibold text-sm">
+              {item.cmd}
+            </span>
+            <span className="text-sm text-content-disabled">
+              {item.desc}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -55,18 +55,27 @@ export default function App() {
 
   // Toast 状态
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toastExiting, setToastExiting] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastHoverRef = useRef(false);
+  const toastKeyRef = useRef(0);
+
+  const closeToast = useCallback(() => {
+    setToastExiting(true);
+    setTimeout(() => { setToastMessage(null); setToastExiting(false); }, 200);
+  }, []);
 
   const showToast = useCallback((text: string, type: string) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastKeyRef.current += 1;
+    setToastExiting(false);
     setToastMessage({ text, type: type as 'success' | 'error' | 'info' });
     toastHoverRef.current = false;
     toastTimerRef.current = setTimeout(() => {
-      if (!toastHoverRef.current) { setToastMessage(null); }
+      if (!toastHoverRef.current) { closeToast(); }
       toastTimerRef.current = null;
     }, TOAST_DURATION);
-  }, []);
+  }, [closeToast]);
 
   const handleToastMouseEnter = useCallback(() => {
     toastHoverRef.current = true;
@@ -75,8 +84,8 @@ export default function App() {
 
   const handleToastMouseLeave = useCallback(() => {
     toastHoverRef.current = false;
-    toastTimerRef.current = setTimeout(() => { setToastMessage(null); toastTimerRef.current = null; }, TOAST_DURATION);
-  }, []);
+    toastTimerRef.current = setTimeout(() => { closeToast(); toastTimerRef.current = null; }, TOAST_DURATION);
+  }, [closeToast]);
 
   /**
    * 注册回调函数
@@ -363,8 +372,8 @@ export default function App() {
       {/* 删除会话弹窗（仅 sidebar 触发） */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-white rounded-xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-fade-in" onClick={handleCloseDeleteModal} />
+          <div className="relative bg-white rounded-xl shadow-2xl border border-border-light w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -400,15 +409,27 @@ export default function App() {
 
       {/* Toast 通知 */}
       {toastMessage && (
-        <div className="fixed bottom-20 right-6 z-50 animate-fade-in"
-          onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}>
-          <div className="bg-white rounded-lg shadow-lg px-4 py-3 max-w-sm">
-            <div className="flex items-start gap-3">
+        <div
+          key={toastKeyRef.current}
+          className={`fixed bottom-20 right-6 z-50 ${toastExiting ? 'animate-toast-out' : 'animate-toast-in'}`}
+          onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}
+        >
+          <div className="bg-white rounded-lg shadow-lg border-2 border-border-medium max-w-sm overflow-hidden">
+            <div className="flex items-start gap-3 px-4 py-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
-              <button onClick={() => setToastMessage(null)}
+              <button onClick={closeToast}
                 className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer">
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
               </button>
+            </div>
+            <div className="h-0.5 bg-surface-hover">
+              <div
+                key={toastKeyRef.current}
+                className={`h-full animate-progress-shrink ${
+                  toastMessage.type === 'error' ? 'bg-danger/60' : toastMessage.type === 'success' ? 'bg-success/60' : 'bg-primary/60'
+                }`}
+                style={{ animationDuration: `${TOAST_DURATION}ms` }}
+              />
             </div>
           </div>
         </div>
