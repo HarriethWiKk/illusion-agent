@@ -680,12 +680,15 @@ function wrapForPrefix(text: string, terminalWidth: number, prefix: string): str
 }
 
 function truncateToDisplayWidth(text: string, maxWidth: number): string {
-	if (stringWidth(text) <= maxWidth) {
-		return text;
+	// 将 tab 替换为空格，因为 string-width 将 tab 算作1字符宽度，
+	// 但终端中 tab 会展开为多个空格，导致宽度计算偏小、截断不足
+	const expanded = text.replace(/\t/g, '        ');
+	if (stringWidth(expanded) <= maxWidth) {
+		return expanded;
 	}
 	let result = '';
 	let width = 0;
-	for (const ch of text) {
+	for (const ch of expanded) {
 		const charWidth = stringWidth(ch);
 		if (width + charWidth > Math.max(1, maxWidth - 1)) {
 			break;
