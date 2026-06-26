@@ -414,7 +414,7 @@ export default function App() {
           className={`fixed bottom-20 right-6 z-50 ${toastExiting ? 'animate-toast-out' : 'animate-toast-in'}`}
           onMouseEnter={handleToastMouseEnter} onMouseLeave={handleToastMouseLeave}
         >
-          <div className="glass-dropdown rounded-2xl max-w-sm overflow-hidden">
+          <div className="glass-surface rounded-2xl max-w-sm overflow-hidden">
             <div className="flex items-start gap-3 px-4 py-3">
               <pre className="text-sm text-content-primary whitespace-pre-wrap font-mono leading-relaxed flex-1 max-h-40 overflow-y-auto">{toastMessage.text}</pre>
               <button onClick={closeToast}
@@ -422,11 +422,11 @@ export default function App() {
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
               </button>
             </div>
-            <div className="h-0.5 bg-surface-hover">
+            <div className="h-0.5 bg-black/10">
               <div
                 key={toastKeyRef.current}
                 className={`h-full animate-progress-shrink ${
-                  toastMessage.type === 'error' ? 'bg-danger/60' : toastMessage.type === 'success' ? 'bg-success/60' : 'bg-primary/60'
+                  toastMessage.type === 'error' ? 'bg-danger/80' : toastMessage.type === 'success' ? 'bg-success/80' : 'bg-primary/80'
                 }`}
                 style={{ animationDuration: `${TOAST_DURATION}ms` }}
               />
