@@ -228,14 +228,14 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
     <div className="px-4 md:px-5 pb-4 pt-2 relative">
       {/* 内联选项 */}
       {showInline && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-dropdown rounded-xl max-h-64 overflow-y-auto py-1.5 z-20 animate-fade-in-up">
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-64 overflow-y-auto py-1.5 z-20 animate-fade-in-up">
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">{inlineOptions.title}</div>
           {inlineOptions.options.map((opt, idx) => (
             <button
               key={opt.value}
               onClick={() => onInlineSelect?.(inlineOptions.command, opt.value)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 animate-fade-in-up ${
-                idx === selectedIndex ? 'bg-black/[0.06] text-content-primary rounded-md' : opt.active ? 'text-primary/70' : 'text-content-secondary hover:bg-black/[0.03]'
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 animate-fade-in-up rounded-md ${
+                idx === selectedIndex ? 'glass-option-active text-content-primary' : opt.active ? 'text-primary/70 glass-option-hover' : 'text-content-secondary glass-option-hover'
               }`}
               style={{ animationDelay: `${(idx + 1) * 30}ms` }}
             >
@@ -250,15 +250,15 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
       {showAutocomplete && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-dropdown rounded-xl max-h-56 overflow-y-auto py-1.5 z-20 animate-fade-in-up"
+          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-56 overflow-y-auto py-1.5 z-20 animate-fade-in-up"
         >
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">Commands</div>
           {filteredCommands.map((cmd, idx) => (
             <button
               key={cmd}
               onClick={() => selectCommand(cmd)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up ${
-                idx === selectedIndex ? 'bg-black/[0.06] text-content-primary rounded-md' : 'text-content-secondary hover:bg-black/[0.03]'
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up rounded-md ${
+                idx === selectedIndex ? 'glass-option-active text-content-primary' : 'text-content-secondary glass-option-hover'
               }`}
               style={{ animationDelay: `${idx * 30}ms` }}
             >
@@ -268,7 +268,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         </div>
       )}
 
-      <div className="flex items-end bg-surface-card rounded-lg border border-border-light shadow-soft transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-glow">
+      <div className="flex items-end glass-surface rounded-lg transition-all duration-200 focus-within:shadow-glow">
         <textarea
           value={value}
           onChange={handleChange}
