@@ -72,13 +72,11 @@ html {
 body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-feature-settings: 'cv01', 'ss01', 'ss03';
-  /* 玻璃质感根基：极淡灰蓝底 + 青绿/淡紫/珊瑚/薄荷光晕，供 backdrop-filter 磨 */
-  background-color: #f5f7fa;
+  /* 简约高级：纯净近白底 + 极克制冷暖微渐变，供 backdrop-filter 磨出细腻层次 */
+  background-color: #f7f8fa;
   background-image:
-    radial-gradient(at 12% 18%, rgba(42, 157, 153, 0.16) 0px, transparent 50%),
-    radial-gradient(at 88% 12%, rgba(124, 111, 176, 0.15) 0px, transparent 50%),
-    radial-gradient(at 75% 88%, rgba(232, 133, 108, 0.12) 0px, transparent 55%),
-    radial-gradient(at 25% 92%, rgba(76, 175, 125, 0.10) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, #ffffff 0%, transparent 60%),
+    radial-gradient(at 100% 100%, #eef0f4 0%, transparent 65%);
   background-attachment: fixed;
   color: #1a1d23;
   min-height: 100vh;
@@ -483,10 +481,10 @@ pre code.hljs {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
-/* 玻璃面板内可交互项 — 选中（更白 + 主色 inset 左边框） */
+/* 玻璃面板内可交互项 — 选中（更白 + 微高光，无竖条指示） */
 .glass-option-active {
   background: rgba(255, 255, 255, 0.6);
-  box-shadow: inset 2px 0 0 var(--primary), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 /* 聚光灯卡片悬停 */
@@ -550,9 +548,8 @@ pre code.hljs {
   transition: all 0.2s ease;
 }
 .danger-action:hover {
-  background: rgba(212, 91, 91, 0.12);
+  background: rgba(212, 91, 91, 0.1);
   color: #c34a4a;
-  box-shadow: inset 0 0 0 1px rgba(212, 91, 91, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .danger-action:active {
   transform: scale(0.97);

@@ -140,7 +140,7 @@ export default function Sidebar({
               <div className="absolute right-0 top-full mt-2 glass-surface rounded-xl z-20 min-w-[180px] py-1.5 animate-scale-in dropdown-origin-top-left">
                 <button
                   onClick={() => { onDeleteSessions(); setMenuOpen(false); }}
-                  className="danger-action w-full text-left mx-1 px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg"
+                  className="danger-action w-full text-left px-3 py-2 text-sm text-danger cursor-pointer flex items-center gap-2.5 rounded-lg"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6" />
