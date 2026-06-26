@@ -116,7 +116,7 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
   const modelOpts = modelOptions.length > 0 ? modelOptions : [{ value: currentModel, label: currentModel, active: true }];
 
   return (
-    <div className="flex items-center gap-2 px-6 py-3 border-t border-border-light bg-surface-card-alt select-none">
+    <div className="flex items-center gap-2 px-6 py-3 border-t border-white/30 glass-panel select-none">
       <Dropdown value={currentMode} title="Mode" options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
       <Dropdown value={currentModelLabel} title="Model" placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
       <Dropdown value={currentEffort} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
