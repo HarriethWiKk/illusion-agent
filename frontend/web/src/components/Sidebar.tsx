@@ -93,6 +93,7 @@ export default function Sidebar({
   lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [listExpanded, setListExpanded] = useState(false);
 
   if (collapsed) {
     return (
@@ -170,17 +171,30 @@ export default function Sidebar({
           {t(lang, 'resume_session')}
         </div>
         {sessions.length > 0 ? (
-          <div className="space-y-0.5">
-            {sessions.map((s, idx) => (
-              <SessionItem
-                key={s.value}
-                session={s}
-                index={idx}
-                isRestoring={restoringSessionId === s.value}
-                onSelect={onSelectSession}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-0.5">
+              {(listExpanded ? sessions : sessions.slice(0, 5)).map((s, idx) => (
+                <SessionItem
+                  key={s.value}
+                  session={s}
+                  index={idx}
+                  isRestoring={restoringSessionId === s.value}
+                  onSelect={onSelectSession}
+                />
+              ))}
+            </div>
+            {sessions.length > 5 && (
+              <button
+                onClick={() => setListExpanded(!listExpanded)}
+                className="w-full flex items-center justify-center py-1.5 text-content-disabled hover:text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer mt-1"
+                title={listExpanded ? t(lang, 'collapse_messages') : t(lang, 'show_earlier').replace('{count}', String(sessions.length - 5))}
+              >
+                <svg className={`w-3.5 h-3.5 transition-transform duration-150 ${listExpanded ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 4.5L6 7.5L9 4.5" />
+                </svg>
+              </button>
+            )}
+          </>
         ) : (
           <button
             onClick={onListSessions}

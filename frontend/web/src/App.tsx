@@ -53,6 +53,12 @@ export default function App() {
   // 内联选项状态
   const [inlineOptions, setInlineOptions] = useState<SelectRequestPayload | null>(null);
 
+  // 回退确认弹窗状态
+  const [rewindConfirm, setRewindConfirm] = useState<{ turns: number } | null>(null);
+  // 重新生成：存储待重发的 user 消息文本，rewind 完成后自动重发
+  const pendingRegenerateRef = useRef<string | null>(null);
+  const prevBusyRef = useRef(false);
+
   // Toast 状态
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [toastExiting, setToastExiting] = useState(false);
@@ -231,6 +237,57 @@ export default function App() {
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
 
+  /**
+   * 处理回退到指定轮次
+   *
+   * 由 ChatArea 中 user 消息的撤销按钮触发，弹出模式选择弹窗。
+   *
+   * @param turnsToRewind - 需要回退的轮次数
+   */
+  const handleRewindToTurn = useCallback((turnsToRewind: number) => {
+    setRewindConfirm({ turns: turnsToRewind });
+  }, []);
+
+  /**
+   * 确认回退 —— 根据用户选择的模式执行 /rewind N mode
+   *
+   * 通过 submit_line 通道（treat_as_text 缺省=false）直接走命令注册表，
+   * 绕过 web_query 的多步弹窗流程。
+   *
+   * @param mode - 回退模式：code / conversation / both
+   */
+  const handleConfirmRewind = useCallback((mode: string) => {
+    const turns = rewindConfirm?.turns ?? 1;
+    setRewindConfirm(null);
+    session.setBusyTrue();
+    session.sendRequest({ type: 'submit_line', line: `/rewind ${turns} ${mode}` });
+  }, [rewindConfirm, session]);
+
+  /**
+   * 处理重新生成
+   *
+   * 找到最后一条 user 消息文本，先 /rewind 1 both 回退一轮，
+   * rewind 完成后（busy→false）自动重发 user 消息。
+   */
+  const handleRegenerate = useCallback(() => {
+    const lastUserMsg = [...session.staticItems].reverse().find((i) => i.role === 'user' && !i.text.startsWith('/'));
+    if (!lastUserMsg) return;
+    pendingRegenerateRef.current = lastUserMsg.text;
+    session.setBusyTrue();
+    session.sendRequest({ type: 'submit_line', line: '/rewind 1 both' });
+  }, [session]);
+
+  // 监听 busy 状态变化：rewind 完成后自动重发 user 消息（重新生成）
+  useEffect(() => {
+    if (prevBusyRef.current && !session.busy && pendingRegenerateRef.current) {
+      const text = pendingRegenerateRef.current;
+      pendingRegenerateRef.current = null;
+      session.setBusyTrue();
+      session.sendRequest({ type: 'submit_line', line: text, treat_as_text: true });
+    }
+    prevBusyRef.current = session.busy;
+  }, [session.busy, session]);
+
   /** 处理新建会话 */
   const handleNewSession = () => {
     session.sendRequest({ type: 'web_new_session' });
@@ -345,7 +402,8 @@ export default function App() {
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
           busy={session.busy} connected={session.connected}
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
-          onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId} />
+          onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
+          onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
@@ -402,6 +460,44 @@ export default function App() {
                   {t(lang, 'confirm_delete')} ({deleteSelected.size})
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 回退确认弹窗（选择回退范围） */}
+      {rewindConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={() => setRewindConfirm(null)} />
+          <div className="relative glass-overlay rounded-2xl w-[380px] flex flex-col animate-scale-in modal-origin-center">
+            <div className="px-6 py-4 border-b border-border-light">
+              <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'rewind_confirm_title')}</h3>
+            </div>
+            <div className="py-2 px-1">
+              {([
+                { mode: 'both', label: t(lang, 'rewind_both'), desc: t(lang, 'rewind_both_desc') },
+                { mode: 'conversation', label: t(lang, 'rewind_conversation'), desc: t(lang, 'rewind_conversation_desc') },
+                { mode: 'code', label: t(lang, 'rewind_code'), desc: t(lang, 'rewind_code_desc') },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.mode}
+                  onClick={() => handleConfirmRewind(opt.mode)}
+                  className="w-full text-left px-6 py-3 cursor-pointer glass-option-hover transition-colors rounded-lg flex items-center justify-between group"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-content-primary">{opt.label}</div>
+                    <div className="text-xs text-content-disabled mt-0.5">{opt.desc}</div>
+                  </div>
+                  <svg className="w-4 h-4 text-content-disabled opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M6 3l5 5-5 5" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t border-border-light flex justify-end">
+              <button onClick={() => setRewindConfirm(null)} className="px-4 py-2 text-sm text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer border border-white/40">
+                {t(lang, 'cancel')}
+              </button>
             </div>
           </div>
         </div>
