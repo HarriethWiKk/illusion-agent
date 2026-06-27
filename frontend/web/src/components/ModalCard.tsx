@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import { toolDisplayName } from '../utils/toolDisplayName';
 
 /**
  * 问题选项接口
@@ -61,6 +62,8 @@ interface PermissionCardProps {
  */
 export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) {
   const toolName = String(modal.tool_name ?? 'tool');
+  // 显示用友好名；onRespond 回调仍传原始 toolName 给后端识别
+  const displayToolName = toolDisplayName(toolName);
   const reason = modal.reason ? String(modal.reason) : null;
   const requestId = String(modal.request_id ?? '');
 
@@ -75,7 +78,7 @@ export function PermissionCard({ modal, lang, onRespond }: PermissionCardProps) 
       <div className="px-4 py-3">
         <div className="text-sm text-content-primary mb-1">
           {lang === 'zh-CN' ? '允许使用工具 ' : 'Allow '}
-          <span className="font-mono font-medium text-primary">{toolName}</span>
+          <span className="font-mono font-medium text-primary">{displayToolName}</span>
           <span>?</span>
         </div>
         {reason && (
@@ -359,7 +362,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
       <div className="px-4 py-3">
         {typeof modal.tool_name === 'string' && modal.tool_name && (
           <div className="text-xs text-content-secondary mb-3">
-            Tool: <span className="font-mono text-primary">{modal.tool_name}</span>
+            Tool: <span className="font-mono text-primary">{toolDisplayName(modal.tool_name)}</span>
           </div>
         )}
 

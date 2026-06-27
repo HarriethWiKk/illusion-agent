@@ -19,6 +19,7 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
+import { toolDisplayName } from '../utils/toolDisplayName';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 /** 从 rehype-highlight 注入的 className 中提取语言名 */
@@ -266,7 +267,9 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
  */
 function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
+  // summarizeInput 用原名做大小写不敏感匹配，显示名用映射后的友好名
   const summary = summarizeInput(name, toolInput, name);
+  const displayName = toolDisplayName(name);
 
   return (
     <div className="py-1.5">
@@ -276,7 +279,7 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
       >
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span>
-          <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{name}</span>
+          <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{displayName}</span>
           {!open && summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
           {isError && <span className="text-xs text-danger font-medium"> ERROR</span>}
         </span>
@@ -367,11 +370,12 @@ export function ReasoningContent({ text }: { text: string }) {
  */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
+  const displayName = toolDisplayName(call.tool_name);
   return (
     <div className="py-1.5 flex items-start gap-2">
       <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
       <span className="text-sm">
-        <span className="font-medium font-mono text-content-primary">{call.tool_name}</span>
+        <span className="font-medium font-mono text-content-primary">{displayName}</span>
         {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
       </span>
     </div>
