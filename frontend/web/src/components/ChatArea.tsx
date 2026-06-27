@@ -29,15 +29,32 @@ const BOTTOM_THRESHOLD_PX = 80;
  * - thinkingItems：工具调用 + 中间 assistant 消息（归入"思考过程"可折叠区）
  * - finalAssistant：最后一条含文本的 assistant 消息（始终可见，其 reasoning 归入思考区）
  *
+ * 流式阶段（streaming=true）所有 assistant 消息都视作思考过程的一部分：
+ * 最终回复由 StreamingBuffer 实时展示，避免中间 LLM 消息被误判为最终回复，
+ * 导致后续工具调用显示在消息上方、以及复制/回退按钮闪烁等问题。
+ *
  * @param items - 单轮转录项列表
+ * @param streaming - 是否处于流式输出阶段
  * @returns 拆分结果
  */
-function splitTurnItems(items: TranscriptItem[]) {
+function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
   const userItems: TranscriptItem[] = [];
   const thinkingItems: TranscriptItem[] = [];
   let finalAssistant: TranscriptItem | null = null;
 
-  // 找到最后一条有非空 text 的 assistant 消息作为"最终回复"
+  // 流式阶段：所有 assistant 消息归入思考过程，不区分"最终回复"
+  if (streaming) {
+    for (const item of items) {
+      if (item.role === 'user') {
+        userItems.push(item);
+      } else {
+        thinkingItems.push(item);
+      }
+    }
+    return { userItems, thinkingItems, finalAssistant };
+  }
+
+  // 完成态：找最后一条有非空 text 的 assistant 消息作为"最终回复"
   let lastAssistantIdx = -1;
   for (let i = items.length - 1; i >= 0; i--) {
     if (items[i]!.role === 'assistant' && items[i]!.text.trim()) {
@@ -278,6 +295,18 @@ export default function ChatArea({
     el.scrollTop = el.scrollHeight;
   }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, modal]);
 
+  // 用户发送新消息时强制回到底部（忽略用户是否手动上滑过）
+  const userMsgCount = useMemo(() => staticItems.filter((i) => i.role === 'user').length, [staticItems]);
+  const prevUserMsgCountRef = useRef(0);
+  useEffect(() => {
+    if (userMsgCount > prevUserMsgCountRef.current) {
+      userScrolledUpRef.current = false;
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+    prevUserMsgCountRef.current = userMsgCount;
+  }, [userMsgCount]);
+
   // 新会话或恢复后重置展开状态
   useEffect(() => {
     setExpanded(false);
@@ -329,8 +358,8 @@ export default function ChatArea({
         {visibleTurns.map((turn, visIdx) => {
           const turnIdx = turnOffset + visIdx;
           const isLastTurn = turnIdx === turns.length - 1;
-          const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn);
           const autoExpand = busy && isLastTurn;
+          const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn, autoExpand);
           const turnsToRewind = turns.length - turnIdx;
           return (
             <div key={turnIdx} className={visIdx > 0 ? 'mt-12' : ''}>

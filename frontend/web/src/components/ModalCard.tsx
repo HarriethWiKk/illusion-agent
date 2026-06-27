@@ -402,7 +402,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                 </button>
               );
             })}
-            {/* "其他"选项：内联输入框，带序号与普通选项格式一致，沙箱等 noCustomInput 场景不显示 */}
+            {/* "其他"选项：内联输入框，与普通选项格式一致（无序号），沙箱等 noCustomInput 场景不显示 */}
             {!noCustomInput && (
               <div
                 className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-start gap-2.5 ${
@@ -431,7 +431,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                   <span className={`text-sm font-medium shrink-0 ${
                     (isMultiSelect && selectedIndices.has(otherIdx)) || (!isMultiSelect && isOtherFocused) ? 'text-primary' : ''
                   }`}>
-                    {otherIdx + 1}. {lang === 'zh-CN' ? '其他' : 'Other'}
+                    {lang === 'zh-CN' ? '其他' : 'Other'}
                   </span>{' '}
                   {isOtherFocused ? (
                     <input

@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { t, type UiLanguage } from '../i18n';
 import type { TodoItemSnapshot } from '../types/protocol';
 
 /** 所有任务完成后自动隐藏的延迟时间（毫秒） */
@@ -22,6 +23,8 @@ const HIDE_DELAY_MS = 4000;
 interface TodoPanelProps {
   /** 待办事项列表 */
   items: TodoItemSnapshot[];
+  /** 当前 UI 语言 */
+  lang?: UiLanguage;
 }
 
 /**
@@ -32,8 +35,9 @@ interface TodoPanelProps {
  * @param props - 组件属性
  * @returns 返回待办事项面板的 JSX 元素
  */
-export default function TodoPanel({ items }: TodoPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
+export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
+  // 默认折叠；空列表也保持折叠态
+  const [collapsed, setCollapsed] = useState(true);
   const [hidden, setHidden] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,8 +60,13 @@ export default function TodoPanel({ items }: TodoPanelProps) {
       ?? null;
   }, [sorted]);
 
-  // 自动隐藏：全部完成后折叠，延迟后隐藏
+  // 自动隐藏：全部完成后折叠，延迟后隐藏（空列表不触发自动隐藏，保持占位）
   useEffect(() => {
+    if (total === 0) {
+      setHidden(false);
+      if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+      return;
+    }
     if (allDone) {
       setCollapsed(true);
       hideTimerRef.current = setTimeout(() => setHidden(true), HIDE_DELAY_MS);
@@ -66,9 +75,11 @@ export default function TodoPanel({ items }: TodoPanelProps) {
       if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
     }
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
-  }, [sorted, allDone]);
+  }, [sorted, allDone, total]);
 
-  if (sorted.length === 0 || hidden) return null;
+  // hidden 仅作用于"全部完成"场景；空列表仍渲染卡片占位
+  if (hidden) return null;
+  const isEmpty = sorted.length === 0;
 
   return (
     <div className="mb-4 rounded-xl glass-surface overflow-hidden">
@@ -84,14 +95,18 @@ export default function TodoPanel({ items }: TodoPanelProps) {
           <span>{total}</span>
         </span>
 
-        {/* 折叠态：显示活跃任务预览 */}
-        {collapsed && activeItem && (
+        {/* 折叠态：显示活跃任务预览，或空列表提示 */}
+        {collapsed && (isEmpty ? (
+          <span className="flex-1 text-xs text-content-disabled truncate text-left min-w-0">
+            {t(lang, 'no_todos')}
+          </span>
+        ) : activeItem ? (
           <span className="flex-1 text-xs text-content-secondary truncate text-left min-w-0">
             {activeItem.activeForm && activeItem.status === 'in_progress'
               ? activeItem.activeForm
               : activeItem.content}
           </span>
-        )}
+        ) : null)}
 
         {/* 展开态占位 */}
         {!collapsed && <span className="flex-1" />}
@@ -108,7 +123,9 @@ export default function TodoPanel({ items }: TodoPanelProps) {
       {/* 任务列表 */}
       {!collapsed && (
         <div className="px-3 pb-3 flex flex-col gap-0.5 max-h-40 overflow-y-auto">
-          {sorted.map((item, idx) => (
+          {isEmpty ? (
+            <div className="px-2 py-2 text-xs text-content-disabled">{t(lang, 'no_todos')}</div>
+          ) : sorted.map((item, idx) => (
             <TodoRow key={`${item.content}-${idx}`} item={item} />
           ))}
         </div>

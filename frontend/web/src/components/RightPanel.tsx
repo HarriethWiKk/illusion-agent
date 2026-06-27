@@ -88,22 +88,22 @@ export default function RightPanel({
 
   return (
     <aside className="glass-panel border-l border-white/30 flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
-      {/* 折叠按钮 */}
-      <div className="px-5 pt-3 pb-1 flex justify-end">
+      {/* 标题行：折叠按钮 + 居中标题（3 列 grid 严格居中） */}
+      <div className="grid grid-cols-3 items-center px-5 pt-3 pb-2">
+        <div />
+        <span className="justify-self-center font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'management_title')}</span>
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
+          className="justify-self-end w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M6 3l5 5-5 5" />
           </svg>
         </button>
       </div>
 
-      {/* Todo 列表 */}
-      {todoItems.length > 0 && (
-        <div className="px-3 pb-3">
-          <TodoPanel items={todoItems} />
-        </div>
-      )}
+      {/* Todo 列表（始终显示，空列表显示占位） */}
+      <div className="px-3 pb-3">
+        <TodoPanel items={todoItems} lang={lang} />
+      </div>
 
       {/* Skills */}
       {skills.length > 0 && (
