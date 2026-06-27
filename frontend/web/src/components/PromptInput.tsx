@@ -89,6 +89,14 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 消息发送后输入框清空时，重置高度（onInput 不会因程序化赋值触发）
+  useEffect(() => {
+    if (value === '' && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [value]);
 
   // 点击外部关闭内联选项
   useEffect(() => {
@@ -295,6 +303,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
 
       <div className="flex items-end glass-surface rounded-lg transition-all duration-200 focus-within:shadow-glow">
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
