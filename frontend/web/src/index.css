@@ -55,6 +55,63 @@
   --glass-border-strong: rgba(42, 157, 153, 0.18);
   --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.12), 0 2px 8px rgba(31, 38, 135, 0.08);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* 小圆 badge 背景（count/tag 胶囊）— 浅色模式保持半透明白 */
+  --badge-bg: rgba(255, 255, 255, 0.5);
+}
+
+/* ========== 深色模式变量覆盖 ========== */
+:root.dark {
+  /* 语义色（深色模式下略微提亮以保持对比度） */
+  --primary: #3dbab5;
+  --primary-hover: #4cc8c3;
+  --primary-light: rgba(61, 186, 181, 0.14);
+  --secondary: #9d8fc8;
+  --accent: #f0997f;
+
+  --success: #5ec48f;
+  --warning: #f0b85c;
+  --error: #e87474;
+
+  /* 背景色 - 深色基底 */
+  --bg-main: #1a1d24;
+  --bg-card: #20242d;
+  --bg-card-alt: #262b35;
+  --bg-hover: #2d3340;
+  --bg-input: #1a1d24;
+
+  /* 边框色 */
+  --border-light: #2d3340;
+  --border-medium: #3a4150;
+
+  /* 文本色 - 浅色 */
+  --text-primary: #e8ebf0;
+  --text-secondary: #a8b0c0;
+  --text-disabled: #5a6275;
+
+  /* 粉彩色块（深色模式下降低饱和度、提高亮度以适配深底） */
+  --pastel-mint: #2a4a3a;
+  --pastel-lilac: #3a3450;
+  --pastel-cream: #3d3825;
+  --pastel-pink: #3d2832;
+  --pastel-sky: #283548;
+  --pastel-coral: #3d2e25;
+
+  /* 玻璃拟态 token（深色版：半透明深底 + 更强模糊） */
+  --glass-bg:         rgba(32, 36, 45, 0.62);
+  --glass-bg-panel:   rgba(26, 29, 36, 0.55);
+  --glass-bg-overlay: rgba(38, 43, 53, 0.78);
+  --glass-blur:         22px;
+  --glass-blur-panel:   18px;
+  --glass-blur-overlay: 30px;
+  --glass-saturate:     1.6;
+  --glass-border:        rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(61, 186, 181, 0.22);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* badge 背景：深色模式下改为深色半透明，让亮色文字（primary/secondary）清晰可读 */
+  --badge-bg: rgba(255, 255, 255, 0.08);
 }
 
 * {
@@ -73,13 +130,33 @@ body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-feature-settings: 'cv01', 'ss01', 'ss03';
   /* 简约高级：冷灰底 + 亮高光，明暗对比拉大供 backdrop-filter 磨出清晰层次 */
-  background-color: #e9ecf2;
+  background-color: var(--body-bg, #e9ecf2);
   background-image:
-    radial-gradient(at 0% 0%, #ffffff 0%, transparent 55%),
-    radial-gradient(at 100% 100%, #dfe3ec 0%, transparent 60%);
+    radial-gradient(at 0% 0%, var(--body-bg-highlight, #ffffff) 0%, transparent 55%),
+    radial-gradient(at 100% 100%, var(--body-bg-shadow, #dfe3ec) 0%, transparent 60%);
   background-attachment: fixed;
-  color: #1a1d23;
+  color: var(--text-primary);
   min-height: 100vh;
+}
+
+/* 深色模式 body 背景（合并到上方 :root.dark 块的补充变量） */
+:root.dark {
+  --body-bg: #15171c;
+  --body-bg-highlight: #232730;
+  --body-bg-shadow: #0f1115;
+  --code-header-bg: #262b35;
+  --code-block-bg: #16191f;
+  /* 玻璃交互态（深色版：浅色半透明叠加在深底上） */
+  --glass-option-hover-bg: rgba(255, 255, 255, 0.06);
+  --glass-option-active-bg: rgba(255, 255, 255, 0.09);
+  --glass-option-active-border: rgba(255, 255, 255, 0.12);
+  --glass-highlight-color: rgba(255, 255, 255, 0.06);
+  --glass-shadow-soft: rgba(0, 0, 0, 0.25);
+  --pill-bg: rgba(255, 255, 255, 0.06);
+  --pill-border: rgba(255, 255, 255, 0.1);
+  --pill-hover-bg: rgba(255, 255, 255, 0.1);
+  --pill-hover-border: rgba(255, 255, 255, 0.16);
+  --danger-hover: #f58888;
 }
 
 /* ========== 代码块样式 ========== */
@@ -94,15 +171,15 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 6px 8px;
-  background: #f0f1f4;
-  border: 0.5px solid #e0e3e8;
+  background: var(--code-header-bg, #f0f1f4);
+  border: 0.5px solid var(--border-light);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
 }
 .code-lang-label {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-secondary);
   user-select: none;
 }
 /* 复制按钮 */
@@ -114,15 +191,15 @@ body {
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #9ca3af;
+  color: var(--text-disabled);
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 11px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 .code-copy-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #6b7280;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
 .code-copy-btn svg {
   width: 14px;
@@ -140,9 +217,9 @@ body {
 /* 外层 <pre> 容器 */
 .prose pre {
   border-radius: 0 0 6px 6px;
-  border: 0.5px solid #e0e3e8;
+  border: 0.5px solid var(--border-light);
   border-top: none;
-  background: #f8f9fb;
+  background: var(--code-block-bg, #f8f9fb);
   margin: 0;
   overflow: auto;
   padding: 8px 12px;
@@ -150,14 +227,14 @@ body {
 /* 独立代码块（无顶栏时恢复完整圆角） */
 .code-block-wrap > pre:only-child {
   border-radius: 6px;
-  border-top: 0.5px solid #e0e3e8;
+  border-top: 0.5px solid var(--border-light);
 }
 .prose pre::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 .prose pre::-webkit-scrollbar-thumb {
-  background: #d0d5e0;
+  background: var(--border-medium);
   border-radius: 3px;
 }
 
@@ -170,7 +247,7 @@ body {
   font-size: 13px;
   line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  color: #1a1d23;
+  color: var(--text-primary);
 }
 
 /* hljs 语法高亮元素 — 仅着色，不设边框/背景/圆角 */
@@ -193,7 +270,7 @@ pre code.hljs,
   background: transparent;
   padding: 0;
   font-size: 0.95em;
-  color: #2a9d99;
+  color: var(--primary);
   font-weight: 500;
 }
 
@@ -226,13 +303,13 @@ pre code.hljs,
   border-spacing: 0;
   font-size: 0.875rem;
   margin: 1em 0;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-medium);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .prose thead {
-  background: #ffffff;
+  background: var(--bg-card-alt);
 }
 
 .prose th,
@@ -240,9 +317,9 @@ pre code.hljs,
   padding: 0.5rem 0.75rem;
   text-align: center !important;
   font-weight: 600;
-  color: #1a1d23;
-  border-bottom: 1px solid #d1d5db;
-  border-right: 1px solid #d1d5db;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-medium);
+  border-right: 1px solid var(--border-medium);
   font-size: 0.8125rem;
 }
 
@@ -252,9 +329,9 @@ pre code.hljs,
 
 .prose td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #d1d5db;
-  border-right: 1px solid #d1d5db;
-  color: #4a5068;
+  border-bottom: 1px solid var(--border-medium);
+  border-right: 1px solid var(--border-medium);
+  color: var(--text-secondary);
 }
 
 .prose td:last-child {
@@ -262,7 +339,7 @@ pre code.hljs,
 }
 
 .prose tbody tr:hover {
-  background: rgba(42, 157, 153, 0.04);
+  background: var(--primary-light);
 }
 
 .prose tbody tr:last-child td {
@@ -272,11 +349,11 @@ pre code.hljs,
 /* ========== 引用块 (精致设计) ========== */
 .prose blockquote {
   position: relative;
-  border-left: 3px solid #2a9d99;
+  border-left: 3px solid var(--primary);
   padding: 0.875em 1em 0.875em 1.25em;
   margin: 1em 0;
-  background: linear-gradient(135deg, rgba(42, 157, 153, 0.06) 0%, rgba(212, 245, 224, 0.15) 100%);
-  color: #4a5068;
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--pastel-mint) 100%);
+  color: var(--text-secondary);
   border-radius: 0 8px 8px 0;
   font-style: normal;
 }
@@ -288,7 +365,7 @@ pre code.hljs,
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(to bottom, #2a9d99, rgba(42, 157, 153, 0.2));
+  background: linear-gradient(to bottom, var(--primary), var(--primary-light));
 }
 
 .prose blockquote p {
@@ -301,18 +378,18 @@ pre code.hljs,
 
 /* 引用块内的强调文本 */
 .prose blockquote strong {
-  color: #2a9d99;
+  color: var(--primary);
   font-weight: 600;
 }
 
 .prose blockquote em {
-  color: #7c6fb0;
+  color: var(--secondary);
 }
 
 /* 引用块内的代码 */
 .prose blockquote code {
   background: transparent;
-  color: #238b87;
+  color: var(--primary-hover);
   padding: 0;
   font-size: 0.95em;
 }
@@ -326,23 +403,23 @@ pre code.hljs,
 
 .prose blockquote li {
   margin: 0.25em 0;
-  color: #4a5068;
+  color: var(--text-secondary);
 }
 
 .prose blockquote li::marker {
-  color: #2a9d99;
+  color: var(--primary);
 }
 
 /* 引用块内的链接 */
 .prose blockquote a {
-  color: #2a9d99;
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
   font-weight: 500;
 }
 
 .prose blockquote a:hover {
-  color: #238b87;
+  color: var(--primary-hover);
   text-decoration-thickness: 2px;
 }
 
@@ -360,11 +437,11 @@ pre code.hljs,
 
 .prose li {
   margin: 0.25em 0;
-  color: #1a1d23;
+  color: var(--text-primary);
 }
 
 .prose li::marker {
-  color: #2a9d99;
+  color: var(--primary);
   font-size: 0.85em;
 }
 
@@ -379,19 +456,19 @@ pre code.hljs,
 
 /* ========== 链接样式 ========== */
 .prose a {
-  color: #2a9d99;
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .prose a:hover {
-  color: #238b87;
+  color: var(--primary-hover);
 }
 
 /* ========== 分割线 ========== */
 .prose hr {
   border: none;
-  border-top: 1px solid #e8ebf0;
+  border-top: 1px solid var(--border-light);
   margin: 1.5em 0;
 }
 
@@ -400,14 +477,14 @@ pre code.hljs,
 .prose h2,
 .prose h3,
 .prose h4 {
-  color: #1a1d23;
+  color: var(--text-primary);
   font-weight: 700;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
 }
 
-.prose h1 { font-size: 1.5em; border-bottom: 2px solid #e8ebf0; padding-bottom: 0.3em; }
-.prose h2 { font-size: 1.25em; border-bottom: 1px solid rgba(232, 235, 240, 0.5); padding-bottom: 0.3em; }
+.prose h1 { font-size: 1.5em; border-bottom: 2px solid var(--border-light); padding-bottom: 0.3em; }
+.prose h2 { font-size: 1.25em; border-bottom: 1px solid var(--border-light); padding-bottom: 0.3em; }
 .prose h3 { font-size: 1.125em; }
 
 /* ========== 图片 ========== */
@@ -415,7 +492,7 @@ pre code.hljs,
   max-width: 100%;
   border-radius: 8px;
   margin: 1em 0;
-  border: 1px solid #e8ebf0;
+  border: 1px solid var(--border-light);
 }
 
 /* ========== Markdown 内容字体 ========== */
@@ -423,7 +500,7 @@ pre code.hljs,
   font-size: 1rem;
   line-height: 1.8;
   font-family: 'Inter', sans-serif;
-  color: #1a1d23;
+  color: var(--text-primary);
 }
 
 /* ========== 滚动条样式 ========== */
@@ -437,23 +514,23 @@ pre code.hljs,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d0d5e0;
+  background: var(--border-medium);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #8b92a8;
+  background: var(--text-disabled);
 }
 
 /* ========== 选中文本样式 ========== */
 ::selection {
-  background: rgba(42, 157, 153, 0.15);
-  color: #1a1d23;
+  background: var(--primary-light);
+  color: var(--text-primary);
 }
 
 /* ========== 焦点样式 ========== */
 *:focus-visible {
-  outline: 2px solid #2a9d99;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -555,17 +632,17 @@ pre code.hljs,
 
 /* 玻璃面板内可交互项 — hover（白半透明 + 微高光 + 柔和阴影，不含 blur，避免嵌套性能问题） */
 .glass-option-hover:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--glass-option-hover-bg, rgba(255, 255, 255, 0.5));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 2px 8px rgba(31, 38, 135, 0.1);
+    inset 0 1px 0 var(--glass-highlight-color, rgba(255, 255, 255, 0.5)),
+    0 2px 8px var(--glass-shadow-soft, rgba(31, 38, 135, 0.1));
 }
 
 /* 玻璃面板内可交互项 — 选中（更白 + 微高光 + 细线框） */
 .glass-option-active {
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(31, 38, 135, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  background: var(--glass-option-active-bg, rgba(255, 255, 255, 0.6));
+  border: 1px solid var(--glass-option-active-border, rgba(31, 38, 135, 0.14));
+  box-shadow: inset 0 1px 0 var(--glass-highlight-color, rgba(255, 255, 255, 0.5));
 }
 
 /* 聚光灯卡片悬停 */
@@ -580,7 +657,7 @@ pre code.hljs,
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
-  background: radial-gradient(circle 120px at var(--spotlight-x, 50%) var(--spotlight-y, 50%), rgba(42, 157, 153, 0.08), transparent);
+  background: radial-gradient(circle 120px at var(--spotlight-x, 50%) var(--spotlight-y, 50%), var(--primary-light), transparent);
 }
 .spotlight-hover:hover::before {
   opacity: 1;
@@ -598,7 +675,7 @@ pre code.hljs,
   bottom: 4px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(to bottom, #2a9d99, #7c6fb0);
+  background: linear-gradient(to bottom, var(--primary), var(--secondary));
   opacity: 0;
   transform: scaleY(0);
   transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -611,17 +688,17 @@ pre code.hljs,
 /* 工具栏胶囊 — 玻璃面板上的玻璃浮层（明显于纯白渐变） */
 .pill-badge {
   position: relative;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--pill-bg, rgba(255, 255, 255, 0.55));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 1px 3px rgba(31, 38, 135, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--pill-border, rgba(255, 255, 255, 0.6));
+  box-shadow: 0 1px 3px var(--glass-shadow-soft, rgba(31, 38, 135, 0.08)), inset 0 1px 0 var(--glass-highlight-color, rgba(255, 255, 255, 0.7));
   transition: all 0.2s ease;
 }
 .pill-badge:hover {
-  background: rgba(255, 255, 255, 0.7);
-  border-color: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 2px 8px rgba(31, 38, 135, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--pill-hover-bg, rgba(255, 255, 255, 0.7));
+  border-color: var(--pill-hover-border, rgba(255, 255, 255, 0.8));
+  box-shadow: 0 2px 8px rgba(31, 38, 135, 0.12), inset 0 1px 0 var(--glass-highlight-color, rgba(255, 255, 255, 0.85));
 }
 
 /* 危险操作按钮（删除）— 玻璃化危险态 */
@@ -630,7 +707,7 @@ pre code.hljs,
 }
 .danger-action:hover {
   background: rgba(212, 91, 91, 0.1);
-  color: #c34a4a;
+  color: var(--danger-hover, #c34a4a);
 }
 .danger-action:active {
   transform: scale(0.97);
@@ -649,8 +726,8 @@ pre code.hljs,
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #2a9d99;
-  box-shadow: 0 0 6px rgba(42, 157, 153, 0.4);
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary-light);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
@@ -671,7 +748,7 @@ pre code.hljs,
 
 /* 渐变流动文字 — GradientText */
 .gradient-text {
-  background: linear-gradient(90deg, #2a9d99, #7c6fb0, #e8856c, #2a9d99);
+  background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent), var(--primary));
   background-size: 300% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -686,7 +763,7 @@ pre code.hljs,
 
 /* 闪光扫过文字 — ShinyText */
 .shiny-text {
-  background: linear-gradient(120deg, #8b92a8 0%, #8b92a8 36%, #e8ebf0 50%, #8b92a8 64%, #8b92a8 100%);
+  background: linear-gradient(120deg, var(--text-disabled) 0%, var(--text-disabled) 36%, var(--border-light) 50%, var(--text-disabled) 64%, var(--text-disabled) 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;

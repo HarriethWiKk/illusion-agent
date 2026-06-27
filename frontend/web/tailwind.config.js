@@ -30,29 +30,29 @@ export default {
           hover: '#c34a4a',
         },
         surface: {
-          main: '#ffffff',      /* 纯白背景 */
-          card: '#ffffff',
-          'card-alt': '#f7f8fa', /* 极淡灰蓝 */
-          hover: '#eef0f4',     /* 淡灰蓝悬停 */
-          input: '#ffffff',
+          main: 'var(--bg-main)',      /* 纯白背景（深色模式由 :root.dark 覆盖） */
+          card: 'var(--bg-card)',
+          'card-alt': 'var(--bg-card-alt)',
+          hover: 'var(--bg-hover)',
+          input: 'var(--bg-input)',
         },
         content: {
-          primary: '#1a1d23',   /* 深灰黑 */
-          secondary: '#4a5068', /* 蓝灰 */
-          disabled: '#8b92a8',  /* 浅蓝灰 */
+          primary: 'var(--text-primary)',   /* 深灰黑 */
+          secondary: 'var(--text-secondary)', /* 蓝灰 */
+          disabled: 'var(--text-disabled)',  /* 浅蓝灰 */
         },
         border: {
-          light: '#e8ebf0',     /* 淡蓝灰边框 */
-          medium: '#d0d5e0',    /* 中蓝灰边框 */
+          light: 'var(--border-light)',     /* 淡蓝灰边框 */
+          medium: 'var(--border-medium)',    /* 中蓝灰边框 */
         },
         /* 粉彩色块 - 用于装饰和高亮 */
         pastel: {
-          mint: '#d4f5e0',      /* 薄荷绿 */
-          lilac: '#e8dff5',     /* 淡紫 */
-          cream: '#fef7e6',     /* 奶油黄 */
-          pink: '#fde0e8',      /* 粉红 */
-          sky: '#dcecfa',       /* 天蓝 */
-          coral: '#fde0d4',     /* 珊瑚 */
+          mint: 'var(--pastel-mint)',      /* 薄荷绿 */
+          lilac: 'var(--pastel-lilac)',     /* 淡紫 */
+          cream: 'var(--pastel-cream)',     /* 奶油黄 */
+          pink: 'var(--pastel-pink)',      /* 粉红 */
+          sky: 'var(--pastel-sky)',        /* 天蓝 */
+          coral: 'var(--pastel-coral)',     /* 珊瑚 */
         },
       },
       fontFamily: {

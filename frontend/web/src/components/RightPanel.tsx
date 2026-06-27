@@ -14,6 +14,7 @@
 
 import { useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import { useTheme } from '../hooks/useTheme';
 import TodoPanel from './TodoPanel';
 import type { McpServerSnapshot, PluginSnapshot, RuleSnapshot, SkillSnapshot, TodoItemSnapshot } from '../types/protocol';
 
@@ -59,6 +60,8 @@ export default function RightPanel({
   lang, status, connected, busy, collapsed, onToggle, todoItems,
   skills, plugins, rules, mcpServers, width = 260,
 }: RightPanelProps) {
+  // 主题（深色/浅色）— 在折叠判断前调用以保证 hook 始终执行
+  const { theme, toggleTheme } = useTheme();
   // 上下文使用量
   const contextWindow = Number(status?.context_window ?? 0);
   const contextTokens = Number(status?.context_tokens ?? 0);
@@ -88,9 +91,24 @@ export default function RightPanel({
 
   return (
     <aside className="glass-panel border-l border-white/30 flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
-      {/* 标题行：折叠按钮 + 居中标题（3 列 grid 严格居中） */}
+      {/* 标题行：主题切换按钮 + 居中标题 + 折叠按钮（3 列 grid 严格居中） */}
       <div className="grid grid-cols-3 items-center px-5 pt-3 pb-2">
-        <div />
+        <button onClick={toggleTheme} title={t(lang, 'toggle_theme')}
+          aria-label={t(lang, 'toggle_theme')}
+          className="justify-self-start w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
+          {theme === 'dark' ? (
+            /* 太阳图标（深色模式下点击切换到浅色） */
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" />
+            </svg>
+          ) : (
+            /* 月亮图标（浅色模式下点击切换到深色） */
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 8.5a5 5 0 0 1-5.5-5.5 5 5 0 1 0 5.5 5.5z" />
+            </svg>
+          )}
+        </button>
         <span className="justify-self-center font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'management_title')}</span>
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
           className="justify-self-end w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
@@ -208,7 +226,7 @@ function CollapsibleSection({
           <path d="M6 3l5 5-5 5" />
         </svg>
         <span className="text-xs font-semibold text-content-primary tracking-wide">{title}</span>
-        <span className="text-[10px] text-content-secondary bg-white/50 px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
+        <span className="text-[10px] text-content-secondary bg-[var(--badge-bg)] px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
         {subtitle && <span className="text-xs text-content-disabled ml-auto">{subtitle}</span>}
       </button>
       <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}>
@@ -237,7 +255,7 @@ function ItemRow({ name, description, tag }: { name: string; description: string
       >
         <span className="text-content-primary font-medium truncate flex-1 text-left">{name}</span>
         {tag && (
-          <span className="text-[10px] text-primary/80 bg-white/50 px-1.5 py-0.5 rounded-full font-medium shrink-0">{tag}</span>
+          <span className="text-[10px] text-primary/80 bg-[var(--badge-bg)] px-1.5 py-0.5 rounded-full font-medium shrink-0">{tag}</span>
         )}
       </button>
       {expanded && hasDesc && (
