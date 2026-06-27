@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from illusion.tasks.manager import get_task_manager
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -27,7 +27,9 @@ class TaskStopToolInput(BaseModel):
         task_id: 任务标识符
     """
 
-    task_id: str = Field(description="Task identifier")
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(description="Task identifier", alias="taskId")
 
 
 class TaskStopTool(BaseTool[TaskStopToolInput]):

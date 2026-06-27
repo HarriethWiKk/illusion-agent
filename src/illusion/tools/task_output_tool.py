@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from illusion.tasks.manager import get_task_manager
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -28,7 +28,9 @@ class TaskOutputToolInput(BaseModel):
         max_bytes: 最大返回字节数
     """
 
-    task_id: str = Field(description="Task identifier")
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(description="Task identifier", alias="taskId")
     max_bytes: int = Field(default=12000, ge=1, le=100000)
 
 
