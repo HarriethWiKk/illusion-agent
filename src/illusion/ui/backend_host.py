@@ -51,6 +51,7 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
+from illusion.tasks.todo_sync import sync_todos_to_tasks, todos_from_tasks
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime
@@ -472,9 +473,9 @@ class ReactBackendHost:
                         ),
                     )
                 )
-                await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-                await self._emit(self._status_snapshot())
-                # TodoWrite 工具执行时发送 todo_update 事件
+                # === Task/Todo 双向同步 ===
+                # 仅 in_process_teammate 类型参与互通；同步后再发射快照保证前端看到一致状态
+                _manager = get_task_manager()
                 if event.tool_name in ("TodoWrite", "todo_write"):
                     tool_input = self._last_tool_inputs.get(event.tool_name, {})
                     todos = tool_input.get("todos") or []
@@ -489,7 +490,18 @@ class ReactBackendHost:
                                 })
                         if all(t.get("status") == "completed" for t in todo_items) and len(todo_items) >= 1:
                             todo_items = []
+                        # Todo → Task 同步
+                        sync_todos_to_tasks(todo_items, _manager)
                         await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
+                elif event.tool_name in (
+                    "task_create", "task_update", "task_stop",
+                    "TaskCreate", "TaskUpdate", "TaskStop",
+                ):
+                    # Task → Todo 同步
+                    todo_items = todos_from_tasks(_manager.list_tasks())
+                    await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
+                await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
+                await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
                 if event.tool_name in ("set_permission_mode", "plan_mode", "enter_plan_mode", "exit_plan_mode"):
                     assert self._bundle is not None
