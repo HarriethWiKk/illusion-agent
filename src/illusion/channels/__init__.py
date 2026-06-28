@@ -272,6 +272,8 @@ class ChannelRunner:
         # 按 chat_id 串行化 agent turn，避免并行消息导致会话历史覆盖
         # （同一会话连发多条消息时，M2/M3 排队等 M1 完成后再跑）
         self._chat_locks: dict[str, asyncio.Lock] = {}
+        # 当前正在运行的 agent task（按 chat_id 索引），供 /stop 中断
+        self._active_agent_tasks: dict[str, asyncio.Task[None]] = {}
         self._stop = False
 
     def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
@@ -342,6 +344,13 @@ class ChannelRunner:
                 fut.set_result(msg.text)
             return
 
+        # /stop 命令：立即中断当前 chat_id 正在运行的 agent task，不排队等锁
+        # 必须在 _chat_locks 之前处理，否则会卡在串行队列里等到 agent 完成才生效
+        text = msg.text.strip()
+        if text.lower() == "/stop":
+            await self._handle_stop(msg)
+            return
+
         # 2/3. 斜杠命令 + agent turn：按 chat_id 串行化
         async with self._get_chat_lock(msg.chat_id):
             # 进入锁后再次检查 pending_replies：前一个 agent turn 可能
@@ -358,14 +367,33 @@ class ChannelRunner:
                 return
 
             # 3. 跑 agent
+            # 将当前 task 注册到 _active_agent_tasks，供 /stop 中断
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                self._active_agent_tasks[msg.chat_id] = current_task
             try:
                 await self._run_agent(msg)
+            except asyncio.CancelledError:
+                # /stop 取消：agent 已中断，发提示消息
+                from illusion.config.i18n import t as _t
+                logger.info("agent 任务被 /stop 中断: chat_id=%s", msg.chat_id)
+                try:
+                    await self.channel.send_text(
+                        msg.chat_id, _t("cmd_stop_done"),
+                        reply_to=msg.message_id,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("处理渠道消息异常: %s", exc)
                 try:
                     await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
                 except Exception:  # noqa: BLE001
                     pass
+            finally:
+                # 清理 task 注册（无论正常完成、异常还是取消）
+                self._active_agent_tasks.pop(msg.chat_id, None)
 
     def _get_command_handler(self) -> Any:
         """按渠道类型返回对应的斜杠命令处理器
@@ -392,6 +420,31 @@ class ChannelRunner:
         except ImportError:
             pass  # QQ 模块不可用时跳过
         return None
+
+    async def _handle_stop(self, msg: "InboundMessage") -> None:
+        """处理 /stop 命令：中断当前 chat_id 正在运行的 agent 任务
+
+        不加 _chat_locks 锁，立即取消正在运行的 agent task。
+        如果没有正在运行的任务，回复提示"无正在执行的任务"。
+
+        Args:
+            msg: /stop 命令消息
+        """
+        from illusion.config.i18n import t as _t
+
+        task = self._active_agent_tasks.get(msg.chat_id)
+        if task is None or task.done():
+            # 无正在运行的任务
+            await self.channel.send_text(
+                msg.chat_id, _t("cmd_stop_no_task"),
+                reply_to=msg.message_id,
+            )
+            return
+
+        # 取消任务：触发 CancelledError，_run_agent 的 except 块清理流式控制器
+        # _handle_message 的 except CancelledError 块发送"已中断"提示
+        task.cancel()
+        logger.info("/stop 已取消 agent 任务: chat_id=%s", msg.chat_id)
 
     def _build_channel_tools(self, msg: "InboundMessage") -> list[Any]:
         """构造渠道内置工具列表
@@ -678,6 +731,20 @@ class ChannelRunner:
                     logger.warning("渠道会话持久化失败: %s", exc)
             else:
                 logger.warning("无法从 bundle.engine 获取会话历史，跳过持久化")
+        except asyncio.CancelledError:
+            # /stop 中断：清理流式控制器后重新抛出，让上层 _handle_message 发提示
+            logger.info("agent 任务被取消: chat_id=%s", msg.chat_id)
+            if supports_edit and streaming_controller:
+                try:
+                    await streaming_controller.error("已中断")
+                except Exception:  # noqa: BLE001
+                    pass
+            elif qq_streaming_controller:
+                try:
+                    await qq_streaming_controller.abort("已中断")
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
         except Exception as exc:
             logger.exception("agent 处理异常")
             if supports_edit and streaming_controller:

@@ -209,10 +209,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
     # --- 飞书侧（用户在飞书中看到）---
     "feishu_thinking": {"zh-CN": "illusion code 正在思考中...", "en-US": "illusion code is thinking..."},
-    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /delete /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /delete /sessions /resume /detach /model"},
+    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /delete /stop /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /delete /stop /sessions /resume /detach /model"},
     "feishu_cmd_cleared": {"zh-CN": "飞书会话已清空，开始新对话。", "en-US": "Feishu session cleared, starting fresh."},
     # --- 通用渠道命令文案（不限渠道）---
     "cmd_new": {"zh-CN": "已开启新的会话。", "en-US": "New session started."},
+    "cmd_stop_no_task": {"zh-CN": "当前没有正在执行的任务。", "en-US": "No running task to stop."},
+    "cmd_stop_done": {"zh-CN": "已中断当前任务。", "en-US": "Task interrupted."},
     "feishu_cmd_sessions_title": {"zh-CN": "本地未完成会话:", "en-US": "Local unfinished sessions:"},
     "feishu_cmd_no_sessions": {"zh-CN": "没有本地会话可恢复。", "en-US": "No local sessions to resume."},
     "feishu_cmd_resumed": {"zh-CN": "已恢复本地会话（{n} 条历史），继续吧。", "en-US": "Resumed local session ({n} messages), continue."},

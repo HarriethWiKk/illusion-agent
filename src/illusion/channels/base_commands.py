@@ -80,6 +80,10 @@ class BaseCommandHandler:
         elif cmd == "new":
             self.session_store.clear(key)
             await self._reply(msg, t("cmd_new"))
+        elif cmd == "stop":
+            # /stop 在 ChannelRunner._handle_message 开头已被拦截处理，
+            # 不会走到这里。此分支仅作为防御性兜底（如 PC 终端直接调用）
+            await self._reply(msg, t("cmd_stop_no_task"))
         elif cmd == "model":
             await self._cmd_model(msg, key, args)
         elif cmd == "sessions":
