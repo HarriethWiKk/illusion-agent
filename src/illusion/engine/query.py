@@ -57,8 +57,9 @@ from illusion.utils.file_state_cache import FileStateCache
 
 # 权限提示回调类型：工具名称 -> 是否允许
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]
-# 用户询问回调类型：问题 -> 回答
-AskUserPrompt = Callable[[str], Awaitable[str]]
+# 用户询问回调类型：(问题, 结构化选项数据) -> 回答
+# questions 是 list[dict] 结构，含 question/header/options/multiSelect/noCustomInput
+AskUserPrompt = Callable[[str, object], Awaitable[str]]
 # 计划审批回调类型：计划内容 -> (是否允许, 反馈)
 PlanApprovalPrompt = Callable[[str], Awaitable[tuple[bool, str]]]
 
@@ -600,7 +601,7 @@ async def _execute_tool_call(
                         "noCustomInput": True,
                     }
                 ]
-            answer = await context.ask_user_prompt(question_text, questions_data)  # type: ignore[call-arg]
+            answer = await context.ask_user_prompt(question_text, questions_data)
             # 解析用户选择
             answer_str = str(answer).strip() if answer else ""
             if "Allow for session" in answer_str or "当前会话允许" in answer_str:

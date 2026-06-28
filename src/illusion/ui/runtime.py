@@ -183,6 +183,7 @@ async def build_runtime(
     restore_session_id: str | None = None,
     effort: str | None = None,
     is_interactive: bool = True,
+    channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
@@ -313,7 +314,12 @@ async def build_runtime(
         permission_checker=permission_checker,
         cwd=cwd,
         model=settings.active_model_name,
-        system_prompt=build_runtime_system_prompt(settings, cwd=cwd, latest_user_prompt=prompt),
+        system_prompt=build_runtime_system_prompt(
+            settings,
+            cwd=cwd,
+            latest_user_prompt=prompt,
+            channel_hint=channel_hint,
+        ),
         max_tokens=settings.max_tokens,
         max_turns=settings.max_turns,
         permission_prompt=permission_prompt,

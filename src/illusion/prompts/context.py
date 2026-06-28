@@ -99,6 +99,7 @@ def build_runtime_system_prompt(
     *,
     cwd: str | Path,
     latest_user_prompt: str | None = None,
+    channel_hint: str | None = None,
 ) -> str:
     """构建运行时系统提示词
 
@@ -237,5 +238,9 @@ def build_runtime_system_prompt(
                             ]
                         )
                     sections.append("\n".join(lines))
+
+    # 渠道平台感知提示词
+    if channel_hint:
+        sections.append(f"# Channel Context\n\n{channel_hint}")
 
     return "\n\n".join(section for section in sections if section.strip())
