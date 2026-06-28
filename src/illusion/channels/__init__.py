@@ -113,6 +113,13 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
 
     log_path = data_dir / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # daemon 的 cwd：优先用主进程 cwd，失效时回退到 data_dir，避免
+    # build_runtime → load_plugins → get_project_plugins_dir 的 mkdir 因
+    # cwd 无效抛 WinError 267（如主进程从临时目录启动后被清理）。
+    try:
+        daemon_cwd = str(Path.cwd())
+    except (OSError, FileNotFoundError):
+        daemon_cwd = str(data_dir)
     try:
         log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
         # 继承当前环境并强制 UTF-8 编码，避免 Windows GBK 遇到 emoji 崩溃
@@ -125,6 +132,7 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
             creationflags=creation_flags,
             close_fds=True,
             env=env,
+            cwd=daemon_cwd,
         )
         pid_file.acquire(proc.pid)
         atomic_write_text(fingerprint_path, current_fp)
@@ -132,6 +140,35 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
     except OSError as exc:
         logger.warning("启动渠道守护进程失败: %s", exc)
         return None
+
+
+def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
+    """终止渠道守护进程子进程并释放 PID 文件。
+
+    供主命令（`illusion`）和 web 命令（`illusion web`）在退出时调用，
+    确保 ctrl+c / 正常退出后清理守护进程，避免孤儿进程。
+
+    幂等：proc 为 None 或已退出时仅尝试释放 PID 文件。
+
+    Args:
+        proc: `maybe_spawn_channel_daemon` 返回的 Popen 实例；None 时仅清 PID 文件
+    """
+    try:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except Exception:  # noqa: BLE001
+                proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        try:
+            from illusion.channels.pid import PidFile
+            from illusion.config.paths import get_channels_data_dir
+            PidFile(get_channels_data_dir() / "daemon.pid").release()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class ChannelRunner:
@@ -168,7 +205,18 @@ class ChannelRunner:
         )
         self._feishu_config = feishu_config  # 飞书配置（构造工具用）
         self._pending_replies: dict[str, asyncio.Future[str]] = {}  # 权限/询问待回复
+        # 按 chat_id 串行化 agent turn，避免并行消息导致会话历史覆盖
+        # （同一会话连发多条消息时，M2/M3 排队等 M1 完成后再跑）
+        self._chat_locks: dict[str, asyncio.Lock] = {}
         self._stop = False
+
+    def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
+        """获取指定 chat_id 的串行化锁（懒创建）"""
+        lock = self._chat_locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._chat_locks[chat_id] = lock
+        return lock
 
     async def run(self) -> None:
         """启动渠道，监听消息并处理"""
@@ -198,6 +246,8 @@ class ChannelRunner:
         """处理单条入站消息
 
         优先匹配待回复的权限/询问，其次处理斜杠命令，最后跑 agent。
+        同一 chat_id 的消息通过 _chat_locks 串行化，避免并行 agent turn
+        导致会话历史覆盖（M2/M3 排队等 M1 完成后再跑）。
 
         Args:
             msg: 入站消息
@@ -210,37 +260,45 @@ class ChannelRunner:
                 except OSError:
                     pass
             from illusion.config.i18n import t as _t
-            from illusion.channels.qq.adapter import QQChannel as _QQChannel
-            weixin_cls = _get_weixin_channel_class()
-            if weixin_cls is not None and isinstance(self.channel, weixin_cls):
-                await self.channel.send_text(msg.chat_id, _t("weixin_cmd_new"))
-            elif isinstance(self.channel, _QQChannel):
-                await self.channel.send_text(msg.chat_id, _t("qq_cmd_new"))
-            else:
-                await self.channel.send_text(msg.chat_id, _t("feishu_cmd_new"))
+            # 统一使用 cmd_new，避免渠道专属文案不一致
+            await self.channel.send_text(
+                msg.chat_id, _t("cmd_new"), reply_to=msg.message_id,
+            )
             self.session_store.clear_signal()
 
-        # 1. 待回复的权限/询问
+        # 1. 待回复的权限/询问——不加锁，让回复立即送达
+        # （agent turn 持锁等待回复时，下一条消息作为回复立即 set_result，
+        #   不会因锁阻塞导致 300s 超时）
         if msg.chat_id in self._pending_replies:
             fut = self._pending_replies.pop(msg.chat_id)
             if not fut.done():
                 fut.set_result(msg.text)
             return
 
-        # 2. 斜杠命令（按渠道类型选择 handler）
-        handler = self._get_command_handler()
-        if handler is not None and await handler.try_handle(msg):
-            return
+        # 2/3. 斜杠命令 + agent turn：按 chat_id 串行化
+        async with self._get_chat_lock(msg.chat_id):
+            # 进入锁后再次检查 pending_replies：前一个 agent turn 可能
+            # 刚刚设了 future 等待回复，此时新消息应作为回复而非新 turn
+            if msg.chat_id in self._pending_replies:
+                fut = self._pending_replies.pop(msg.chat_id)
+                if not fut.done():
+                    fut.set_result(msg.text)
+                return
 
-        # 3. 跑 agent
-        try:
-            await self._run_agent(msg)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("处理渠道消息异常: %s", exc)
+            # 2. 斜杠命令（按渠道类型选择 handler）
+            handler = self._get_command_handler()
+            if handler is not None and await handler.try_handle(msg):
+                return
+
+            # 3. 跑 agent
             try:
-                await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
-            except Exception:  # noqa: BLE001
-                pass
+                await self._run_agent(msg)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("处理渠道消息异常: %s", exc)
+                try:
+                    await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _get_command_handler(self) -> Any:
         """按渠道类型返回对应的斜杠命令处理器
@@ -268,29 +326,70 @@ class ChannelRunner:
             pass  # QQ 模块不可用时跳过
         return None
 
-    def _build_channel_tools(self) -> list[Any]:
-        """构造渠道内置工具列表（飞书文档/云盘等）
+    def _build_channel_tools(self, msg: "InboundMessage") -> list[Any]:
+        """构造渠道内置工具列表
+
+        按渠道类型和 enabled 状态构造工具。
+        媒体工具对所有已启用渠道构造（飞书/QQ/微信均支持媒体收发）。
+
+        Args:
+            msg: 入站消息（用于获取 chat_id 和 attachments）
 
         Returns:
-            list[Any]: BaseTool 实例列表，渠道配置缺失时返回空列表
+            list[Any]: BaseTool 实例列表
         """
-        if self._feishu_config is None:
-            return []
+        tools: list[Any] = []
+
+        # 媒体工具（所有渠道）
         try:
-            from illusion.channels.tools.feishu_doc import FeishuDocReadTool, FeishuDocCreateTool
-            from illusion.channels.tools.feishu_drive import (
-                FeishuDriveListTool, FeishuDriveUploadTool, FeishuDriveDownloadTool,
-            )
-            return [
-                FeishuDocReadTool(self._feishu_config),
-                FeishuDocCreateTool(self._feishu_config),
-                FeishuDriveListTool(self._feishu_config),
-                FeishuDriveUploadTool(self._feishu_config),
-                FeishuDriveDownloadTool(self._feishu_config),
-            ]
+            from illusion.channels.tools.media import SendMediaTool, ReceiveMediaTool
+            tools.append(SendMediaTool(
+                self.channel, msg.chat_id, message_id=msg.message_id
+            ))
+            if msg.attachments:
+                tools.append(ReceiveMediaTool(
+                    self.channel, msg.chat_id, msg.attachments
+                ))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("构造飞书工具失败: %s", exc)
-            return []
+            logger.warning("构造媒体工具失败: %s", exc)
+
+        # 飞书文档/云盘工具
+        if self._feishu_config is not None:
+            try:
+                from illusion.channels.tools.feishu_doc import (
+                    FeishuDocReadTool, FeishuDocCreateTool,
+                    FeishuDocWriteTool, FeishuDocDeleteTool,
+                )
+                from illusion.channels.tools.feishu_drive import (
+                    FeishuDriveListTool, FeishuDriveUploadTool,
+                    FeishuDriveDownloadTool, FeishuDriveMkdirTool,
+                    FeishuDriveDeleteTool,
+                )
+                tools.extend([
+                    FeishuDocReadTool(self._feishu_config),
+                    FeishuDocCreateTool(self._feishu_config),
+                    FeishuDocWriteTool(self._feishu_config),
+                    FeishuDocDeleteTool(self._feishu_config),
+                    FeishuDriveListTool(self._feishu_config),
+                    FeishuDriveUploadTool(self._feishu_config),
+                    FeishuDriveDownloadTool(self._feishu_config),
+                    FeishuDriveMkdirTool(self._feishu_config),
+                    FeishuDriveDeleteTool(self._feishu_config),
+                ])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("构造飞书工具失败: %s", exc)
+
+        # Cron 工具（注入 origin 信息用于投递）
+        try:
+            from illusion.tools.cron_tool import CronTool
+            tools.append(CronTool(
+                origin_channel=self.channel.name,
+                chat_id=msg.chat_id,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("构造 Cron 工具失败: %s", exc)
+
+        return tools
 
     async def _run_agent(self, msg: "InboundMessage") -> None:
         """为单条消息构建 runtime 并跑 agent
@@ -357,6 +456,11 @@ class ChannelRunner:
             else:
                 logger.info("session model %s 与当前环境 %s 不匹配，使用默认模型",
                             session.model, current_env)
+        # 获取平台感知提示词（QQ 的 markdown 描述随配置动态生成）
+        from illusion.prompts.channel_hints import get_channel_hint
+        qq_md = getattr(self.channel.config, "markdown_support", None)
+        channel_hint = get_channel_hint(self.channel.name, qq_markdown_support=qq_md)
+
         try:
             bundle = await build_runtime(
                 model=resolved_model,
@@ -366,16 +470,28 @@ class ChannelRunner:
                 is_interactive=False,
                 permission_prompt=self._make_permission_prompt(msg.chat_id),
                 ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
-                channel_tools=self._build_channel_tools(),
+                channel_hint=channel_hint,
+                channel_tools=self._build_channel_tools(msg),
             )
         except Exception as exc:
             logger.exception("构建 runtime 失败: %s", exc)
             await self.channel.send_text(msg.chat_id, f"❌ 启动失败: {str(exc)[:100]}")
             return
 
+        # 拼接附件信息到消息文本前
+        prompt_text = msg.text
+        if msg.attachments:
+            attach_lines = []
+            for att in msg.attachments:
+                size_str = f"{att.size} bytes" if att.size else "unknown size"
+                attach_lines.append(
+                    f"[收到附件 {att.id}: {att.filename} ({att.media_type}, {size_str})]"
+                )
+            prompt_text = "\n".join(attach_lines) + "\n" + msg.text
+
         try:
             await handle_line(
-                bundle, msg.text,
+                bundle, prompt_text,
                 print_system=print_system,
                 render_event=render_event,
                 clear_output=clear_output,
@@ -395,6 +511,10 @@ class ChannelRunner:
             msgs = getattr(engine, "messages", None)
             if msgs is not None and hasattr(msgs, "__iter__"):
                 try:
+                    # 回写 build_runtime 生成/恢复的 session_id，避免下次仍为空
+                    # 导致每次都生成新会话 ID（同一对话产生多个会话记录）
+                    if bundle.session_id and session.session_id != bundle.session_id:
+                        session.session_id = bundle.session_id
                     self.session_store.save(session, _serialize_messages(list(msgs)))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("渠道会话持久化失败: %s", exc)
@@ -425,9 +545,26 @@ class ChannelRunner:
         return _prompt
 
     def _make_ask_user_prompt(self, chat_id: str) -> Any:
-        """构造用户问答回调（推到飞书等回复）"""
-        async def _ask(question: str) -> str:
-            await self.channel.send_text(chat_id, f"❓ {question}")
+        """构造用户问答回调（推到飞书等回复）
+
+        签名与 backend_host/ws_host 的 _ask_question 一致：
+        (question: str, questions: object = None) -> str
+
+        questions 是结构化选项数据（list[dict]），含 question/header/options/
+        multiSelect/noCustomInput 字段。渠道只能回复文本，故将选项 label
+        附加到问题文本，让用户回复对应 label。
+        """
+        async def _ask(question: str, questions: object = None) -> str:
+            text = f"❓ {question}"
+            # 将结构化选项附加到问题文本，方便渠道用户回复
+            if questions:
+                try:
+                    opts_lines = _format_question_options(questions)
+                    if opts_lines:
+                        text = f"{text}\n\n{opts_lines}"
+                except Exception:  # noqa: BLE001
+                    pass  # 格式化失败时只发问题文本
+            await self.channel.send_text(chat_id, text)
             return await self._wait_reply(chat_id, timeout=300)
         return _ask
 
@@ -448,6 +585,47 @@ class ChannelRunner:
         fut: asyncio.Future[str] = loop.create_future()
         self._pending_replies[chat_id] = fut
         return await asyncio.wait_for(fut, timeout=timeout)
+
+
+def _format_question_options(questions: object) -> str:
+    """将结构化问题选项格式化为渠道可显示的文本
+
+    questions 结构：list[dict]，每个 dict 含：
+        - question: str 子问题文本
+        - header: str 标题
+        - options: list[dict] 选项列表，每项含 label/description
+        - multiSelect: bool 是否多选
+        - noCustomInput: bool 是否禁止自定义输入
+
+    Args:
+        questions: 结构化问题数据
+
+    Returns:
+        str: 格式化后的选项文本，无选项返回空串
+    """
+    if not isinstance(questions, (list, tuple)):
+        return ""
+    lines: list[str] = []
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        opts = q.get("options") or []
+        if not opts:
+            continue
+        header = str(q.get("header") or "").strip()
+        sub_q = str(q.get("question") or "").strip()
+        if header:
+            lines.append(f"【{header}】")
+        if sub_q:
+            lines.append(sub_q)
+        for opt in opts:
+            if not isinstance(opt, dict):
+                continue
+            label = str(opt.get("label") or "").strip()
+            desc = str(opt.get("description") or "").strip()
+            if label:
+                lines.append(f"  • {label}" + (f" — {desc}" if desc else ""))
+    return "\n".join(lines)
 
 
 def _get_weixin_channel_class() -> Any:

@@ -937,6 +937,16 @@ def web_start(
         else:
             typer.echo(_t("cwd_invalid", path=settings.working_directory), err=True)
 
+    # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（与 illusion 主命令一致）
+    from illusion.channels import kill_channel_daemon
+    _daemon_proc = None
+    try:
+        from illusion.channels import maybe_spawn_channel_daemon
+        _daemon_proc = maybe_spawn_channel_daemon()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
+
     config = WebHostConfig(
         model=model,
     )
@@ -949,7 +959,15 @@ def web_start(
         import webbrowser
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    # ctrl+c / 正常退出时终止渠道守护进程，避免孤儿进程
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+    finally:
+        if _daemon_proc is not None:
+            try:
+                kill_channel_daemon(_daemon_proc)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # ---- update 子命令 ----
@@ -1288,6 +1306,7 @@ def main(
             )
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
+    from illusion.channels import kill_channel_daemon
     _daemon_proc = None
     try:
         from illusion.channels import maybe_spawn_channel_daemon
@@ -1296,26 +1315,12 @@ def main(
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
-    # REPL 退出时终止渠道守护进程
     def _kill_channel_daemon() -> None:
-        """退出时终止渠道守护进程"""
-        nonlocal _daemon_proc
+        """退出时终止渠道守护进程（复用模块级函数，与 web 命令一致）"""
         try:
-            if _daemon_proc is not None and _daemon_proc.poll() is None:
-                _daemon_proc.terminate()
-                try:
-                    _daemon_proc.wait(timeout=3)
-                except Exception:
-                    _daemon_proc.kill()
-        except Exception:
+            kill_channel_daemon(_daemon_proc)
+        except Exception:  # noqa: BLE001
             pass
-        finally:
-            try:
-                from illusion.channels.pid import PidFile
-                from illusion.config.paths import get_channels_data_dir
-                PidFile(get_channels_data_dir() / "daemon.pid").release()
-            except Exception:
-                pass
 
     import asyncio  # 异步编程模块
 
