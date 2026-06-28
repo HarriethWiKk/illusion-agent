@@ -43,6 +43,15 @@ MEDIA_TYPE_VIDEO = 2
 MEDIA_TYPE_VOICE = 3
 MEDIA_TYPE_FILE = 4
 
+# ── 流式消息（C2C stream_messages API） ──────────────────────
+# 参考openclaw-main: /v2/users/{openid}/stream_messages
+# 通过 stream_msg_id 标识同一条流式消息，多次 PATCH 实现打字机效果
+
+STREAM_INPUT_MODE_REPLACE = "replace"  # 每个 chunk 全量替换消息内容
+STREAM_INPUT_STATE_GENERATING = 1  # 生成中
+STREAM_INPUT_STATE_DONE = 10  # 终结
+STREAM_CONTENT_TYPE_MARKDOWN = "markdown"  # 内容类型
+
 # ── 消息限制 ──────────────────────────────────────────────────
 
 MAX_MESSAGE_LENGTH = 4000
@@ -304,6 +313,74 @@ async def send_typing(
     """
     # TODO: QQ API v2 打字状态端点待确认
     logger.debug("QQ 打字状态指示（占位）")
+
+
+# ── C2C 流式消息 ──────────────────────────────────────────────
+
+
+async def send_c2c_stream_message(
+    session: aiohttp.ClientSession,
+    token: str,
+    openid: str,
+    *,
+    content: str,
+    input_state: int,
+    msg_id: str,
+    msg_seq: int,
+    index: int,
+    stream_msg_id: str = "",
+    event_id: str = "",
+) -> dict[str, Any]:
+    """发送 C2C 流式消息分片（打字机效果）
+
+    调用 QQ 开放平台 `/v2/users/{openid}/stream_messages` 端点，
+    通过 stream_msg_id 标识同一条流式消息，多次调用实现原地全量替换。
+
+    工作流程：
+    1. 首次调用不传 stream_msg_id，服务器返回 id（流式消息 ID）
+    2. 后续调用复用该 id 作为 stream_msg_id，input_state=GENERATING
+    3. 终态调用 input_state=DONE 发送最后分片
+
+    Args:
+        session: HTTP 会话
+        token: access_token
+        openid: 用户 openid
+        content: 当前全量消息内容（input_mode=replace，每次都是完整文本）
+        input_state: STREAM_INPUT_STATE_GENERATING(1) 或 STREAM_INPUT_STATE_DONE(10)
+        msg_id: 引用的入站消息 ID（用于被动消息定位）
+        msg_seq: 消息序列号（同一流式会话内所有分片共享）
+        index: 分片序号（同一会话内递增）
+        stream_msg_id: 流式消息 ID（首次不传，后续复用服务器返回的 id）
+        event_id: 事件 ID（必填，参考 openclaw-main 直接用入站 msg_id 同值）
+
+    Returns:
+        dict[str, Any]: API 响应，首次包含 id 字段（流式消息 ID）
+
+    Raises:
+        RuntimeError: 业务错误
+        aiohttp.ClientResponseError: HTTP 错误
+    """
+    url = f"{API_BASE}/v2/users/{openid}/stream_messages"
+    headers = {"Authorization": f"QQBot {token}"}
+    body: dict[str, Any] = {
+        "input_mode": STREAM_INPUT_MODE_REPLACE,
+        "input_state": input_state,
+        "content_type": STREAM_CONTENT_TYPE_MARKDOWN,
+        "content_raw": content[:MAX_MESSAGE_LENGTH],
+        "msg_id": msg_id,
+        "msg_seq": msg_seq,
+        "index": index,
+        # event_id 必填：参考 openclaw-main outbound-dispatch.ts:403 直接用入站 messageId
+        "event_id": event_id or msg_id,
+    }
+    if stream_msg_id:
+        body["stream_msg_id"] = stream_msg_id
+    logger.debug(
+        "QQ C2C stream: openid=%s state=%d index=%d stream_msg_id=%s len=%d",
+        openid, input_state, index, stream_msg_id or "(new)", len(content),
+    )
+    async with session.post(url, headers=headers, json=body) as resp:
+        return await _parse_qq_response(resp)
 
 
 # ── 文件上传（分片） ──────────────────────────────────────────

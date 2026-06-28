@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from illusion.channels.base import Channel, InboundMessage
     from illusion.channels.config import ChannelsConfig
     from illusion.channels.feishu.streaming import FeishuStreamingCardController
+    from illusion.channels.qq.streaming import QQStreamingController
     from illusion.config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -430,17 +431,28 @@ class ChannelRunner:
 
         # 检测渠道是否支持消息编辑（仅飞书支持卡片 patch）
         from illusion.channels.feishu.adapter import FeishuChannel
+        from illusion.channels.qq.adapter import QQChannel
         supports_edit = isinstance(self.channel, FeishuChannel)
+
+        # QQ C2C 流式检测：仅私聊（chat_type="dm"）支持 stream_messages API
+        qq_channel = self.channel if isinstance(self.channel, QQChannel) else None
+        qq_c2c_streaming = (
+            qq_channel is not None
+            and msg.chat_type == "dm"
+            and bool(getattr(qq_channel, "_session", None))
+        )
 
         # 统一收集流式文本，处理完后一次性发送/渲染
         collected_text: list[str] = []
         streaming_controller: FeishuStreamingCardController | None = None  # 飞书流式卡片控制器
+        qq_streaming_controller: QQStreamingController | None = None  # QQ C2C 流式控制器
 
         async def render_event(ev: Any) -> None:
             """流式事件收集
 
             飞书：通过 controller 实时流式更新卡片（含 reasoning）
-            微信/QQ：仅累积文本，处理完后一次性发送
+            QQ C2C：通过 controller 实时流式更新消息（不展示 reasoning）
+            微信/QQ 群聊：仅累积文本，处理完后一次性发送
             """
             if isinstance(ev, AssistantTextDelta):
                 if supports_edit and streaming_controller:
@@ -448,11 +460,16 @@ class ChannelRunner:
                         await streaming_controller.on_reasoning(ev.reasoning)
                     if ev.text:
                         await streaming_controller.on_text(ev.text)
+                elif qq_streaming_controller and ev.text:
+                    # QQ 不展示 reasoning，只流式 answer text
+                    await qq_streaming_controller.on_text(ev.text)
                 collected_text.append(ev.text)
             elif isinstance(ev, ErrorEvent):
                 collected_text.append(f"\n❌ {ev.message}")
                 if supports_edit and streaming_controller:
                     await streaming_controller.error(ev.message)
+                elif qq_streaming_controller:
+                    await qq_streaming_controller.abort(ev.message)
 
         if supports_edit:
             # 飞书：用 CardKit 流式卡片控制器替代"思考中"卡片
@@ -463,6 +480,23 @@ class ChannelRunner:
                 reply_to=msg.message_id,
             )
             await streaming_controller.start()
+        elif qq_c2c_streaming and qq_channel is not None:
+            # QQ C2C：用 stream_messages API 流式（首次有文本时才启动）
+            # 确保 token 已获取
+            if not qq_channel._token:
+                from illusion.channels.qq.api import ensure_token
+                qq_channel._token = await ensure_token(
+                    qq_channel._session,
+                    qq_channel.config.app_id,
+                    qq_channel.config.client_secret,
+                )
+            from illusion.channels.qq.streaming import QQStreamingController
+            qq_streaming_controller = QQStreamingController(
+                session=qq_channel._session,
+                token=qq_channel._token,
+                openid=msg.chat_id,
+                msg_id=msg.message_id,
+            )
 
         async def print_system(text: str) -> None:
             """系统消息转发到渠道"""
@@ -554,8 +588,15 @@ class ChannelRunner:
             if supports_edit and streaming_controller:
                 # 飞书：通知 controller 完成（全卡替换为终态）
                 await streaming_controller.complete()
+            elif qq_streaming_controller:
+                # QQ C2C：发送终结分片（input_state=DONE）
+                await qq_streaming_controller.complete()
+                # 降级检查：如果从未成功发出分片，走一次性发送
+                if qq_streaming_controller.should_fallback_to_static and full_text:
+                    await self.channel.send_text(msg.chat_id, full_text,
+                                                 reply_to=msg.message_id)
             elif full_text:
-                # 微信/QQ：一次性发送（QQ 群聊需要 reply_to 定位消息）
+                # 微信/QQ 群聊：一次性发送（QQ 群聊需要 reply_to 定位消息）
                 await self.channel.send_text(msg.chat_id, full_text,
                                              reply_to=msg.message_id)
             # 持久化渠道会话历史
@@ -577,6 +618,12 @@ class ChannelRunner:
             if supports_edit and streaming_controller:
                 # 飞书：通知 controller 错误终态
                 await streaming_controller.error(str(exc))
+            elif qq_streaming_controller:
+                # QQ C2C：中止流式 + 降级到一次性发送错误消息
+                await qq_streaming_controller.abort(str(exc))
+                await self.channel.send_text(
+                    msg.chat_id, f"❌ 处理失败: {exc}", reply_to=msg.message_id,
+                )
             else:
                 await self.channel.send_text(
                     msg.chat_id, f"❌ 处理失败: {exc}", reply_to=msg.message_id,

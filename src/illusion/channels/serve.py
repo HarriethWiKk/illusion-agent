@@ -75,15 +75,23 @@ def run_channel_serve() -> None:
 
     # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
     # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
-    # 故额外用 FileHandler 直接写文件，确保日志可靠落盘
+    # 故额外用 RotatingFileHandler 直接写文件，确保日志可靠落盘 + 自动轮转
+    # 轮转策略：单文件最大 10MB，保留 5 个备份（总计约 60MB），避免无限增长
+    from logging.handlers import RotatingFileHandler
+
     from illusion.config.paths import get_channels_data_dir
     log_path = get_channels_data_dir() / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
-    # 文件 handler（可靠写盘）
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    # 文件 handler（可靠写盘 + 大小轮转：10MB × 5 备份）
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     # stdout handler（前台运行时可见；detached 时可能缓冲但不影响文件）
