@@ -128,6 +128,18 @@ class QQSessionStore:
         }
         atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
+    def clear(self, key: str) -> None:
+        """清空指定键的会话（删除文件）
+
+        Args:
+            key: 存储键
+        """
+        path = self._session_path(key)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass  # 已删除
+
     def check_signal(self) -> bool:
         """检查 /delete 信号文件是否存在
 

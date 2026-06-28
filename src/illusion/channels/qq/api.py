@@ -9,7 +9,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import logging
 import re
 import time
@@ -52,6 +54,18 @@ DEDUP_MAX_SIZE = 1000
 RECONNECT_BACKOFF = [2, 5, 10, 30, 60]
 MAX_RECONNECT_ATTEMPTS = 100
 RATE_LIMIT_DELAY = 60
+
+# ── 文件上传参数 ──────────────────────────────────────────────
+
+# md5_10m 哈希取前 10,002,432 字节（QQ API 规范）
+_MD5_10M_SIZE = 10_002_432
+# upload_part_finish 可重试的业务错误码
+_BIZ_CODE_PART_RETRYABLE = 40093001
+_PART_FINISH_RETRY_INTERVAL = 1.0
+_PART_FINISH_DEFAULT_TIMEOUT = 120.0
+# complete_upload 失败重试次数与退避基数
+_COMPLETE_UPLOAD_MAX_RETRIES = 2
+_COMPLETE_UPLOAD_BASE_DELAY = 2.0
 
 # ── Token 管理 ────────────────────────────────────────────────
 
@@ -163,6 +177,49 @@ def _build_text_body(content: str, *, markdown: bool = False) -> dict[str, Any]:
     return body
 
 
+async def _parse_qq_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
+    """解析 QQ API 响应，处理空 body 和 errcode
+
+    QQ Bot API v2 的消息发送响应可能：
+    - 成功：HTTP 200，body 为空或 {"code": 0}
+    - 失败：HTTP 200 + {"code": <非0>, "message": "..."}（业务错误）
+    - 失败：HTTP 4xx/5xx + 错误 body
+
+    Args:
+        resp: aiohttp 响应对象
+
+    Returns:
+        dict[str, Any]: 响应 JSON（空 body 返回空 dict）
+
+    Raises:
+        RuntimeError: 业务错误（errcode != 0）
+        aiohttp.ClientResponseError: HTTP 错误
+    """
+    if resp.status >= 400:
+        err_body = await resp.text()
+        logger.error("QQ API HTTP 错误: status=%d body=%s", resp.status, err_body)
+        resp.raise_for_status()
+
+    raw = await resp.text()
+    if not raw or not raw.strip():
+        return {}  # QQ API 成功时可能返回空 body
+
+    try:
+        data = cast(dict[str, Any], json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
+        # 非 JSON 2xx 响应通常是网关错误页（HTML），不应静默成功
+        logger.warning("QQ API 响应非 JSON: %s", raw[:200])
+        raise RuntimeError(f"QQ API 响应非 JSON: {raw[:200]}")
+
+    # 检查业务错误码
+    code = data.get("code", 0)
+    if code and code != 0:
+        message = data.get("message", "unknown error")
+        raise RuntimeError(f"QQ API 业务错误: code={code} message={message}")
+
+    return data
+
+
 async def send_c2c_message(
     session: aiohttp.ClientSession,
     token: str,
@@ -191,11 +248,7 @@ async def send_c2c_message(
     if msg_id:
         body["msg_id"] = msg_id
     async with session.post(url, headers=headers, json=body) as resp:
-        if resp.status >= 400:
-            err_body = await resp.text()
-            logger.error("QQ C2C 发送失败: status=%d body=%s", resp.status, err_body)
-            resp.raise_for_status()
-        return cast(dict[str, Any], await resp.json())
+        return await _parse_qq_response(resp)
 
 
 async def send_group_message(
@@ -229,11 +282,7 @@ async def send_group_message(
         body["msg_id"] = msg_id
     logger.info("QQ 群聊发送: url=%s body=%s", url, body)
     async with session.post(url, headers=headers, json=body) as resp:
-        if resp.status >= 400:
-            err_body = await resp.text()
-            logger.error("QQ 群聊发送失败: status=%d body=%s", resp.status, err_body)
-            resp.raise_for_status()
-        return cast(dict[str, Any], await resp.json())
+        return await _parse_qq_response(resp)
 
 
 # ── 打字状态 ──────────────────────────────────────────────────
@@ -257,7 +306,7 @@ async def send_typing(
     logger.debug("QQ 打字状态指示（占位）")
 
 
-# ── 文件上传（三步分片） ──────────────────────────────────────
+# ── 文件上传（分片） ──────────────────────────────────────────
 
 async def upload_file(
     session: aiohttp.ClientSession,
@@ -266,12 +315,14 @@ async def upload_file(
     file_path: str,
     *,
     is_group: bool = False,
+    file_type: int | None = None,
 ) -> dict[str, Any]:
-    """三步分片上传文件
+    """分片上传文件（prepare → PUT parts → part_finish → complete）
 
-    1. upload_prepare → 获取 upload_id + presigned URLs
-    2. PUT 每个分片到 presigned URL
-    3. POST files → 获取 file_info
+    1. POST /v2/{users|groups}/{id}/upload_prepare — 获取 upload_id + presigned URLs
+    2. 对每个 part：PUT 数据到 presigned URL（COS）
+    3. POST /v2/{users|groups}/{id}/upload_part_finish — 确认分片（每个 part 上传后调用）
+    4. POST /v2/{users|groups}/{id}/files — 完成上传，获取 file_info
 
     Args:
         session: HTTP 会话
@@ -279,65 +330,312 @@ async def upload_file(
         target_id: openid 或 group_openid
         file_path: 本地文件路径
         is_group: 是否群聊目标
+        file_type: 文件类型（MEDIA_TYPE_IMAGE=1/MEDIA_TYPE_FILE=4 等），
+            None 时不发送该字段（由服务端默认）
 
     Returns:
-        dict[str, Any]: file_info
+        dict[str, Any]: 含 file_info 字段，用于 send_media_message
     """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     file_size = path.stat().st_size
-    file_sha = _file_sha256(path)
+    hashes = _compute_file_hashes(file_path, file_size)
 
-    # 确定上传目标路径前缀
     target_type = "groups" if is_group else "users"
     base_url = f"{API_BASE}/v2/{target_type}/{target_id}"
     headers = {"Authorization": f"QQBot {token}"}
 
     # Step 1: upload_prepare
-    prepare_body = {
+    prepare_body: dict[str, Any] = {
         "file_name": path.name,
         "file_size": file_size,
-        "file_sha": file_sha,
+        "md5": hashes["md5"],
+        "sha1": hashes["sha1"],
+        "md5_10m": hashes["md5_10m"],
     }
+    if file_type is not None:
+        prepare_body["file_type"] = file_type
     async with session.post(
-        f"{base_url}/files/upload_prepare",
-        headers=headers, json=prepare_body,
+        f"{base_url}/upload_prepare", headers=headers, json=prepare_body,
     ) as resp:
-        resp.raise_for_status()
-        prepare_data = await resp.json()
+        prepare_data = await _read_qq_json(resp)
 
-    upload_id = prepare_data["upload_id"]
-    part_urls = prepare_data.get("part_urls", [])
+    upload_id = str(prepare_data.get("upload_id", ""))
+    if not upload_id:
+        raise RuntimeError(f"upload_prepare 响应缺少 upload_id: {prepare_data}")
+    block_size = int(prepare_data.get("block_size", 0))
+    raw_parts = prepare_data.get("parts") or prepare_data.get("part_list") or []
+    if not raw_parts:
+        raise RuntimeError(f"upload_prepare 响应缺少 parts: {prepare_data}")
 
-    # Step 2: 上传每个分片
-    file_bytes = path.read_bytes()
-    part_size = prepare_data.get("part_size", file_size)
-    for i, part_url in enumerate(part_urls):
-        start = i * part_size
-        end = min(start + part_size, file_size)
-        part_data = file_bytes[start:end]
-        async with session.put(part_url, data=part_data) as resp:
+    retry_timeout = float(prepare_data.get("retry_timeout", 0) or 0)
+    if retry_timeout <= 0:
+        retry_timeout = _PART_FINISH_DEFAULT_TIMEOUT
+
+    logger.info(
+        "QQ upload_prepare: upload_id=%s block_size=%d parts=%d",
+        upload_id, block_size, len(raw_parts),
+    )
+
+    # Step 2 & 3: 上传每个分片 + upload_part_finish
+    for raw_part in raw_parts:
+        if not isinstance(raw_part, dict):
+            continue
+        part_index = int(raw_part.get("part_index") or raw_part.get("index") or 0)
+        presigned_url = str(
+            raw_part.get("presigned_url") or raw_part.get("url") or ""
+        )
+        part_block_size = int(raw_part.get("block_size", 0)) or block_size
+        if not presigned_url:
+            raise RuntimeError(f"分片 {part_index} 缺少 presigned_url")
+
+        # part_index 从 1 开始
+        offset = (part_index - 1) * block_size
+        length = min(part_block_size, file_size - offset)
+
+        with path.open("rb") as fh:
+            fh.seek(offset)
+            part_data = fh.read(length)
+        part_md5 = hashlib.md5(part_data).hexdigest()
+
+        # PUT 到 presigned URL（COS）
+        put_headers = {"Content-Length": str(len(part_data))}
+        async with session.put(
+            presigned_url, data=part_data, headers=put_headers,
+        ) as put_resp:
+            if put_resp.status < 200 or put_resp.status >= 300:
+                body = await put_resp.text()
+                raise RuntimeError(
+                    f"COS PUT 分片 {part_index} 失败: status={put_resp.status} "
+                    f"body={body[:200]}"
+                )
+
+        # upload_part_finish（biz_code 40093001 可重试）
+        await _upload_part_finish(
+            session, base_url, headers,
+            upload_id, part_index, length, part_md5, retry_timeout,
+        )
+
+    # Step 4: 完成上传（失败重试 2 次，指数退避）
+    return await _complete_upload(session, base_url, headers, upload_id)
+
+
+def _compute_file_hashes(file_path: str, file_size: int) -> dict[str, str]:
+    """计算文件的 md5、sha1、md5_10m 哈希值。
+
+    md5_10m 为前 _MD5_10M_SIZE 字节的 md5；文件小于该尺寸时等于全文件 md5。
+    """
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    md5_10m = hashlib.md5()
+
+    need_10m = file_size > _MD5_10M_SIZE
+    bytes_read = 0
+
+    with open(file_path, "rb") as fh:
+        while True:
+            chunk = fh.read(65536)
+            if not chunk:
+                break
+            md5.update(chunk)
+            sha1.update(chunk)
+            if need_10m:
+                remaining = _MD5_10M_SIZE - bytes_read
+                if remaining > 0:
+                    md5_10m.update(chunk[:remaining])
+            bytes_read += len(chunk)
+
+    full_md5 = md5.hexdigest()
+    return {
+        "md5": full_md5,
+        "sha1": sha1.hexdigest(),
+        "md5_10m": md5_10m.hexdigest() if need_10m else full_md5,
+    }
+
+
+async def _read_qq_json(resp: aiohttp.ClientResponse) -> dict[str, Any]:
+    """解析 QQ API JSON 响应，业务错误时抛出含 biz_code 的 RuntimeError。
+
+    响应数据可能在 data 字段内，也可能直接在顶层。
+    """
+    try:
+        data = await resp.json(content_type=None)
+    except Exception:
+        text = await resp.text()
+        raise RuntimeError(
+            f"QQ API 非 JSON 响应 (status={resp.status}): {text[:200]}"
+        )
+
+    if not isinstance(data, dict):
+        return {}
+
+    biz_code = int(data.get("code") or data.get("biz_code") or 0)
+    if biz_code != 0:
+        message = data.get("message", "") or data.get("msg", "")
+        raise RuntimeError(f"QQ API biz_code={biz_code}: {message}")
+
+    if resp.status >= 400:
+        raise RuntimeError(f"QQ API HTTP {resp.status}: {str(data)[:200]}")
+
+    inner = data.get("data")
+    if isinstance(inner, dict):
+        return inner
+    return data
+
+
+async def _upload_part_finish(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    headers: dict[str, str],
+    upload_id: str,
+    part_index: int,
+    block_size: int,
+    md5: str,
+    retry_timeout: float,
+) -> None:
+    """调用 upload_part_finish，biz_code 40093001 时重试直到 retry_timeout。"""
+    body = {
+        "upload_id": upload_id,
+        "part_index": part_index,
+        "block_size": block_size,
+        "md5": md5,
+    }
+    url = f"{base_url}/upload_part_finish"
+
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        try:
+            async with session.post(url, headers=headers, json=body) as resp:
+                await _read_qq_json(resp)
+            return
+        except RuntimeError as exc:
+            if str(_BIZ_CODE_PART_RETRYABLE) not in str(exc):
+                raise
+            elapsed = time.monotonic() - start
+            if elapsed >= retry_timeout:
+                raise RuntimeError(
+                    f"upload_part_finish 重试超时"
+                    f"（{retry_timeout:.0f}s，{attempt} 次重试）: {exc}"
+                ) from exc
+            attempt += 1
+            logger.debug(
+                "upload_part_finish 可重试错误，第 %d 次，elapsed=%.1fs: %s",
+                attempt, elapsed, exc,
+            )
+            await asyncio.sleep(_PART_FINISH_RETRY_INTERVAL)
+
+
+async def _complete_upload(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    headers: dict[str, str],
+    upload_id: str,
+) -> dict[str, Any]:
+    """调用 POST /files 完成上传，失败重试 2 次，指数退避（基础延迟 2s）。"""
+    body = {"upload_id": upload_id}
+    url = f"{base_url}/files"
+
+    last_exc: Exception | None = None
+    for attempt in range(_COMPLETE_UPLOAD_MAX_RETRIES + 1):
+        try:
+            async with session.post(url, headers=headers, json=body) as resp:
+                return await _read_qq_json(resp)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _COMPLETE_UPLOAD_MAX_RETRIES:
+                delay = _COMPLETE_UPLOAD_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "complete_upload 第 %d 次失败，%.1fs 后重试: %s",
+                    attempt + 1, delay, exc,
+                )
+                await asyncio.sleep(delay)
+    raise RuntimeError(
+        f"complete_upload 失败（{_COMPLETE_UPLOAD_MAX_RETRIES + 1} 次尝试）: {last_exc}"
+    )
+
+
+async def send_media_message(
+    session: aiohttp.ClientSession,
+    token: str,
+    target_id: str,
+    file_info: str,
+    *,
+    is_group: bool = False,
+    msg_id: str = "",
+) -> str:
+    """发送富媒体消息（msg_type=7）
+
+    需先调用 upload_file 获取 file_info，再调用本方法发送。
+
+    Args:
+        session: HTTP 会话
+        token: access_token
+        target_id: openid 或 group_openid
+        file_info: upload_file 返回的 file_info 字符串
+        is_group: 是否群聊目标（群聊必须传 msg_id）
+        msg_id: 引用的消息 ID（群聊被动消息必须）
+
+    Returns:
+        str: 新消息 ID（API 不返回则为空串）
+    """
+    target_type = "groups" if is_group else "users"
+    url = f"{API_BASE}/v2/{target_type}/{target_id}/messages"
+    headers = {"Authorization": f"QQBot {token}"}
+    body: dict[str, Any] = {
+        "content": "",
+        "msg_type": MSG_TYPE_MEDIA,
+        "media": {"file_info": file_info},
+        "msg_seq": _next_msg_seq(),
+    }
+    if msg_id:
+        body["msg_id"] = msg_id
+    async with session.post(url, headers=headers, json=body) as resp:
+        if resp.status >= 400:
+            err_body = await resp.text()
+            logger.error("QQ 富媒体发送失败: status=%d body=%s", resp.status, err_body)
             resp.raise_for_status()
-
-    # Step 3: 完成上传
-    complete_body = {"upload_id": upload_id}
-    async with session.post(
-        f"{base_url}/files",
-        headers=headers, json=complete_body,
-    ) as resp:
-        resp.raise_for_status()
-        return cast(dict[str, Any], await resp.json())
+        # 复用 _parse_qq_response 处理空 body / 非 JSON / 业务错误码
+        data = await _parse_qq_response(resp)
+    return str(data.get("id", ""))
 
 
-def _file_sha256(path: Path) -> str:
-    """计算文件 SHA256"""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
+async def download_file(
+    session: aiohttp.ClientSession,
+    token: str,
+    target_id: str,
+    file_info: str,
+    *,
+    is_group: bool = False,
+) -> bytes:
+    """下载文件（通过 file_info）
+
+    QQ Bot API v2 文件下载：GET /v2/{users|groups}/{openid}/files/{file_info}
+
+    注意：该 API 需要文件归属于当前 bot，且 file_info 在有效期内。
+    实际可用性取决于 bot 权限和 API 版本，不可用时调用方应回退到 download_url。
+
+    Args:
+        session: HTTP 会话
+        token: access_token
+        target_id: openid 或 group_openid
+        file_info: 文件标识
+        is_group: 是否群聊目标
+
+    Returns:
+        bytes: 文件内容
+    """
+    target_type = "groups" if is_group else "users"
+    url = f"{API_BASE}/v2/{target_type}/{target_id}/files/{file_info}"
+    headers = {"Authorization": f"QQBot {token}"}
+    async with session.get(url, headers=headers) as resp:
+        if resp.status >= 400:
+            err_body = await resp.text()
+            logger.error("QQ 文件下载失败: status=%d body=%s", resp.status, err_body)
+            resp.raise_for_status()
+        return await resp.read()
 
 
 # ── 文本分片（代码块感知） ────────────────────────────────────

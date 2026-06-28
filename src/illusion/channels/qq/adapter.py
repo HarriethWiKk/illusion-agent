@@ -20,7 +20,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from illusion.channels.base import Channel, InboundMessage
+from illusion.channels.base import Attachment, Channel, InboundMessage
 from illusion.channels.qq.api import (
     MAX_MESSAGE_LENGTH,
     DEDUP_WINDOW_SECONDS,
@@ -37,6 +37,27 @@ if TYPE_CHECKING:
     from illusion.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+# QQ CDN 可信域名后缀（用于附件下载时判断是否可附带 bot token）
+_QQ_CDN_HOST_SUFFIXES = (".qq.com", ".qq.com.cn")
+
+
+def _is_qq_cdn_url(url: str) -> bool:
+    """判断 URL 是否指向 QQ 可信 CDN 域名。
+
+    用于在附件下载时决定是否携带 Authorization 头，防止 bot token
+    通过恶意构造的 attachment.url 泄露到第三方 host。
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname or ""
+    return any(host.endswith(suffix) for suffix in _QQ_CDN_HOST_SUFFIXES)
 
 
 class QQChannel(Channel):
@@ -165,7 +186,10 @@ class QQChannel(Channel):
                                      reply_to=msg.message_id)
                 return
 
-            logger.info("QQ 消息已准入: user=%s text=%s", msg.user_id, msg.text[:30])
+            # 附件只存元数据，LLM 通过 receive_media 工具按需下载
+            # （与飞书一致，避免入站下载失败导致消息无响应）
+            logger.info("QQ 消息已准入: user=%s text=%s attachments=%d",
+                        msg.user_id, msg.text[:30], len(msg.attachments))
             self._queue.put_nowait(msg)
         else:
             logger.info("QQ 消息被拒绝: user=%s is_bot=%s", msg.user_id, msg.is_bot)
@@ -184,8 +208,9 @@ class QQChannel(Channel):
             content = str(raw.get("content", "")).strip()
             _author = raw.get("author")
             author = _author if isinstance(_author, dict) else {}
-            user_id = str(author.get("id", ""))
-            user_name = str(author.get("username", ""))
+            # QQ C2C 事件 author 字段是 user_openid（不是 id）
+            user_id = str(author.get("user_openid") or author.get("id") or "")
+            user_name = str(author.get("username") or "")
 
             if not msg_id or not user_id:
                 return None
@@ -200,6 +225,7 @@ class QQChannel(Channel):
                 user_id=user_id,
                 user_name=user_name,
                 message_id=msg_id,
+                attachments=self._parse_attachments(raw),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("标准化 QQ C2C 消息失败: %s", exc)
@@ -221,9 +247,10 @@ class QQChannel(Channel):
             content = str(raw.get("content", "")).strip()
             _author = raw.get("author")
             author = _author if isinstance(_author, dict) else {}
-            user_id = str(author.get("id", ""))
-            user_name = str(author.get("username", ""))
-            group_openid = str(raw.get("group_openid", ""))
+            # QQ 群聊事件 author 字段是 member_openid（不是 id）
+            user_id = str(author.get("member_openid") or author.get("id") or "")
+            user_name = str(author.get("username") or "")
+            group_openid = str(raw.get("group_openid") or "")
 
             if not msg_id or not user_id or not group_openid:
                 logger.warning("QQ 群聊消息缺少必填字段: msg_id=%s user_id=%s group=%s",
@@ -251,10 +278,60 @@ class QQChannel(Channel):
                 user_id=user_id,
                 user_name=user_name,
                 message_id=msg_id,
+                attachments=self._parse_attachments(raw),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("标准化 QQ 群聊消息失败: %s", exc)
             return None
+
+    def _parse_attachments(self, raw: dict[str, Any]) -> list[Attachment]:
+        """解析 QQ 消息的 attachments 字段
+
+        QQ Bot API v2 附件结构（每项）：
+            - content_type: MIME 类型（image/png、application/pdf 等）
+            - filename: 文件名
+            - size: 字节数
+            - id: 附件 ID
+            - url: 下载 URL（临时，可能需要鉴权）
+
+        Args:
+            raw: 原始消息数据
+
+        Returns:
+            list[Attachment]: 标准化附件列表
+        """
+        attachments: list[Attachment] = []
+        raw_attachments = raw.get("attachments")
+        if not isinstance(raw_attachments, list):
+            return attachments
+
+        for idx, att in enumerate(raw_attachments):
+            if not isinstance(att, dict):
+                continue
+            content_type = str(att.get("content_type", ""))
+            if content_type.startswith("image/"):
+                media_type = "image"
+            elif content_type.startswith("video/"):
+                media_type = "video"
+            elif content_type.startswith("audio/"):
+                media_type = "audio"
+            else:
+                media_type = "file"
+
+            try:
+                size_val = int(att.get("size", 0))
+            except (TypeError, ValueError):
+                size_val = 0
+
+            attachments.append(Attachment(
+                id=str(att.get("id", idx + 1)),
+                media_type=media_type,
+                filename=str(att.get("filename", f"attachment_{idx + 1}")),
+                size=size_val,
+                file_key=str(att.get("file_info", "")),
+                download_url=str(att.get("url", "")),
+            ))
+        return attachments
 
     def _admit(self, msg: InboundMessage) -> bool:
         """准入控制：决定消息是否进入 agent
@@ -393,22 +470,29 @@ class QQChannel(Channel):
             if i > 0:
                 await asyncio.sleep(1.5)  # 分片间隔，防限流
 
+            # 尝试发送，markdown 失败时降级为纯文本
+            use_markdown = self._markdown_support
             for attempt in range(3):
                 try:
                     if is_group:
                         await send_group_message(
                             self._session, self._token, chat_id, chunk,
                             msg_id=reply_to,
-                            markdown=self._markdown_support,
+                            markdown=use_markdown,
                         )
                     else:
                         await send_c2c_message(
                             self._session, self._token, chat_id, chunk,
                             msg_id=reply_to or "",
-                            markdown=self._markdown_support,
+                            markdown=use_markdown,
                         )
                     break
                 except Exception as exc:  # noqa: BLE001
+                    # markdown 权限/格式错误时降级为纯文本重试
+                    if use_markdown and attempt == 0:
+                        logger.warning("QQ markdown 发送失败，降级为纯文本: %s", exc)
+                        use_markdown = False
+                        continue
                     logger.warning("QQ 发送失败 (attempt %d/3): %s", attempt + 1, exc)
                     if attempt < 2:
                         await asyncio.sleep(2)
@@ -421,12 +505,13 @@ class QQChannel(Channel):
         """编辑消息——QQ 不支持编辑，空操作"""
         pass
 
-    async def send_file(self, chat_id: str, file_path: str) -> None:
+    async def send_file(self, chat_id: str, file_path: str, *, reply_to: str = "") -> None:
         """发送文件（三步分片上传）
 
         Args:
             chat_id: 目标会话
             file_path: 本地文件路径
+            reply_to: 引用的消息 ID（QQ 群聊被动消息需要；当前 upload_file 未使用，保留以兼容基类签名）
         """
         try:
             from illusion.channels.qq.api import upload_file
@@ -437,6 +522,228 @@ class QQChannel(Channel):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("QQ 文件发送失败: %s", exc)
+
+    async def send_image(
+        self, chat_id: str, image_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送图片到 QQ 会话
+
+        QQ 富媒体消息：先 upload_file 上传图片（file_type=1）获取 file_info，
+        再 send_media_message 发送 msg_type=7 富媒体消息。
+        QQ 富媒体消息不支持单独 caption，caption 作为后续文本消息发送。
+
+        群聊场景必须传 reply_to（被动消息 msg_id），否则 API 拒绝主动消息。
+
+        Args:
+            chat_id: 目标会话（openid 或 group_openid）
+            image_path: 本地图片路径
+            caption: 可选附注文字
+            reply_to: 引用的消息 ID（群聊被动消息必须）
+
+        Returns:
+            str: 新消息 ID（API 不返回则为空串）
+
+        Raises:
+            RuntimeError: session 未初始化、群聊缺少 reply_to、上传/发送失败
+        """
+        if not self._session:
+            raise RuntimeError("QQ session 未初始化，无法发送图片")
+
+        from illusion.channels.qq.api import (
+            MEDIA_TYPE_IMAGE,
+            send_media_message,
+            upload_file,
+        )
+
+        if not self._token:
+            self._token = await ensure_token(
+                self._session, self.config.app_id, self.config.client_secret,
+            )
+
+        is_group = self._chat_type_cache.get(chat_id) == "group"
+
+        # QQ 群聊 API 要求 msg_id（被动消息），无 msg_id 时主动消息无权限
+        if is_group and not reply_to:
+            raise RuntimeError(
+                "QQ 群聊发送图片需要 reply_to（被动消息 msg_id），主动消息无权限"
+            )
+
+        upload_resp = await upload_file(
+            self._session, self._token, chat_id, image_path,
+            is_group=is_group,
+            file_type=MEDIA_TYPE_IMAGE,
+        )
+        file_info = str(upload_resp.get("file_info", ""))
+        if not file_info:
+            raise RuntimeError(f"QQ 图片上传未返回 file_info: {upload_resp}")
+
+        msg_id = await send_media_message(
+            self._session, self._token, chat_id, file_info,
+            is_group=is_group, msg_id=reply_to,
+        )
+
+        if caption:
+            await self.send_text(chat_id, caption, reply_to=reply_to)
+
+        return msg_id
+
+    async def send_document(
+        self, chat_id: str, file_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送文件到 QQ 会话
+
+        QQ 富媒体消息：先 upload_file 上传文件（file_type=4）获取 file_info，
+        再 send_media_message 发送 msg_type=7 富媒体消息。
+        caption 作为后续文本消息发送。
+
+        群聊场景必须传 reply_to（被动消息 msg_id），否则 API 拒绝主动消息。
+
+        Args:
+            chat_id: 目标会话（openid 或 group_openid）
+            file_path: 本地文件路径
+            caption: 可选附注文字
+            reply_to: 引用的消息 ID（群聊被动消息必须）
+
+        Returns:
+            str: 新消息 ID（API 不返回则为空串）
+
+        Raises:
+            RuntimeError: session 未初始化、群聊缺少 reply_to、上传/发送失败
+        """
+        if not self._session:
+            raise RuntimeError("QQ session 未初始化，无法发送文件")
+
+        from illusion.channels.qq.api import (
+            MEDIA_TYPE_FILE,
+            send_media_message,
+            upload_file,
+        )
+
+        if not self._token:
+            self._token = await ensure_token(
+                self._session, self.config.app_id, self.config.client_secret,
+            )
+
+        is_group = self._chat_type_cache.get(chat_id) == "group"
+
+        # QQ 群聊 API 要求 msg_id（被动消息），无 msg_id 时主动消息无权限
+        if is_group and not reply_to:
+            raise RuntimeError(
+                "QQ 群聊发送文件需要 reply_to（被动消息 msg_id），主动消息无权限"
+            )
+
+        upload_resp = await upload_file(
+            self._session, self._token, chat_id, file_path,
+            is_group=is_group,
+            file_type=MEDIA_TYPE_FILE,
+        )
+        file_info = str(upload_resp.get("file_info", ""))
+        if not file_info:
+            raise RuntimeError(f"QQ 文件上传未返回 file_info: {upload_resp}")
+
+        msg_id = await send_media_message(
+            self._session, self._token, chat_id, file_info,
+            is_group=is_group, msg_id=reply_to,
+        )
+
+        if caption:
+            await self.send_text(chat_id, caption, reply_to=reply_to)
+
+        return msg_id
+
+    async def download_attachment(
+        self, attachment: Attachment, save_path: str
+    ) -> str:
+        """下载 QQ 附件到本地
+
+        优先使用 attachment.download_url（QQ 入站附件的临时 URL）直接下载；
+        若不可用，回退到通过 file_key (file_info) 调用 QQ 文件下载 API。
+        两者均不可用时抛 NotImplementedError。
+
+        Args:
+            attachment: 附件对象（来自 InboundMessage.attachments）
+            save_path: 本地保存路径
+
+        Returns:
+            str: 实际保存路径
+
+        Raises:
+            NotImplementedError: 无可用下载方式或下载失败
+        """
+        from pathlib import Path
+
+        save_path_obj = Path(save_path)
+        save_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        if not self._session:
+            raise NotImplementedError("QQ session 未初始化，无法下载附件")
+
+        if not self._token:
+            self._token = await ensure_token(
+                self._session, self.config.app_id, self.config.client_secret,
+            )
+
+        # 优先使用 download_url（QQ 入站附件的临时 URL）
+        url_error: Exception | None = None
+        if attachment.download_url:
+            try:
+                # QQ 返回的 URL 常是协议相对格式（//xxx），需补 https: 前缀
+                url = attachment.download_url
+                if url.startswith("//"):
+                    url = f"https:{url}"
+                # 仅对 QQ 可信 CDN 域名附带 Authorization，避免 bot token 泄露到第三方 host
+                headers: dict[str, str] = {}
+                if _is_qq_cdn_url(url):
+                    headers["Authorization"] = f"QQBot {self._token}"
+                else:
+                    logger.warning(
+                        "QQ 附件 URL 非 QQ CDN 域名，不带 Authorization: %s",
+                        url[:80],
+                    )
+                async with self._session.get(url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+                save_path_obj.write_bytes(data)
+                logger.info("QQ 附件下载成功: %s → %s (%d bytes)",
+                            attachment.filename, save_path_obj, len(data))
+                return str(save_path_obj)
+            except Exception as exc:  # noqa: BLE001
+                url_error = exc
+                logger.warning("QQ 附件 URL 下载失败: %s (url=%s)",
+                               exc, attachment.download_url[:80])
+
+        # 回退：通过 file_key (file_info) 调用文件下载 API
+        if attachment.file_key:
+            from illusion.channels.qq.api import download_file
+
+            # download_attachment 签名不含 chat_id，使用 bot_openid 作为 target_id（C2C 场景）
+            target_id = self._bot_openid or ""
+            if not target_id:
+                raise NotImplementedError(
+                    "QQ 附件 file_info 下载需要 bot_openid，但未获取到"
+                )
+            try:
+                data = await download_file(
+                    self._session, self._token, target_id,
+                    attachment.file_key,
+                    is_group=False,
+                )
+                save_path_obj.write_bytes(data)
+                return str(save_path_obj)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("QQ 附件 file_info 下载失败: %s", exc)
+                raise NotImplementedError(
+                    f"QQ 附件下载失败: {exc}"
+                ) from exc
+
+        # 两种方式都不可用或都失败，给出详细错误信息
+        if url_error:
+            raise NotImplementedError(
+                f"QQ 附件下载失败（url={attachment.download_url[:60]}...）: {url_error}"
+            ) from url_error
+        raise NotImplementedError(
+            f"QQ 附件缺少 download_url 和 file_key，无法下载: {attachment.filename}"
+        )
 
     async def start_typing(self, chat_id: str) -> None:
         """开始打字状态指示（C2C only，50s 防抖）

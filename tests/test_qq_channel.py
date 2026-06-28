@@ -351,3 +351,84 @@ class TestQQChannelAdmit:
         ch.config.group_policy.admin_list = ["admin_user"]
         msg = self._make_msg(chat_type="group", user_id="admin_user")
         assert ch._admit(msg) is True
+
+
+# ─── QQ CDN host 校验回归测试（防 bot token 泄露到第三方 host） ─────
+
+
+class TestQQCdnUrlValidation:
+    """_is_qq_cdn_url 防止 bot token 通过恶意附件 URL 泄露。"""
+
+    def test_qq_cdn_host_allowed(self):
+        from illusion.channels.qq.adapter import _is_qq_cdn_url
+        assert _is_qq_cdn_url("https://multimedia.nt.qq.com/file/abc") is True
+        assert _is_qq_cdn_url("https://cdn.example.qq.com/path") is True
+        assert _is_qq_cdn_url("https://multimedia.nt.qq.com.cn/path") is True
+
+    def test_third_party_host_rejected(self):
+        from illusion.channels.qq.adapter import _is_qq_cdn_url
+        assert _is_qq_cdn_url("https://evil.example.com/file") is False
+        assert _is_qq_cdn_url("https://attacker.qq.com.evil.com/path") is False  # 后缀欺骗
+
+    def test_non_http_scheme_rejected(self):
+        from illusion.channels.qq.adapter import _is_qq_cdn_url
+        assert _is_qq_cdn_url("file:///etc/passwd") is False
+        assert _is_qq_cdn_url("ftp://multimedia.nt.qq.com/file") is False
+
+    def test_protocol_relative_url_rejected_before_https_prefix(self):
+        """// 开头的协议相对 URL 在补 https: 前不应被识别为可信（补前缀后才校验）。"""
+        from illusion.channels.qq.adapter import _is_qq_cdn_url
+        # 补前缀前：原始 //multimedia.nt.qq.com 不应通过（无 scheme）
+        assert _is_qq_cdn_url("//multimedia.nt.qq.com/file") is False
+        # 补前缀后：应通过
+        assert _is_qq_cdn_url("https://multimedia.nt.qq.com/file") is True
+
+
+# ─── _parse_qq_response 非 JSON 响应回归测试 ─────────────────────
+
+
+class _FakeQQResponse:
+    """模拟 aiohttp.ClientResponse 的最小实现。"""
+
+    def __init__(self, status: int, body: str):
+        self.status = status
+        self._body = body
+
+    async def text(self) -> str:
+        return self._body
+
+    def raise_for_status(self) -> None:
+        if self.status >= 400:
+            raise aiohttp.ClientResponseError(
+                None, None, status=self.status, message="HTTP error",
+            )
+
+
+class TestParseQQResponseNonJson:
+    """非 JSON 2xx 响应应抛 RuntimeError，而非静默返回 {'_raw': ...}。"""
+
+    @pytest.mark.asyncio
+    async def test_non_json_2xx_raises_runtime_error(self):
+        from illusion.channels.qq.api import _parse_qq_response
+        resp = _FakeQQResponse(200, "<html>gateway error</html>")
+        with pytest.raises(RuntimeError, match="非 JSON"):
+            await _parse_qq_response(resp)
+
+    @pytest.mark.asyncio
+    async def test_empty_body_returns_empty_dict(self):
+        from illusion.channels.qq.api import _parse_qq_response
+        resp = _FakeQQResponse(200, "")
+        assert await _parse_qq_response(resp) == {}
+
+    @pytest.mark.asyncio
+    async def test_valid_json_returns_dict(self):
+        from illusion.channels.qq.api import _parse_qq_response
+        resp = _FakeQQResponse(200, '{"code": 0, "data": "ok"}')
+        assert await _parse_qq_response(resp) == {"code": 0, "data": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_business_error_raises_runtime_error(self):
+        from illusion.channels.qq.api import _parse_qq_response
+        resp = _FakeQQResponse(200, '{"code": 40001, "message": "bad"}')
+        with pytest.raises(RuntimeError, match="业务错误"):
+            await _parse_qq_response(resp)
