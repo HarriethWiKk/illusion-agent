@@ -1,4 +1,18 @@
 """投递解析测试"""
+from __future__ import annotations
+
+try:
+    import aiohttp  # noqa: F401
+    _has_aiohttp = True
+except ImportError:
+    _has_aiohttp = False
+
+try:
+    import lark_oapi  # noqa: F401
+    _has_lark_oapi = True
+except ImportError:
+    _has_lark_oapi = False
+
 from illusion.channels.delivery import parse_deliver_to
 
 
@@ -85,6 +99,7 @@ from illusion.channels.config import (  # noqa: E402
 from illusion.channels.delivery import deliver_file_to_channel  # noqa: E402
 
 
+@pytest.mark.skipif(not _has_lark_oapi, reason="lark_oapi not installed")
 @pytest.mark.asyncio
 async def test_deliver_file_feishu_success(tmp_path: Path) -> None:
     file_path = tmp_path / "test.txt"
@@ -114,6 +129,7 @@ async def test_deliver_file_feishu_success(tmp_path: Path) -> None:
     mock_client.im.v1.message.create.assert_called_once()
 
 
+@pytest.mark.skipif(not _has_aiohttp, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_deliver_file_qq_success(tmp_path: Path) -> None:
     file_path = tmp_path / "doc.pdf"
@@ -135,6 +151,7 @@ async def test_deliver_file_qq_success(tmp_path: Path) -> None:
     mock_media.assert_awaited_once()
 
 
+@pytest.mark.skipif(not _has_aiohttp, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_deliver_file_weixin_success(tmp_path: Path) -> None:
     file_path = tmp_path / "img.png"
