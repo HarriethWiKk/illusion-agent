@@ -13,11 +13,37 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod  # 抽象基类支持
-from dataclasses import dataclass  # 数据类
+from dataclasses import dataclass, field  # 数据类
 from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型注解
 
 if TYPE_CHECKING:
     from illusion.config.settings import Settings  # 仅类型检查时导入，避免循环
+
+
+@dataclass(frozen=True)
+class Attachment:
+    """入站消息附件
+
+    所有渠道的附件（图片/文件/视频/音频）归一化为此结构。
+
+    Attributes:
+        id: 附件标识（在消息内唯一，如 "1", "2"）
+        media_type: 媒体类型，"image" | "file" | "video" | "audio"
+        filename: 原始文件名
+        size: 字节数（未知为 0）
+        file_key: 渠道特定文件标识（飞书 image_key/file_key、QQ file_info）
+        download_url: 下载 URL（部分渠道提供）
+        message_id: 所属消息 ID（用于附件下载时查找渠道特定的会话凭证，
+                     如微信 AES 密钥缓存）
+    """
+
+    id: str
+    media_type: str  # "image" | "file" | "video" | "audio"
+    filename: str
+    size: int = 0
+    file_key: str = ""
+    download_url: str = ""
+    message_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -45,6 +71,7 @@ class InboundMessage:
     message_id: str  # 消息 ID
     is_bot: bool = False  # 是否机器人
     thread_id: str = ""  # 线程 ID
+    attachments: list[Attachment] = field(default_factory=list)  # 附件列表
 
 
 class Channel(ABC):
@@ -106,15 +133,76 @@ class Channel(ABC):
         """
         ...
 
-    @abstractmethod
-    async def send_file(self, chat_id: str, file_path: str) -> None:
-        """发送文件
+    async def send_file(self, chat_id: str, file_path: str, *, reply_to: str = "") -> None:
+        """发送文件（deprecated，按扩展名路由到 send_image/send_document）
 
         Args:
             chat_id: 目标会话
             file_path: 本地文件路径
+            reply_to: 引用的消息 ID（部分渠道需要，如 QQ 群聊被动消息）
         """
-        ...
+        from pathlib import Path
+
+        ext = Path(file_path).suffix.lower()
+        if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}:
+            await self.send_image(chat_id, file_path, reply_to=reply_to)
+        else:
+            await self.send_document(chat_id, file_path, reply_to=reply_to)
+
+    async def send_image(
+        self, chat_id: str, image_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送图片到指定会话，返回新消息 ID
+
+        Args:
+            chat_id: 目标会话
+            image_path: 本地图片文件路径
+            caption: 可选附注文字
+            reply_to: 引用的消息 ID（部分渠道需要，如 QQ 群聊被动消息）
+
+        Returns:
+            str: 新消息 ID
+
+        Raises:
+            NotImplementedError: 渠道不支持图片发送
+        """
+        raise NotImplementedError(f"{self.name} does not support send_image")
+
+    async def send_document(
+        self, chat_id: str, file_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送文件（非图片）到指定会话，返回新消息 ID
+
+        Args:
+            chat_id: 目标会话
+            file_path: 本地文件路径
+            caption: 可选附注文字
+            reply_to: 引用的消息 ID（部分渠道需要，如 QQ 群聊被动消息）
+
+        Returns:
+            str: 新消息 ID
+
+        Raises:
+            NotImplementedError: 渠道不支持文件发送
+        """
+        raise NotImplementedError(f"{self.name} does not support send_document")
+
+    async def download_attachment(
+        self, attachment: "Attachment", save_path: str
+    ) -> str:
+        """下载入站附件到本地路径
+
+        Args:
+            attachment: 附件对象（来自 InboundMessage.attachments）
+            save_path: 本地保存路径
+
+        Returns:
+            str: 实际保存路径
+
+        Raises:
+            NotImplementedError: 渠道不支持附件下载
+        """
+        raise NotImplementedError(f"{self.name} does not support download_attachment")
 
     @abstractmethod
     async def shutdown(self) -> None:

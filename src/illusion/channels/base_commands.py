@@ -40,8 +40,22 @@ class BaseCommandHandler:
         self.channel = channel
         self.session_store = session_store
 
+    async def _reply(self, msg: InboundMessage, text: str) -> None:
+        """发送命令回复，自动带 reply_to=msg.message_id
+
+        QQ 群聊要求被动消息（必须有 msg_id），所有命令回复统一走此方法。
+
+        Args:
+            msg: 入站消息（取 message_id 作为 reply_to）
+            text: 回复文本
+        """
+        await self.channel.send_text(msg.chat_id, text, reply_to=msg.message_id)
+
     async def try_handle(self, msg: InboundMessage) -> bool:
         """尝试处理斜杠命令
+
+        所有回复都传 reply_to=msg.message_id，确保 QQ 群聊等要求
+        被动消息（必须有 msg_id）的渠道能正常回复命令结果。
 
         Args:
             msg: 入站消息
@@ -59,13 +73,13 @@ class BaseCommandHandler:
         args = parts[1].strip() if len(parts) > 1 else ""
 
         if cmd == "help":
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_help"))
+            await self._reply(msg, t("feishu_cmd_help"))
         elif cmd == "clear":
             self.session_store.clear(key)
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_cleared"))
+            await self._reply(msg, t("feishu_cmd_cleared"))
         elif cmd == "new":
             self.session_store.clear(key)
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_new"))
+            await self._reply(msg, t("cmd_new"))
         elif cmd == "model":
             await self._cmd_model(msg, key, args)
         elif cmd == "sessions":
@@ -75,7 +89,7 @@ class BaseCommandHandler:
         elif cmd == "detach":
             await self._cmd_detach(msg, key)
         else:
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_unknown", cmd=f"/{cmd}"))
+            await self._reply(msg, t("feishu_cmd_unknown", cmd=f"/{cmd}"))
         return True
 
     async def _cmd_model(self, msg: InboundMessage, key: str, args: str) -> None:
@@ -89,15 +103,15 @@ class BaseCommandHandler:
         if not args or args.lower() == "show":
             session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
             model = session.model or "（默认）"
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_model_show", model=model))
+            await self._reply(msg, t("feishu_cmd_model_show", model=model))
             return
         parts = args.split(None, 1)
         if parts[0].lower() == "set" and len(parts) > 1:
             model_name = parts[1].strip()
             self.session_store.set_model(key, model_name)
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_model_set", model=model_name))
+            await self._reply(msg, t("feishu_cmd_model_set", model=model_name))
         else:
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_model_usage"))
+            await self._reply(msg, t("feishu_cmd_model_usage"))
 
     async def _cmd_sessions(self, msg: InboundMessage) -> None:
         """处理 /sessions 命令：列出本地终端会话
@@ -110,7 +124,7 @@ class BaseCommandHandler:
         cwd = str(Path.cwd())
         snapshots = list_session_snapshots(cwd)
         if not snapshots:
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_no_sessions"))
+            await self._reply(msg, t("feishu_cmd_no_sessions"))
             return
         lines = [t("feishu_cmd_sessions_title")]
         for i, s in enumerate(snapshots, 1):
@@ -118,7 +132,7 @@ class BaseCommandHandler:
             summary = s.get("summary", "?")[:50]
             count = s.get("message_count", 0)
             lines.append(f"  {i}. [{sid}] {summary} ({count} msgs)")
-        await self.channel.send_text(msg.chat_id, "\n".join(lines))
+        await self._reply(msg, "\n".join(lines))
 
     async def _cmd_resume(self, msg: InboundMessage, key: str, args: str) -> None:
         """处理 /resume 命令：恢复本地会话
@@ -133,7 +147,7 @@ class BaseCommandHandler:
         cwd = str(Path.cwd())
         snapshots = list_session_snapshots(cwd)
         if not snapshots:
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_no_sessions"))
+            await self._reply(msg, t("feishu_cmd_no_sessions"))
             return
         chosen = None
         if args:
@@ -151,15 +165,15 @@ class BaseCommandHandler:
                 sid = s.get("session_id", "?")
                 summary = s.get("summary", "?")[:50]
                 lines.append(f"  {i}. [{sid}] {summary}")
-            await self.channel.send_text(msg.chat_id, "\n".join(lines))
+            await self._reply(msg, "\n".join(lines))
             return
         data = load_session_by_id(cwd, chosen.get("session_id", ""))
         if data is None:
-            await self.channel.send_text(msg.chat_id, t("feishu_cmd_no_sessions"))
+            await self._reply(msg, t("feishu_cmd_no_sessions"))
             return
         messages = data.get("messages", [])
         self.session_store.inject(key, messages)
-        await self.channel.send_text(msg.chat_id, t("feishu_cmd_resumed", n=len(messages)))
+        await self._reply(msg, t("feishu_cmd_resumed", n=len(messages)))
 
     async def _cmd_detach(self, msg: InboundMessage, key: str) -> None:
         """处理 /detach 命令：保存为本地 session
@@ -187,4 +201,4 @@ class BaseCommandHandler:
             system_prompt="", messages=conv_messages,
             usage=UsageSnapshot(), session_id=session.session_id,
         )
-        await self.channel.send_text(msg.chat_id, t("feishu_cmd_detached", id=session.session_id))
+        await self._reply(msg, t("feishu_cmd_detached", id=session.session_id))

@@ -85,6 +85,7 @@ class WeixinChannelConfig(BaseModel):
         account_id: iLink Bot 账号 ID（@im.bot 格式，扫码后获取）
         token: iLink Bot 鉴权 token（Bearer，扫码后获取）
         base_url: API 入口（可能因扫码重定向改变）
+        cdn_base_url: 媒体传输 CDN 基础 URL（AES 加密传输）
         user_id: bot 自身 ilink user id
         allow_bots: 是否处理其他机器人的消息
     """
@@ -93,6 +94,7 @@ class WeixinChannelConfig(BaseModel):
     account_id: str = ""  # @im.bot 格式
     token: str = ""  # Bearer token
     base_url: str = "https://ilinkai.weixin.qq.com"  # API 入口
+    cdn_base_url: str = "https://novac2c.cdn.weixin.qq.com/c2c"  # CDN 入口
     user_id: str = ""  # bot 自身 user id
     allow_bots: bool = False  # 默认拒绝机器人消息
 
@@ -129,12 +131,13 @@ class QQChannelConfig(BaseModel):
         group_sessions_per_user: 群组会话是否按用户隔离
         require_mention: 群组中是否要求 @机器人才响应
         group_policy: 群组访问策略
+        markdown_support: 是否使用 markdown 渲染（msg_type=2，需申请模板权限，默认关闭）
     """
 
     enabled: bool = False  # 默认未启用
     app_id: str = ""  # 应用 ID
     client_secret: str = ""  # 应用密钥（明文）
-    markdown_support: bool = True  # 是否使用 markdown 渲染（msg_type=2）
+    markdown_support: bool = False  # 是否使用 markdown 渲染（msg_type=2，需申请模板权限，默认关闭）
     allow_bots: bool = False  # 默认拒绝机器人消息
     group_sessions_per_user: bool = True  # 群组会话按用户隔离
     require_mention: bool = True  # 群组需 @提及
