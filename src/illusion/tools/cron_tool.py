@@ -110,19 +110,22 @@ class CronToolInput(BaseModel):
     )
     # add 操作参数：投递目标
     deliver_to: str = Field(
-        "",
+        default="",
         description=(
             "Delivery target for cron job output. "
             "Empty = local only (terminal execution). "
             "MUST include chat_id: use 'channel:chat_id' format. "
-            "To find the chat_id, check ~/.illusion/channels/<channel>/sessions/ "
-            "and STRIP the prefix from the filename: "
-            "feishu: 'u_ou_xxx.json' -> 'ou_xxx' (private), "
+            "To find the chat_id, follow this order: "
+            "(1) PREFER calling the list_channel_sessions tool to show active "
+            "sessions and pick the right chat_id; "
+            "(2) if the tool is unavailable or returns nothing, manually check "
+            "~/.illusion/channels/<channel>/sessions/ and STRIP the prefix: "
+            "feishu 'u_ou_xxx.json' -> 'ou_xxx' (private), "
             "'g_oc_xxx_ou_xxx.json' -> 'oc_xxx' (group, use the oc_ part); "
-            "weixin: 'u_<wxid>.json' -> '<wxid>' (strip leading 'u_'); "
-            "qq: '<openid>.json' -> '<openid>' (filename is the ID). "
+            "weixin 'u_<wxid>.json' -> '<wxid>' (strip leading 'u_'); "
+            "qq '<openid>.json' -> '<openid>' (filename is the ID). "
+            "(3) only if BOTH fail, ask the user for the chat_id. "
             "Examples: 'feishu:oc_xxx', 'feishu:ou_xxx', 'weixin:wxid@im.wechat', 'qq:openid'. "
-            "If you cannot find the chat_id, ask the user. "
             "If created from a channel session, the origin chat_id is auto-filled."
         ),
     )
@@ -161,6 +164,17 @@ ONE-SHOT EXAMPLES:
 AVOID :00 AND :30 when the task allows it:
   "every morning around 9" -> "57 8 * * *" or "3 9 * * *" (not "0 9 * * *")
   "hourly" -> "7 * * * *" (not "0 * * * *")
+
+DELIVER_TO (add action, optional):
+  Targets cron output to a messaging channel. Format: 'channel:chat_id'.
+  To find the chat_id, follow this order:
+  (1) PREFER calling the list_channel_sessions tool first to show active
+      sessions and let the user pick the right one;
+  (2) if the tool is unavailable or returns nothing, manually check
+      ~/.illusion/channels/<channel>/sessions/ and strip the filename prefix;
+  (3) only if BOTH fail, ask the user for the chat_id directly.
+  Do NOT ask the user for a chat_id without first trying (1) and (2) —
+  most users don't know it.
 
 EXECUTION:
   Jobs run via `illusion -p` in an isolated subprocess, not blocking the current session.
