@@ -1322,6 +1322,37 @@ def main(
         except Exception:  # noqa: BLE001
             pass
 
+    # PC 端渠道感知：有 enabled 渠道时注入 channel_hint + channel_tools
+    pc_channel_hint: str | None = None
+    pc_channel_tools: list[Any] | None = None
+    try:
+        from illusion.channels.config import load_channels_config
+        from illusion.prompts.channel_hints import (
+            get_channel_hint,
+            list_active_sessions,
+        )
+        _cfg = load_channels_config()
+        if _cfg.has_enabled_channels():
+            other_names = _cfg.enabled_channel_names()
+            _active = {
+                name: list_active_sessions(name, _cfg, limit=5)
+                for name in other_names
+            }
+            pc_channel_hint = get_channel_hint(
+                current_channel=None,
+                channels_config=_cfg,
+                active_sessions=_active,
+            )
+            # 注入跨渠道工具
+            from illusion.channels.tools.cross_channel import (
+                ListChannelSessionsTool,
+                SendToChannelTool,
+            )
+            pc_channel_tools = [ListChannelSessionsTool(_cfg), SendToChannelTool(_cfg)]
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("PC 渠道感知加载失败: %s", exc)
+
     import asyncio  # 异步编程模块
 
     if dangerously_skip_permissions:  # 如果跳过权限检查
@@ -1385,6 +1416,8 @@ def main(
                 restore_messages=session_data.get("messages"),  # 恢复的消息
                 restore_session_id=session_data.get("session_id"),
                 effort=effort,  # 推理强度级别
+                channel_hint=pc_channel_hint,
+                channel_tools=pc_channel_tools,
             )
         )
         return
@@ -1428,6 +1461,8 @@ def main(
                 api_key=api_key,  # API 密钥
                 api_format=api_format,  # API 格式
                 effort=effort,  # 推理强度级别
+                channel_hint=pc_channel_hint,
+                channel_tools=pc_channel_tools,
             )
         )
     finally:

@@ -1,41 +1,69 @@
 """渠道平台感知提示词
 
-集中管理各渠道的平台感知提示词。在渠道对话时注入系统提示词，
-让 LLM 知道当前所处的渠道及其能力特性。
+集中管理各渠道的平台感知提示词。在渠道对话或 PC 终端启动时注入系统提示词，
+让 LLM 知道当前所处的渠道、其他已启用渠道及其活跃会话。
 
-注入门控：渠道配置 enabled=false 时不注入（ChannelRunner 不会启动）。
+注入门控：
+    - 无 enabled 渠道时不注入（PC 终端和渠道端都跳过）
+    - PC 终端（current_channel=None）+ 有 enabled 渠道 → 注入 PC 身份 + 渠道概览
+    - 渠道端（current_channel="qq" 等）+ 有其他 enabled 渠道 → 注入当前身份 + 其他渠道概览
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-def get_channel_hint(
-    channel_name: str,
-    qq_markdown_support: bool | None = None,
-) -> str | None:
-    """获取指定渠道的平台感知提示词。
+if TYPE_CHECKING:
+    from illusion.channels.base import SessionInfo
+    from illusion.channels.config import ChannelsConfig
 
-    部分能力描述会根据渠道配置动态调整（如 QQ 的 markdown 支持取决于
-    markdown_support 配置项，因为 QQ Bot API v2 的 markdown 需要
-    预审模板权限，普通开发者账号默认无权限）。
 
-    Args:
-        channel_name: 渠道名称（如 "feishu"）
-        qq_markdown_support: QQ 渠道的 markdown_support 配置值。
-            None 时按保守默认（不支持）处理。
+def _channel_display_name(name: str) -> str:
+    """渠道显示名"""
+    return {
+        "feishu": "Feishu (飞书)",
+        "qq": "QQ Bot",
+        "weixin": "WeChat (微信)",
+    }.get(name, name)
 
-    Returns:
-        str | None: 提示词文本，渠道不存在时返回 None
-    """
-    if channel_name == "feishu":
+
+def _format_session_list(sessions: "list[SessionInfo]") -> str:
+    """格式化会话列表为提示词文本"""
+    if not sessions:
+        return "(no active sessions)"
+    lines = []
+    for s in sessions:
+        parts = [f"- {s.chat_id}"]
+        if s.user_name and s.user_name != s.chat_id:
+            parts.append(f"({s.user_name})")
+        if s.chat_type:
+            parts.append(f"[{s.chat_type}]")
+        if s.last_active:
+            parts.append(f"— last active {s.last_active}")
+        lines.append(" ".join(parts))
+    return "\n".join(lines)
+
+
+def _build_current_channel_section(
+    current_channel: str | None,
+    qq_markdown_support: bool | None,
+) -> str:
+    """构建当前渠道身份描述"""
+    if current_channel is None:
+        return (
+            "You are running in the PC terminal. "
+            "Files can be sent to enabled messaging channels via the `send_to_channel` tool. "
+            "On PC terminal, you MUST specify a target channel and chat_id when sending files."
+        )
+    if current_channel == "feishu":
         return (
             "You are conversing through Feishu (飞书). "
             "Markdown is supported and rendered via interactive cards. "
             "You can use tables, code blocks, lists, headings, and blockquotes. "
-            "Files and images can be sent natively via the send_media tool. "
+            "Files and images can be sent natively via the send_media tool (within Feishu) "
+            "or send_to_channel tool (to other channels). "
             "Group chats require @mention to respond (configured per channel)."
         )
-    if channel_name == "qq":
-        # QQ markdown 支持取决于配置（需预审模板权限）
+    if current_channel == "qq":
         markdown_supported = bool(qq_markdown_support)
         md_line = (
             "Markdown is supported (msg_type=2). Code blocks with triple backticks are supported. "
@@ -45,15 +73,141 @@ def get_channel_hint(
         return (
             "You are conversing through QQ Bot. "
             + md_line
-            + "Files and images can be sent natively via the send_media tool. "
+            + "Files and images can be sent natively via the send_media tool (within QQ) "
+            "or send_to_channel tool (to other channels). "
             "Group chats require @mention and only support passive replies."
         )
-    if channel_name == "weixin":
+    if current_channel == "weixin":
         return (
             "You are conversing through WeChat (微信). "
             "Markdown is supported but keep messages compact and chat-friendly. "
             "Messages cannot be edited after sending; long replies are split into chunks. "
-            "Files and images can be sent natively via the send_media tool. "
+            "Files and images can be sent natively via the send_media tool (within WeChat) "
+            "or send_to_channel tool (to other channels). "
             "WeChat bot only supports direct messages (no group chats)."
         )
-    return None
+    return ""
+
+
+def _build_other_channels_section(
+    current_channel: str | None,
+    channels_config: "ChannelsConfig",
+    active_sessions: "dict[str, list[SessionInfo]] | None",
+) -> str:
+    """构建其他 enabled 渠道概览"""
+    other_names = [
+        n for n in channels_config.enabled_channel_names()
+        if n != current_channel
+    ]
+    if not other_names:
+        return ""
+
+    sessions = active_sessions or {}
+    lines = [
+        "",
+        "# Other Enabled Channels",
+        "The following channels are also active. Use the `send_to_channel` tool to send "
+        "files to users in these channels (you cannot send text messages cross-channel "
+        "via this tool — for text, use cron tasks instead).",
+        "",
+    ]
+    for name in other_names:
+        display = _channel_display_name(name)
+        lines.append(f"## {display}")
+        sess = sessions.get(name, [])
+        lines.append("Active sessions (most recent first, max 5):")
+        lines.append(_format_session_list(sess))
+        lines.append("")
+        lines.append(
+            f'To send a file to a {_channel_display_name(name)} user, call:\n'
+            f'  send_to_channel(channel_name="{name}", chat_id="<id>", file_path="...")'
+        )
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def get_channel_hint(
+    current_channel: str | None,
+    channels_config: "ChannelsConfig",
+    *,
+    qq_markdown_support: bool | None = None,
+    active_sessions: "dict[str, list[SessionInfo]] | None" = None,
+) -> str | None:
+    """获取渠道感知提示词
+
+    输出包含两部分：
+        1. 当前渠道身份（PC 终端 / feishu / qq / weixin）
+        2. 其他 enabled 渠道概览（含活跃会话列表）
+
+    无 enabled 渠道时返回 None（不注入提示词）。
+
+    Args:
+        current_channel: 当前渠道名，None=PC 终端
+        channels_config: 全部渠道配置
+        qq_markdown_support: QQ markdown_support 配置值
+        active_sessions: 各渠道活跃会话字典 {channel_name: [SessionInfo]}
+
+    Returns:
+        str | None: 提示词文本，无 enabled 渠道时返回 None
+    """
+    # PC 终端：无任何 enabled 渠道时不注入
+    if current_channel is None and not channels_config.has_enabled_channels():
+        return None
+    # 渠道端：当前渠道未 enabled 时不注入（不应发生，但防御）
+    if current_channel is not None:
+        current_cfg = getattr(channels_config, current_channel, None)
+        if current_cfg is None or not getattr(current_cfg, "enabled", False):
+            return None
+        # 单渠道启用且就是当前渠道：只输出当前渠道身份，无 "Other" 章节
+        if not any(
+            n != current_channel and getattr(channels_config, n).enabled
+            for n in ("feishu", "weixin", "qq")
+        ):
+            return _build_current_channel_section(current_channel, qq_markdown_support)
+
+    current_section = _build_current_channel_section(current_channel, qq_markdown_support)
+    other_section = _build_other_channels_section(current_channel, channels_config, active_sessions)
+    if other_section:
+        return current_section + "\n\n" + other_section
+    return current_section
+
+
+def list_active_sessions(
+    channel_name: str,
+    channels_config: "ChannelsConfig",
+    *,
+    limit: int = 5,
+) -> "list[SessionInfo]":
+    """枚举指定渠道的活跃会话
+
+    按 channel_name 构造对应的 SessionStore 并调用 list_active。
+    用于在系统提示词中列出其他渠道的活跃会话。
+
+    Args:
+        channel_name: 渠道名
+        channels_config: 渠道配置（用于校验 enabled）
+        limit: 最多返回多少条
+
+    Returns:
+        list[SessionInfo]: 活跃会话列表，无会话或渠道未启用返回空列表
+    """
+    from illusion.config.paths import get_channels_data_dir
+
+    cfg = getattr(channels_config, channel_name, None)
+    if cfg is None or not getattr(cfg, "enabled", False):
+        return []
+
+    data_dir = get_channels_data_dir() / channel_name / "sessions"
+    if not data_dir.exists():
+        return []
+
+    if channel_name == "feishu":
+        from illusion.channels.feishu.session_map import FeishuSessionStore
+        return FeishuSessionStore(data_dir=data_dir).list_active(limit)
+    if channel_name == "qq":
+        from illusion.channels.qq.session_map import QQSessionStore
+        return QQSessionStore(data_dir=data_dir).list_active(limit)
+    if channel_name == "weixin":
+        from illusion.channels.weixin.session_map import WeixinSessionStore
+        return WeixinSessionStore(data_dir=data_dir).list_active(limit)
+    return []

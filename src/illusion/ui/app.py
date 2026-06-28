@@ -52,6 +52,8 @@ async def run_repl(
     restore_messages: list[dict[str, Any]] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
+    channel_hint: str | None = None,
+    channel_tools: list[Any] | None = None,
 ) -> None:
     """运行默认的 IllusionCode 交互式应用程序（React TUI）。
 
@@ -69,6 +71,8 @@ async def run_repl(
         restore_messages: 恢复的会话消息列表
         restore_session_id: 恢复的会话ID
         effort: 推理强度级别（low/medium/high/xhigh/max）
+        channel_hint: 渠道感知提示词（PC 终端注入系统提示词，含已启用渠道概览）
+        channel_tools: 跨渠道工具列表（如 SendToChannelTool）
     """
     # 后端单独运行模式
     if backend_only:
@@ -85,6 +89,8 @@ async def run_repl(
             restore_session_id=restore_session_id,
             enforce_max_turns=max_turns is not None,
             effort=effort,
+            channel_hint=channel_hint,
+            channel_tools=channel_tools,
         )
         return
 

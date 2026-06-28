@@ -379,6 +379,25 @@ class ChannelRunner:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("构造飞书工具失败: %s", exc)
 
+        # 跨渠道文件传输工具（所有渠道）
+        try:
+            from illusion.channels.config import load_channels_config
+            from illusion.channels.tools.cross_channel import (
+                ListChannelSessionsTool,
+                SendToChannelTool,
+            )
+            all_cfg = load_channels_config()
+            # 仅当有其他 enabled 渠道时才注入（避免单渠道时 LLM 误用）
+            other_enabled = [
+                n for n in all_cfg.enabled_channel_names()
+                if n != self.channel.name
+            ]
+            if other_enabled:
+                tools.append(ListChannelSessionsTool(all_cfg))
+                tools.append(SendToChannelTool(all_cfg))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("构造跨渠道工具失败: %s", exc)
+
         # Cron 工具（注入 origin 信息用于投递）
         try:
             from illusion.tools.cron_tool import CronTool
@@ -456,10 +475,29 @@ class ChannelRunner:
             else:
                 logger.info("session model %s 与当前环境 %s 不匹配，使用默认模型",
                             session.model, current_env)
-        # 获取平台感知提示词（QQ 的 markdown 描述随配置动态生成）
-        from illusion.prompts.channel_hints import get_channel_hint
+        # 获取平台感知提示词（含当前渠道身份 + 其他 enabled 渠道概览）
+        from illusion.channels.config import load_channels_config
+        from illusion.prompts.channel_hints import (
+            get_channel_hint,
+            list_active_sessions,
+        )
+        all_cfg = load_channels_config()
         qq_md = getattr(self.channel.config, "markdown_support", None)
-        channel_hint = get_channel_hint(self.channel.name, qq_markdown_support=qq_md)
+        # 枚举其他 enabled 渠道的活跃会话
+        other_names = [
+            n for n in all_cfg.enabled_channel_names()
+            if n != self.channel.name
+        ]
+        active_sessions = {
+            name: list_active_sessions(name, all_cfg, limit=5)
+            for name in other_names
+        }
+        channel_hint = get_channel_hint(
+            current_channel=self.channel.name,
+            channels_config=all_cfg,
+            qq_markdown_support=qq_md,
+            active_sessions=active_sessions,
+        )
 
         try:
             bundle = await build_runtime(

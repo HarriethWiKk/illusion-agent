@@ -92,6 +92,8 @@ class BackendHostConfig:
         restore_messages: 恢复的会话消息列表
         enforce_max_turns: 是否强制限制最大轮次
         effort: 推理强度级别（low/medium/high/xhigh/max）
+        channel_hint: 渠道感知提示词（PC 终端或渠道端注入系统提示词）
+        channel_tools: 跨渠道工具列表（如 SendToChannelTool）
     """
 
     model: str | None = None
@@ -105,6 +107,8 @@ class BackendHostConfig:
     restore_session_id: str | None = None
     enforce_max_turns: bool = True
     effort: str | None = None
+    channel_hint: str | None = None
+    channel_tools: list[Any] | None = None
 
 
 class ReactBackendHost:
@@ -162,6 +166,8 @@ class ReactBackendHost:
             ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
             plan_approval_prompt=self._ask_plan_approval,
             effort=self._config.effort,
+            channel_hint=self._config.channel_hint,
+            channel_tools=self._config.channel_tools,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)
@@ -1391,6 +1397,8 @@ async def run_backend_host(
     restore_session_id: str | None = None,
     enforce_max_turns: bool = True,
     effort: str | None = None,
+    channel_hint: str | None = None,
+    channel_tools: list[Any] | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -1408,6 +1416,8 @@ async def run_backend_host(
             restore_session_id=restore_session_id,
             enforce_max_turns=enforce_max_turns,
             effort=effort,
+            channel_hint=channel_hint,
+            channel_tools=channel_tools,
         )
     )
     return await host.run()
