@@ -23,4 +23,4 @@ IllusionCode 是一个 AI 驱动的编程助手，提供交互式会话和命令
 
 from __future__ import annotations
 
-__version__ = "0.2.9"
+__version__ = "0.2.10"
