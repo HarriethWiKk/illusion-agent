@@ -330,3 +330,25 @@ When a user sends multiple messages in quick succession, `ChannelRunner` seriali
 - Different `chat_id`s run fully in parallel without blocking each other
 
 This ensures conversation history is written in order for the same session, preventing the race condition where "M1/A1 and M3/A3 are lost, only M2/A2 remains."
+
+## Cross-Channel File Transfer
+
+When multiple channels are enabled, the LLM can perceive all enabled channels and transfer files across channels.
+
+### How It Works
+
+1. **Channel-aware prompts**: System prompt includes current channel identity + overview of other enabled channels (with active sessions)
+2. **Cross-channel tool**: `send_to_channel` for cross-channel file transfer, `send_media` for within-current-channel
+3. **Active session list**: Up to 5 recent sessions per channel (sorted by last active time) to help LLM decide delivery target
+
+### Use Cases
+
+- **PC terminal → channel**: User says "send this file to Zhang San on Feishu"
+- **Channel → channel**: User on QQ says "send this file to WeChat"
+- **Within channel (default)**: User on QQ says "send this file" → uses `send_media` to current QQ session
+
+### Limitations
+
+- For cross-channel **text** messages, use cron tasks (`send_to_channel` only supports files)
+- QQ and WeChat file upload APIs are complex; current version uses text prompts as fallback. Feishu is fully supported
+- Active session list comes from session storage directory; users never interacted with won't appear
