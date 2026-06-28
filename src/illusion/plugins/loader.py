@@ -29,10 +29,18 @@ def get_user_plugins_dir() -> Path:
 
 
 def get_project_plugins_dir(cwd: str | Path) -> Path:
-    """获取项目插件目录。"""
-    path = Path(cwd).resolve() / ".illusion" / "plugins"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """获取项目插件目录。
+
+    cwd 无效（如守护进程启动目录被删除）时回退到用户级插件目录，
+    避免 WinError 267 阻断 build_runtime。
+    """
+    try:
+        path = Path(cwd).resolve() / ".illusion" / "plugins"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except (OSError, FileNotFoundError):
+        # cwd 失效，回退到用户级插件目录（已由 get_user_plugins_dir 保证存在）
+        return get_user_plugins_dir()
 
 
 def _find_manifest(plugin_dir: Path) -> Path | None:

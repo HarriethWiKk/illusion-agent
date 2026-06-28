@@ -211,7 +211,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "feishu_thinking": {"zh-CN": "illusion code 正在思考中...", "en-US": "illusion code is thinking..."},
     "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /delete /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /delete /sessions /resume /detach /model"},
     "feishu_cmd_cleared": {"zh-CN": "飞书会话已清空，开始新对话。", "en-US": "Feishu session cleared, starting fresh."},
-    "feishu_cmd_new": {"zh-CN": "已开启新的飞书会话。", "en-US": "New Feishu session started."},
+    # --- 通用渠道命令文案（不限渠道）---
+    "cmd_new": {"zh-CN": "已开启新的会话。", "en-US": "New session started."},
     "feishu_cmd_sessions_title": {"zh-CN": "本地未完成会话:", "en-US": "Local unfinished sessions:"},
     "feishu_cmd_no_sessions": {"zh-CN": "没有本地会话可恢复。", "en-US": "No local sessions to resume."},
     "feishu_cmd_resumed": {"zh-CN": "已恢复本地会话（{n} 条历史），继续吧。", "en-US": "Resumed local session ({n} messages), continue."},
@@ -231,7 +232,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "weixin_qr_timeout": {"zh-CN": "扫码超时，请重新运行 illusion channel login", "en-US": "QR scan timed out, run 'illusion channel login' again"},
     "weixin_login_success": {"zh-CN": "微信登录成功", "en-US": "WeChat login successful"},
     "weixin_session_expired": {"zh-CN": "微信会话已过期，请重新运行 'illusion channel login'", "en-US": "WeChat session expired, run 'illusion channel login' again"},
-    "weixin_cmd_new": {"zh-CN": "已开启新的微信会话。", "en-US": "New WeChat session started."},
     "channel_starting_weixin": {"zh-CN": "[渠道] 正在启动微信渠道...", "en-US": "[Channel] Starting WeChat channel..."},
     # QQ 渠道
     "channel_qq_label": {"zh-CN": "QQ", "en-US": "QQ"},
@@ -242,7 +242,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "请先访问 https://q.qq.com 注册机器人应用，获取 App ID 和 Client Secret",
         "en-US": "Please visit https://q.qq.com to register a bot app and obtain App ID and Client Secret",
     },
-    "qq_cmd_new": {"zh-CN": "已开启新的 QQ 会话。", "en-US": "New QQ session started."},
 }
 
 # --- 命令描述翻译 ---

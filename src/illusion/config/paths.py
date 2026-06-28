@@ -202,19 +202,25 @@ def get_cron_registry_path() -> Path:
 
 def get_project_config_dir(cwd: str | Path) -> Path:
     """返回项目级 .illusion 目录
-    
+
     在当前工作目录下创建 .illusion 子目录，用于存储项目级配置。
-    
+
+    cwd 无效（如守护进程启动目录被删除）时回退到用户级配置目录，
+    避免 WinError 267 阻断 build_runtime。
+
     Args:
         cwd: 当前工作目录
-    
+
     Returns:
         Path: 项目配置目录路径
     """
-    # 解析为绝对路径并在末尾添加 .illusion 子目录
-    project_dir = Path(cwd).resolve() / ".illusion"
-    project_dir.mkdir(parents=True, exist_ok=True)
-    return project_dir
+    try:
+        project_dir = Path(cwd).resolve() / ".illusion"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        return project_dir
+    except (OSError, FileNotFoundError):
+        # cwd 失效，回退到用户级配置目录
+        return get_config_dir()
 
 
 def get_project_issue_file(cwd: str | Path) -> Path:
