@@ -108,6 +108,24 @@ class CronToolInput(BaseModel):
         le=3600,
         description="Timeout in seconds for manual run",
     )
+    # add 操作参数：投递目标
+    deliver_to: str = Field(
+        "",
+        description=(
+            "Delivery target for cron job output. "
+            "Empty = local only (terminal execution). "
+            "MUST include chat_id: use 'channel:chat_id' format. "
+            "To find the chat_id, check ~/.illusion/channels/<channel>/sessions/ "
+            "and STRIP the prefix from the filename: "
+            "feishu: 'u_ou_xxx.json' -> 'ou_xxx' (private), "
+            "'g_oc_xxx_ou_xxx.json' -> 'oc_xxx' (group, use the oc_ part); "
+            "weixin: 'u_<wxid>.json' -> '<wxid>' (strip leading 'u_'); "
+            "qq: '<openid>.json' -> '<openid>' (filename is the ID). "
+            "Examples: 'feishu:oc_xxx', 'feishu:ou_xxx', 'weixin:wxid@im.wechat', 'qq:openid'. "
+            "If you cannot find the chat_id, ask the user. "
+            "If created from a channel session, the origin chat_id is auto-filled."
+        ),
+    )
 
 
 class CronTool(BaseTool[CronToolInput]):
@@ -151,6 +169,15 @@ EXECUTION:
 
 Returns JSON result for each action."""
     input_model = CronToolInput
+
+    def __init__(
+        self,
+        *,
+        origin_channel: str = "",
+        chat_id: str = "",
+    ) -> None:
+        self._origin_channel = origin_channel
+        self._chat_id = chat_id
 
     async def execute(
         self,
@@ -297,6 +324,10 @@ Returns JSON result for each action."""
             if arguments.delete_after_run is not None
             else False,
             "cwd": str(context.cwd),
+            # deliver_to 由 LLM 显式填写；留空=仅本地执行，不回投来源渠道
+            "deliver_to": arguments.deliver_to,
+            "origin_channel": self._origin_channel,
+            "chat_id": self._chat_id,
         }
 
         if arguments.name:

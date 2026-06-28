@@ -398,6 +398,40 @@ async def execute_job(
     ended_at = _now_local()
     success = result["status"] == "success"
 
+    # 投递到渠道：仅在 deliver_to 非空且有输出（stdout 或 stderr）时触发
+    # 失败不影响任务状态，仅记录日志
+    deliver_to = job.get("deliver_to", "")
+    chat_id = job.get("chat_id", "")
+    stdout = result.get("stdout", "")
+    stderr = result.get("stderr", "")
+
+    # 组装投递文本：成功时仅送 stdout；失败时附带 stderr 让用户可见错误
+    if not success and stderr:
+        output = f"{stdout}\n--- stderr ---\n{stderr}" if stdout else stderr
+    else:
+        output = stdout
+
+    if deliver_to and output and output.strip():
+        try:
+            from illusion.channels.delivery import (
+                deliver_to_channel,
+                parse_deliver_to,
+            )
+
+            target = parse_deliver_to(deliver_to, chat_id)
+            if target:
+                channel_name, target_chat_id = target
+                deliver_ok = await deliver_to_channel(
+                    channel_name, target_chat_id, output
+                )
+                if not deliver_ok:
+                    logger.warning(
+                        "Cron job %s 投递到 %s:%s 失败",
+                        name, channel_name, target_chat_id,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cron 投递异常: %s", exc)
+
     entry = {
         "id": job.get("id", ""),
         "name": name,
