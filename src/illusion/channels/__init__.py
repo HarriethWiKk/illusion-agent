@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from illusion.channels.config import load_channels_config
 from illusion.utils.atomic_write import atomic_write_text
@@ -25,6 +25,7 @@ from illusion.utils.atomic_write import atomic_write_text
 if TYPE_CHECKING:
     from illusion.channels.base import Channel, InboundMessage
     from illusion.channels.config import ChannelsConfig
+    from illusion.channels.feishu.streaming import FeishuStreamingCardController
     from illusion.config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -433,21 +434,35 @@ class ChannelRunner:
 
         # 统一收集流式文本，处理完后一次性发送/渲染
         collected_text: list[str] = []
-        thinking_msg_id: str | None = None  # 飞书"思考中"卡片的 msg_id
+        streaming_controller: FeishuStreamingCardController | None = None  # 飞书流式卡片控制器
 
         async def render_event(ev: Any) -> None:
-            """流式事件收集（飞书和微信统一：仅累积文本，不实时更新）"""
+            """流式事件收集
+
+            飞书：通过 controller 实时流式更新卡片（含 reasoning）
+            微信/QQ：仅累积文本，处理完后一次性发送
+            """
             if isinstance(ev, AssistantTextDelta):
+                if supports_edit and streaming_controller:
+                    if ev.reasoning:
+                        await streaming_controller.on_reasoning(ev.reasoning)
+                    if ev.text:
+                        await streaming_controller.on_text(ev.text)
                 collected_text.append(ev.text)
             elif isinstance(ev, ErrorEvent):
                 collected_text.append(f"\n❌ {ev.message}")
+                if supports_edit and streaming_controller:
+                    await streaming_controller.error(ev.message)
 
         if supports_edit:
-            # 飞书：发送"正在思考中..."卡片，处理完后一次性 patch
-            from illusion.config.i18n import t as _t
-            thinking_msg_id = await self.channel.send_text(
-                msg.chat_id, _t("feishu_thinking"), reply_to=msg.message_id,
+            # 飞书：用 CardKit 流式卡片控制器替代"思考中"卡片
+            from illusion.channels.feishu.streaming import FeishuStreamingCardController
+            streaming_controller = FeishuStreamingCardController(
+                client=cast("FeishuChannel", self.channel)._client,
+                chat_id=msg.chat_id,
+                reply_to=msg.message_id,
             )
+            await streaming_controller.start()
 
         async def print_system(text: str) -> None:
             """系统消息转发到渠道"""
@@ -536,14 +551,13 @@ class ChannelRunner:
             )
             full_text = "".join(collected_text).strip()
             logger.info("agent 处理完成，回复长度=%d", len(full_text))
-            if full_text:
-                if supports_edit and thinking_msg_id:
-                    # 飞书：一次性 patch "思考中"卡片为完整回复
-                    await self.channel.edit_message(msg.chat_id, thinking_msg_id, full_text)
-                else:
-                    # 微信/QQ：一次性发送（QQ 群聊需要 reply_to 定位消息）
-                    await self.channel.send_text(msg.chat_id, full_text,
-                                                 reply_to=msg.message_id)
+            if supports_edit and streaming_controller:
+                # 飞书：通知 controller 完成（全卡替换为终态）
+                await streaming_controller.complete()
+            elif full_text:
+                # 微信/QQ：一次性发送（QQ 群聊需要 reply_to 定位消息）
+                await self.channel.send_text(msg.chat_id, full_text,
+                                             reply_to=msg.message_id)
             # 持久化渠道会话历史
             engine = getattr(bundle, "engine", None)
             msgs = getattr(engine, "messages", None)
@@ -558,6 +572,15 @@ class ChannelRunner:
                     logger.warning("渠道会话持久化失败: %s", exc)
             else:
                 logger.warning("无法从 bundle.engine 获取会话历史，跳过持久化")
+        except Exception as exc:
+            logger.exception("agent 处理异常")
+            if supports_edit and streaming_controller:
+                # 飞书：通知 controller 错误终态
+                await streaming_controller.error(str(exc))
+            else:
+                await self.channel.send_text(
+                    msg.chat_id, f"❌ 处理失败: {exc}", reply_to=msg.message_id,
+                )
         finally:
             typing_task.cancel()
             await self.channel.stop_typing(msg.chat_id)
