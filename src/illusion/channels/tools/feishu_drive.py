@@ -5,8 +5,10 @@
 
 工具说明：
     - FeishuDriveListTool: 列出云盘文件夹下的文件
-    - FeishuDriveUploadTool: 上传本地文件到云盘
+    - FeishuDriveUploadTool: 上传本地文件到云盘（>20MB 自动分片）
     - FeishuDriveDownloadTool: 下载云盘文件到本地
+    - FeishuDriveMkdirTool: 创建文件夹
+    - FeishuDriveDeleteTool: 删除文件（移至回收站）
 """
 from __future__ import annotations
 
@@ -87,7 +89,8 @@ class FeishuDriveListTool(BaseTool[FeishuDriveListInput]):
             name = getattr(f, "name", "?")
             token = getattr(f, "file_token", "?")
             ftype = getattr(f, "type", "?")
-            lines.append(f"- {name} [{ftype}] token={token}")
+            url = getattr(f, "url", "")
+            lines.append(f"- {name} [{ftype}] token={token} url={url}")
         return ToolResult(output="\n".join(lines) if lines else "(empty folder)")
 
 
@@ -121,7 +124,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         self._cfg = channel_config
 
     async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
-        """执行文件上传
+        """执行文件上传（小文件用 upload_all，大文件用分片）
 
         Args:
             arguments: 输入参数（FeishuDriveUploadInput）
@@ -134,7 +137,17 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         path = Path(arguments.file_path)
         if not path.exists():
             return ToolResult(output=f"File not found: {arguments.file_path}", is_error=True)
+
+        file_size = path.stat().st_size
         client = build_lark_client(self._cfg)
+        name = arguments.name or path.name
+
+        if file_size > 20 * 1024 * 1024:  # > 20MB，分片上传
+            return await self._upload_chunked(client, path, name, arguments.folder_token)
+        return await self._upload_all(client, path, name, arguments.folder_token)
+
+    async def _upload_all(self, client, path: Path, name: str, folder_token: str) -> ToolResult:
+        """小文件整文件上传"""
         try:
             from lark_oapi.api.drive.v1 import (
                 UploadAllFileRequest,
@@ -142,10 +155,9 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
 
-        name = arguments.name or path.name
         # lark-oapi 用 builder + dict[str, Any] 构造请求（RequestBody 类不接受关键字参数）
         body = {
-            "folder_token": arguments.folder_token,
+            "folder_token": folder_token,
             "file_name": name,
             "file": path.read_bytes(),
         }
@@ -159,6 +171,71 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         data = getattr(resp, "data", None)
         token = getattr(data, "file_token", "?") if data else "?"
         return ToolResult(output=f"Uploaded: {name} token={token}")
+
+    async def _upload_chunked(self, client, path: Path, name: str, folder_token: str) -> ToolResult:
+        """大文件分片上传"""
+        try:
+            from lark_oapi.api.drive.v1 import (
+                UploadPrepareFileRequest,
+                UploadPartFileRequest,
+                UploadFinishFileRequest,
+            )
+        except ImportError:
+            return ToolResult(output="lark_oapi drive API not available (chunked)", is_error=True)
+
+        file_size = path.stat().st_size
+        block_size = 4 * 1024 * 1024  # 4MB per part
+
+        # 1. prepare
+        prepare_body = {
+            "file_name": name,
+            "parent_type": "explorer",
+            "parent_node": folder_token,
+            "size": file_size,
+        }
+        req = UploadPrepareFileRequest.builder().request_body(prepare_body).build()
+        resp = client.drive.v1.file.upload_prepare(req)
+        if not resp.success():
+            return ToolResult(
+                output=f"Prepare failed: code={resp.code} msg={resp.msg}",
+                is_error=True,
+            )
+        upload_id = getattr(getattr(resp, "data", None), "upload_id", "")
+        block_num = (file_size + block_size - 1) // block_size
+
+        # 2. upload parts
+        with open(path, "rb") as f:
+            for i in range(block_num):
+                chunk = f.read(block_size)
+                part_body = {
+                    "upload_id": upload_id,
+                    "seq": i,
+                    "size": len(chunk),
+                    "file": chunk,
+                }
+                req = UploadPartFileRequest.builder().request_body(part_body).build()
+                resp = client.drive.v1.file.upload_part(req)
+                if not resp.success():
+                    return ToolResult(
+                        output=f"Part {i} failed: code={resp.code} msg={resp.msg}",
+                        is_error=True,
+                    )
+
+        # 3. finish
+        finish_body = {
+            "upload_id": upload_id,
+            "block_num": block_num,
+        }
+        req = UploadFinishFileRequest.builder().request_body(finish_body).build()
+        resp = client.drive.v1.file.upload_finish(req)
+        if not resp.success():
+            return ToolResult(
+                output=f"Finish failed: code={resp.code} msg={resp.msg}",
+                is_error=True,
+            )
+        data = getattr(resp, "data", None)
+        token = getattr(data, "file_token", "?") if data else "?"
+        return ToolResult(output=f"Uploaded (chunked): {name} token={token}")
 
 
 class FeishuDriveDownloadInput(BaseModel):
@@ -224,3 +301,119 @@ class FeishuDriveDownloadTool(BaseTool[FeishuDriveDownloadInput]):
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_bytes(raw.read() if hasattr(raw, "read") else bytes(raw))
         return ToolResult(output=f"Downloaded to: {save_path}")
+
+
+class FeishuDriveMkdirInput(BaseModel):
+    """飞书云盘创建文件夹工具输入
+
+    Attributes:
+        name: 文件夹名称
+        folder_token: 父文件夹 token（可选，默认根目录）
+    """
+
+    name: str = Field(..., description="Folder name")
+    folder_token: str = Field("", description="Parent folder token (empty for root)")
+
+
+class FeishuDriveMkdirTool(BaseTool[FeishuDriveMkdirInput]):
+    """在飞书云盘创建文件夹"""
+
+    name = "feishu_drive_mkdir"
+    description = "Create a new folder in Feishu/Lark Drive."
+    input_model = FeishuDriveMkdirInput
+
+    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+        """初始化
+
+        Args:
+            channel_config: 飞书渠道配置
+        """
+        self._cfg = channel_config
+
+    async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+        """执行创建文件夹
+
+        Args:
+            arguments: 输入参数（FeishuDriveMkdirInput）
+            context: 执行上下文
+
+        Returns:
+            ToolResult: 创建结果（含 token 和 url）或错误
+        """
+        assert isinstance(arguments, FeishuDriveMkdirInput)
+        client = build_lark_client(self._cfg)
+        try:
+            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
+                CreateFolderRequest,
+            )
+        except ImportError:
+            return ToolResult(output="lark_oapi drive API not available", is_error=True)
+
+        body = {"name": arguments.name, "folder_token": arguments.folder_token}
+        req = CreateFolderRequest.builder().request_body(body).build()
+        resp = client.drive.v1.folder.create(req)
+        if not resp.success():
+            return ToolResult(
+                output=f"Mkdir failed: code={resp.code} msg={resp.msg}",
+                is_error=True,
+            )
+        data = getattr(resp, "data", None)
+        token = getattr(data, "token", "?") if data else "?"
+        url = getattr(data, "url", "") if data else ""
+        return ToolResult(output=f"Created folder: {arguments.name} token={token} url={url}")
+
+
+class FeishuDriveDeleteInput(BaseModel):
+    """飞书云盘删除工具输入
+
+    Attributes:
+        file_token: 文件 token
+        file_type: 文件类型（file/docx/sheet 等）
+    """
+
+    file_token: str = Field(..., description="File token to delete")
+    file_type: str = Field("file", description="File type (file/docx/sheet)")
+
+
+class FeishuDriveDeleteTool(BaseTool[FeishuDriveDeleteInput]):
+    """删除飞书云盘文件到回收站"""
+
+    name = "feishu_drive_delete"
+    description = "Delete a Feishu/Lark Drive file (move to trash)."
+    input_model = FeishuDriveDeleteInput
+
+    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+        """初始化
+
+        Args:
+            channel_config: 飞书渠道配置
+        """
+        self._cfg = channel_config
+
+    async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+        """执行文件删除
+
+        Args:
+            arguments: 输入参数（FeishuDriveDeleteInput）
+            context: 执行上下文
+
+        Returns:
+            ToolResult: 删除结果或错误
+        """
+        assert isinstance(arguments, FeishuDriveDeleteInput)
+        client = build_lark_client(self._cfg)
+        try:
+            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
+                DeleteFileRequest,
+            )
+        except ImportError:
+            return ToolResult(output="lark_oapi drive API not available", is_error=True)
+
+        req = DeleteFileRequest.builder().file_token(arguments.file_token).type(arguments.file_type).build()
+        resp = client.drive.v1.file.delete(req)
+        if not resp.success():
+            return ToolResult(
+                output=f"Delete failed: code={resp.code} msg={resp.msg}",
+                is_error=True,
+            )
+        return ToolResult(output=f"Deleted: {arguments.file_token}")

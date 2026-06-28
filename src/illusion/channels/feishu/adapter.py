@@ -18,7 +18,7 @@ import asyncio  # 异步
 import logging  # 日志
 from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型
 
-from illusion.channels.base import Channel, InboundMessage  # 基类与消息类型
+from illusion.channels.base import Attachment, Channel, InboundMessage  # 基类与消息类型
 
 if TYPE_CHECKING:
     from illusion.channels.config import FeishuChannelConfig  # 配置
@@ -166,7 +166,36 @@ class FeishuChannel(Channel):
             chat_type_raw = getattr(message, "chat_type", "p2p") or "p2p"  # p2p 或 group
             message_id = getattr(message, "message_id", "") or ""
             content = getattr(message, "content", '{"text":""}') or '{"text":""}'
+            msg_type = getattr(message, "message_type", "") or ""
             text = _extract_text(content)
+
+            # 入站附件识别：image/file 消息归一化为 Attachment
+            attachments: list[Attachment] = []
+            if msg_type == "image":
+                image_key = _extract_field(content, "image_key")
+                if image_key:
+                    attachments.append(Attachment(
+                        id="1",
+                        media_type="image",
+                        filename=f"image_{image_key[:8]}.png",
+                        file_key=image_key,
+                    ))
+                    if not text:
+                        text = "[收到图片]"
+            elif msg_type == "file":
+                file_key = _extract_field(content, "file_key")
+                if file_key:
+                    file_name = _extract_field(content, "file_name") or "attachment"
+                    # 编码 message_id 到 file_key（格式 "message_id|file_key"），
+                    # download_attachment 下载文件消息资源时需要 message_id
+                    attachments.append(Attachment(
+                        id="1",
+                        media_type="file",
+                        filename=file_name,
+                        file_key=f"{message_id}|{file_key}",
+                    ))
+                    if not text:
+                        text = "[收到文件]"
 
             return InboundMessage(
                 text=text,
@@ -176,6 +205,7 @@ class FeishuChannel(Channel):
                 user_name="",  # 飞书事件不直接带显示名，需另调 API 获取
                 message_id=message_id,
                 is_bot=is_bot,
+                attachments=attachments,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("标准化飞书事件失败: %s", exc)
@@ -291,10 +321,265 @@ class FeishuChannel(Channel):
         from illusion.channels.feishu.messaging import patch_card
         await patch_card(self._client, message_id, text)
 
-    async def send_file(self, chat_id: str, file_path: str) -> None:
-        """发送文件"""
+    async def send_file(self, chat_id: str, file_path: str, *, reply_to: str = "") -> None:
+        """发送文件
+
+        Args:
+            chat_id: 目标会话
+            file_path: 本地文件路径
+            reply_to: 引用的消息 ID（飞书 file API 不需要，保留以兼容基类签名）
+        """
         from illusion.channels.feishu.messaging import send_file as _send_f
         await _send_f(self._client, self.config, chat_id, file_path)
+
+    async def send_image(
+        self, chat_id: str, image_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送图片到飞书会话
+
+        流程：上传图片获取 image_key → 发送图片消息
+
+        Args:
+            chat_id: 目标会话
+            image_path: 本地图片文件路径
+            caption: 可选附注文字
+
+        Returns:
+            str: 新消息 ID
+        """
+        import io
+        import json
+        import os
+
+        from illusion.channels.feishu.messaging import resolve_receive_id
+
+        try:
+            from lark_oapi.api.im.v1 import (
+                CreateMessageRequest,
+                CreateImageRequest,
+                CreateImageRequestBody,
+            )
+        except ImportError:
+            raise NotImplementedError("feishu requires lark_oapi for send_image")
+
+        # 上传图片
+        with open(image_path, "rb") as f:
+            image_file = io.BytesIO(f.read())
+            image_file.name = os.path.basename(image_path)
+
+        body = (
+            CreateImageRequestBody.builder()
+            .image_type("message")
+            .image(image_file)
+            .build()
+        )
+        req = CreateImageRequest.builder().request_body(body).build()
+        resp = await asyncio.to_thread(self._client.im.v1.image.create, req)
+        if not resp.success():
+            raise RuntimeError(f"飞书图片上传失败: code={resp.code} msg={resp.msg}")
+
+        image_key = getattr(getattr(resp, "data", None), "image_key", "")
+        if not image_key:
+            raise RuntimeError("飞书图片上传未返回 image_key")
+
+        # 发送消息
+        receive_id, receive_id_type = resolve_receive_id(chat_id)
+        if caption:
+            post_content = {
+                "zh_cn": {
+                    "title": "",
+                    "content": [[
+                        {"tag": "img", "image_key": image_key},
+                        {"tag": "text", "text": caption},
+                    ]]
+                }
+            }
+            msg_body = {
+                "receive_id": receive_id,
+                "msg_type": "post",
+                "content": json.dumps(post_content, ensure_ascii=False),
+            }
+        else:
+            msg_body = {
+                "receive_id": receive_id,
+                "msg_type": "image",
+                "content": json.dumps({"image_key": image_key}, ensure_ascii=False),
+            }
+
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(msg_body)  # pyright: ignore[reportArgumentType]
+            .build()
+        )
+        resp = await asyncio.to_thread(self._client.im.v1.message.create, req)
+        if not resp.success():
+            raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
+
+        return str(getattr(getattr(resp, "data", None), "message_id", ""))
+
+    async def send_document(
+        self, chat_id: str, file_path: str, *, caption: str = "", reply_to: str = ""
+    ) -> str:
+        """发送文件到飞书会话
+
+        流程：上传文件获取 file_key → 发送文件消息
+
+        Args:
+            chat_id: 目标会话
+            file_path: 本地文件路径
+            caption: 可选附注文字
+
+        Returns:
+            str: 新消息 ID
+        """
+        import io
+        import json
+        import os
+
+        from illusion.channels.feishu.messaging import resolve_receive_id
+
+        try:
+            from lark_oapi.api.im.v1 import (
+                CreateFileRequest, CreateFileRequestBody, CreateMessageRequest,
+            )
+        except ImportError:
+            raise NotImplementedError("feishu requires lark_oapi for send_document")
+
+        file_name = os.path.basename(file_path)
+
+        # 上传文件
+        with open(file_path, "rb") as f:
+            file_obj = io.BytesIO(f.read())
+            file_obj.name = file_name
+
+        body = (
+            CreateFileRequestBody.builder()
+            .file_type("stream")
+            .file_name(file_name)
+            .file(file_obj)
+            .build()
+        )
+        req = CreateFileRequest.builder().request_body(body).build()
+        resp = await asyncio.to_thread(self._client.im.v1.file.create, req)
+        if not resp.success():
+            raise RuntimeError(f"飞书文件上传失败: code={resp.code} msg={resp.msg}")
+
+        file_key = getattr(getattr(resp, "data", None), "file_key", "")
+        if not file_key:
+            raise RuntimeError("飞书文件上传未返回 file_key")
+
+        # 发送消息
+        receive_id, receive_id_type = resolve_receive_id(chat_id)
+        if caption:
+            post_content = {
+                "zh_cn": {
+                    "title": "",
+                    "content": [[
+                        {"tag": "media", "file_key": file_key, "file_name": file_name},
+                        {"tag": "text", "text": caption},
+                    ]]
+                }
+            }
+            msg_body = {
+                "receive_id": receive_id,
+                "msg_type": "post",
+                "content": json.dumps(post_content, ensure_ascii=False),
+            }
+        else:
+            msg_body = {
+                "receive_id": receive_id,
+                "msg_type": "file",
+                "content": json.dumps({"file_key": file_key}, ensure_ascii=False),
+            }
+
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(msg_body)  # pyright: ignore[reportArgumentType]
+            .build()
+        )
+        resp = await asyncio.to_thread(self._client.im.v1.message.create, req)
+        if not resp.success():
+            raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
+
+        return str(getattr(getattr(resp, "data", None), "message_id", ""))
+
+    async def download_attachment(
+        self, attachment: "Attachment", save_path: str
+    ) -> str:
+        """下载飞书附件到本地
+
+        飞书下载资源：
+            - 图片：GET /im/v1/images/:image_key（仅需 image_key）
+            - 文件：GET /im/v1/messages/:message_id/resources/:file_key（需 message_id + file_key）
+
+        入站时 file 附件在 file_key 中编码 message_id，格式 "message_id|file_key"；
+        image 附件仅存 image_key（图片下载无需 message_id）。
+
+        Args:
+            attachment: 附件对象
+            save_path: 本地保存路径
+
+        Returns:
+            str: 实际保存路径
+        """
+        from pathlib import Path
+
+        save_path_obj = Path(save_path)
+        save_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        if attachment.media_type == "image":
+            # 图片：im.v1.image.get 仅需 image_key
+            try:
+                from lark_oapi.api.im.v1 import GetImageRequest
+            except ImportError:
+                raise NotImplementedError(
+                    "feishu requires lark_oapi for download_attachment"
+                )
+
+            req = GetImageRequest.builder().image_key(attachment.file_key).build()
+            resp = await asyncio.to_thread(self._client.im.v1.image.get, req)
+        else:
+            # 文件：im.v1.message_resource.get 需 message_id + file_key
+            try:
+                from lark_oapi.api.im.v1 import GetMessageResourceRequest
+            except ImportError:
+                raise NotImplementedError(
+                    "feishu requires lark_oapi for download_attachment"
+                )
+
+            # file_key 编码格式 "message_id|file_key"
+            raw = attachment.file_key
+            if "|" in raw:
+                message_id, file_key = raw.split("|", 1)
+            else:
+                message_id, file_key = "", raw
+            if not message_id:
+                raise RuntimeError(
+                    "飞书文件下载需要 message_id，附件 file_key 未编码 message_id"
+                )
+            req = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type("file")
+                .build()
+            )
+            resp = await asyncio.to_thread(
+                self._client.im.v1.message_resource.get, req
+            )
+
+        if not resp.success():
+            raise RuntimeError(f"飞书附件下载失败: code={resp.code} msg={resp.msg}")
+
+        raw_file = getattr(resp, "file", None)
+        if raw_file is None:
+            raise RuntimeError("飞书下载未返回文件数据")
+
+        data = raw_file.read() if hasattr(raw_file, "read") else bytes(raw_file)
+        save_path_obj.write_bytes(data)
+        return str(save_path_obj)
 
     async def shutdown(self) -> None:
         """关闭渠道"""
@@ -316,5 +601,23 @@ def _extract_text(content: str) -> str:
     try:
         data = json.loads(content)
         return str(data.get("text", "")).strip()
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+
+
+def _extract_field(content: str, key: str) -> str:
+    """从飞书消息 content JSON 提取指定字段值（如 image_key/file_key/file_name）
+
+    Args:
+        content: content JSON 字符串
+        key: 要提取的键名
+
+    Returns:
+        str: 键值，解析失败或不存在返回空串
+    """
+    import json
+    try:
+        data = json.loads(content)
+        return str(data.get(key, "")).strip()
     except (json.JSONDecodeError, AttributeError):
         return ""
