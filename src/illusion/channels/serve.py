@@ -32,6 +32,24 @@ def run_channel_serve() -> None:
     Windows 下 Ctrl+C 通过 KeyboardInterrupt 捕获，关闭后用 os._exit 确保退出
     （WS executor 线程可能无法干净终止）。
     """
+    # 启动前检查：若已有守护进程在运行（PID 文件指向存活进程），则拒绝启动
+    # 防止 maybe_spawn_channel_daemon 竞态条件导致两个守护进程同时运行
+    # （两个进程同时 spawn 时，PID 文件写入有竞态，可能都写入成功导致孤儿）
+    from illusion.config.paths import get_channels_data_dir
+    from illusion.channels.pid import PidFile, read_pid
+
+    data_dir = get_channels_data_dir()
+    pid_file = PidFile(data_dir / "daemon.pid")
+    if pid_file.is_running():
+        existing_pid = read_pid(pid_file.path) or 0
+        # 当前进程的 PID 与 PID 文件记录的不同 → 已有另一个守护进程在运行
+        if existing_pid and existing_pid != os.getpid():
+            print(
+                f"[channel] 守护进程已在运行 (PID={existing_pid})，拒绝重复启动。"
+                f" 若确信无进程在运行，请删除 {pid_file.path} 后重试。"
+            )
+            return
+
     cfg = load_channels_config()
     settings = _load_settings_safely()
 
@@ -101,6 +119,13 @@ def run_channel_serve() -> None:
     root_logger.addHandler(stream_handler)
     logger.info("渠道守护进程启动，日志文件: %s", log_path)
 
+    # 写入当前进程 PID 到 PID 文件（覆盖 maybe_spawn_channel_daemon 写入的 PID）
+    # 确保后续 maybe_spawn_channel_daemon 检查时能正确识别当前守护进程
+    try:
+        pid_file.acquire(os.getpid())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("写入 daemon.pid 失败: %s", exc)
+
     try:
         asyncio.run(_serve_async(cfg, settings))
     except KeyboardInterrupt:
@@ -109,6 +134,12 @@ def run_channel_serve() -> None:
         print("\n收到中断信号，正在关闭...")
         # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
         _force_shutdown()
+    finally:
+        # 退出时释放 PID 文件，避免 maybe_spawn_channel_daemon 误判为仍在运行
+        try:
+            pid_file.release()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _load_settings_safely() -> Any:

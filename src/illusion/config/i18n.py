@@ -242,6 +242,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "请先访问 https://q.qq.com 注册机器人应用，获取 App ID 和 Client Secret",
         "en-US": "Please visit https://q.qq.com to register a bot app and obtain App ID and Client Secret",
     },
+    # 渠道守护进程退出确认
+    "channel_daemon_exit_prompt": {
+        "zh-CN": "渠道守护进程仍在运行，是否一同退出？(y/N)",
+        "en-US": "Channel daemon is still running. Stop it too? (y/N)",
+    },
 }
 
 # --- 命令描述翻译 ---

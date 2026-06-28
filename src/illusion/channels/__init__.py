@@ -173,6 +173,68 @@ def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
             pass
 
 
+def is_channel_daemon_running() -> bool:
+    """检查渠道守护进程是否正在运行（通过 PID 文件，不依赖 proc 引用）
+
+    用于退出时判断是否需要询问用户是否一同退出渠道。
+
+    Returns:
+        bool: 守护进程在运行返回 True
+    """
+    from illusion.config.paths import get_channels_data_dir
+    from illusion.channels.pid import PidFile
+    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
+    return pid_file.is_running()
+
+
+def stop_channel_daemon_by_pid() -> bool:
+    """通过 PID 文件停止渠道守护进程（不依赖 proc 引用）
+
+    供退出时交互式确认使用：无论当前进程是否是 spawn 者，
+    都可以通过 PID 文件停止守护进程。
+
+    Windows 上用 taskkill /T /F 终止整个进程树（守护进程可能 spawn 了
+    aiohttp/WS 子线程，单独 TerminateProcess 可能留下孤儿线程）。
+    Unix 上用 SIGTERM 终止进程组。
+
+    Returns:
+        bool: 成功停止返回 True，守护进程不存在或已停止返回 False
+    """
+    from illusion.config.paths import get_channels_data_dir
+    from illusion.channels.pid import PidFile, read_pid
+
+    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
+    if not pid_file.is_running():
+        pid_file.release()
+        return False
+
+    old_pid = read_pid(pid_file.path)
+    if old_pid is not None:
+        try:
+            if os.name == "nt":
+                # Windows: 用 taskkill /T /F 终止整个进程树
+                # /T = 终止子进程，/F = 强制终止
+                import subprocess as _sp
+                _sp.run(
+                    ["taskkill", "/PID", str(old_pid), "/T", "/F"],
+                    capture_output=True, timeout=5,
+                )
+            else:
+                # Unix: 用 SIGTERM 终止进程组
+                import signal
+                os.kill(old_pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError, Exception):  # noqa: BLE001
+            pass
+        # 等待进程退出，最多 3 秒
+        for _ in range(30):
+            if not pid_file.is_running():
+                break
+            import time as _time
+            _time.sleep(0.1)
+    pid_file.release()
+    return True
+
+
 class ChannelRunner:
     """渠道消息接入 agent 的运行器
 
@@ -255,6 +317,8 @@ class ChannelRunner:
             msg: 入站消息
         """
         # 检查 /delete 信号：先执行 /new（清所有会话+发确认），再处理消息
+        # 信号触发后直接 return，避免继续走 try_handle 处理 /new 命令
+        # 导致"已开启新的对话"反馈消息发送两次
         if self.session_store.check_signal():
             for path in self.session_store.data_dir.glob("*.json"):
                 try:
@@ -267,6 +331,7 @@ class ChannelRunner:
                 msg.chat_id, _t("cmd_new"), reply_to=msg.message_id,
             )
             self.session_store.clear_signal()
+            return
 
         # 1. 待回复的权限/询问——不加锁，让回复立即送达
         # （agent turn 持锁等待回复时，下一条消息作为回复立即 set_result，

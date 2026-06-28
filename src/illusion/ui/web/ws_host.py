@@ -106,6 +106,9 @@ class WebHostConfig:
     restore_session_id: str | None = None
     enforce_max_turns: bool = True
     effort: str | None = None
+    # 渠道感知：与 illusion 主命令一致，注入渠道提示词和跨渠道工具
+    channel_hint: str | None = None
+    channel_tools: list[Any] | None = None
 
 
 class WebBackendHost:
@@ -168,6 +171,8 @@ class WebBackendHost:
                 ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
                 plan_approval_prompt=self._ask_plan_approval,
                 effort=self._config.effort,
+                channel_hint=self._config.channel_hint,
+                channel_tools=self._config.channel_tools,
             )
         except Exception as exc:
             log.exception("Failed to build runtime")
