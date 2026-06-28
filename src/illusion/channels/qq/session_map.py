@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from illusion.channels.base import InboundMessage
+from illusion.channels.base import InboundMessage, SessionInfo
 from illusion.utils.atomic_write import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -159,3 +160,41 @@ class QQSessionStore:
         """会话文件路径"""
         safe_key = key.replace("/", "_").replace("\\", "_")
         return self.data_dir / f"{safe_key}.json"
+
+    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+        """列出最近活跃的 QQ 会话（按文件 mtime 排序）
+
+        QQ 会话文件名为 chat_id（openid）或 chat_id_user_id（群组隔离）。
+        chat_id 即文件名主体。
+
+        Args:
+            limit: 最多返回多少条
+
+        Returns:
+            list[SessionInfo]: 最近活跃会话，最新在前
+        """
+        files = sorted(
+            self.data_dir.glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit]
+        result: list[SessionInfo] = []
+        for path in files:
+            name = path.stem
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, ValueError, OSError):
+                continue
+            # QQ: 文件名可能是 chat_id 或 chat_id_user_id
+            # chat_id 即文件名（QQ openid 可能含下划线，保守用整个 name）
+            chat_id = name
+            chat_type = raw.get("chat_type", "dm")
+            mtime = path.stat().st_mtime
+            last_active = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+            result.append(SessionInfo(
+                chat_id=chat_id,
+                user_name=raw.get("user_id", "") or "",
+                chat_type=chat_type,
+                last_active=last_active,
+            ))
+        return result

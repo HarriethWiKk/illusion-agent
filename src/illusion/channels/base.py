@@ -46,6 +46,25 @@ class Attachment:
     message_id: str = ""
 
 
+@dataclass
+class SessionInfo:
+    """渠道活跃会话摘要（供跨渠道提示词展示）
+
+    由各 SessionStore.list_active 返回，用于在系统提示词中列出
+    其他渠道的活跃会话，帮助 LLM 决定跨渠道文件投递目标。
+
+    Attributes:
+        chat_id: 渠道内会话标识（如飞书 ou_xxx/oc_xxx，微信 wxid_xxx，QQ openid_xxx）
+        user_name: 用户显示名（如有，否则空串）
+        chat_type: 会话类型 "dm" / "group"
+        last_active: 最后活跃时间 ISO 字符串（如 "2026-06-28 10:30"）
+    """
+    chat_id: str
+    user_name: str = ""
+    chat_type: str = ""
+    last_active: str = ""
+
+
 @dataclass(frozen=True)
 class InboundMessage:
     """标准化入站消息

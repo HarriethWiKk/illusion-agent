@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import Any
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from illusion.channels.base import InboundMessage
+from illusion.channels.base import InboundMessage, SessionInfo
 from illusion.utils.atomic_write import atomic_write_text
 
 
@@ -178,3 +179,38 @@ class WeixinSessionStore:
         existing = self.get_or_create(key, "", "dm")
         existing.model = model
         self.save(existing, existing.messages)
+
+    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+        """列出最近活跃的微信会话（按文件 mtime 排序）
+
+        微信会话文件名为 u_<wxid>（私聊，无群聊）。chat_id 即 user_id。
+
+        Args:
+            limit: 最多返回多少条
+
+        Returns:
+            list[SessionInfo]: 最近活跃会话，最新在前
+        """
+        files = sorted(
+            self.data_dir.glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit]
+        result: list[SessionInfo] = []
+        for path in files:
+            name = path.stem
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, ValueError, OSError):
+                continue
+            # 微信: u_<wxid>，chat_id = wxid
+            chat_id = name[2:] if name.startswith("u_") else name
+            mtime = path.stat().st_mtime
+            last_active = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+            result.append(SessionInfo(
+                chat_id=chat_id,
+                user_name=raw.get("user_id", "") or chat_id,
+                chat_type="dm",
+                last_active=last_active,
+            ))
+        return result

@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from typing import Any
 import json  # JSON 读写
+import time  # 时间处理（list_active 用）
 from dataclasses import dataclass, field  # 数据类
 from pathlib import Path  # 路径处理
 from uuid import uuid4  # 会话 ID 生成
 
-from illusion.channels.base import InboundMessage  # 入站消息类型
+from illusion.channels.base import InboundMessage, SessionInfo  # 入站消息类型 / 会话摘要
 from illusion.utils.atomic_write import atomic_write_text  # 原子写入工具
 
 
@@ -219,3 +220,57 @@ class FeishuSessionStore:
         existing = self.get_or_create(key, "", "dm")
         existing.model = model
         self.save(existing, existing.messages)
+
+    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+        """列出最近活跃的会话（按文件 mtime 排序）
+
+        扫描 data_dir/*.json，反推 chat_id 和 user_id。
+        文件名格式：u_<user_id>.json（私聊）或 g_<chat_id>_<user_id>.json（群聊）。
+
+        Args:
+            limit: 最多返回多少条
+
+        Returns:
+            list[SessionInfo]: 最近活跃会话，最新在前
+        """
+        files = sorted(
+            self.data_dir.glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit]
+        result: list[SessionInfo] = []
+        for path in files:
+            name = path.stem  # 去 .json
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, ValueError, OSError):
+                continue
+            # 反推 chat_id 和 chat_type
+            if name.startswith("u_"):
+                # 私聊：u_<user_id>，chat_id 即 user_id
+                chat_id = name[2:]
+                chat_type = "dm"
+            elif name.startswith("g_"):
+                # 群聊：g_<chat_id>_<user_id>，飞书 chat_id 以 oc_ 开头，user_id 以 ou_ 开头
+                remainder = name[2:]
+                # 找到 oc_ 开头的部分作为 chat_id，再用 _ou_ 截断去掉 user_id
+                if "oc_" in remainder:
+                    idx = remainder.index("oc_")
+                    chat_id = remainder[idx:]
+                    if "_ou_" in chat_id:
+                        chat_id = chat_id[:chat_id.index("_ou_")]
+                else:
+                    chat_id = remainder
+                chat_type = "group"
+            else:
+                chat_id = name
+                chat_type = "dm"
+            mtime = path.stat().st_mtime
+            last_active = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+            result.append(SessionInfo(
+                chat_id=chat_id,
+                user_name=raw.get("user_id", "") or "",
+                chat_type=chat_type,
+                last_active=last_active,
+            ))
+        return result
