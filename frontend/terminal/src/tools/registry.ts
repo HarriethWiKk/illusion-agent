@@ -120,6 +120,24 @@ function ensureInitialized(): void {
 	register(createGenericTool('mcp_auth', 'McpAuth'));
 	register(createGenericTool('structured_output', 'StructuredOutput'));
 
+	// 渠道媒体工具（当前渠道内发/收文件）
+	register(createGenericTool('send_media', 'SendMedia'));
+	register(createGenericTool('receive_media', 'ReceiveMedia'));
+	// 跨渠道文件传输
+	register(createGenericTool('list_channel_sessions', 'ListChannelSessions'));
+	register(createGenericTool('send_to_channel', 'SendToChannel'));
+	// 飞书文档工具
+	register(createGenericTool('feishu_doc_read', 'FeishuDocRead'));
+	register(createGenericTool('feishu_doc_create', 'FeishuDocCreate'));
+	register(createGenericTool('feishu_doc_write', 'FeishuDocWrite'));
+	register(createGenericTool('feishu_doc_delete', 'FeishuDocDelete'));
+	// 飞书云盘工具
+	register(createGenericTool('feishu_drive_list', 'FeishuDriveList'));
+	register(createGenericTool('feishu_drive_upload', 'FeishuDriveUpload'));
+	register(createGenericTool('feishu_drive_download', 'FeishuDriveDownload'));
+	register(createGenericTool('feishu_drive_mkdir', 'FeishuDriveMkdir'));
+	register(createGenericTool('feishu_drive_delete', 'FeishuDriveDelete'));
+
 	// 专用工具（需要特殊处理）
 	register({
 		name: 'todo_write',
