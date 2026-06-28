@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+aiohttp = pytest.importorskip("aiohttp")
+
 from illusion.channels.qq.api import (
     STREAM_INPUT_MODE_REPLACE,
     STREAM_INPUT_STATE_DONE,
