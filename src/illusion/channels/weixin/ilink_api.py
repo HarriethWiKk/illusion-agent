@@ -1,31 +1,41 @@
 """iLink Bot API 客户端
 ======================
 
-封装腾讯 iLink Bot API 的 HTTP 调用（长轮询/收发/打字/扫码）。
+封装腾讯 iLink Bot API 的 HTTP 调用（长轮询/收发/打字/扫码/媒体上传下载）。
 
 所有 HTTP 调用延迟导入 aiohttp，确保未安装依赖时模块可导入。
+AES 加解密延迟导入 cryptography，未安装时媒体功能不可用但不影响文本收发。
 
 API 端点：
     - ilink/bot/get_bot_qrcode: 获取登录二维码
     - ilink/bot/get_qrcode_status: 轮询扫码状态
     - ilink/bot/getupdates: 长轮询拉取新消息
-    - ilink/bot/sendmessage: 发送文本消息
+    - ilink/bot/sendmessage: 发送消息（文本/图片/视频/文件/语音）
     - ilink/bot/sendtyping: 发送打字状态
     - ilink/bot/getconfig: 获取打字 ticket
+    - ilink/bot/getuploadurl: 获取 CDN 上传 URL
+
+CDN：
+    - 媒体下载: GET {cdn_base_url}/download?encrypted_query_param=...
+    - 媒体上传: POST {upload_url}，响应头 x-encrypted-param 返回加密引用
+    - 所有媒体通过 AES-128-ECB 加密传输
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import random
 from dataclasses import dataclass
 from typing import Any, cast
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger(__name__)
 
 # ─── 常量 ──────────────────────────────────────────────────────
 ILINK_BASE_URL = "https://ilinkai.weixin.qq.com"
+WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 ILINK_APP_ID = "bot"
 ILINK_APP_CLIENT_VERSION = (2 << 16) | (2 << 8) | 0  # 131072
 
@@ -33,6 +43,7 @@ EP_GET_UPDATES = "ilink/bot/getupdates"
 EP_SEND_MESSAGE = "ilink/bot/sendmessage"
 EP_SEND_TYPING = "ilink/bot/sendtyping"
 EP_GET_CONFIG = "ilink/bot/getconfig"
+EP_GET_UPLOAD_URL = "ilink/bot/getuploadurl"
 EP_GET_BOT_QR = "ilink/bot/get_bot_qrcode"
 EP_GET_QR_STATUS = "ilink/bot/get_qrcode_status"
 
@@ -40,6 +51,8 @@ LONG_POLL_TIMEOUT_MS = 35_000
 API_TIMEOUT_MS = 15_000
 CONFIG_TIMEOUT_MS = 10_000
 QR_TIMEOUT_MS = 35_000
+UPLOAD_TIMEOUT_SECONDS = 120
+DOWNLOAD_TIMEOUT_SECONDS = 60
 
 MAX_MESSAGE_LENGTH = 2000
 
@@ -47,12 +60,200 @@ MAX_MESSAGE_LENGTH = 2000
 MSG_TYPE_BOT = 2
 MSG_STATE_FINISH = 2
 ITEM_TEXT = 1
+ITEM_IMAGE = 2
+ITEM_VOICE = 3
+ITEM_FILE = 4
+ITEM_VIDEO = 5
 TYPING_START = 1
 TYPING_STOP = 2
+
+# 媒体类型（用于 getuploadurl 的 media_type 字段）
+MEDIA_IMAGE = 1
+MEDIA_VIDEO = 2
+MEDIA_FILE = 3
+MEDIA_VOICE = 4
 
 # 错误码
 SESSION_EXPIRED_ERRCODE = -14
 RATE_LIMIT_ERRCODE = -2
+
+# CDN 主机白名单（SSRF 防护）
+_WEIXIN_CDN_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "novac2c.cdn.weixin.qq.com",
+        "ilinkai.weixin.qq.com",
+        "wx.qlogo.cn",
+        "thirdwx.qlogo.cn",
+        "res.wx.qq.com",
+        "mmbiz.qpic.cn",
+        "mmbiz.qlogo.cn",
+    }
+)
+
+
+def _check_crypto_available() -> bool:
+    """检查 cryptography 是否可用
+
+    Returns:
+        bool: 可用返回 True
+    """
+    try:
+        import cryptography  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _pkcs7_pad(data: bytes, block_size: int = 16) -> bytes:
+    """PKCS#7 填充
+
+    Args:
+        data: 原始数据
+        block_size: 块大小（默认 16，AES 标准）
+
+    Returns:
+        bytes: 填充后的数据
+    """
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len] * pad_len)
+
+
+def _aes128_ecb_encrypt(plaintext: bytes, key: bytes) -> bytes:
+    """AES-128-ECB 加密 + PKCS#7 填充
+
+    Args:
+        plaintext: 明文
+        key: 16 字节 AES 密钥
+
+    Returns:
+        bytes: 密文
+    """
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+    encryptor = cipher.encryptor()
+    return encryptor.update(_pkcs7_pad(plaintext)) + encryptor.finalize()
+
+
+def _aes128_ecb_decrypt(ciphertext: bytes, key: bytes) -> bytes:
+    """AES-128-ECB 解密 + PKCS#7 去填充
+
+    Args:
+        ciphertext: 密文
+        key: 16 字节 AES 密钥
+
+    Returns:
+        bytes: 明文
+    """
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+    decryptor = cipher.decryptor()
+    padded = decryptor.update(ciphertext) + decryptor.finalize()
+    if not padded:
+        return padded
+    pad_len = padded[-1]
+    if 1 <= pad_len <= 16 and padded.endswith(bytes([pad_len]) * pad_len):
+        return padded[:-pad_len]
+    return padded
+
+
+def _aes_padded_size(size: int) -> int:
+    """计算 AES-128-ECB + PKCS#7 填充后的密文长度
+
+    Args:
+        size: 明文字节数
+
+    Returns:
+        int: 密文字节数
+    """
+    return ((size + 1 + 15) // 16) * 16
+
+
+def _parse_aes_key(aes_key_b64: str) -> bytes:
+    """解析 iLink 消息载荷中的 AES 密钥
+
+    iLink 的 aes_key 字段可能是：
+        - base64(16 字节原始密钥)
+        - base64(hex_string) → 32 字节解码后是 hex 字符串
+
+    Args:
+        aes_key_b64: base64 编码的 AES 密钥
+
+    Returns:
+        bytes: 16 字节 AES 密钥
+
+    Raises:
+        ValueError: 格式无法识别
+    """
+    decoded = base64.b64decode(aes_key_b64)
+    if len(decoded) == 16:
+        return decoded
+    if len(decoded) == 32:
+        text = decoded.decode("ascii", errors="ignore")
+        if text and all(ch in "0123456789abcdefABCDEF" for ch in text):
+            return bytes.fromhex(text)
+    raise ValueError(f"unexpected aes_key format ({len(decoded)} decoded bytes)")
+
+
+def _cdn_download_url(cdn_base_url: str, encrypted_query_param: str) -> str:
+    """构造 CDN 下载 URL
+
+    Args:
+        cdn_base_url: CDN 基础 URL
+        encrypted_query_param: 加密查询参数
+
+    Returns:
+        str: 完整下载 URL
+    """
+    return f"{cdn_base_url.rstrip('/')}/download?encrypted_query_param={quote(encrypted_query_param, safe='')}"
+
+
+def _cdn_upload_url(cdn_base_url: str, upload_param: str, filekey: str) -> str:
+    """构造 CDN 上传 URL
+
+    Args:
+        cdn_base_url: CDN 基础 URL
+        upload_param: 上传参数（来自 getuploadurl 响应）
+        filekey: 文件 key
+
+    Returns:
+        str: 完整上传 URL
+    """
+    return (
+        f"{cdn_base_url.rstrip('/')}/upload"
+        f"?encrypted_query_param={quote(upload_param, safe='')}"
+        f"&filekey={quote(filekey, safe='')}"
+    )
+
+
+def _assert_weixin_cdn_url(url: str) -> None:
+    """SSRF 防护：校验 URL 指向微信 CDN 白名单
+
+    Args:
+        url: 待校验 URL
+
+    Raises:
+        ValueError: URL 不在白名单
+    """
+    try:
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname or ""
+    except Exception as exc:
+        raise ValueError(f"Unparseable media URL: {url!r}") from exc
+
+    if scheme not in {"http", "https"}:
+        raise ValueError(
+            f"Media URL has disallowed scheme {scheme!r}; only http/https are permitted."
+        )
+    if host not in _WEIXIN_CDN_ALLOWLIST:
+        raise ValueError(
+            f"Media URL host {host!r} is not in the WeChat CDN allowlist. "
+            "Refusing to fetch to prevent SSRF."
+        )
 
 
 @dataclass
@@ -341,6 +542,154 @@ async def get_config(
         payload=payload,
         token=token, timeout_ms=CONFIG_TIMEOUT_MS,
     )
+
+
+async def get_upload_url(
+    session: Any,
+    *,
+    base_url: str,
+    token: str,
+    to_user_id: str,
+    media_type: int,
+    filekey: str,
+    rawsize: int,
+    rawfilemd5: str,
+    filesize: int,
+    aeskey_hex: str,
+) -> dict[str, Any]:
+    """获取 CDN 上传 URL
+
+    Args:
+        session: aiohttp.ClientSession
+        base_url: API 入口
+        token: Bearer token
+        to_user_id: 目标用户 ID
+        media_type: 媒体类型（MEDIA_IMAGE/VIDEO/FILE/VOICE）
+        filekey: 文件 key（随机 hex）
+        rawsize: 原始文件字节数
+        rawfilemd5: 原始文件 MD5 hex
+        filesize: 加密后密文字节数
+        aeskey_hex: AES 密钥的 hex 字符串
+
+    Returns:
+        dict[str, Any]: 含 upload_param 或 upload_full_url
+    """
+    return await _api_post(
+        session, base_url=base_url, endpoint=EP_GET_UPLOAD_URL,
+        payload={
+            "filekey": filekey,
+            "media_type": media_type,
+            "to_user_id": to_user_id,
+            "rawsize": rawsize,
+            "rawfilemd5": rawfilemd5,
+            "filesize": filesize,
+            "no_need_thumb": True,
+            "aeskey": aeskey_hex,
+        },
+        token=token, timeout_ms=API_TIMEOUT_MS,
+    )
+
+
+async def upload_ciphertext(
+    session: Any,
+    *,
+    ciphertext: bytes,
+    upload_url: str,
+) -> str:
+    """上传加密媒体到 CDN
+
+    Args:
+        session: aiohttp.ClientSession
+        ciphertext: 加密后的密文
+        upload_url: 上传 URL（来自 getuploadurl 响应）
+
+    Returns:
+        str: 加密查询参数（encrypted_query_param），用于后续 sendmessage
+
+    Raises:
+        RuntimeError: 上传失败或响应缺少 x-encrypted-param 头
+    """
+    async def _do_upload() -> str:
+        async with session.post(
+            upload_url, data=ciphertext,
+            headers={"Content-Type": "application/octet-stream"},
+        ) as response:
+            if response.status == 200:
+                encrypted_param = response.headers.get("x-encrypted-param")
+                if encrypted_param:
+                    await response.read()
+                    return str(encrypted_param)
+                raw = await response.text()
+                raise RuntimeError(f"CDN upload missing x-encrypted-param header: {raw[:200]}")
+            raw = await response.text()
+            raise RuntimeError(f"CDN upload HTTP {response.status}: {raw[:200]}")
+    return await asyncio.wait_for(_do_upload(), timeout=UPLOAD_TIMEOUT_SECONDS)
+
+
+async def download_bytes(
+    session: Any,
+    *,
+    url: str,
+    timeout_seconds: float = DOWNLOAD_TIMEOUT_SECONDS,
+) -> bytes:
+    """下载字节数据
+
+    Args:
+        session: aiohttp.ClientSession
+        url: 下载 URL
+        timeout_seconds: 超时秒数
+
+    Returns:
+        bytes: 下载的字节内容
+    """
+    async def _do_download() -> bytes:
+        async with session.get(url) as response:
+            response.raise_for_status()
+            data = await response.read()
+            return bytes(data)
+    return await asyncio.wait_for(_do_download(), timeout=timeout_seconds)
+
+
+async def download_and_decrypt_media(
+    session: Any,
+    *,
+    cdn_base_url: str,
+    encrypted_query_param: str | None,
+    aes_key_b64: str | None,
+    full_url: str | None,
+    timeout_seconds: float = DOWNLOAD_TIMEOUT_SECONDS,
+) -> bytes:
+    """下载并解密媒体文件
+
+    Args:
+        session: aiohttp.ClientSession
+        cdn_base_url: CDN 基础 URL
+        encrypted_query_param: 加密查询参数（优先）
+        aes_key_b64: base64 编码的 AES 密钥（可选，不提供则不解密）
+        full_url: 完整 URL（当 encrypted_query_param 为空时使用）
+        timeout_seconds: 超时秒数
+
+    Returns:
+        bytes: 解密后的媒体内容
+
+    Raises:
+        RuntimeError: 既无 encrypted_query_param 也无 full_url
+        ValueError: full_url 不在 CDN 白名单（SSRF 防护）
+    """
+    if encrypted_query_param:
+        raw = await download_bytes(
+            session,
+            url=_cdn_download_url(cdn_base_url, encrypted_query_param),
+            timeout_seconds=timeout_seconds,
+        )
+    elif full_url:
+        _assert_weixin_cdn_url(full_url)
+        raw = await download_bytes(session, url=full_url, timeout_seconds=timeout_seconds)
+    else:
+        raise RuntimeError("media item had neither encrypt_query_param nor full_url")
+    if aes_key_b64:
+        raw = _aes128_ecb_decrypt(raw, _parse_aes_key(aes_key_b64))
+    return raw
 
 
 async def get_bot_qrcode(session: Any, *, base_url: str) -> dict[str, Any]:
