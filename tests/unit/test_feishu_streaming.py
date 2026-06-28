@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytest.importorskip("lark_oapi")
+
 from illusion.channels.feishu.messaging import (
     LOADING_ICON_ELEMENT_ID,
     STREAMING_ELEMENT_ID,
