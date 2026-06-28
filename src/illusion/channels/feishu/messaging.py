@@ -406,3 +406,349 @@ async def send_file(client: Any, cfg: "FeishuChannelConfig", chat_id: str, file_
     # 先上传文件拿 file_key，再发消息（实现细节在 lark-oapi SDK）
     logger.info("发送文件到飞书 %s: %s", chat_id, path.name)
     # TODO（实现阶段补全）：im.v1.file.create → 拿 file_key → CreateMessageRequest(msg_type=file/image)
+
+
+# ---------------------------------------------------------------------------
+# CardKit 流式卡片构造
+# ---------------------------------------------------------------------------
+
+STREAMING_ELEMENT_ID = "streaming_content"
+LOADING_ICON_ELEMENT_ID = "loading_icon"
+_LOADING_ICON_KEY = "img_v3_02vb_496bec09-4b43-4773-ad6b-0cdd103cd2bg"
+
+
+def build_streaming_card() -> str:
+    """构造流式初始卡片 JSON
+
+    schema 2.0 + streaming_mode: true + 两个 element_id 锚点：
+    - streaming_content: 流式文本（text_size=normal_v2）
+    - loading_icon: loading 动画（custom_icon）
+
+    cardElement.content() 后续只更新 streaming_content 的 content 字符串。
+    """
+    card = {
+        "schema": "2.0",
+        "config": {
+            "streaming_mode": True,
+            "locales": ["zh_cn", "en_us"],
+        },
+        "body": {
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": "",
+                    "text_align": "left",
+                    "text_size": "normal_v2",
+                    "element_id": STREAMING_ELEMENT_ID,
+                },
+                {
+                    "tag": "markdown",
+                    "content": " ",
+                    "icon": {
+                        "tag": "custom_icon",
+                        "img_key": _LOADING_ICON_KEY,
+                        "size": "16px 16px",
+                    },
+                    "element_id": LOADING_ICON_ELEMENT_ID,
+                },
+            ],
+        },
+    }
+    return json.dumps(card, ensure_ascii=False)
+
+
+def build_complete_card(
+    text: str,
+    reasoning_text: str = "",
+    elapsed_ms: int = 0,
+    is_error: bool = False,
+) -> str:
+    """构造终态卡片 JSON
+
+    结构：
+    - [可选] collapsible_panel: 思考过程折叠面板（默认折叠，notation 小字号）
+    - markdown: 主体回复
+    - markdown: footer（耗时 / 错误标识）
+
+    Args:
+        text: 主体回复文本
+        reasoning_text: 思考过程文本（为空则不渲染折叠面板）
+        elapsed_ms: 总耗时（毫秒）
+        is_error: 是否错误终态
+    """
+    elements: list[dict[str, Any]] = []
+
+    if reasoning_text:
+        elapsed_s = elapsed_ms / 1000.0
+        title = f"💭 Thought for {elapsed_s:.1f}s"
+        elements.append({
+            "tag": "collapsible_panel",
+            "expanded": False,
+            "header": {
+                "title": {"tag": "markdown", "content": title},
+            },
+            "border": {"color": "grey", "corner_radius": "5px"},
+            "vertical_spacing": "8px",
+            "padding": "8px 8px 8px 8px",
+            "elements": [
+                {"tag": "markdown", "content": reasoning_text, "text_size": "notation"},
+            ],
+        })
+
+    elements.append({"tag": "markdown", "content": text})
+
+    elapsed_s = elapsed_ms / 1000.0
+    if is_error:
+        footer = f"<font color='red'>出错 · 耗时 {elapsed_s:.1f}s</font>"
+    else:
+        footer = f"已完成 · 耗时 {elapsed_s:.1f}s"
+    elements.append({"tag": "markdown", "content": footer, "text_size": "notation"})
+
+    card = {
+        "schema": "2.0",
+        "config": {
+            "streaming_mode": False,
+            "wide_screen_mode": True,
+            "update_multi": True,
+        },
+        "body": {"elements": elements},
+    }
+    return json.dumps(card, ensure_ascii=False)
+
+
+def build_display_text(
+    accumulated_text: str,
+    reasoning_text: str,
+    is_reasoning_phase: bool,
+) -> str:
+    """构造流式过程中 streaming_content 的显示文本
+
+    与 openclaw-lark buildDisplayText 对齐：
+    思考阶段（有 reasoning 且 is_reasoning_phase）：
+        - 无 accumulated_text: "💭 **Thinking...**\\n\\n{reasoning_text}"
+        - 有 accumulated_text: "{accumulated_text}\\n\\n💭 **Thinking...**\\n\\n{reasoning_text}"
+    生成阶段（is_reasoning_phase=False）：
+        - "{accumulated_text}"（思考内容不显示在流式过程中，仅在终态折叠面板展示）
+    """
+    if is_reasoning_phase and reasoning_text:
+        reasoning_display = f"💭 **Thinking...**\n\n{reasoning_text}"
+        if accumulated_text:
+            return f"{accumulated_text}\n\n{reasoning_display}"
+        return reasoning_display
+    return accumulated_text
+
+
+# ---------------------------------------------------------------------------
+# CardKit API 封装
+# ---------------------------------------------------------------------------
+
+
+async def create_card_entity(client: Any, card_content: str) -> str:
+    """通过 CardKit API 创建卡片实体，返回 card_id
+
+    Args:
+        client: lark 客户端
+        card_content: 卡片 JSON 字符串
+
+    Returns:
+        str: card_id（失败返回空字符串）
+    """
+    from lark_oapi.api.cardkit.v1 import CreateCardRequest  # type: ignore[import-untyped]
+
+    req = (
+        CreateCardRequest.builder()
+        .request_body({
+            "type": "card_json",
+            "data": card_content,
+        })  # pyright: ignore[reportArgumentType]
+        .build()
+    )
+    try:
+        resp = await asyncio.to_thread(client.cardkit.v1.card.create, req)
+        if not resp.success():
+            logger.warning(
+                "CardKit 创建卡片失败: code=%s msg=%s", resp.code, resp.msg,
+            )
+            return ""
+        return getattr(resp.data, "card_id", "") or ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CardKit 创建卡片异常: %s", exc)
+        return ""
+
+
+async def send_card_by_card_id(
+    client: Any, chat_id: str, card_id: str, *, reply_to: str = "",
+) -> str:
+    """通过 card_id 引用发送卡片消息，返回 message_id
+
+    content 格式: {"type":"card","data":{"card_id":"xxx"}}
+
+    Args:
+        client: lark 客户端
+        chat_id: 目标会话
+        card_id: CardKit 卡片 ID
+        reply_to: 要回复的消息 ID（可选）
+
+    Returns:
+        str: message_id（失败抛 RuntimeError）
+    """
+    from lark_oapi.api.im.v1 import CreateMessageRequest
+
+    receive_id, receive_id_type = resolve_receive_id(chat_id)
+    content = json.dumps({"type": "card", "data": {"card_id": card_id}}, ensure_ascii=False)
+    body = {"receive_id": receive_id, "msg_type": "interactive", "content": content}
+    req = (
+        CreateMessageRequest.builder()
+        .receive_id_type(receive_id_type)
+        .request_body(body)  # pyright: ignore[reportArgumentType]
+        .build()
+    )
+    resp = await asyncio.to_thread(client.im.v1.message.create, req)
+    if not resp.success():
+        raise RuntimeError(f"飞书卡片消息发送失败: code={resp.code} msg={resp.msg}")
+    return resp.data.message_id  # type: ignore[no-any-return]
+
+
+async def stream_card_element_content(
+    client: Any, card_id: str, element_id: str, content: str, sequence: int,
+) -> bool:
+    """调用 CardKit cardElement.content() 增量更新 element
+
+    content 是完整累积文本（非 delta），飞书端自动 diff 并渲染打字机动画。
+    sequence 单调递增，用于乱序保护。
+
+    Args:
+        client: lark 客户端
+        card_id: CardKit 卡片 ID
+        element_id: 目标 element ID（如 streaming_content）
+        content: 完整累积文本
+        sequence: 单调递增序号
+
+    Returns:
+        bool: True 成功，False 失败（如 230020 限流）
+    """
+    from lark_oapi.api.cardkit.v1 import (
+        ContentCardElementRequest,
+        ContentCardElementRequestBody,
+    )
+
+    body = (
+        ContentCardElementRequestBody.builder()
+        .content(content)
+        .sequence(sequence)
+        .build()
+    )
+    req = (
+        ContentCardElementRequest.builder()
+        .card_id(card_id)
+        .element_id(element_id)
+        .request_body(body)
+        .build()
+    )
+    try:
+        # Python SDK 属性名是 card_element（下划线），不是 cardElement（JS SDK 驼峰）
+        resp = await client.cardkit.v1.card_element.acontent(req)
+        if not resp.success():
+            logger.info(
+                "CardKit 流式更新失败（跳帧）: code=%s msg=%s seq=%d",
+                resp.code, resp.msg, sequence,
+            )
+            return False
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CardKit 流式更新异常: %s seq=%d", exc, sequence)
+        return False
+
+
+async def set_card_streaming_mode(
+    client: Any, card_id: str, streaming_mode: bool, sequence: int,
+) -> bool:
+    """调用 CardKit card.settings() 切换流式模式
+
+    流式卡片创建时 streaming_mode=true，终态收尾必须调用本接口设置为 False，
+    否则飞书客户端仍处于流式态（loading 动画不停止、streaming_content element
+    仍等待增量），会导致终态卡片渲染异常（如循环显示思考过程）。
+
+    参考 openclaw-lark 的 setCardStreamingMode：通过 PATCH /cards/:card_id/settings
+    发送 {"streaming_mode": false} + sequence。
+
+    Args:
+        client: lark 客户端
+        card_id: CardKit 卡片 ID
+        streaming_mode: True 开启流式，False 关闭流式
+        sequence: 单调递增序号
+
+    Returns:
+        bool: True 成功，False 失败
+    """
+    from lark_oapi.api.cardkit.v1 import (
+        SettingsCardRequest,
+        SettingsCardRequestBody,
+    )
+
+    body = (
+        SettingsCardRequestBody.builder()
+        .settings(json.dumps({"streaming_mode": streaming_mode}))
+        .sequence(sequence)
+        .build()
+    )
+    req = (
+        SettingsCardRequest.builder()
+        .card_id(card_id)
+        .request_body(body)  # pyright: ignore[reportArgumentType]
+        .build()
+    )
+    try:
+        resp = await asyncio.to_thread(client.cardkit.v1.card.settings, req)
+        if not resp.success():
+            logger.warning(
+                "CardKit 流式模式切换失败: code=%s msg=%s streaming_mode=%s",
+                resp.code, resp.msg, streaming_mode,
+            )
+            return False
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "CardKit 流式模式切换异常: %s streaming_mode=%s", exc, streaming_mode,
+        )
+        return False
+
+
+async def update_cardkit_card(
+    client: Any, card_id: str, card_content: str, sequence: int,
+) -> bool:
+    """调用 CardKit card.update() 全卡替换
+
+    用于终态收尾（在 set_card_streaming_mode(False) 之后调用，替换为完整卡片）。
+
+    Args:
+        client: lark 客户端
+        card_id: CardKit 卡片 ID
+        card_content: 新的完整卡片 JSON 字符串
+        sequence: 单调递增序号
+
+    Returns:
+        bool: True 成功，False 失败
+    """
+    from lark_oapi.api.cardkit.v1 import UpdateCardRequest
+
+    req = (
+        UpdateCardRequest.builder()
+        .card_id(card_id)
+        .request_body({
+            "card": {"type": "card_json", "data": card_content},
+            "sequence": sequence,
+        })  # pyright: ignore[reportArgumentType]
+        .build()
+    )
+    try:
+        resp = await asyncio.to_thread(client.cardkit.v1.card.update, req)
+        if not resp.success():
+            logger.warning(
+                "CardKit 全卡更新失败: code=%s msg=%s", resp.code, resp.msg,
+            )
+            return False
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CardKit 全卡更新异常: %s", exc)
+        return False
