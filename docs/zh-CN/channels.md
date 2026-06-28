@@ -223,6 +223,7 @@ illusion channel serve      # 前台模式（查看日志）
 - **不支持消息编辑**——回复作为完整文本发送（打字状态指示处理中）
 - **2000 字符限制**——超长回复自动分多条发送，间隔 1.5s
 - **会话过期**——如果看到 `errcode=-14`，重新运行 `illusion channel login` 扫码
+- **附件 AES 加密**——入站图片/视频/文件/语音经 CDN 传输时使用 AES-128-ECB + PKCS#7 加密，密钥按 `{msg_id}:{att_id}` 缓存，跨消息不会串键；依赖 `cryptography` 包（首次登录时自动安装）
 
 ### 快速开始（QQ）
 
@@ -268,33 +269,65 @@ illusion channel serve      # 前台模式（查看日志）
 
 ```
 src/illusion/channels/
-├── __init__.py          # ChannelRunner（消息→agent 粘合层）+ maybe_spawn_channel_daemon
-├── base.py              # Channel 抽象基类 + InboundMessage + 打字状态方法
+├── __init__.py          # ChannelRunner（消息→agent 粘合层）+ maybe_spawn_channel_daemon + kill_channel_daemon
+├── base.py              # Channel 抽象基类 + InboundMessage + Attachment + 打字状态方法
 ├── base_commands.py     # BaseCommandHandler（通用斜杠命令基类）
 ├── config.py            # ChannelsConfig / FeishuChannelConfig / WeixinChannelConfig
+├── delivery.py          # cron 任务结果投递到渠道（parse_deliver_to + deliver_to_channel）
 ├── serve.py             # 'illusion channel serve' 入口（多渠道调度）
 ├── pid.py               # PID 文件管理（避免重复启动守护进程）
 ├── feishu/
 │   ├── adapter.py       # FeishuChannel：WS 连接、事件分发、准入控制
 │   ├── ws_client.py     # lark-oapi WS 客户端包装
-│   ├── messaging.py     # 卡片发送/更新、消息渲染
+│   ├── messaging.py     # 卡片发送/更新、消息渲染、resolve_receive_id
 │   ├── stream_editor.py # 流式卡片编辑器（节流 patch 更新）
 │   ├── session_map.py   # 飞书会话存储（chat_id → 会话）
 │   └── commands.py      # FeishuCommandHandler（继承 BaseCommandHandler）
 ├── weixin/
 │   ├── __init__.py      # WEIXIN_DEPENDENCIES / ensure_weixin_dependencies
-│   ├── adapter.py       # WeixinChannel：长轮询、准入、context_token、打字状态
-│   ├── ilink_api.py     # iLink Bot API 客户端（扫码/收发/打字/分片）
+│   ├── adapter.py       # WeixinChannel：长轮询、准入、context_token、AES 密钥缓存、打字状态
+│   ├── ilink_api.py     # iLink Bot API 客户端（扫码/收发/打字/分片/CDN allowlist）
 │   ├── session_map.py   # WeixinSessionStore（user_id → 会话）
 │   └── commands.py      # WeixinCommandHandler（继承 BaseCommandHandler）
 ├── qq/
 │   ├── __init__.py      # QQ_DEPENDENCIES / ensure_qq_dependencies
-│   ├── adapter.py       # QQChannel：WS 连接、准入、消息标准化
+│   ├── adapter.py       # QQChannel：WS 连接、准入、消息标准化、附件 host 校验
 │   ├── ws_client.py     # QQ Bot WS 网关客户端（心跳/重连/事件分发）
-│   ├── api.py           # QQ Bot REST API 客户端（token/收发/上传）
+│   ├── api.py           # QQ Bot REST API 客户端（token/收发/上传/_parse_qq_response）
 │   ├── session_map.py   # QQSessionStore（chat_id → 会话）
 │   └── commands.py      # QQCommandHandler（继承 BaseCommandHandler）
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
-    └── feishu_drive.py  # feishu_drive_list / upload / download
+    ├── feishu_drive.py  # feishu_drive_list / upload / download
+    └── media.py         # SendMediaTool / ReceiveMediaTool（按渠道配置激活）
 ```
+
+### Cron 任务结果投递
+
+cron 定时任务支持把执行结果投递到飞书/微信/QQ 渠道会话。配置在 `cron_tool.py` 的 `deliver_to` 字段中指定：
+
+- **空值**——任务仅本地执行（终端输出）
+- **`channel:chat_id`**——完全限定格式，例如 `feishu:oc_xxx`（群聊）、`feishu:ou_xxx`（私聊）、`weixin:wxid_xxx`、`qq:openid`
+- **`channel`（仅渠道名）**——需配合 `chat_id` 字段，否则按"未指定"处理
+
+会话文件名前缀规则（用于从 `~/.illusion/channels/<channel>/sessions/` 提取真实 ID）：
+
+| 渠道 | 文件名格式 | 真实 ID |
+|------|-----------|---------|
+| 飞书私聊 | `u_ou_xxx.json` | `ou_xxx`（去掉 `u_` 前缀） |
+| 飞书群聊 | `g_oc_xxx_ou_xxx.json` | `oc_xxx`（取 `oc_` 部分） |
+| 微信 | `u_<wxid>.json` | `<wxid>`（去掉 `u_` 前缀） |
+| QQ | `<openid>.json` | `<openid>`（文件名即 ID） |
+
+投递失败不影响任务状态，仅记录 warning 日志。任务失败时（非成功状态）会附上 stderr 让用户可见错误。
+
+### 消息并发处理
+
+当用户快速连发多条消息时，`ChannelRunner` 按 `chat_id` 加 `asyncio.Lock` 串行化 agent turn，避免会话历史覆盖：
+
+- M1 拿到锁后开始跑 agent，M2/M3 进入队列等待
+- M1 完成（或退出 pending_replies 等待）后，M2 拿到锁开始处理
+- 权限/询问回复消息**不加锁**，立即 set_result 给等待中的 future，避免 300s 超时
+- 不同 `chat_id` 之间完全并行，互不阻塞
+
+这保证同一会话的对话历史按顺序写入，不会出现"M1/A1 和 M3/A3 丢失、只保留 M2/A2"的 race condition。

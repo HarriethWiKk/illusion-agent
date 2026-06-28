@@ -26,7 +26,7 @@ illusion plugin list             # 列出插件
 illusion plugin install <source> # 安装插件
 illusion plugin uninstall <name> # 卸载插件
 
-# 渠道管理（飞书等消息渠道）
+# 渠道管理（飞书/微信/QQ 消息渠道）
 illusion channel login           # 交互式配置渠道（选择渠道 → 配置凭据）
 illusion channel serve           # 前台运行渠道守护进程（监听消息）
 illusion channel status          # 查看渠道状态（启用/连接/PID）

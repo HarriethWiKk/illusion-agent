@@ -62,6 +62,16 @@ illusion-code/
 - **交互**: `ask_user_question`
 - **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
 
+### 定时任务与投递链路
+
+定时任务子系统由三个模块协作：
+
+- `services/cron.py` — 任务数据模型（CronJob）与持久化（`cron.json`）
+- `services/cron_scheduler.py` — 调度器进程，子进程执行提示词，按 `deliver_to` 字段投递结果到渠道
+- `channels/delivery.py` — 渠道投递模块，`parse_deliver_to` 解析目标，`deliver_to_channel` 派发到飞书/微信/QQ 的 `_deliver_*` 函数
+
+投递目标支持 `channel:chat_id` 完全限定格式或仅渠道名（配合 `chat_id` 字段）。任务失败时附 stderr 让用户可见错误。详见 [渠道文档](channels.md#cron-任务结果投递)。
+
 ### 权限系统
 
 三种权限模式：

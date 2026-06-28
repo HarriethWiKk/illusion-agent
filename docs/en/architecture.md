@@ -60,6 +60,16 @@ Provides 34 core tools, covering:
 - **Interaction**: `ask_user_question`
 - **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
 
+### Scheduled Tasks & Delivery Pipeline
+
+The cron subsystem is composed of three cooperating modules:
+
+- `services/cron.py` — CronJob data model and persistence (`cron.json`)
+- `services/cron_scheduler.py` — scheduler process; runs the prompt in a subprocess and delivers the result to a channel based on the `deliver_to` field
+- `channels/delivery.py` — delivery module; `parse_deliver_to` parses the target, `deliver_to_channel` dispatches to Feishu/WeChat/QQ `_deliver_*` functions
+
+Delivery targets accept `channel:chat_id` (fully qualified) or a bare channel name (combined with the `chat_id` field). Failed jobs include stderr in the delivered text so users can see the error. See [Channels doc](channels.md#cron-job-result-delivery) for details.
+
 ### Permission System
 
 Three permission modes:

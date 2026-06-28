@@ -261,38 +261,72 @@ Send a message to your bot in QQ — private chat replies directly, group chat r
 - **No message editing** — replies are sent as complete text
 - **4000 char limit** — longer replies auto-split into multiple messages with 1.5s delay
 - **File sending** — supports 3-step chunked upload
+- **Markdown dynamic hint** — when `markdown_support` is `true` in `channels.json`, the platform prompt tells the LLM that markdown is available (msg_type=2); when `false` (default), the prompt forces plain text (msg_type=0) and `send_text` auto-degrades to plain text on failure. Keep the default `false` for normal developer accounts without template permissions
+- **Attachment download security** — when downloading QQ inbound attachments, the bot token is only attached for `.qq.com` / `.qq.com.cn` hosts, preventing access_token leakage via malicious URLs
 
 ## Channel Architecture
 
 ```
 src/illusion/channels/
-├── __init__.py          # ChannelRunner (message→agent glue) + maybe_spawn_channel_daemon
-├── base.py              # Channel ABC + InboundMessage + typing methods
+├── __init__.py          # ChannelRunner (message→agent glue) + maybe_spawn_channel_daemon + kill_channel_daemon
+├── base.py              # Channel ABC + InboundMessage + Attachment + typing methods
 ├── base_commands.py     # BaseCommandHandler (shared slash commands)
 ├── config.py            # ChannelsConfig / FeishuChannelConfig / WeixinChannelConfig
+├── delivery.py          # cron job result delivery to channels (parse_deliver_to + deliver_to_channel)
 ├── serve.py             # 'illusion channel serve' entry point (multi-channel)
 ├── pid.py               # PID file management (avoid duplicate daemons)
 ├── feishu/
 │   ├── adapter.py       # FeishuChannel: WS connection, event dispatch, admission control
 │   ├── ws_client.py     # lark-oapi WS client wrapper
-│   ├── messaging.py     # Card send/patch, message rendering
+│   ├── messaging.py     # Card send/patch, message rendering, resolve_receive_id
 │   ├── stream_editor.py # Streaming card editor (throttled patch updates)
 │   ├── session_map.py   # Feishu session store (chat_id → session)
 │   └── commands.py      # FeishuCommandHandler (extends BaseCommandHandler)
 ├── weixin/
 │   ├── __init__.py      # WEIXIN_DEPENDENCIES / ensure_weixin_dependencies
-│   ├── adapter.py       # WeixinChannel: long-poll, admission, context_token, typing
-│   ├── ilink_api.py     # iLink Bot API client (QR login / send / poll / typing)
+│   ├── adapter.py       # WeixinChannel: long-poll, admission, context_token, AES key cache, typing
+│   ├── ilink_api.py     # iLink Bot API client (QR login / send / poll / typing / CDN allowlist)
 │   ├── session_map.py   # WeixinSessionStore (user_id → session)
 │   └── commands.py      # WeixinCommandHandler (extends BaseCommandHandler)
 ├── qq/
 │   ├── __init__.py      # QQ_DEPENDENCIES / ensure_qq_dependencies
-│   ├── adapter.py       # QQChannel: WS connection, admission, message normalization
+│   ├── adapter.py       # QQChannel: WS connection, admission, message normalization, attachment host validation
 │   ├── ws_client.py     # QQ Bot WS gateway client (heartbeat/reconnect/events)
-│   ├── api.py           # QQ Bot REST API client (token/send/upload)
+│   ├── api.py           # QQ Bot REST API client (token/send/upload/_parse_qq_response)
 │   ├── session_map.py   # QQSessionStore (chat_id → session)
 │   └── commands.py      # QQCommandHandler (extends BaseCommandHandler)
 └── tools/
     ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
-    └── feishu_drive.py  # feishu_drive_list / upload / download
+    ├── feishu_drive.py  # feishu_drive_list / upload / download
+    └── media.py         # SendMediaTool / ReceiveMediaTool (activated by channel config)
 ```
+
+## Cron Job Result Delivery
+
+Cron jobs can deliver execution results to Feishu/WeChat/QQ channel sessions. Configure via the `deliver_to` field in `cron_tool.py`:
+
+- **Empty** — local execution only (terminal output)
+- **`channel:chat_id`** — fully qualified format, e.g. `feishu:oc_xxx` (group), `feishu:ou_xxx` (private), `weixin:wxid_xxx`, `qq:openid`
+- **`channel` (name only)** — requires the `chat_id` field; otherwise treated as "unspecified"
+
+Session filename prefix rules (for extracting the real ID from `~/.illusion/channels/<channel>/sessions/`):
+
+| Channel | Filename format | Real ID |
+|---------|-----------------|---------|
+| Feishu private | `u_ou_xxx.json` | `ou_xxx` (strip `u_` prefix) |
+| Feishu group | `g_oc_xxx_ou_xxx.json` | `oc_xxx` (use the `oc_` part) |
+| WeChat | `u_<wxid>.json` | `<wxid>` (strip `u_` prefix) |
+| QQ | `<openid>.json` | `<openid>` (filename is the ID) |
+
+Delivery failures do not affect task status; only a warning is logged. Failed jobs (non-success status) include stderr in the delivered text so users can see the error.
+
+## Concurrent Message Handling
+
+When a user sends multiple messages in quick succession, `ChannelRunner` serializes agent turns per `chat_id` using an `asyncio.Lock` to prevent session history corruption:
+
+- M1 acquires the lock and starts the agent; M2/M3 enter the queue and wait
+- After M1 completes (or exits pending_replies wait), M2 acquires the lock
+- Permission/ask reply messages are **not locked** — they immediately `set_result` the waiting future, avoiding 300s timeouts
+- Different `chat_id`s run fully in parallel without blocking each other
+
+This ensures conversation history is written in order for the same session, preventing the race condition where "M1/A1 and M3/A3 are lost, only M2/A2 remains."

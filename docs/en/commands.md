@@ -24,7 +24,7 @@ illusion plugin list             # List plugins
 illusion plugin install <source> # Install plugin
 illusion plugin uninstall <name> # Uninstall plugin
 
-# Channel management (Feishu/Lark messaging)
+# Channel management (Feishu/WeChat/QQ messaging)
 illusion channel login           # Interactive channel setup (select channel → configure credentials)
 illusion channel serve           # Run channel daemon in foreground (listen for messages)
 illusion channel status          # View channel status (enabled/connected/PID)
