@@ -242,13 +242,21 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   }, [sendRequest]);
 
   useEffect(() => {
-    // 自动重连：WS 断连后指数退避重连（最长 10s，最多 20 次）
-    // 后端断连不杀进程，重连后复用 host 继续会话
-    const maxReconnectAttempts = 20;
-    const maxReconnectDelay = 10_000;
-    let reconnectAttempts = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let unmounted = false;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => {
+      setConnected(false);
+      setReady(false);
+      setRestoringSessionId(null);
+    };
+    ws.onerror = () => setConnected(false);
+    ws.onmessage = (event) => {
+      let parsed: BackendEvent;
+      try { parsed = JSON.parse(event.data as string) as BackendEvent; } catch { return; }
+      handleEvent(parsed);
+    };
 
     function handleEvent(evt: BackendEvent): void {
       // === 状态 ===
@@ -495,44 +503,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
-      if (evt.type === 'shutdown') { wsRef.current?.close(); }
+      if (evt.type === 'shutdown') { ws.close(); }
     }
 
-    // 建立 WS 连接：设置 handlers，onclose 时指数退避调度重连
-    function connect(): void {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setConnected(true);
-        reconnectAttempts = 0;  // 连接成功，重置重连计数
-      };
-      ws.onclose = () => {
-        setConnected(false);
-        setReady(false);
-        setRestoringSessionId(null);
-        // 组件卸载则不再重连；超过最大次数也停止
-        if (unmounted || reconnectAttempts >= maxReconnectAttempts) return;
-        const delay = Math.min(1000 * 2 ** reconnectAttempts, maxReconnectDelay);
-        reconnectAttempts += 1;
-        reconnectTimer = setTimeout(connect, delay);
-      };
-      ws.onerror = () => setConnected(false);
-      ws.onmessage = (event) => {
-        let parsed: BackendEvent;
-        try { parsed = JSON.parse(event.data as string) as BackendEvent; } catch { return; }
-        handleEvent(parsed);
-      };
-    }
-
-    connect();
-
-    return () => {
-      unmounted = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      wsRef.current?.close();
-      wsRef.current = null;
-    };
+    return () => { ws.close(); wsRef.current = null; };
   }, [url, pushStatic, flushAssistantDelta, clearAssistantDelta]);
 
   return useMemo(() => ({

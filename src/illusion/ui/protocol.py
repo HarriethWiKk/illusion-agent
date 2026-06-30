@@ -237,7 +237,6 @@ class BackendEvent(BaseModel):
         "web_restore_started",
         "web_restore_completed",
         "web_query_result",
-        "ping",
         "shutdown",
     ]
     select_options: list[dict[str, Any]] | None = None

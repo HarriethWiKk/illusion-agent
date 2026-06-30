@@ -62,11 +62,6 @@ from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, han
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
 
-# Web WS 心跳间隔：定期发 ping 保活，防止网关/代理因空闲超时断连
-WS_HEARTBEAT_INTERVAL_SECONDS = 20.0
-# 断连后等待前端重连的超时（5 分钟无重连则真正退出后端）
-WS_RECONNECT_TIMEOUT_SECONDS = 300.0
-
 
 def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
     """从助手文本中移除工具预览行。
@@ -149,7 +144,6 @@ class WebBackendHost:
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
         self._ws_closed = False        # WebSocket 是否已关闭
-        self._reconnect_event = asyncio.Event()  # 重连唤醒事件
         self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
         # 跟踪每个工具名称的最后输入，用于富事件发射
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
@@ -206,15 +200,6 @@ class WebBackendHost:
 
         # 创建请求读取任务
         reader = asyncio.create_task(self._read_requests())
-
-        # 创建心跳任务：定期发 ping 保活，防止网关/代理因空闲超时断 WS
-        async def _heartbeat() -> None:
-            while self._running and not self._ws_closed:
-                await asyncio.sleep(WS_HEARTBEAT_INTERVAL_SECONDS)
-                if self._running and not self._ws_closed:
-                    await self._emit(BackendEvent(type="ping"))
-
-        heartbeat = asyncio.create_task(_heartbeat())
 
         # 创建定期状态更新任务（每秒刷新一次，用于 agent 计数等实时状态）
         async def _periodic_status_update() -> None:
@@ -332,11 +317,9 @@ class WebBackendHost:
         finally:
             # 清理资源
             reader.cancel()
-            heartbeat.cancel()
             status_updater.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await reader
-                await heartbeat
                 await status_updater
             if self._bundle is not None:
                 await close_runtime(self._bundle)
@@ -348,16 +331,15 @@ class WebBackendHost:
             try:
                 payload = await self._websocket.receive_text()
             except WebSocketDisconnect:
-                # 断连不杀后端：仅标记 WS 已断，保留 bundle 等待前端重连。
-                # 不再 put shutdown，避免网关空闲超时断连导致整个后端退出。
-                log.info("WebSocket client disconnected, waiting for reconnect")
                 self._ws_closed = True
-                await self._wait_for_reconnect()
+                self._running = False
+                await self._request_queue.put(FrontendRequest(type="shutdown"))
                 return
             except Exception:
-                log.warning("WebSocket read error, waiting for reconnect")
                 self._ws_closed = True
-                await self._wait_for_reconnect()
+                self._running = False
+                log.warning("WebSocket read error, shutting down")
+                await self._request_queue.put(FrontendRequest(type="shutdown"))
                 return
             payload = payload.strip()
             if not payload:
@@ -394,43 +376,6 @@ class WebBackendHost:
                 continue
 
             await self._request_queue.put(request)
-
-    async def _wait_for_reconnect(self) -> None:
-        """等待前端重连
-
-        WS 断连后保留 bundle 与会话状态，阻塞至新连接注入或超时。
-        新连接由 server.py 的 websocket_endpoint 重新调用时通过
-        replace_websocket 注入，重置 _ws_closed 后唤醒本协程。
-
-        超时（如 5 分钟无重连）则真正退出，避免无限占用。
-        """
-        try:
-            await asyncio.wait_for(
-                self._reconnect_event.wait(),
-                timeout=WS_RECONNECT_TIMEOUT_SECONDS,
-            )
-            self._reconnect_event.clear()
-            # 重连后重新进入读取循环
-            await self._read_requests()
-        except asyncio.TimeoutError:
-            log.warning("WebSocket 等待重连超时，退出后端")
-            self._running = False
-            await self._request_queue.put(FrontendRequest(type="shutdown"))
-
-    def replace_websocket(self, websocket: WebSocket) -> None:
-        """重连时替换 WS 引用，唤醒等待中的 _wait_for_reconnect
-
-        Args:
-            websocket: 新的 WebSocket 连接
-        """
-        self._websocket = websocket
-        self._ws_closed = False
-        self._reconnect_event.set()
-
-    @property
-    def is_connected(self) -> bool:
-        """WS 是否处于连接态（供 server.py 判断是否复用现有 host 重连）"""
-        return not self._ws_closed
 
     async def _make_render_event(self) -> "Callable[[StreamEvent], Awaitable[None]]":
         """创建共享的流式事件渲染器。

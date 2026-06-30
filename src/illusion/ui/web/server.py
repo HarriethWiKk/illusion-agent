@@ -7,7 +7,6 @@ Web 服务器模块
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -57,32 +56,27 @@ def create_app(
             allow_headers=["*"],
         )
 
-    # 当前后端 host：重连时复用，避免后端重建丢失会话
-    current_host: WebBackendHost | None = None
-    host_lock = asyncio.Lock()
-
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
-        nonlocal current_host
         await websocket.accept()
-        async with host_lock:
-            if current_host is not None and current_host.is_connected is False:
-                # 后端存活但 WS 断了——重连，复用 host（保留 bundle 与会话）
-                current_host.replace_websocket(websocket)
-                return  # _wait_for_reconnect 会重新进入 _read_requests
-            # 首次连接或后端已退出——新建 host
-            config = host_config or WebHostConfig()
-            host = WebBackendHost(config, websocket)
-            current_host = host
+        config = host_config or WebHostConfig()
+        host = WebBackendHost(config, websocket)
         try:
             await host.run()
         except WebSocketDisconnect:
             log.info("WebSocket client disconnected")
         except Exception as exc:
             log.warning("WebSocket endpoint error: %s", exc)
-            async with host_lock:
-                if current_host is host:
-                    current_host = None
+            try:
+                from starlette.websockets import WebSocketState
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    import json
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Backend error: {exc}",
+                    }))
+            except Exception:
+                pass
 
     if not dev:
         dist_dir = _find_frontend_dist()
