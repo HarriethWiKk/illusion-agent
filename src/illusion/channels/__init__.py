@@ -600,18 +600,12 @@ class ChannelRunner:
             await streaming_controller.start()
         elif qq_c2c_streaming and qq_channel is not None:
             # QQ C2C：用 stream_messages API 流式（首次有文本时才启动）
-            # 确保 token 已获取
-            if not qq_channel._token:
-                from illusion.channels.qq.api import ensure_token
-                qq_channel._token = await ensure_token(
-                    qq_channel._session,
-                    qq_channel.config.app_id,
-                    qq_channel.config.client_secret,
-                )
+            # 确保 token 已获取（通过 _get_token，重连后自动刷新）
+            token = await qq_channel._get_token()
             from illusion.channels.qq.streaming import QQStreamingController
             qq_streaming_controller = QQStreamingController(
                 session=qq_channel._session,
-                token=qq_channel._token,
+                token=token,
                 openid=msg.chat_id,
                 msg_id=msg.message_id,
             )
