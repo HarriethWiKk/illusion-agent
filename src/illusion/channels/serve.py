@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)  # 日志器
 
+# 渠道守护进程看门狗退避：runner 异常退出后自动重启的间隔
+SUPERVISOR_BACKOFF_SECONDS = (5.0, 10.0, 30.0)
+
 
 def run_channel_serve() -> None:
     """渠道守护进程主入口
@@ -180,6 +183,44 @@ def _force_shutdown() -> None:
     os._exit(0)
 
 
+async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
+    """看门狗：监督单个渠道 runner，异常退出后带退避自动重启
+
+    渠道 task（runner.run）可能因微信长轮询连续失败、飞书 SDK 抛错、
+    QQ WS 断开等异常退出。本协程捕获异常后重新调 runner.run() 重建
+    连接（run 内部会 channel.connect()），而非让渠道静默死掉。
+
+    退避在持续失败时递增（5s/10s/30s 封顶），避免疯狂重连；
+    成功运行一轮后（run 正常返回）重置退避。stop_event 触发后停止。
+
+    Args:
+        runner: ChannelRunner 实例
+        stop_event: 停止事件
+    """
+    backoff_idx = 0
+    while not stop_event.is_set():
+        try:
+            await runner.run()
+            # run 正常返回（不应发生，run 是无限循环）——重置退避
+            backoff_idx = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("渠道 runner 异常退出，将重启: %s", exc, exc_info=exc)
+            delay = SUPERVISOR_BACKOFF_SECONDS[
+                min(backoff_idx, len(SUPERVISOR_BACKOFF_SECONDS) - 1)
+            ]
+            backoff_idx = min(backoff_idx + 1, len(SUPERVISOR_BACKOFF_SECONDS) - 1)
+            # 退避期间检查 stop_event，避免关闭时还要等满退避
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=delay)
+                return  # stop_event 触发
+            except asyncio.TimeoutError:
+                continue  # 退避结束，重启 runner
+        else:
+            backoff_idx = 0
+
+
 async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     """异步 serve 所有启用渠道
 
@@ -264,19 +305,21 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
 
     print(t("channel_press_exit"))
 
-    # 启动所有 runner
-    tasks = [asyncio.create_task(r.run()) for r in runners]
+    # 启动所有 runner（通过 _supervise 看门狗监督，异常后自动重启）
+    tasks = [
+        asyncio.create_task(_supervise(r, stop_event)) for r in runners
+    ]
     try:
         await stop_event.wait()
     except KeyboardInterrupt:
         pass
 
-    # 优雅关闭
+    # 优雅关闭：取消看门狗任务并关闭各 runner
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
     for r in runners:
         try:
             await r.shutdown()
         except Exception as exc:  # noqa: BLE001
             logger.warning("关闭渠道异常: %s", exc)
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
