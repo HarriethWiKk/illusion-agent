@@ -209,8 +209,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
     # --- 飞书侧（用户在飞书中看到）---
     "feishu_thinking": {"zh-CN": "illusion code 正在思考中...", "en-US": "illusion code is thinking..."},
-    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /delete /stop /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /delete /stop /sessions /resume /detach /model"},
-    "feishu_cmd_cleared": {"zh-CN": "飞书会话已清空，开始新对话。", "en-US": "Feishu session cleared, starting fresh."},
+    "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /stop /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /stop /sessions /resume /detach /model"},
+    "feishu_cmd_cleared": {"zh-CN": "会话已清空，开启新会话。", "en-US": "Session cleared, starting new session."},
     # --- 通用渠道命令文案（不限渠道）---
     "cmd_new": {"zh-CN": "已开启新的会话。", "en-US": "New session started."},
     "cmd_stop_no_task": {"zh-CN": "当前没有正在执行的任务。", "en-US": "No running task to stop."},
