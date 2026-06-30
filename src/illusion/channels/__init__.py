@@ -318,22 +318,9 @@ class ChannelRunner:
         Args:
             msg: 入站消息
         """
-        # 检查 /delete 信号：先执行 /new（清所有会话+发确认），再处理消息
-        # 信号触发后直接 return，避免继续走 try_handle 处理 /new 命令
-        # 导致"已开启新的对话"反馈消息发送两次
-        if self.session_store.check_signal():
-            for path in self.session_store.data_dir.glob("*.json"):
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
-            from illusion.config.i18n import t as _t
-            # 统一使用 cmd_new，避免渠道专属文案不一致
-            await self.channel.send_text(
-                msg.chat_id, _t("cmd_new"), reply_to=msg.message_id,
-            )
-            self.session_store.clear_signal()
-            return
+        # 注意：新会话的首条消息必须真正进入 agent turn，
+        # 任何"发新会话通知即 return"的逻辑都会导致首条消息被吞。
+        # （原 /delete 信号检测块已移除，渠道会话改由 /clear /new 命令管理）
 
         # 1. 待回复的权限/询问——不加锁，让回复立即送达
         # （agent turn 持锁等待回复时，下一条消息作为回复立即 set_result，

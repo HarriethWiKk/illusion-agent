@@ -98,21 +98,6 @@ class FeishuSessionStore:
         safe = key.replace(":", "_").replace("/", "_")  # 安全文件名
         return self.data_dir / f"{safe}.json"
 
-    def check_signal(self) -> bool:
-        """检查 /delete 信号文件是否存在
-
-        Returns:
-            bool: 信号存在返回 True
-        """
-        return (self.data_dir / ".delete_signal").exists()
-
-    def clear_signal(self) -> None:
-        """删除信号文件"""
-        try:
-            (self.data_dir / ".delete_signal").unlink()
-        except OSError:
-            pass
-
     def get_or_create(self, key: str, user_id: str, chat_type: str) -> FeishuSession:
         """获取或创建会话
 

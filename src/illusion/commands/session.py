@@ -298,7 +298,6 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
         count = delete_all_sessions(context.cwd)
         cleanup_all_file_histories()
         context.engine.clear()
-        _clear_all_channel_sessions()
         return CommandResult(
             message=f"Deleted {count} session file(s).",
             clear_screen=True,
@@ -317,7 +316,6 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message=f"Invalid turn number: {sid}. Use /delete to see available sessions.")
     if delete_session_by_id(context.cwd, sid):
         cleanup_file_history(sid)
-        _clear_all_channel_sessions()
         if sid == context.session_id:
             context.engine.clear()
             return CommandResult(
@@ -327,19 +325,3 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             )
         return CommandResult(message=f"Deleted session: {sid}")
     return CommandResult(message=f"Session not found: {sid}")
-
-
-def _clear_all_channel_sessions() -> None:
-    """通知守护进程清空所有渠道会话（飞书 + 微信）
-
-    写信号文件到各渠道会话目录，守护进程处理消息前检查并清空。
-    """
-    try:
-        from illusion.config.paths import get_channels_data_dir
-        data_dir = get_channels_data_dir()
-        for channel in ("feishu", "weixin", "qq"):
-            session_dir = data_dir / channel / "sessions"
-            session_dir.mkdir(parents=True, exist_ok=True)
-            (session_dir / ".delete_signal").write_text("1", encoding="utf-8")
-    except Exception:
-        pass

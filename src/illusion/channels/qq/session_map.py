@@ -141,21 +141,6 @@ class QQSessionStore:
         except FileNotFoundError:
             pass  # 已删除
 
-    def check_signal(self) -> bool:
-        """检查 /delete 信号文件是否存在
-
-        Returns:
-            bool: 信号存在返回 True
-        """
-        return (self.data_dir / ".delete_signal").exists()
-
-    def clear_signal(self) -> None:
-        """删除信号文件"""
-        try:
-            (self.data_dir / ".delete_signal").unlink()
-        except OSError:
-            pass
-
     def _session_path(self, key: str) -> Path:
         """会话文件路径"""
         safe_key = key.replace("/", "_").replace("\\", "_")
