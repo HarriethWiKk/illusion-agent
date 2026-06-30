@@ -341,23 +341,29 @@ def _is_retryable_upload_error(exc: BaseException) -> bool:
     可重试：网络超时、连接错误、5xx 服务端错误。
     不重试：4xx 业务错误（请求本身有问题，重试无意义）。
 
+    用正则从 RuntimeError 消息中提取 HTTP 状态码（如 "HTTP 400:"），
+    而非子串匹配（"HTTP 4"/"HTTP 5"），避免其他 RuntimeError 消息
+    碰巧包含这些子串导致误分类。
+
     Args:
         exc: 捕获的异常
 
     Returns:
         bool: 可重试返回 True
     """
+    import re
+
     import aiohttp  # 延迟导入
     if isinstance(exc, (asyncio.TimeoutError, aiohttp.ClientError, ConnectionError)):
         return True
     if isinstance(exc, RuntimeError):
-        msg = str(exc)
-        # HTTP 5xx 是服务端错误，重试
-        if "HTTP 5" in msg:
-            return True
-        # HTTP 4xx（400-499）是业务错误，不重试
-        if "HTTP 4" in msg:
-            return False
+        match = re.search(r"HTTP (\d{3})", str(exc))
+        if match:
+            status = int(match.group(1))
+            if status >= 500:
+                return True  # 5xx 服务端错误，重试
+            if status >= 400:
+                return False  # 4xx 业务错误，不重试
     return False
 
 
@@ -393,8 +399,9 @@ async def _retry_transient(
                 name, attempt, max_attempts, exc, delay,
             )
             await asyncio.sleep(delay)
-    assert last_exc is not None  # noqa: S101
-    raise last_exc
+    # 不可达：每次迭代要么 return 要么 raise，for 循环结束后此处不会执行。
+    # mypy 需要显式返回/抛出才不报警告，故保留此路径。
+    raise RuntimeError(f"{name}: 所有重试均失败（此分支不应到达）")
 
 
 async def _api_post(

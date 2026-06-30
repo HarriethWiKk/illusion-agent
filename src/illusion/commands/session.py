@@ -294,6 +294,8 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message="\n".join(lines))
 
     # /delete all
+    # 注意：此操作仅删除终端侧会话快照，不再跨进程通知渠道守护进程清空渠道会话。
+    # 渠道会话由渠道自身的 /clear、/new 命令管理（信号机制已全链路移除）。
     if tokens[0] in ("all", "__all__"):
         count = delete_all_sessions(context.cwd)
         cleanup_all_file_histories()

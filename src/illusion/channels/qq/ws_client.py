@@ -162,12 +162,19 @@ class QQWSClient:
     # ── 心跳 ──────────────────────────────────────────────────
 
     async def _heartbeat_loop(self) -> None:
-        """定期发送心跳（op 1）"""
+        """定期发送心跳（op 1）
+
+        循环条件只检查 _running，不检查 is_connected——重连时 ws 会短暂
+        为 None/closed，心跳应跳过该轮而非永久退出，否则重连后无心跳
+        导致 QQ 服务端因超时断开，形成 connect→短暂工作→断连→重连 振荡。
+        """
         try:
-            while self._running and self.is_connected:
+            while self._running:
                 await asyncio.sleep(self._heartbeat_interval)
-                if not self.is_connected:
+                if not self._running:
                     break
+                if not self.is_connected:
+                    continue  # ws 重建中，跳过本轮心跳
                 payload = {"op": 1, "d": self._last_seq}
                 await self._send_json(payload)
                 logger.debug("QQ 心跳已发送, seq=%s", self._last_seq)
@@ -272,8 +279,8 @@ class QQWSClient:
         """读取 WS 帧并分发
 
         用带超时的 receive() 替代无超时的 `async for msg in self._ws`。
-        原因：aiohttp WS 在连接半开/对端静默时，__anext__ 会永久阻塞，
-        持有 GIL 冻结整个事件循环，导致微信/飞书等其他渠道一起断连。
+        原因：aiohttp WS 在连接半开/对端静默时，__anext__ 协程会永久阻塞
+        在 IO 等待上，无法探活也无法触发重连，导致 daemon 表现为僵死。
         加超时后，读取能定期挣脱阻塞，发现连接异常即抛 QQCloseError
         触发 _listen_loop 重连，避免 daemon 僵死。
 

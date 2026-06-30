@@ -67,6 +67,7 @@ def create_app(
             log.info("WebSocket client disconnected")
         except Exception as exc:
             log.warning("WebSocket endpoint error: %s", exc)
+            # 尝试向前端发送错误事件
             try:
                 from starlette.websockets import WebSocketState
                 if websocket.application_state == WebSocketState.CONNECTED:

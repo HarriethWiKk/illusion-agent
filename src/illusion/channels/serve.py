@@ -202,7 +202,6 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
         try:
             await runner.run()
             # run 正常返回（不应发生，run 是无限循环）——重置退避
-            backoff_idx = 0
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
