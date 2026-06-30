@@ -93,6 +93,10 @@ class WeixinSessionStore:
 
         Returns:
             WeixinSession: 会话状态
+
+        Note:
+            会话索引在 _run_agent 进入 agent turn 前即提前落盘，
+            保证进程崩溃后下次启动能接续同一 session_id。
         """
         path = self._key_to_path(key)
         if path.exists():
