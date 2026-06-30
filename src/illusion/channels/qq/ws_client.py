@@ -251,16 +251,43 @@ class QQWSClient:
             return min(backoff_idx + 1, len(RECONNECT_BACKOFF) - 1)
 
     async def _read_events(self) -> None:
-        """读取 WS 帧并分发"""
+        """读取 WS 帧并分发
+
+        用带超时的 receive() 替代无超时的 `async for msg in self._ws`。
+        原因：aiohttp WS 在连接半开/对端静默时，__anext__ 会永久阻塞，
+        持有 GIL 冻结整个事件循环，导致微信/飞书等其他渠道一起断连。
+        加超时后，读取能定期挣脱阻塞，发现连接异常即抛 QQCloseError
+        触发 _listen_loop 重连，避免 daemon 僵死。
+        """
         if not self._ws:
             return
-        async for msg in self._ws:
+        # 连续探活失败计数：超过阈值认定连接已死，强制重连
+        idle_probes = 0
+        max_idle_probes = 3  # 3 次 ping 无响应（约 90s）判定连接已死
+        while self._running:
+            try:
+                # receive 带 30s 超时：正常有消息时立即返回，无消息时
+                # 每 30s 超时一次去发 ping 探活，不会永久阻塞
+                msg = await self._ws.receive(timeout=30)
+            except asyncio.TimeoutError:
+                # 超时未必是异常（QQ 可能长时间无消息），发 ping 探活
+                if not self._ws or self._ws.closed:
+                    raise QQCloseError(0, "连接已关闭")
+                try:
+                    await self._ws.ping()
+                    idle_probes += 1
+                    if idle_probes >= max_idle_probes:
+                        raise QQCloseError(0, f"连续 {idle_probes} 次探活无消息，疑似连接僵死")
+                except Exception as exc:  # noqa: BLE001
+                    raise QQCloseError(0, f"ping 探活失败: {exc}")
+                continue
             if msg.type == aiohttp.WSMsgType.TEXT:
+                idle_probes = 0  # 收到正常消息，重置探活计数
                 payload = json.loads(msg.data)
                 self._dispatch_payload(payload)
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 raise QQCloseError(0, str(self._ws.exception()))
-            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSE):
                 code = self._ws.close_code or 0
                 raise QQCloseError(code, "连接已关闭")
 
