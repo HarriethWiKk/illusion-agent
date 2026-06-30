@@ -309,6 +309,7 @@ class QQWSClient:
                 except Exception as exc:  # noqa: BLE001
                     raise QQCloseError(0, f"ping 探活失败: {exc}")
                 continue
+            logger.info("QQ _read_events 收到帧: type=%s closed=%s", msg.type, getattr(self._ws, 'closed', None))
             if msg.type == aiohttp.WSMsgType.TEXT:
                 idle_probes = 0  # 收到正常消息，重置探活计数
                 payload = json.loads(msg.data)
