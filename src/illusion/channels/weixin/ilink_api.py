@@ -383,12 +383,10 @@ async def _retry_transient(
     Raises:
         最后一次失败的异常（若全部重试失败）
     """
-    last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             return await func()
         except Exception as exc:  # noqa: BLE001
-            last_exc = exc
             if not _is_retryable_upload_error(exc) or attempt == max_attempts:
                 raise
             delay = UPLOAD_BACKOFF_SECONDS[
