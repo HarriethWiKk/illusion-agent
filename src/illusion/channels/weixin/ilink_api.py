@@ -54,6 +54,10 @@ QR_TIMEOUT_MS = 35_000
 UPLOAD_TIMEOUT_SECONDS = 120
 DOWNLOAD_TIMEOUT_SECONDS = 60
 
+# 出站媒体上传重试：CDN 上传易瞬时失败，加重试避免文件丢失
+UPLOAD_MAX_ATTEMPTS = 3
+UPLOAD_BACKOFF_SECONDS = (1.0, 2.0, 4.0)  # 指数退避
+
 MAX_MESSAGE_LENGTH = 2000
 
 # 消息类型/状态常量
@@ -331,6 +335,68 @@ def _build_headers(token: str, body: str = "") -> dict[str, str]:
     return headers
 
 
+def _is_retryable_upload_error(exc: BaseException) -> bool:
+    """判断上传错误是否值得重试
+
+    可重试：网络超时、连接错误、5xx 服务端错误。
+    不重试：4xx 业务错误（请求本身有问题，重试无意义）。
+
+    Args:
+        exc: 捕获的异常
+
+    Returns:
+        bool: 可重试返回 True
+    """
+    import aiohttp  # 延迟导入
+    if isinstance(exc, (asyncio.TimeoutError, aiohttp.ClientError, ConnectionError)):
+        return True
+    if isinstance(exc, RuntimeError):
+        msg = str(exc)
+        # HTTP 5xx 是服务端错误，重试
+        if "HTTP 5" in msg:
+            return True
+        # HTTP 4xx（400-499）是业务错误，不重试
+        if "HTTP 4" in msg:
+            return False
+    return False
+
+
+async def _retry_transient(
+    func: Any, *, name: str, max_attempts: int = UPLOAD_MAX_ATTEMPTS,
+) -> Any:
+    """对瞬时错误带指数退避重试
+
+    Args:
+        func: 无参协程工厂（每次调用返回新协程）
+        name: 操作名（用于日志）
+        max_attempts: 最大尝试次数
+
+    Returns:
+        func 的返回值
+
+    Raises:
+        最后一次失败的异常（若全部重试失败）
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await func()
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if not _is_retryable_upload_error(exc) or attempt == max_attempts:
+                raise
+            delay = UPLOAD_BACKOFF_SECONDS[
+                min(attempt - 1, len(UPLOAD_BACKOFF_SECONDS) - 1)
+            ]
+            logger.warning(
+                "%s 第 %d/%d 次失败（%s），%gs 后重试",
+                name, attempt, max_attempts, exc, delay,
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None  # noqa: S101
+    raise last_exc
+
+
 async def _api_post(
     session: Any,
     *,
@@ -574,19 +640,22 @@ async def get_upload_url(
     Returns:
         dict[str, Any]: 含 upload_param 或 upload_full_url
     """
-    return await _api_post(
-        session, base_url=base_url, endpoint=EP_GET_UPLOAD_URL,
-        payload={
-            "filekey": filekey,
-            "media_type": media_type,
-            "to_user_id": to_user_id,
-            "rawsize": rawsize,
-            "rawfilemd5": rawfilemd5,
-            "filesize": filesize,
-            "no_need_thumb": True,
-            "aeskey": aeskey_hex,
-        },
-        token=token, timeout_ms=API_TIMEOUT_MS,
+    return await _retry_transient(
+        lambda: _api_post(
+            session, base_url=base_url, endpoint=EP_GET_UPLOAD_URL,
+            payload={
+                "filekey": filekey,
+                "media_type": media_type,
+                "to_user_id": to_user_id,
+                "rawsize": rawsize,
+                "rawfilemd5": rawfilemd5,
+                "filesize": filesize,
+                "no_need_thumb": True,
+                "aeskey": aeskey_hex,
+            },
+            token=token, timeout_ms=API_TIMEOUT_MS,
+        ),
+        name="get_upload_url",
     )
 
 
@@ -623,7 +692,10 @@ async def upload_ciphertext(
                 raise RuntimeError(f"CDN upload missing x-encrypted-param header: {raw[:200]}")
             raw = await response.text()
             raise RuntimeError(f"CDN upload HTTP {response.status}: {raw[:200]}")
-    return await asyncio.wait_for(_do_upload(), timeout=UPLOAD_TIMEOUT_SECONDS)
+    return await _retry_transient(
+        lambda: asyncio.wait_for(_do_upload(), timeout=UPLOAD_TIMEOUT_SECONDS),
+        name="upload_ciphertext",
+    )
 
 
 async def download_bytes(

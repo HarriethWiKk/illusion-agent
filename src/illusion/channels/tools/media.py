@@ -122,8 +122,12 @@ class SendMediaTool(BaseTool[SendMediaInput]):
         except NotImplementedError as exc:
             return ToolResult(output=str(exc), is_error=True)
         except Exception as exc:  # noqa: BLE001
+            # 底层 upload_ciphertext/get_upload_url 已含重试；此处仍失败
+            # 说明重试用尽，提示 LLM 可再次尝试 send_media
             return ToolResult(
-                output=f"Failed to send media: {exc}", is_error=True
+                output=f"Failed to send media after retries: {exc}. "
+                       "You may retry send_media.",
+                is_error=True,
             )
 
 
