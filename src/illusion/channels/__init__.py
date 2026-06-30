@@ -318,8 +318,6 @@ class ChannelRunner:
         Args:
             msg: 入站消息
         """
-        logger.info("_handle_message 收到: chat_id=%s text=%s", msg.chat_id, repr(msg.text[:50]))
-
         # 1. 待回复的权限/询问——不加锁，让回复立即送达
         # （agent turn 持锁等待回复时，下一条消息作为回复立即 set_result，
         #   不会因锁阻塞导致 300s 超时）
