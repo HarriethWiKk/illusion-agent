@@ -315,18 +315,9 @@ class ChannelRunner:
         同一 chat_id 的消息通过 _chat_locks 串行化，避免并行 agent turn
         导致会话历史覆盖（M2/M3 排队等 M1 完成后再跑）。
 
-        重要：新会话（包括隐式新建的空会话）的首条消息必须真正进入
-        agent turn 处理，绝不能因发"新会话已开启"通知而提前 return，
-        否则首条消息会被吞。斜杠命令（如 /new）的命令文本本身就是
-        消息，发确认后 return 属正常行为，不在此列。
-
         Args:
             msg: 入站消息
         """
-        # 注意：新会话的首条消息必须真正进入 agent turn，
-        # 任何"发新会话通知即 return"的逻辑都会导致首条消息被吞。
-        # （原 /delete 信号检测块已移除，渠道会话改由 /clear /new 命令管理）
-
         logger.info("_handle_message 收到: chat_id=%s text=%s", msg.chat_id, repr(msg.text[:50]))
 
         # 1. 待回复的权限/询问——不加锁，让回复立即送达
