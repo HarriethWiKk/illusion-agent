@@ -83,7 +83,10 @@ class QQChannel(Channel):
         self._stop_event = asyncio.Event()
         self._ws_client: Any = None  # QQWSClient 实例
         self._session: Any = None  # aiohttp.ClientSession（发送用）
-        self._token: str = ""
+        # 注意：不再缓存 self._token。每次 API 调用都通过 _get_token()
+        # 获取最新 token（内部有 _token_cache + 过期检查，不会重复请求）。
+        # 原因：WS 重连时 ws_client 会刷新 _token_cache，但旧的 self._token
+        # 不会更新，导致重连后发送消息用旧 token 报 "token not exist or expire"。
 
         # bot 自身 openid（用于自回显检测）
         self._bot_openid: str = ""
@@ -100,6 +103,22 @@ class QQChannel(Channel):
 
         # markdown 支持（从配置读取，默认启用）
         self._markdown_support: bool = getattr(config, "markdown_support", True)
+
+    async def _get_token(self) -> str:
+        """获取有效的 QQ Bot access token
+
+        每次调用都经过 ensure_token()，内部有缓存+过期检查，
+        不会重复请求。WS 重连后 _token_cache 已刷新，此方法自动
+        返回新 token，无需手动同步。
+
+        Returns:
+            str: 有效的 access token
+        """
+        if not self._session:
+            raise RuntimeError("QQ adapter 未连接，无法获取 token")
+        return await ensure_token(
+            self._session, self.config.app_id, self.config.client_secret,
+        )
 
     async def connect(self) -> None:
         """建立 WS 连接和 HTTP session"""
@@ -130,12 +149,9 @@ class QQChannel(Channel):
         if not self._session:
             return
         try:
-            if not self._token:
-                self._token = await ensure_token(
-                    self._session, self.config.app_id, self.config.client_secret,
-                )
+            token = await self._get_token()
             from illusion.channels.qq.api import API_BASE
-            headers = {"Authorization": f"QQBot {self._token}"}
+            headers = {"Authorization": f"QQBot {token}"}
             async with self._session.get(f"{API_BASE}/users/@me", headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -447,11 +463,8 @@ class QQChannel(Channel):
         if not self._session:
             return ""
 
-        # 确保 token 有效
-        if not self._token:
-            self._token = await ensure_token(
-                self._session, self.config.app_id, self.config.client_secret,
-            )
+        # 确保 token 有效（每次调用，重连后自动获取新 token）
+        token = await self._get_token()
 
         # 格式化（markdown 原样传递 or 剥离为纯文本）
         formatted = self._format_message(text)
@@ -476,13 +489,13 @@ class QQChannel(Channel):
                 try:
                     if is_group:
                         await send_group_message(
-                            self._session, self._token, chat_id, chunk,
+                            self._session, token, chat_id, chunk,
                             msg_id=reply_to,
                             markdown=use_markdown,
                         )
                     else:
                         await send_c2c_message(
-                            self._session, self._token, chat_id, chunk,
+                            self._session, token, chat_id, chunk,
                             msg_id=reply_to or "",
                             markdown=use_markdown,
                         )
@@ -516,8 +529,9 @@ class QQChannel(Channel):
         try:
             from illusion.channels.qq.api import upload_file
             is_group = self._chat_type_cache.get(chat_id) == "group"
+            token = await self._get_token()
             await upload_file(
-                self._session, self._token, chat_id, file_path,
+                self._session, token, chat_id, file_path,
                 is_group=is_group,
             )
         except Exception as exc:  # noqa: BLE001
@@ -555,10 +569,7 @@ class QQChannel(Channel):
             upload_file,
         )
 
-        if not self._token:
-            self._token = await ensure_token(
-                self._session, self.config.app_id, self.config.client_secret,
-            )
+        token = await self._get_token()
 
         is_group = self._chat_type_cache.get(chat_id) == "group"
 
@@ -569,7 +580,7 @@ class QQChannel(Channel):
             )
 
         upload_resp = await upload_file(
-            self._session, self._token, chat_id, image_path,
+            self._session, token, chat_id, image_path,
             is_group=is_group,
             file_type=MEDIA_TYPE_IMAGE,
         )
@@ -578,7 +589,7 @@ class QQChannel(Channel):
             raise RuntimeError(f"QQ 图片上传未返回 file_info: {upload_resp}")
 
         msg_id = await send_media_message(
-            self._session, self._token, chat_id, file_info,
+            self._session, token, chat_id, file_info,
             is_group=is_group, msg_id=reply_to,
         )
 
@@ -619,10 +630,7 @@ class QQChannel(Channel):
             upload_file,
         )
 
-        if not self._token:
-            self._token = await ensure_token(
-                self._session, self.config.app_id, self.config.client_secret,
-            )
+        token = await self._get_token()
 
         is_group = self._chat_type_cache.get(chat_id) == "group"
 
@@ -633,7 +641,7 @@ class QQChannel(Channel):
             )
 
         upload_resp = await upload_file(
-            self._session, self._token, chat_id, file_path,
+            self._session, token, chat_id, file_path,
             is_group=is_group,
             file_type=MEDIA_TYPE_FILE,
         )
@@ -642,7 +650,7 @@ class QQChannel(Channel):
             raise RuntimeError(f"QQ 文件上传未返回 file_info: {upload_resp}")
 
         msg_id = await send_media_message(
-            self._session, self._token, chat_id, file_info,
+            self._session, token, chat_id, file_info,
             is_group=is_group, msg_id=reply_to,
         )
 
@@ -678,10 +686,7 @@ class QQChannel(Channel):
         if not self._session:
             raise NotImplementedError("QQ session 未初始化，无法下载附件")
 
-        if not self._token:
-            self._token = await ensure_token(
-                self._session, self.config.app_id, self.config.client_secret,
-            )
+        token = await self._get_token()
 
         # 优先使用 download_url（QQ 入站附件的临时 URL）
         url_error: Exception | None = None
@@ -694,7 +699,7 @@ class QQChannel(Channel):
                 # 仅对 QQ 可信 CDN 域名附带 Authorization，避免 bot token 泄露到第三方 host
                 headers: dict[str, str] = {}
                 if _is_qq_cdn_url(url):
-                    headers["Authorization"] = f"QQBot {self._token}"
+                    headers["Authorization"] = f"QQBot {token}"
                 else:
                     logger.warning(
                         "QQ 附件 URL 非 QQ CDN 域名，不带 Authorization: %s",
@@ -724,7 +729,7 @@ class QQChannel(Channel):
                 )
             try:
                 data = await download_file(
-                    self._session, self._token, target_id,
+                    self._session, token, target_id,
                     attachment.file_key,
                     is_group=False,
                 )
@@ -758,8 +763,8 @@ class QQChannel(Channel):
 
         try:
             from illusion.channels.qq.api import send_typing
-            if self._token:
-                await send_typing(self._session, self._token, chat_id)
+            token = await self._get_token()
+            await send_typing(self._session, token, chat_id)
         except Exception as exc:  # noqa: BLE001
             logger.debug("QQ 打字状态发送失败: %s", exc)
 
