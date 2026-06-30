@@ -147,6 +147,27 @@ class WeixinSessionStore:
         except FileNotFoundError:
             pass
 
+    def ensure_indexed(self, session: WeixinSession) -> None:
+        """确保会话索引已落盘（仅当文件不存在时创建）
+
+        与 save 不同：本方法绝不覆盖已有 messages，只在文件尚不存在时
+        写入 session_id 等索引字段，供进程崩溃后接续使用。
+
+        Args:
+            session: 会话状态
+        """
+        path = self._key_to_path(session.key)
+        if path.exists():
+            return  # 已有记录，绝不覆盖（避免清空历史）
+        data = {
+            "session_id": session.session_id,
+            "messages": [],
+            "user_id": session.user_id,
+            "chat_type": session.chat_type,
+            "model": session.model,
+        }
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+
     def inject(self, key: str, messages: list[dict[str, Any]]) -> None:
         """用外部消息替换会话历史（/resume 用）
 

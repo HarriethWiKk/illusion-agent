@@ -539,12 +539,11 @@ class ChannelRunner:
         key = self.session_store.build_session_key(msg)
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
 
-        # 提前落盘会话索引：在 build_runtime 之前先把 session_id 和 key
-        # 写入文件（messages 暂为空）。这样即使本轮 agent turn 中途崩溃
-        # （进程退出/异常），下次启动 get_or_create 也能命中该会话记录
-        # 并复用同一 session_id 接续，而非新建会话导致用户感觉"没接上"。
+        # 提前落盘会话索引（仅当文件尚不存在时）：确保 session_id 落盘，
+        # 这样进程崩溃后下次启动 get_or_create 能命中该会话记录接续，
+        # 而非新建会话。注意：绝不覆盖已有 messages（否则会清空历史）。
         try:
-            self.session_store.save(session, [])
+            self.session_store.ensure_indexed(session)
         except Exception as exc:  # noqa: BLE001
             logger.warning("会话索引提前落盘失败: %s", exc)
 
