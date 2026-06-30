@@ -108,29 +108,38 @@ class QQWSClient:
         return self._running and self._ws is not None and not self._ws.closed
 
     async def connect(self) -> None:
-        """建立连接：获取 token → 获取网关 → 打开 WS → 启动监听"""
+        """建立连接：获取 token → 获取网关 → 打开 WS → 启动监听
+
+        监听和心跳任务仅在首次连接时创建一次（长期运行），
+        断线重连由 _listen_loop 内部循环处理，避免重复创建 task
+        导致多个 listen_loop 并发 receive（concurrent receive）。
+        """
         self._session = aiohttp.ClientSession(trust_env=True)
         self._running = True
 
         try:
-            await self._connect_ws()
+            await self._open_ws()
         except Exception:
             self._running = False
             await self._cleanup()
             raise
 
-    async def _connect_ws(self) -> None:
-        """获取网关地址并打开 WebSocket"""
+        # 仅首次连接创建一次监听/心跳任务，重连时不重建
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._listen_task = asyncio.create_task(self._listen_loop())
+
+    async def _open_ws(self) -> None:
+        """获取网关地址并打开 WebSocket（仅建立连接，不创建监听任务）
+
+        供 connect() 和 _reconnect() 复用。重连时 _listen_loop 已在运行，
+        只需替换 self._ws 即可，绝不能再创建新的 listen/heartbeat task。
+        """
         assert self._session is not None
         token = await ensure_token(self._session, self.app_id, self.client_secret)
         gateway_url = await get_gateway_url(self._session, token)
 
         self._ws = await self._session.ws_connect(gateway_url)
         logger.info("QQ WS 已连接: %s", gateway_url)
-
-        # 启动心跳和监听
-        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        self._listen_task = asyncio.create_task(self._listen_loop())
 
     async def close(self) -> None:
         """关闭连接"""
@@ -226,7 +235,11 @@ class QQWSClient:
                 backoff_idx = await self._reconnect(backoff_idx)
 
     async def _reconnect(self, backoff_idx: int) -> int:
-        """指数退避重连
+        """指数退避重连（仅替换 ws，不重建监听任务）
+
+        关键：重连在 _listen_loop 内部调用，listen_loop 自己会接着循环
+        调 _read_events。这里只负责关旧 ws、建新 ws，绝不能创建新的
+        listen/heartbeat task（否则多个 listen_loop 并发 receive）。
 
         Args:
             backoff_idx: 当前退避索引
@@ -242,9 +255,14 @@ class QQWSClient:
         await asyncio.sleep(delay)
 
         try:
-            await self._cleanup()
-            self._session = aiohttp.ClientSession(trust_env=True)
-            await self._connect_ws()
+            # 仅关闭旧 ws（不关 session，复用以建新连接）
+            if self._ws and not self._ws.closed:
+                await self._ws.close()
+            self._ws = None
+            # session 失效时重建
+            if self._session is None or self._session.closed:
+                self._session = aiohttp.ClientSession(trust_env=True)
+            await self._open_ws()
             return 0  # 重连成功，重置退避
         except Exception as exc:  # noqa: BLE001
             logger.warning("QQ WS 重连失败: %s", exc)
@@ -258,13 +276,16 @@ class QQWSClient:
         持有 GIL 冻结整个事件循环，导致微信/飞书等其他渠道一起断连。
         加超时后，读取能定期挣脱阻塞，发现连接异常即抛 QQCloseError
         触发 _listen_loop 重连，避免 daemon 僵死。
+
+        循环条件检查 self._ws.closed：重连后旧 ws 已关闭，循环自然退出，
+        避免对已关闭的旧 ws 继续调用 receive（参考 hermes qqbot 实现）。
         """
         if not self._ws:
             return
         # 连续探活失败计数：超过阈值认定连接已死，强制重连
         idle_probes = 0
         max_idle_probes = 3  # 3 次 ping 无响应（约 90s）判定连接已死
-        while self._running:
+        while self._running and self._ws and not self._ws.closed:
             try:
                 # receive 带 30s 超时：正常有消息时立即返回，无消息时
                 # 每 30s 超时一次去发 ping 探活，不会永久阻塞
