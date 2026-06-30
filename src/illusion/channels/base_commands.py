@@ -49,7 +49,14 @@ class BaseCommandHandler:
             msg: 入站消息（取 message_id 作为 reply_to）
             text: 回复文本
         """
-        await self.channel.send_text(msg.chat_id, text, reply_to=msg.message_id)
+        logger.info("_reply 发送: chat_id=%s text=%s reply_to=%s",
+                    msg.chat_id, text[:50], repr(msg.message_id))
+        try:
+            result = await self.channel.send_text(msg.chat_id, text, reply_to=msg.message_id)
+            logger.info("_reply 完成: result=%s", repr(result))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("_reply 异常: %s", exc)
+            raise
 
     async def try_handle(self, msg: InboundMessage) -> bool:
         """尝试处理斜杠命令
@@ -64,6 +71,7 @@ class BaseCommandHandler:
             bool: 是斜杠命令并已处理返回 True，否则 False（交由 agent）
         """
         text = msg.text.strip()
+        logger.info("try_handle 收到: text=%s startswith/=%s", repr(text), text.startswith("/"))
         if not text.startswith("/"):
             return False
 
