@@ -41,14 +41,22 @@ def handle_daemon_exit_on_interrupt() -> None:
        - 输入 y/Y/yes/回车（空输入）→ 停止守护进程
        - 输入期间再次 Ctrl+C（KeyboardInterrupt）→ 停止守护进程
        - 其他任何输入 → 不停止（守护进程保留运行）
+
+    退出路径必须比正常路径更健壮：任何异常（如 channels.json 权限不足、
+    PID 文件读取失败）都不应破坏退出体验，静默吞掉并记日志。
     """
-    if not is_channel_daemon_running():
-        return
-    cfg = load_channels_config()
-    if not cfg.has_enabled_channels():
-        return
-    if _confirm_exit():
-        stop_channel_daemon_by_pid()
+    try:
+        if not is_channel_daemon_running():
+            return
+        cfg = load_channels_config()
+        if not cfg.has_enabled_channels():
+            return
+        if _confirm_exit():
+            stop_channel_daemon_by_pid()
+    except Exception:  # noqa: BLE001
+        # 退出路径防御性兜底：避免配置文件异常/PID 读取失败等导致丑陋 traceback
+        import logging
+        logging.getLogger(__name__).debug("exit handler suppressed exception", exc_info=True)
 
 
 def _confirm_exit() -> bool:
@@ -66,6 +74,10 @@ def _confirm_exit() -> bool:
         answer = input(t("channel_daemon_exit_prompt") + " ").strip()
         return answer.lower() in ("", "y", "yes")
     except KeyboardInterrupt:
-        return True  # 再次 Ctrl+C = 确认退出
+        # 再次 Ctrl+C = 确认退出。Windows 终端会回显 "^C" 到屏幕，
+        # 打印明确的确认信息让用户知道 Ctrl+C 已被正确处理
+        print()
+        print(t("channel_daemon_exit_confirmed"))
+        return True
     except EOFError:
         return False  # 非 TTY 环境（如管道）默认不杀

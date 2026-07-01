@@ -38,6 +38,10 @@ class ChannelDescriptor:
         session_store_factory: 根据 channel + data_dir + group_sessions_per_user 构造 session_store
         command_handler_factory: 根据 channel + session_store 构造 command_handler
         fingerprint_factory: 根据渠道配置生成指纹标识字符串（用于检测配置变更）
+        start_msg_key: 启动文案的 i18n key（如 "channel_starting"）
+        start_msg_needs_channel_name: 启动文案是否需要传入 {channel} 参数（feishu 用）
+        runner_extra_kwargs_factory: 根据 channel_cfg 生成 ChannelRunner 额外构造参数的工厂；
+            返回的 dict 会合并到 runner_kwargs；None 或返回空 dict 表示无额外参数
     """
 
     name: str  # 渠道名
@@ -48,6 +52,9 @@ class ChannelDescriptor:
     session_store_factory: Callable[..., Any]  # 会话存储工厂
     command_handler_factory: Callable[[Any, Any], Any]  # 命令处理器工厂
     fingerprint_factory: Callable[[Any], str]  # 配置指纹工厂
+    start_msg_key: str = "channel_starting"  # 启动文案 i18n key
+    start_msg_needs_channel_name: bool = False  # 启动文案是否需要 {channel} 参数
+    runner_extra_kwargs_factory: Callable[[Any], dict] | None = None  # ChannelRunner 额外构造参数工厂
 
 
 class ChannelRegistry:
@@ -55,6 +62,9 @@ class ChannelRegistry:
 
     使用类变量 _channels 存储所有已注册的渠道描述符。
     模块加载时自动注册三个内置渠道。
+
+    测试隔离：测试中如需注册 mock 渠道，请用 snapshot() 保存原状态，
+    测试结束后用 restore() 恢复，避免污染其他测试。
     """
 
     _channels: dict[str, ChannelDescriptor] = {}
@@ -89,6 +99,28 @@ class ChannelRegistry:
         """
         return cls._channels.get(name)
 
+    @classmethod
+    def snapshot(cls) -> dict[str, ChannelDescriptor]:
+        """返回当前注册表的快照（浅拷贝）
+
+        用于测试隔离：测试注册 mock 渠道前先快照，测试后用 restore() 恢复。
+
+        Returns:
+            dict[str, ChannelDescriptor]: 当前注册表的浅拷贝
+        """
+        return dict(cls._channels)
+
+    @classmethod
+    def restore(cls, snapshot: dict[str, ChannelDescriptor]) -> None:
+        """从快照恢复注册表
+
+        用于测试隔离：将注册表恢复到 snapshot() 时的状态。
+
+        Args:
+            snapshot: snapshot() 返回的快照
+        """
+        cls._channels = dict(snapshot)
+
 
 # === 工厂函数：延迟导入渠道实现，避免顶层依赖 SDK ===
 
@@ -115,6 +147,11 @@ def _feishu_command_handler_factory(channel: Any, session_store: Any) -> Any:
 def _feishu_fingerprint_factory(cfg: Any) -> str:
     """飞书配置指纹"""
     return f"feishu:{cfg.app_id}"
+
+
+def _feishu_runner_extra_kwargs_factory(channel_cfg: Any) -> dict:
+    """飞书 ChannelRunner 额外构造参数：需要 feishu_config 注入"""
+    return {"feishu_config": channel_cfg}
 
 
 def _weixin_session_store_factory(
@@ -183,6 +220,9 @@ ChannelRegistry.register(
         session_store_factory=_feishu_session_store_factory,
         command_handler_factory=_feishu_command_handler_factory,
         fingerprint_factory=_feishu_fingerprint_factory,
+        start_msg_key="channel_starting",
+        start_msg_needs_channel_name=True,  # feishu 启动文案带 {channel} 参数
+        runner_extra_kwargs_factory=_feishu_runner_extra_kwargs_factory,
     )
 )
 ChannelRegistry.register(
@@ -195,6 +235,7 @@ ChannelRegistry.register(
         session_store_factory=_weixin_session_store_factory,
         command_handler_factory=_weixin_command_handler_factory,
         fingerprint_factory=_weixin_fingerprint_factory,
+        start_msg_key="channel_starting_weixin",
     )
 )
 ChannelRegistry.register(
@@ -207,5 +248,6 @@ ChannelRegistry.register(
         session_store_factory=_qq_session_store_factory,
         command_handler_factory=_qq_command_handler_factory,
         fingerprint_factory=_qq_fingerprint_factory,
+        start_msg_key="channel_starting_qq",
     )
 )

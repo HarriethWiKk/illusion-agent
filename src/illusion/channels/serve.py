@@ -68,6 +68,7 @@ def run_channel_serve() -> None:
     # （两个进程同时 spawn 时，PID 文件写入有竞态，可能都写入成功导致孤儿）
     from illusion.config.paths import get_channels_data_dir
     from illusion.channels.pid import PidFile, read_pid
+    from illusion.config.i18n import t
 
     data_dir = get_channels_data_dir()
     pid_file = PidFile(data_dir / "daemon.pid")
@@ -75,10 +76,8 @@ def run_channel_serve() -> None:
         existing_pid = read_pid(pid_file.path) or 0
         # 当前进程的 PID 与 PID 文件记录的不同 → 已有另一个守护进程在运行
         if existing_pid and existing_pid != os.getpid():
-            print(
-                f"[channel] 守护进程已在运行 (PID={existing_pid})，拒绝重复启动。"
-                f" 若确信无进程在运行，请删除 {pid_file.path} 后重试。"
-            )
+            print(t("channel_daemon_already_running",
+                    pid=existing_pid, pid_file=pid_file.path))
             return
 
     cfg = load_channels_config()
@@ -133,7 +132,9 @@ def run_channel_serve() -> None:
     except KeyboardInterrupt:
         stream_handler.flush()
         file_handler.flush()
-        print("\n收到中断信号，正在关闭...")
+        from illusion.config.i18n import t
+        print()
+        print(t("channel_interrupted_closing"))
         # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
         _force_shutdown()
     finally:
@@ -235,13 +236,6 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     runners: list[Any] = []  # ChannelRunner 列表
     from illusion.channels.registry import ChannelRegistry
 
-    # 渠道启动文案的 i18n key 映射
-    _start_msg_keys = {
-        "feishu": "channel_starting",
-        "weixin": "channel_starting_weixin",
-        "qq": "channel_starting_qq",
-    }
-
     for desc in ChannelRegistry.all_descriptors():
         channel_cfg = getattr(cfg, desc.config_attr, None)
         if channel_cfg is None or not channel_cfg.enabled:
@@ -249,12 +243,11 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
         if settings is None:
             continue
 
-        # 启动文案（feishu 用 channel 参数，weixin/qq 用独立 key）
-        msg_key = _start_msg_keys.get(desc.name, "channel_starting")
-        if desc.name == "feishu":
-            print(t(msg_key, channel=desc.name))
+        # 启动文案：从 descriptor 读取 i18n key 和是否需要 {channel} 参数
+        if desc.start_msg_needs_channel_name:
+            print(t(desc.start_msg_key, channel=desc.name))
         else:
-            print(t(msg_key))
+            print(t(desc.start_msg_key))
 
         # 创建渠道适配器实例
         channel: Channel = desc.adapter_class(channel_cfg, settings)
@@ -263,15 +256,15 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
         channel_data_dir.mkdir(parents=True, exist_ok=True)
         # 群组会话隔离：微信只私聊固定 False，其他渠道从配置读取
         group_sessions_per_user = getattr(channel_cfg, "group_sessions_per_user", False)
-        # 飞书需要额外的 feishu_config 参数
+        # 基础 runner_kwargs + 渠道特有额外参数（通过 descriptor 工厂注入）
         runner_kwargs: dict[str, Any] = {
             "channel": channel,
             "settings": settings,
             "session_data_dir": channel_data_dir,
             "group_sessions_per_user": group_sessions_per_user,
         }
-        if desc.name == "feishu":
-            runner_kwargs["feishu_config"] = channel_cfg
+        if desc.runner_extra_kwargs_factory is not None:
+            runner_kwargs.update(desc.runner_extra_kwargs_factory(channel_cfg))
         runner = ChannelRunner(**runner_kwargs)
         runners.append(runner)
 

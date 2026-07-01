@@ -59,18 +59,14 @@ def test_exit_no_daemon_running(monkeypatch):
     assert state["stop_called"] is False
 
 
-def test_exit_no_channels_config(monkeypatch):
-    """channels.json 无配置（has_enabled=False）时直接返回"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=False)
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
 def test_exit_no_enabled_channels(monkeypatch):
-    """所有渠道 enabled=false 时直接返回（与 test_exit_no_channels_config 同路径）"""
+    """channels.json 无配置或所有渠道 enabled=false 时直接返回
+
+    覆盖两种场景（exit_handler 内部走同一代码路径）：
+    - 无配置文件（load_channels_config 返回默认空配置）
+    - 有配置但全部 enabled=false
+    两者均表现为 has_enabled_channels() 返回 False。
+    """
     state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=False)
 
     from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
@@ -178,3 +174,21 @@ def test_exit_eof_in_non_tty(monkeypatch):
 
     handle_daemon_exit_on_interrupt()
     assert state["stop_called"] is False
+
+
+def test_exit_swallows_unexpected_exception(monkeypatch, caplog):
+    """退出路径异常（如 channels.json 权限不足）应被静默吞掉，不破坏退出体验
+
+    回归测试：旧代码 _kill_channel_daemon 有 try/except Exception 兜底，
+    重构后 handle_daemon_exit_on_interrupt 必须保留同等防御性。
+    """
+    # is_channel_daemon_running 抛 OSError（模拟 PID 文件读取失败）
+    monkeypatch.setattr(
+        "illusion.channels.is_channel_daemon_running",
+        lambda: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+
+    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
+
+    # 不应抛异常
+    handle_daemon_exit_on_interrupt()

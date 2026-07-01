@@ -174,3 +174,77 @@ def test_create_session_store_uses_registry():
     )
     from illusion.channels.feishu.session_map import FeishuSessionStore
     assert isinstance(store, FeishuSessionStore)
+
+
+def test_registry_snapshot_restore_isolation():
+    """snapshot/restore 应实现测试隔离
+
+    注册 mock 渠道后用 restore 恢复，验证其他测试不受污染。
+    """
+    # 快照原始状态
+    snap = ChannelRegistry.snapshot()
+    original_names = {d.name for d in ChannelRegistry.all_descriptors()}
+
+    try:
+        # 注册一个 mock 渠道
+        mock_desc = ChannelDescriptor(
+            name="mock_test_channel",
+            config_attr="mock",
+            config_class=object,
+            adapter_class=object,
+            dependencies=(),
+            session_store_factory=lambda *a: None,
+            command_handler_factory=lambda *a: None,
+            fingerprint_factory=lambda cfg: "mock",
+        )
+        ChannelRegistry.register(mock_desc)
+        assert "mock_test_channel" in {d.name for d in ChannelRegistry.all_descriptors()}
+    finally:
+        # 恢复
+        ChannelRegistry.restore(snap)
+
+    # 恢复后 mock 渠道应消失
+    restored_names = {d.name for d in ChannelRegistry.all_descriptors()}
+    assert "mock_test_channel" not in restored_names
+    assert restored_names == original_names
+
+
+def test_descriptor_start_msg_fields():
+    """ChannelDescriptor 的 start_msg_key 和 start_msg_needs_channel_name 字段"""
+    feishu = ChannelRegistry.get("feishu")
+    assert feishu is not None
+    assert feishu.start_msg_key == "channel_starting"
+    assert feishu.start_msg_needs_channel_name is True
+
+    weixin = ChannelRegistry.get("weixin")
+    assert weixin is not None
+    assert weixin.start_msg_key == "channel_starting_weixin"
+    assert weixin.start_msg_needs_channel_name is False
+
+    qq = ChannelRegistry.get("qq")
+    assert qq is not None
+    assert qq.start_msg_key == "channel_starting_qq"
+    assert qq.start_msg_needs_channel_name is False
+
+
+def test_feishu_runner_extra_kwargs_factory():
+    """feishu 的 runner_extra_kwargs_factory 应返回 feishu_config"""
+    from unittest.mock import MagicMock
+    feishu = ChannelRegistry.get("feishu")
+    assert feishu is not None
+    assert feishu.runner_extra_kwargs_factory is not None
+
+    mock_cfg = MagicMock()
+    extra = feishu.runner_extra_kwargs_factory(mock_cfg)
+    assert extra == {"feishu_config": mock_cfg}
+
+
+def test_weixin_qq_have_no_extra_kwargs_factory():
+    """weixin 和 qq 不应有 runner_extra_kwargs_factory（无额外构造参数）"""
+    weixin = ChannelRegistry.get("weixin")
+    assert weixin is not None
+    assert weixin.runner_extra_kwargs_factory is None
+
+    qq = ChannelRegistry.get("qq")
+    assert qq is not None
+    assert qq.runner_extra_kwargs_factory is None

@@ -1722,7 +1722,7 @@ def channel_status() -> None:
     pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
     running = pid_file.is_running()
 
-    print("渠道状态 / Channel status:")
+    print(_t("channel_status_title"))
     feishu_state = _t("channel_connected") if (cfg.feishu.enabled and running) else _t("channel_disconnected")
     weixin_state = _t("channel_connected") if (cfg.weixin.enabled and running) else _t("channel_disconnected")
     qq_state = _t("channel_connected") if (cfg.qq.enabled and running) else _t("channel_disconnected")

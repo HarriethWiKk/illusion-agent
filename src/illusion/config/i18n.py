@@ -249,6 +249,26 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "渠道守护进程仍在运行，是否一同退出？(Y/n)",
         "en-US": "Channel daemon is still running. Stop it too? (Y/n)",
     },
+    # 二次 Ctrl+C 确认退出守护进程
+    "channel_daemon_exit_confirmed": {
+        "zh-CN": "已确认退出，正在停止守护进程…",
+        "en-US": "Confirmed, stopping daemon…",
+    },
+    # 守护进程已在运行（拒绝重复启动）
+    "channel_daemon_already_running": {
+        "zh-CN": "[channel] 守护进程已在运行 (PID={pid})，拒绝重复启动。 若确信无进程在运行，请删除 {pid_file} 后重试。",
+        "en-US": "[channel] Daemon is already running (PID={pid}). If no process is running, delete {pid_file} and retry.",
+    },
+    # 收到中断信号正在关闭
+    "channel_interrupted_closing": {
+        "zh-CN": "收到中断信号，正在关闭...",
+        "en-US": "Interrupt received, shutting down...",
+    },
+    # 渠道状态标题
+    "channel_status_title": {
+        "zh-CN": "渠道状态：",
+        "en-US": "Channel status:",
+    },
 }
 
 # --- 命令描述翻译 ---
