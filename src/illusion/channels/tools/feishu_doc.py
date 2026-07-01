@@ -103,7 +103,7 @@ class FeishuDocReadTool(BaseTool[FeishuDocReadInput]):
 
         # raw 格式（现有逻辑）
         try:
-            from lark_oapi.api.docx.v1 import (  # type: ignore[import-untyped]
+            from lark_oapi.api.docx.v1 import (
                 RawContentDocumentRequest,
             )
         except ImportError:
@@ -124,7 +124,7 @@ class FeishuDocReadTool(BaseTool[FeishuDocReadInput]):
         return ToolResult(output=str(raw or "(empty document)"))
 
     @staticmethod
-    def _block_to_dict(block: Any) -> dict:
+    def _block_to_dict(block: Any) -> dict[str, Any]:
         """将 block 对象转为 dict（简化版）
 
         Args:
@@ -251,11 +251,11 @@ class FeishuDocWriteTool(BaseTool[FeishuDocWriteInput]):
         assert isinstance(arguments, FeishuDocWriteInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.docx.v1 import (  # type: ignore[import-untyped]
+            from lark_oapi.api.docx.v1 import (  # pyright: ignore[reportAttributeAccessIssue]
                 Block,
-                CodeBlock,
+                CodeBlock,  # pyright: ignore[reportAttributeAccessIssue]
                 CreateDocumentBlockChildrenRequest,
-                TextBlock,
+                TextBlock,  # pyright: ignore[reportAttributeAccessIssue]
             )
         except ImportError:
             return ToolResult(output="lark_oapi docx API not available", is_error=True)
@@ -289,7 +289,7 @@ class FeishuDocWriteTool(BaseTool[FeishuDocWriteInput]):
             CreateDocumentBlockChildrenRequest.builder()
             .document_id(arguments.doc_token)
             .block_id(arguments.doc_token)
-            .request_body({"children": [block]})
+            .request_body({"children": [block]})  # pyright: ignore[reportArgumentType]
             .build()
         )
         resp = client.docx.v1.document_block_children.create(req)

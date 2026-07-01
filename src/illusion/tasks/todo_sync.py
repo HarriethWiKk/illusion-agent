@@ -35,11 +35,11 @@ from typing import Any
 
 from illusion.config.paths import get_tasks_dir
 from illusion.tasks.manager import BackgroundTaskManager
-from illusion.tasks.types import TaskRecord, to_task_display_status
+from illusion.tasks.types import TaskRecord, TaskType, to_task_display_status
 
 
 # 参与 todo 互通的 task 类型
-TODO_TASK_TYPE = "in_process_teammate"
+TODO_TASK_TYPE: TaskType = "in_process_teammate"
 
 # Todo 状态 → Task 内部状态
 _TODO_TO_TASK_STATUS: dict[str, str] = {

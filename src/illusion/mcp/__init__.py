@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 # 类型检查时导入，避免循环依赖
 if TYPE_CHECKING:  # pragma: no cover
     from illusion.mcp.client import McpClientManager
+    from illusion.mcp.config import load_mcp_server_configs, load_project_mcp_configs
     from illusion.mcp.types import (
         McpConnectionStatus,
         McpHttpServerConfig,

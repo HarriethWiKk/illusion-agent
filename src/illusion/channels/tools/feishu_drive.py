@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path  # 路径
-from typing import TYPE_CHECKING  # 类型
+from typing import TYPE_CHECKING, Any  # 类型
 
 from pydantic import BaseModel, Field  # 数据模型
 
@@ -146,7 +146,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
             return await self._upload_chunked(client, path, name, arguments.folder_token)
         return await self._upload_all(client, path, name, arguments.folder_token)
 
-    async def _upload_all(self, client, path: Path, name: str, folder_token: str) -> ToolResult:
+    async def _upload_all(self, client: Any, path: Path, name: str, folder_token: str) -> ToolResult:
         """小文件整文件上传"""
         try:
             from lark_oapi.api.drive.v1 import (
@@ -172,7 +172,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         token = getattr(data, "file_token", "?") if data else "?"
         return ToolResult(output=f"Uploaded: {name} token={token}")
 
-    async def _upload_chunked(self, client, path: Path, name: str, folder_token: str) -> ToolResult:
+    async def _upload_chunked(self, client: Any, path: Path, name: str, folder_token: str) -> ToolResult:
         """大文件分片上传"""
         try:
             from lark_oapi.api.drive.v1 import (
@@ -193,7 +193,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
             "parent_node": folder_token,
             "size": file_size,
         }
-        req = UploadPrepareFileRequest.builder().request_body(prepare_body).build()
+        req = UploadPrepareFileRequest.builder().request_body(prepare_body).build()  # pyright: ignore[reportArgumentType]
         resp = client.drive.v1.file.upload_prepare(req)
         if not resp.success():
             return ToolResult(
@@ -213,7 +213,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
                     "size": len(chunk),
                     "file": chunk,
                 }
-                req = UploadPartFileRequest.builder().request_body(part_body).build()
+                req = UploadPartFileRequest.builder().request_body(part_body).build()  # pyright: ignore[reportArgumentType]
                 resp = client.drive.v1.file.upload_part(req)
                 if not resp.success():
                     return ToolResult(
@@ -226,7 +226,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
             "upload_id": upload_id,
             "block_num": block_num,
         }
-        req = UploadFinishFileRequest.builder().request_body(finish_body).build()
+        req = UploadFinishFileRequest.builder().request_body(finish_body).build()  # pyright: ignore[reportArgumentType]
         resp = client.drive.v1.file.upload_finish(req)
         if not resp.success():
             return ToolResult(
@@ -343,8 +343,8 @@ class FeishuDriveMkdirTool(BaseTool[FeishuDriveMkdirInput]):
         assert isinstance(arguments, FeishuDriveMkdirInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
-                CreateFolderRequest,
+            from lark_oapi.api.drive.v1 import (  # pyright: ignore[reportAttributeAccessIssue]
+                CreateFolderRequest,  # pyright: ignore[reportAttributeAccessIssue]
             )
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
@@ -403,7 +403,7 @@ class FeishuDriveDeleteTool(BaseTool[FeishuDriveDeleteInput]):
         assert isinstance(arguments, FeishuDriveDeleteInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
+            from lark_oapi.api.drive.v1 import (
                 DeleteFileRequest,
             )
         except ImportError:

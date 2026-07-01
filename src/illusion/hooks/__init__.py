@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from illusion.hooks.events import HookEvent
     from illusion.hooks.executor import HookExecutionContext, HookExecutor
-    from illusion.hooks.loader import HookRegistry
+    from illusion.hooks.loader import HookRegistry, load_hook_registry
     from illusion.hooks.register_hooks import register_frontmatter_hooks, register_skill_hooks
     from illusion.hooks.schemas import HookMatcherDefinition
     from illusion.hooks.session_hooks import SessionHookStore

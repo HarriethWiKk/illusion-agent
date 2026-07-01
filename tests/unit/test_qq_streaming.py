@@ -18,13 +18,13 @@ import pytest
 
 aiohttp = pytest.importorskip("aiohttp")
 
-from illusion.channels.qq.api import (
+from illusion.channels.qq.api import (  # noqa: E402
     STREAM_INPUT_MODE_REPLACE,
     STREAM_INPUT_STATE_DONE,
     STREAM_INPUT_STATE_GENERATING,
     send_c2c_stream_message,
 )
-from illusion.channels.qq.streaming import QQStreamingController
+from illusion.channels.qq.streaming import QQStreamingController  # noqa: E402
 
 
 # ─── 辅助函数 ──────────────────────────────────────────────

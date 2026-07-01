@@ -116,8 +116,6 @@ def test_config_fingerprint_uses_registry():
     from illusion.channels.config import (
         ChannelsConfig,
         FeishuChannelConfig,
-        QQChannelConfig,
-        WeixinChannelConfig,
     )
 
     # 空配置：无启用渠道，指纹为空列表的 MD5

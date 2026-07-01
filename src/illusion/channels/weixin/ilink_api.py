@@ -645,7 +645,7 @@ async def get_upload_url(
     Returns:
         dict[str, Any]: 含 upload_param 或 upload_full_url
     """
-    return await _retry_transient(
+    result = await _retry_transient(
         lambda: _api_post(
             session, base_url=base_url, endpoint=EP_GET_UPLOAD_URL,
             payload={
@@ -662,6 +662,7 @@ async def get_upload_url(
         ),
         name="get_upload_url",
     )
+    return dict(result) if result is not None else {}
 
 
 async def upload_ciphertext(
@@ -697,10 +698,11 @@ async def upload_ciphertext(
                 raise RuntimeError(f"CDN upload missing x-encrypted-param header: {raw[:200]}")
             raw = await response.text()
             raise RuntimeError(f"CDN upload HTTP {response.status}: {raw[:200]}")
-    return await _retry_transient(
+    result = await _retry_transient(
         lambda: asyncio.wait_for(_do_upload(), timeout=UPLOAD_TIMEOUT_SECONDS),
         name="upload_ciphertext",
     )
+    return str(result) if result is not None else ""
 
 
 async def download_bytes(

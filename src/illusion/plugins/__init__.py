@@ -23,6 +23,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
+    from illusion.plugins.installer import install_plugin_from_path, uninstall_plugin
+    from illusion.plugins.loader import (
+        discover_plugin_paths,
+        get_project_plugins_dir,
+        get_user_plugins_dir,
+        load_plugins,
+    )
     from illusion.plugins.schemas import PluginManifest
     from illusion.plugins.types import LoadedPlugin
 

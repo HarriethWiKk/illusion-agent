@@ -8,8 +8,6 @@
 """
 from __future__ import annotations
 
-import pytest
-
 
 def _setup_mocks(monkeypatch, *, daemon_running=True, has_enabled=True):
     """配置通用 mock

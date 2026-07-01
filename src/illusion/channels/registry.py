@@ -54,7 +54,7 @@ class ChannelDescriptor:
     fingerprint_factory: Callable[[Any], str]  # 配置指纹工厂
     start_msg_key: str = "channel_starting"  # 启动文案 i18n key
     start_msg_needs_channel_name: bool = False  # 启动文案是否需要 {channel} 参数
-    runner_extra_kwargs_factory: Callable[[Any], dict] | None = None  # ChannelRunner 额外构造参数工厂
+    runner_extra_kwargs_factory: Callable[[Any], dict[str, Any]] | None = None  # ChannelRunner 额外构造参数工厂
 
 
 class ChannelRegistry:
@@ -149,7 +149,7 @@ def _feishu_fingerprint_factory(cfg: Any) -> str:
     return f"feishu:{cfg.app_id}"
 
 
-def _feishu_runner_extra_kwargs_factory(channel_cfg: Any) -> dict:
+def _feishu_runner_extra_kwargs_factory(channel_cfg: Any) -> dict[str, Any]:
     """飞书 ChannelRunner 额外构造参数：需要 feishu_config 注入"""
     return {"feishu_config": channel_cfg}
 
