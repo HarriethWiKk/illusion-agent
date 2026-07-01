@@ -992,29 +992,14 @@ def web_start(
         import webbrowser
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
-    # ctrl+c / 正常退出时询问是否终止渠道守护进程（与 illusion 主命令一致）
-    # ctrl+c 触发时 force=True 直接停止守护进程
-    # 正常退出时询问用户（y/回车默认杀灭）
-    _interrupted = False
+    # ctrl+c / 正常退出时通过共享处理器询问是否终止渠道守护进程
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
-        _interrupted = True
+        pass  # 共享退出处理器会处理 Ctrl+C 场景
     finally:
-        try:
-            from illusion.channels import is_channel_daemon_running, stop_channel_daemon_by_pid
-            if is_channel_daemon_running():
-                if _interrupted:
-                    # ctrl+c 触发：直接停止守护进程
-                    stop_channel_daemon_by_pid()
-                else:
-                    # 正常退出：询问用户，y/回车默认杀灭
-                    from illusion.config.i18n import t
-                    answer = input(t("channel_daemon_exit_prompt") + " ").strip().lower()
-                    if answer in ("", "y", "yes"):
-                        stop_channel_daemon_by_pid()
-        except Exception:  # noqa: BLE001
-            pass
+        from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
+        handle_daemon_exit_on_interrupt()
 
 
 # ---- update 子命令 ----
@@ -1361,32 +1346,6 @@ def main(
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
-    def _kill_channel_daemon(*, force: bool = False) -> None:
-        """退出时询问是否终止渠道守护进程
-
-        illusion 和 illusion web 可能同时运行并共享同一个守护进程。
-        退出时如果守护进程仍在运行，询问用户是否一同退出，避免
-        一个进程退出导致另一个进程失去渠道服务。
-
-        Args:
-            force: True 时直接停止守护进程（用于 ctrl+c 场景），False 时询问用户
-        """
-        try:
-            from illusion.channels import is_channel_daemon_running, stop_channel_daemon_by_pid
-            if not is_channel_daemon_running():
-                return
-            if force:
-                # ctrl+c 触发的退出：直接停止守护进程（用户已通过 ctrl+c 表达退出意图）
-                stop_channel_daemon_by_pid()
-                return
-            # 正常退出时询问用户；y 或直接回车（空输入）默认杀灭
-            from illusion.config.i18n import t
-            answer = input(t("channel_daemon_exit_prompt") + " ").strip().lower()
-            if answer in ("", "y", "yes"):
-                stop_channel_daemon_by_pid()
-        except Exception:  # noqa: BLE001
-            pass
-
     # PC 端渠道感知：有 enabled 渠道时注入 channel_hint + channel_tools
     pc_channel_hint: str | None = None
     pc_channel_tools: list[Any] | None = None
@@ -1513,9 +1472,8 @@ def main(
         return
 
     # 启动交互式 REPL 会话
-    # ctrl+c 触发 KeyboardInterrupt 时，force=True 直接停止守护进程
-    # 正常退出时，询问用户是否一同退出渠道（y/回车默认杀灭）
-    _interrupted = False
+    # ctrl+c 触发 KeyboardInterrupt 时，由共享退出处理器统一处理
+    # （首次 Ctrl+C 进入 finally，处理器弹出确认提示；二次 Ctrl+C 视为确认停止）
     try:
         asyncio.run(
             run_repl(
@@ -1534,9 +1492,10 @@ def main(
             )
         )
     except KeyboardInterrupt:
-        _interrupted = True
+        pass  # 共享退出处理器会处理 Ctrl+C 场景
     finally:
-        _kill_channel_daemon(force=_interrupted)
+        from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
+        handle_daemon_exit_on_interrupt()
 
 
 # ---- channel 子命令 ----

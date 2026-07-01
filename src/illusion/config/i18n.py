@@ -246,8 +246,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     # 渠道守护进程退出确认
     "channel_daemon_exit_prompt": {
-        "zh-CN": "渠道守护进程仍在运行，是否一同退出？(y/N)",
-        "en-US": "Channel daemon is still running. Stop it too? (y/N)",
+        "zh-CN": "渠道守护进程仍在运行，是否一同退出？(Y/n)",
+        "en-US": "Channel daemon is still running. Stop it too? (Y/n)",
     },
 }
 
