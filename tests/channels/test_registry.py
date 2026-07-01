@@ -108,3 +108,69 @@ def test_serve_dependency_check_uses_registry(monkeypatch):
     output = captured.getvalue()
     # 应提示 feishu 依赖缺失
     assert "feishu" in output.lower() or "lark" in output.lower()
+
+
+def test_config_fingerprint_uses_registry():
+    """_config_fingerprint 遍历 registry 的 fingerprint_factory"""
+    from illusion.channels import _config_fingerprint
+    from illusion.channels.config import (
+        ChannelsConfig,
+        FeishuChannelConfig,
+        QQChannelConfig,
+        WeixinChannelConfig,
+    )
+
+    # 空配置：无启用渠道，指纹为空列表的 MD5
+    empty = ChannelsConfig()
+    fp_empty = _config_fingerprint(empty)
+
+    # 启用飞书：指纹应变化
+    feishu = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="cli_xxx"))
+    fp_feishu = _config_fingerprint(feishu)
+    assert fp_empty != fp_feishu
+
+    # 不同 app_id：指纹应不同
+    feishu2 = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="cli_yyy"))
+    fp_feishu2 = _config_fingerprint(feishu2)
+    assert fp_feishu != fp_feishu2
+
+    # 相同配置：指纹应相同
+    feishu_same = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="cli_xxx"))
+    assert _config_fingerprint(feishu_same) == fp_feishu
+
+
+def test_get_command_handler_uses_registry():
+    """_get_command_handler 遍历 registry 的 command_handler_factory"""
+    from unittest.mock import MagicMock
+    from illusion.channels import ChannelRunner
+
+    # 用 mock channel 验证飞书路径
+    from illusion.channels.feishu.adapter import FeishuChannel
+    mock_channel = MagicMock(spec=FeishuChannel)
+    mock_session_store = MagicMock()
+
+    runner = ChannelRunner.__new__(ChannelRunner)
+    runner.channel = mock_channel
+    runner.session_store = mock_session_store
+
+    handler = runner._get_command_handler()
+    assert handler is not None
+    from illusion.channels.feishu.commands import FeishuCommandHandler
+    assert isinstance(handler, FeishuCommandHandler)
+
+
+def test_create_session_store_uses_registry():
+    """_create_session_store 遍历 registry 的 session_store_factory"""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    from illusion.channels import _create_session_store
+    from illusion.channels.feishu.adapter import FeishuChannel
+
+    mock_channel = MagicMock(spec=FeishuChannel)
+    store = _create_session_store(
+        channel=mock_channel,
+        data_dir=Path("/tmp/test"),
+        group_sessions_per_user=True,
+    )
+    from illusion.channels.feishu.session_map import FeishuSessionStore
+    assert isinstance(store, FeishuSessionStore)

@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 def _config_fingerprint(cfg: "ChannelsConfig") -> str:
     """计算渠道配置指纹（用于检测配置变更后重启守护进程）
 
+    遍历 ChannelRegistry，对每个已启用渠道调用其 fingerprint_factory 生成标识。
+
     Args:
         cfg: 渠道配置
 
@@ -44,14 +46,14 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
     import hashlib
     import json as _json
 
-    # 只取影响守护进程行为的字段
+    from illusion.channels.registry import ChannelRegistry
+
+    # 遍历 registry 调用各渠道的 fingerprint_factory
     enabled_channels = []
-    if cfg.feishu.enabled:
-        enabled_channels.append(f"feishu:{cfg.feishu.app_id}")
-    if cfg.weixin.enabled:
-        enabled_channels.append(f"weixin:{cfg.weixin.account_id}:{cfg.weixin.token}")
-    if cfg.qq.enabled:
-        enabled_channels.append(f"qq:{cfg.qq.app_id}:{cfg.qq.client_secret}")
+    for desc in ChannelRegistry.all_descriptors():
+        channel_cfg = getattr(cfg, desc.config_attr, None)
+        if channel_cfg is not None and channel_cfg.enabled:
+            enabled_channels.append(desc.fingerprint_factory(channel_cfg))
     raw = _json.dumps(sorted(enabled_channels), ensure_ascii=False)
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -381,27 +383,16 @@ class ChannelRunner:
     def _get_command_handler(self) -> Any:
         """按渠道类型返回对应的斜杠命令处理器
 
+        遍历 ChannelRegistry，匹配 adapter_class 后调用 command_handler_factory。
+
         Returns:
             BaseCommandHandler 实例或 None（未知渠道）
         """
-        from illusion.channels.feishu.adapter import FeishuChannel
-        from illusion.channels.feishu.commands import FeishuCommandHandler
-        if isinstance(self.channel, FeishuChannel):
-            return FeishuCommandHandler(self.channel, self.session_store)
-        try:
-            from illusion.channels.weixin.adapter import WeixinChannel
-            from illusion.channels.weixin.commands import WeixinCommandHandler
-            if isinstance(self.channel, WeixinChannel):
-                return WeixinCommandHandler(self.channel, self.session_store)
-        except ImportError:
-            pass  # 微信模块不可用时跳过
-        try:
-            from illusion.channels.qq.adapter import QQChannel
-            from illusion.channels.qq.commands import QQCommandHandler
-            if isinstance(self.channel, QQChannel):
-                return QQCommandHandler(self.channel, self.session_store)
-        except ImportError:
-            pass  # QQ 模块不可用时跳过
+        from illusion.channels.registry import ChannelRegistry
+
+        for desc in ChannelRegistry.all_descriptors():
+            if isinstance(self.channel, desc.adapter_class):
+                return desc.command_handler_factory(self.channel, self.session_store)
         return None
 
     async def _handle_stop(self, msg: "InboundMessage") -> None:
@@ -874,10 +865,8 @@ def _create_session_store(
 ) -> Any:
     """根据渠道类型创建对应的 SessionStore
 
-    飞书 → FeishuSessionStore
-    QQ → QQSessionStore
-    微信 → WeixinSessionStore
-    未知 → FeishuSessionStore（向后兼容）
+    遍历 ChannelRegistry，匹配 adapter_class 后调用 session_store_factory。
+    未知渠道回退到 FeishuSessionStore（向后兼容）。
 
     Args:
         channel: 渠道实例
@@ -887,30 +876,13 @@ def _create_session_store(
     Returns:
         对应渠道的 SessionStore 实例
     """
-    from illusion.channels.feishu.adapter import FeishuChannel
-    if isinstance(channel, FeishuChannel):
-        from illusion.channels.feishu.session_map import FeishuSessionStore
-        return FeishuSessionStore(
-            data_dir=data_dir,
-            group_sessions_per_user=group_sessions_per_user,
-        )
-    try:
-        from illusion.channels.qq.adapter import QQChannel
-        if isinstance(channel, QQChannel):
-            from illusion.channels.qq.session_map import QQSessionStore
-            return QQSessionStore(
-                data_dir=data_dir,
-                group_sessions_per_user=group_sessions_per_user,
+    from illusion.channels.registry import ChannelRegistry
+
+    for desc in ChannelRegistry.all_descriptors():
+        if isinstance(channel, desc.adapter_class):
+            return desc.session_store_factory(
+                channel, data_dir, group_sessions_per_user
             )
-    except ImportError:
-        pass
-    try:
-        from illusion.channels.weixin.adapter import WeixinChannel
-        if isinstance(channel, WeixinChannel):
-            from illusion.channels.weixin.session_map import WeixinSessionStore
-            return WeixinSessionStore(data_dir=data_dir)
-    except ImportError:
-        pass
     # 未知渠道回退到飞书（向后兼容）
     from illusion.channels.feishu.session_map import FeishuSessionStore
     return FeishuSessionStore(
