@@ -161,24 +161,34 @@ class ChannelsConfig(BaseModel):
     def has_enabled_channels(self) -> bool:
         """是否有任何已启用的渠道
 
+        遍历 ChannelRegistry 检查每个渠道的 enabled 字段。
+
         Returns:
             bool: 任一渠道 enabled 为 True 时返回 True
         """
-        return self.feishu.enabled or self.weixin.enabled or self.qq.enabled
+        from illusion.channels.registry import ChannelRegistry
+
+        for desc in ChannelRegistry.all_descriptors():
+            channel_cfg = getattr(self, desc.config_attr, None)
+            if channel_cfg is not None and channel_cfg.enabled:
+                return True
+        return False
 
     def enabled_channel_names(self) -> list[str]:
         """返回所有已启用渠道的名称列表
 
+        遍历 ChannelRegistry 收集已启用渠道名。
+
         Returns:
             list[str]: 已启用渠道名列表
         """
+        from illusion.channels.registry import ChannelRegistry
+
         names: list[str] = []
-        if self.feishu.enabled:
-            names.append("feishu")
-        if self.weixin.enabled:
-            names.append("weixin")
-        if self.qq.enabled:
-            names.append("qq")
+        for desc in ChannelRegistry.all_descriptors():
+            channel_cfg = getattr(self, desc.config_attr, None)
+            if channel_cfg is not None and channel_cfg.enabled:
+                names.append(desc.name)
         return names
 
 

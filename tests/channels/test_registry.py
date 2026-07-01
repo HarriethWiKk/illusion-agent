@@ -28,3 +28,47 @@ def test_registry_get_unknown_returns_none():
     """查询未知渠道名应返回 None"""
     assert ChannelRegistry.get("unknown") is None
     assert ChannelRegistry.get("") is None
+
+
+def test_config_has_enabled_channels_uses_registry():
+    """has_enabled_channels 遍历 registry 而非硬编码字段"""
+    from illusion.channels.config import ChannelsConfig, FeishuChannelConfig
+
+    # 全部禁用
+    empty = ChannelsConfig()
+    assert empty.has_enabled_channels() is False
+
+    # 仅飞书启用
+    feishu_only = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="x"))
+    assert feishu_only.has_enabled_channels() is True
+
+    # 仅微信启用
+    from illusion.channels.config import WeixinChannelConfig
+    weixin_only = ChannelsConfig(weixin=WeixinChannelConfig(enabled=True))
+    assert weixin_only.has_enabled_channels() is True
+
+    # 仅 QQ 启用
+    from illusion.channels.config import QQChannelConfig
+    qq_only = ChannelsConfig(qq=QQChannelConfig(enabled=True))
+    assert qq_only.has_enabled_channels() is True
+
+
+def test_config_enabled_channel_names_uses_registry():
+    """enabled_channel_names 遍历 registry 返回已启用渠道名"""
+    from illusion.channels.config import (
+        ChannelsConfig,
+        FeishuChannelConfig,
+        QQChannelConfig,
+        WeixinChannelConfig,
+    )
+
+    empty = ChannelsConfig()
+    assert empty.enabled_channel_names() == []
+
+    all_enabled = ChannelsConfig(
+        feishu=FeishuChannelConfig(enabled=True, app_id="x"),
+        weixin=WeixinChannelConfig(enabled=True),
+        qq=QQChannelConfig(enabled=True),
+    )
+    names = set(all_enabled.enabled_channel_names())
+    assert names == {"feishu", "weixin", "qq"}
