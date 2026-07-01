@@ -26,6 +26,34 @@ logger = logging.getLogger(__name__)  # 日志器
 SUPERVISOR_BACKOFF_SECONDS = (5.0, 10.0, 30.0)
 
 
+def _check_channel_dependencies(cfg: ChannelsConfig) -> bool:
+    """检查所有已启用渠道的依赖是否已安装
+
+    遍历 ChannelRegistry 检查每个已启用渠道的依赖包。
+
+    Args:
+        cfg: 渠道配置
+
+    Returns:
+        bool: 所有依赖已安装返回 True，有缺失返回 False
+    """
+    from illusion.channels.registry import ChannelRegistry
+    from illusion.config.i18n import t
+
+    for desc in ChannelRegistry.all_descriptors():
+        channel_cfg = getattr(cfg, desc.config_attr, None)
+        if channel_cfg is None or not channel_cfg.enabled:
+            continue
+        for dep in desc.dependencies:
+            try:
+                __import__(dep)
+            except ImportError:
+                print(t("channel_deps_missing",
+                        deps=", ".join(desc.dependencies), channel=desc.name))
+                return False
+    return True
+
+
 def run_channel_serve() -> None:
     """渠道守护进程主入口
 
@@ -61,38 +89,9 @@ def run_channel_serve() -> None:
         print(t("channel_none_configured"))
         return
 
-    # 检查飞书依赖
-    if cfg.feishu.enabled:
-        try:
-            import lark_oapi  # type: ignore[import-untyped]  # noqa: F401
-        except ImportError:
-            from illusion.config.i18n import t
-            from illusion.channels.feishu import FEISHU_DEPENDENCIES
-            print(t("channel_deps_missing",
-                    deps=", ".join(FEISHU_DEPENDENCIES), channel="feishu"))
-            return
-
-    # 检查微信依赖
-    if cfg.weixin.enabled:
-        try:
-            import aiohttp  # noqa: F401
-        except ImportError:
-            from illusion.config.i18n import t
-            from illusion.channels.weixin import WEIXIN_DEPENDENCIES
-            print(t("channel_deps_missing",
-                    deps=", ".join(WEIXIN_DEPENDENCIES), channel="weixin"))
-            return
-
-    # 检查 QQ 依赖
-    if cfg.qq.enabled:
-        try:
-            import aiohttp  # noqa: F401
-        except ImportError:
-            from illusion.config.i18n import t
-            from illusion.channels.qq import QQ_DEPENDENCIES
-            print(t("channel_deps_missing",
-                    deps=", ".join(QQ_DEPENDENCIES), channel="qq"))
-            return
+    # 检查渠道依赖（遍历 registry）
+    if not _check_channel_dependencies(cfg):
+        return
 
     # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
     # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
@@ -234,53 +233,46 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     from illusion.channels.base import Channel
 
     runners: list[Any] = []  # ChannelRunner 列表
-    if cfg.feishu.enabled and settings is not None:
-        from illusion.channels.feishu.adapter import FeishuChannel
+    from illusion.channels.registry import ChannelRegistry
 
-        print(t("channel_starting", channel="feishu"))
-        channel: Channel = FeishuChannel(cfg.feishu, settings)
-        # 确保飞书会话目录存在
-        feishu_data_dir = get_channels_data_dir() / "feishu" / "sessions"
-        feishu_data_dir.mkdir(parents=True, exist_ok=True)
-        runner = ChannelRunner(
-            channel=channel,
-            settings=settings,
-            session_data_dir=feishu_data_dir,
-            group_sessions_per_user=cfg.feishu.group_sessions_per_user,
-            feishu_config=cfg.feishu,
-        )
-        runners.append(runner)
+    # 渠道启动文案的 i18n key 映射
+    _start_msg_keys = {
+        "feishu": "channel_starting",
+        "weixin": "channel_starting_weixin",
+        "qq": "channel_starting_qq",
+    }
 
-    if cfg.weixin.enabled and settings is not None:
-        from illusion.channels.weixin.adapter import WeixinChannel
+    for desc in ChannelRegistry.all_descriptors():
+        channel_cfg = getattr(cfg, desc.config_attr, None)
+        if channel_cfg is None or not channel_cfg.enabled:
+            continue
+        if settings is None:
+            continue
 
-        print(t("channel_starting_weixin"))
-        channel = WeixinChannel(cfg.weixin, settings)
-        # 确保微信会话目录存在
-        weixin_data_dir = get_channels_data_dir() / "weixin" / "sessions"
-        weixin_data_dir.mkdir(parents=True, exist_ok=True)
-        runner = ChannelRunner(
-            channel=channel,
-            settings=settings,
-            session_data_dir=weixin_data_dir,
-            group_sessions_per_user=False,  # 微信只私聊
-        )
-        runners.append(runner)
+        # 启动文案（feishu 用 channel 参数，weixin/qq 用独立 key）
+        msg_key = _start_msg_keys.get(desc.name, "channel_starting")
+        if desc.name == "feishu":
+            print(t(msg_key, channel=desc.name))
+        else:
+            print(t(msg_key))
 
-    if cfg.qq.enabled and settings is not None:
-        from illusion.channels.qq.adapter import QQChannel
-
-        print(t("channel_starting_qq"))
-        channel = QQChannel(cfg.qq, settings)
-        # 确保 QQ 会话目录存在
-        qq_data_dir = get_channels_data_dir() / "qq" / "sessions"
-        qq_data_dir.mkdir(parents=True, exist_ok=True)
-        runner = ChannelRunner(
-            channel=channel,
-            settings=settings,
-            session_data_dir=qq_data_dir,
-            group_sessions_per_user=cfg.qq.group_sessions_per_user,
-        )
+        # 创建渠道适配器实例
+        channel: Channel = desc.adapter_class(channel_cfg, settings)
+        # 确保渠道会话目录存在
+        channel_data_dir = get_channels_data_dir() / desc.name / "sessions"
+        channel_data_dir.mkdir(parents=True, exist_ok=True)
+        # 群组会话隔离：微信只私聊固定 False，其他渠道从配置读取
+        group_sessions_per_user = getattr(channel_cfg, "group_sessions_per_user", False)
+        # 飞书需要额外的 feishu_config 参数
+        runner_kwargs: dict[str, Any] = {
+            "channel": channel,
+            "settings": settings,
+            "session_data_dir": channel_data_dir,
+            "group_sessions_per_user": group_sessions_per_user,
+        }
+        if desc.name == "feishu":
+            runner_kwargs["feishu_config"] = channel_cfg
+        runner = ChannelRunner(**runner_kwargs)
         runners.append(runner)
 
     if not runners:

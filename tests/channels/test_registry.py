@@ -72,3 +72,39 @@ def test_config_enabled_channel_names_uses_registry():
     )
     names = set(all_enabled.enabled_channel_names())
     assert names == {"feishu", "weixin", "qq"}
+
+
+def test_serve_dependency_check_uses_registry(monkeypatch):
+    """serve.py 依赖检查应遍历 registry 的 dependencies 字段
+
+    验证：当 feishu 启用但 lark_oapi 不可用时，
+    依赖检查使用 registry 中注册的 dependencies。
+    """
+    import builtins
+
+    # 模拟 lark_oapi 不可用
+    real_import = builtins.__import__
+
+    def _mock_import(name, *args, **kwargs):
+        if name == "lark_oapi":
+            raise ImportError("No module named 'lark_oapi'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _mock_import)
+
+    from illusion.channels.config import ChannelsConfig, FeishuChannelConfig
+    from illusion.channels import serve
+
+    cfg = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="x"))
+
+    # 捕获 print 输出
+    import io
+    from contextlib import redirect_stdout
+
+    captured = io.StringIO()
+    with redirect_stdout(captured):
+        serve._check_channel_dependencies(cfg)
+
+    output = captured.getvalue()
+    # 应提示 feishu 依赖缺失
+    assert "feishu" in output.lower() or "lark" in output.lower()
