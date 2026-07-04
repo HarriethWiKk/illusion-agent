@@ -28,6 +28,7 @@ IllusionCode CLI 入口模块
 from __future__ import annotations
 
 import json  # JSON 解析和序列化
+import os  # 操作系统接口（os.getpid 等进程管理）
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
 from typing import TYPE_CHECKING, Any, Optional  # 类型注解
@@ -228,21 +229,26 @@ def plugin_uninstall(
 @cron_app.command("start")
 def cron_start() -> None:
     """启动 cron 调度器"""
-    from illusion.services.cron_scheduler import is_scheduler_running, start_daemon
+    from illusion.services.cron_spawn import maybe_spawn_cron_daemon
 
-    if is_scheduler_running():
-        print(_t("cron_already_running"))
-        return
-    pid = start_daemon()
-    print(_t("cron_started", pid=pid))
+    proc = maybe_spawn_cron_daemon()
+    if proc is None:
+        # 已有守护进程在运行，或无启用任务
+        from illusion.services.cron_scheduler import is_scheduler_running
+        if is_scheduler_running():
+            print(_t("cron_already_running"))
+        else:
+            print(_t("cron_jobs_none"))
+    else:
+        print(_t("cron_started", pid=proc.pid))
 
 
 @cron_app.command("stop")
 def cron_stop() -> None:
     """停止 cron 调度器"""
-    from illusion.services.cron_scheduler import stop_scheduler
+    from illusion.services.cron_spawn import kill_cron_daemon_by_pid
 
-    if stop_scheduler():
+    if kill_cron_daemon_by_pid():
         print(_t("cron_stopped"))
     else:
         print(_t("cron_not_running"))
@@ -258,6 +264,15 @@ def cron_status_cmd() -> None:
     print(f"Scheduler: {state}" + (f" (pid={status['pid']})" if status["pid"] else ""))
     print(f"Jobs: {status['enabled_jobs']} {_t('cron_enabled')} / {status['total_jobs']} total")
     print(f"Log: {status['log_file']}")
+
+
+@cron_app.command("serve")
+def cron_serve() -> None:
+    """cron 守护进程主入口（前台运行）"""
+    from illusion.services.cron_serve import run_cron_serve
+
+    _ensure_language()
+    run_cron_serve()
 
 
 @cron_app.command("list")
@@ -946,6 +961,15 @@ def web_start(
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
+    # cron 自动激活（与 illusion 主命令一致）
+    _cron_proc = None
+    try:
+        from illusion.services.cron_spawn import maybe_spawn_cron_daemon
+        _cron_proc = maybe_spawn_cron_daemon()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
+
     # PC 端渠道感知：与 illusion 主命令一致，注入 channel_hint + channel_tools
     # 让 web 端 LLM 也能看到已启用渠道并用跨渠道工具发文件
     pc_channel_hint: str | None = None
@@ -992,14 +1016,23 @@ def web_start(
         import webbrowser
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
-    # ctrl+c / 正常退出时通过共享处理器询问是否终止渠道守护进程
+    # Ctrl+C / 正常退出时移除引用，守护进程通过引用计数自管理
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
-        pass  # 共享退出处理器会处理 Ctrl+C 场景
+        pass  # 引用计数机制自动处理，无需确认提示
     finally:
-        from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-        handle_daemon_exit_on_interrupt()
+        # 静默移除引用（不杀守护进程，不弹确认）
+        from illusion.utils.ref_count import remove_ref
+        from illusion.config.paths import get_cron_dir, get_channels_data_dir
+        try:
+            remove_ref(get_cron_dir() / "scheduler.refs", os.getpid())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            remove_ref(get_channels_data_dir() / "daemon.refs", os.getpid())
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---- update 子命令 ----
@@ -1346,6 +1379,15 @@ def main(
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
+    # cron 自动激活：有启用任务时 spawn 守护进程
+    _cron_proc = None
+    try:
+        from illusion.services.cron_spawn import maybe_spawn_cron_daemon
+        _cron_proc = maybe_spawn_cron_daemon()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
+
     # PC 端渠道感知：有 enabled 渠道时注入 channel_hint + channel_tools
     pc_channel_hint: str | None = None
     pc_channel_tools: list[Any] | None = None
@@ -1472,8 +1514,10 @@ def main(
         return
 
     # 启动交互式 REPL 会话
-    # ctrl+c 触发 KeyboardInterrupt 时，由共享退出处理器统一处理
-    # （首次 Ctrl+C 进入 finally，处理器弹出确认提示；二次 Ctrl+C 视为确认停止）
+    # Ctrl+C 触发 KeyboardInterrupt，进入 except → pass → finally 移除引用
+    # 守护进程通过引用计数机制自管理，无需弹确认提示：
+    #   - refs 仍有其他主程序 → 守护进程保持运行
+    #   - refs 为空 → 守护进程自监控发现后自动退出（30s 内）
     try:
         asyncio.run(
             run_repl(
@@ -1492,10 +1536,20 @@ def main(
             )
         )
     except KeyboardInterrupt:
-        pass  # 共享退出处理器会处理 Ctrl+C 场景
+        pass  # 引用计数机制自动处理，无需确认提示
     finally:
-        from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-        handle_daemon_exit_on_interrupt()
+        # 静默移除引用（不杀守护进程，不弹确认）
+        # 守护进程自监控发现 refs 为空时自动退出
+        from illusion.utils.ref_count import remove_ref
+        from illusion.config.paths import get_cron_dir, get_channels_data_dir
+        try:
+            remove_ref(get_cron_dir() / "scheduler.refs", os.getpid())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            remove_ref(get_channels_data_dir() / "daemon.refs", os.getpid())
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---- channel 子命令 ----
