@@ -293,6 +293,19 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
     tasks = [
         asyncio.create_task(_supervise(r, stop_event)) for r in runners
     ]
+
+    # 启动引用计数自监控（refs 为空时触发 stop_event）
+    from illusion.utils.ref_count import ref_monitor_loop
+    from illusion.config.paths import get_channels_data_dir
+    monitor_task = asyncio.create_task(
+        ref_monitor_loop(
+            stop_event,
+            get_channels_data_dir() / "daemon.refs",
+        ),
+        name="channel-ref-monitor",
+    )
+    tasks.append(monitor_task)
+
     try:
         await stop_event.wait()
     except KeyboardInterrupt:
