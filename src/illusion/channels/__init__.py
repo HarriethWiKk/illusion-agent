@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from illusion.channels.config import load_channels_config
 from illusion.utils.atomic_write import atomic_write_text
+from illusion.utils.ref_count import add_ref
 
 if TYPE_CHECKING:
     from illusion.channels.base import Channel, InboundMessage
@@ -88,7 +89,9 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
         except (FileNotFoundError, OSError):
             pass
         if stored_fp == current_fp:
-            return None  # 配置未变，跳过
+            # 配置未变，跳过 spawn，但追加引用
+            add_ref(data_dir / "daemon.refs", os.getpid())
+            return None
 
         # 配置已变，终止旧守护进程后重启（is_running 已确认存活）
         from illusion.channels.pid import read_pid
@@ -140,6 +143,7 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
         )
         pid_file.acquire(proc.pid)
         atomic_write_text(fingerprint_path, current_fp)
+        add_ref(data_dir / "daemon.refs", os.getpid())
         return proc
     except OSError as exc:
         logger.warning("启动渠道守护进程失败: %s", exc)
@@ -147,38 +151,33 @@ def maybe_spawn_channel_daemon() -> subprocess.Popen[bytes] | None:
 
 
 def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
-    """终止渠道守护进程子进程并释放 PID 文件。
+    """已废弃的渠道守护进程终止函数（noop）
 
-    供主命令（`illusion`）和 web 命令（`illusion web`）在退出时调用，
-    确保 ctrl+c / 正常退出后清理守护进程，避免孤儿进程。
-
-    幂等：proc 为 None 或已退出时仅尝试释放 PID 文件。
+    .. deprecated::
+        此函数为向后兼容保留。新方案采用引用计数：
+        主程序退出时调用 remove_ref，守护进程自监控 refs 为空时自动退出。
+        不再需要主动 kill 守护进程。
 
     Args:
-        proc: `maybe_spawn_channel_daemon` 返回的 Popen 实例；None 时仅清 PID 文件
+        proc: 已废弃，忽略不处理
     """
-    try:
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=3)
-            except Exception:  # noqa: BLE001
-                proc.kill()
-    except Exception:  # noqa: BLE001
-        pass
-    finally:
-        try:
-            from illusion.channels.pid import PidFile
-            from illusion.config.paths import get_channels_data_dir
-            PidFile(get_channels_data_dir() / "daemon.pid").release()
-        except Exception:  # noqa: BLE001
-            pass
+    import warnings
+    warnings.warn(
+        "kill_channel_daemon() 已废弃，请使用 remove_ref + 引用计数机制",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return
 
 
 def is_channel_daemon_running() -> bool:
     """检查渠道守护进程是否正在运行（通过 PID 文件，不依赖 proc 引用）
 
     用于退出时判断是否需要询问用户是否一同退出渠道。
+
+    Note:
+        新方案采用引用计数后，此函数仅用于诊断/查询。
+        退出处理已改为 remove_ref + 自监控，不再依赖此函数。
 
     Returns:
         bool: 守护进程在运行返回 True
@@ -190,51 +189,23 @@ def is_channel_daemon_running() -> bool:
 
 
 def stop_channel_daemon_by_pid() -> bool:
-    """通过 PID 文件停止渠道守护进程（不依赖 proc 引用）
+    """已废弃的渠道守护进程停止函数（noop）
 
-    供退出时交互式确认使用：无论当前进程是否是 spawn 者，
-    都可以通过 PID 文件停止守护进程。
-
-    Windows 上用 taskkill /T /F 终止整个进程树（守护进程可能 spawn 了
-    aiohttp/WS 子线程，单独 TerminateProcess 可能留下孤儿线程）。
-    Unix 上用 SIGTERM 终止进程组。
+    .. deprecated::
+        此函数为向后兼容保留。新方案采用引用计数：
+        守护进程通过自监控 refs 为空时自动退出，
+        不再需要通过 PID 主动停止。
 
     Returns:
-        bool: 成功停止返回 True，守护进程不存在或已停止返回 False
+        bool: 始终返回 False
     """
-    from illusion.config.paths import get_channels_data_dir
-    from illusion.channels.pid import PidFile, read_pid
-
-    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
-    if not pid_file.is_running():
-        pid_file.release()
-        return False
-
-    old_pid = read_pid(pid_file.path)
-    if old_pid is not None:
-        try:
-            if os.name == "nt":
-                # Windows: 用 taskkill /T /F 终止整个进程树
-                # /T = 终止子进程，/F = 强制终止
-                import subprocess as _sp
-                _sp.run(
-                    ["taskkill", "/PID", str(old_pid), "/T", "/F"],
-                    capture_output=True, timeout=5,
-                )
-            else:
-                # Unix: 用 SIGTERM 终止进程组
-                import signal
-                os.kill(old_pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError, Exception):  # noqa: BLE001
-            pass
-        # 等待进程退出，最多 3 秒
-        for _ in range(30):
-            if not pid_file.is_running():
-                break
-            import time as _time
-            _time.sleep(0.1)
-    pid_file.release()
-    return True
+    import warnings
+    warnings.warn(
+        "stop_channel_daemon_by_pid() 已废弃，请使用 remove_ref + 引用计数机制",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return False
 
 
 class ChannelRunner:

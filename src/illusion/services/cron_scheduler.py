@@ -34,6 +34,7 @@ import os
 import shutil
 import subprocess
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -559,6 +560,9 @@ class CronScheduler:
 
         调度器作为 asyncio.Task 运行，不阻塞当前会话。
         如果已在运行则忽略。
+
+        注意：PID 文件由守护进程入口（run_cron_serve）管理，
+        此处不再写入 PID。
         """
         if self.is_running:
             logger.debug("Scheduler already running, ignoring duplicate start")
@@ -566,7 +570,6 @@ class CronScheduler:
 
         self._shutdown.clear()
         self._running = True
-        write_pid(os.getpid())
 
         # 创建后台任务
         self._task = asyncio.create_task(
@@ -576,7 +579,11 @@ class CronScheduler:
         logger.info("Cron scheduler started (tick=%ds)", TICK_INTERVAL_SECONDS)
 
     async def stop(self) -> None:
-        """停止调度器后台任务。"""
+        """停止调度器后台任务。
+
+        注意：PID 文件由守护进程入口（run_cron_serve）管理，
+        此处不再删除 PID。
+        """
         if not self.is_running:
             return
 
@@ -591,12 +598,11 @@ class CronScheduler:
                 pass
 
         self._task = None
-        remove_pid()
         logger.info("Cron scheduler stopped")
 
     async def _run_loop(self) -> None:
         """调度器主循环。"""
-        write_pid(os.getpid())
+        # PID 由 run_cron_serve 管理，此处不再写入
 
         try:
             while not self._shutdown.is_set():
@@ -622,7 +628,6 @@ class CronScheduler:
             logger.exception("Scheduler loop crashed")
         finally:
             self._running = False
-            remove_pid()
 
     async def _tick(self) -> None:
         """单次调度周期：检查到期任务并执行。"""
@@ -654,13 +659,21 @@ class CronScheduler:
                 logger.error("Unexpected error executing cron job: %s", result)
 
     def status(self) -> dict[str, Any]:
-        """返回调度器状态信息。"""
+        """返回调度器状态信息。
+
+        注意：running/pid 通过 PID 文件判断守护进程状态（跨进程一致），
+        而非进程内单例状态。非 daemon 进程（如 TUI）中 is_running 始终为 False，
+        但 PID 文件指向存活的 daemon → running 应为 True。
+        """
         jobs = load_cron_jobs()
         enabled = [j for j in jobs if j.get("enabled", True)]
         log_path = get_logs_dir() / "cron_scheduler.log"
+        # 使用 PID 文件判断守护进程状态（跨进程一致）
+        running = is_scheduler_running()
+        pid = read_pid()
         return {
-            "running": self.is_running,
-            "pid": os.getpid() if self.is_running else None,
+            "running": running,
+            "pid": pid,
             "total_jobs": len(jobs),
             "enabled_jobs": len(enabled),
             "log_file": str(log_path),
@@ -705,34 +718,37 @@ def scheduler_status() -> dict[str, Any]:
 def start_daemon() -> int:
     """启动调度器守护进程。
 
-    注意：此函数为向后兼容保留。推荐使用 ensure_started()。
+    .. deprecated::
+        此函数为向后兼容保留。推荐使用 `maybe_spawn_cron_daemon()`。
+        PID 现由 run_cron_serve 管理，此函数仅返回当前进程 PID。
 
     Returns:
         当前进程 PID
     """
-    write_pid(os.getpid())
+    warnings.warn(
+        "start_daemon() 已废弃，请使用 maybe_spawn_cron_daemon()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return os.getpid()
 
 
 def stop_scheduler() -> bool:
     """停止调度器。
 
-    注意：此函数为向后兼容保留。推荐使用 get_scheduler().stop()。
+    .. deprecated::
+        此函数为向后兼容保留。推荐使用 `kill_cron_daemon_by_pid()`。
+        实际停止逻辑已移至 kill_cron_daemon_by_pid。
 
     Returns:
-        是否成功停止
+        bool: 始终返回 False（无法通过此函数停止真实守护进程）
     """
-    global _scheduler
-    if _scheduler and _scheduler.is_running:
-        _scheduler._shutdown.set()
-        _scheduler._running = False
-        remove_pid()
-        return True
-    pid = read_pid()
-    if pid is None:
-        return False
-    remove_pid()
-    return True
+    warnings.warn(
+        "stop_scheduler() 已废弃，请使用 kill_cron_daemon_by_pid()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return False
 
 
 # 导出的公共接口
