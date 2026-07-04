@@ -28,7 +28,6 @@ IllusionCode CLI 入口模块
 from __future__ import annotations
 
 import json  # JSON 解析和序列化
-import os  # 操作系统接口（os.getpid 等进程管理）
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
 from typing import TYPE_CHECKING, Any, Optional  # 类型注解
@@ -1023,6 +1022,7 @@ def web_start(
         pass  # 引用计数机制自动处理，无需确认提示
     finally:
         # 静默移除引用（不杀守护进程，不弹确认）
+        import os
         from illusion.utils.ref_count import remove_ref
         from illusion.config.paths import get_cron_dir, get_channels_data_dir
         try:
@@ -1540,6 +1540,7 @@ def main(
     finally:
         # 静默移除引用（不杀守护进程，不弹确认）
         # 守护进程自监控发现 refs 为空时自动退出
+        import os
         from illusion.utils.ref_count import remove_ref
         from illusion.config.paths import get_cron_dir, get_channels_data_dir
         try:

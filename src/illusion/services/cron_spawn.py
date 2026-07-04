@@ -118,7 +118,7 @@ def kill_cron_daemon_by_pid() -> bool:
             # Unix: 发送 SIGTERM 到进程组
             import signal
             try:
-                os.killpg(os.getpgid(old_pid), signal.SIGTERM)
+                os.killpg(os.getpgid(old_pid), signal.SIGTERM)  # type: ignore[attr-defined]
             except (ProcessLookupError, PermissionError):
                 pass
     except Exception as exc:  # noqa: BLE001
