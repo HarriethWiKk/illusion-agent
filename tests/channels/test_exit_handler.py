@@ -1,192 +1,61 @@
-"""共享退出处理器测试
+"""exit_handler 废弃后的 noop 行为测试
 
-验证 handle_daemon_exit_on_interrupt 在各种场景下的行为：
-- 守护进程未运行 → 直接返回
-- channels.json 无配置/无启用渠道 → 直接返回
-- 用户确认（y/Y/yes/回车/二次Ctrl+C）→ 停止守护进程
-- 用户拒绝（n/任意输入/EOF）→ 不停止守护进程
+handle_daemon_exit_on_interrupt 已废弃，保留壳函数返回 noop。
+验证调用时不抛异常，不执行任何操作。
+
+旧方案的测试场景（已全部移除）：
+- is_channel_daemon_running 返回 True/False
+- _confirm_exit 输入 y/Y/yes/回车
+- _confirm_exit 二次 Ctrl+C (KeyboardInterrupt)
+- _confirm_exit EOF (非 TTY)
+- stop_channel_daemon_by_pid 调用追踪
+- OSError 防御性兜底
+
+新方案：主程序退出时直接调用 remove_ref，无确认流程。
 """
 from __future__ import annotations
 
 
-def _setup_mocks(monkeypatch, *, daemon_running=True, has_enabled=True):
-    """配置通用 mock
+def test_handle_daemon_exit_on_interrupt_is_noop():
+    """handle_daemon_exit_on_interrupt 应为 noop，不抛异常"""
+    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
 
-    Args:
-        monkeypatch: pytest monkeypatch
-        daemon_running: is_channel_daemon_running 返回值
-        has_enabled: has_enabled_channels 返回值
+    # 不应抛出异常，不执行任何操作
+    handle_daemon_exit_on_interrupt()
 
-    Returns:
-        dict: {"stop_called": bool} 用于追踪 stop_channel_daemon_by_pid 是否被调用
-    """
-    state = {"stop_called": False}
 
-    def _fake_is_running():
-        return daemon_running
+def test_handle_daemon_exit_on_interrupt_returns_none():
+    """handle_daemon_exit_on_interrupt 返回 None"""
+    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
 
-    def _fake_stop():
-        state["stop_called"] = True
-        return True
+    result = handle_daemon_exit_on_interrupt()
+    assert result is None
 
-    def _fake_load_config():
-        from unittest.mock import MagicMock
-        cfg = MagicMock()
-        cfg.has_enabled_channels.return_value = has_enabled
-        return cfg
 
-    monkeypatch.setattr(
-        "illusion.channels.exit_handler.is_channel_daemon_running", _fake_is_running
+def test_confirm_exit_function_removed():
+    """_confirm_exit 私有函数应已删除"""
+    from illusion.channels import exit_handler
+
+    # _confirm_exit 应不存在
+    assert not hasattr(exit_handler, "_confirm_exit")
+
+
+def test_exit_handler_no_dangerous_imports():
+    """exit_handler 不应再导入 stop_channel_daemon_by_pid / is_channel_daemon_running"""
+    from illusion.channels import exit_handler
+    import inspect
+
+    source = inspect.getsource(exit_handler)
+    # 不应包含对 stop_channel_daemon_by_pid / is_channel_daemon_running / load_channels_config 的调用
+    assert "stop_channel_daemon_by_pid" not in source, (
+        "exit_handler 不应再调用 stop_channel_daemon_by_pid"
     )
-    monkeypatch.setattr(
-        "illusion.channels.exit_handler.stop_channel_daemon_by_pid", _fake_stop
+    assert "is_channel_daemon_running" not in source, (
+        "exit_handler 不应再调用 is_channel_daemon_running"
     )
-    monkeypatch.setattr(
-        "illusion.channels.exit_handler.load_channels_config", _fake_load_config
+    assert "load_channels_config" not in source, (
+        "exit_handler 不应再调用 load_channels_config"
     )
-    return state
-
-
-def test_exit_no_daemon_running(monkeypatch):
-    """守护进程未运行时直接返回，不调用 stop"""
-    state = _setup_mocks(monkeypatch, daemon_running=False, has_enabled=True)
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
-def test_exit_no_enabled_channels(monkeypatch):
-    """channels.json 无配置或所有渠道 enabled=false 时直接返回
-
-    覆盖两种场景（exit_handler 内部走同一代码路径）：
-    - 无配置文件（load_channels_config 返回默认空配置）
-    - 有配置但全部 enabled=false
-    两者均表现为 has_enabled_channels() 返回 False。
-    """
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=False)
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
-def _setup_input(monkeypatch, input_side_effect):
-    """配置 input mock"""
-    monkeypatch.setattr("builtins.input", input_side_effect)
-
-
-def test_exit_confirm_with_y(monkeypatch):
-    """输入 y 时停止守护进程"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "y")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is True
-
-
-def test_exit_confirm_with_Y(monkeypatch):
-    """输入 Y 时停止守护进程（大小写不敏感）"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "Y")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is True
-
-
-def test_exit_confirm_with_yes(monkeypatch):
-    """输入 yes 时停止守护进程"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "yes")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is True
-
-
-def test_exit_confirm_with_enter(monkeypatch):
-    """输入空字符串（回车）时停止守护进程"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is True
-
-
-def test_exit_confirm_with_second_ctrl_c(monkeypatch):
-    """input() 抛 KeyboardInterrupt 时停止守护进程（二次 Ctrl+C = 确认）"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-
-    def _raise_keyboard_interrupt(*a):
-        raise KeyboardInterrupt()
-
-    _setup_input(monkeypatch, _raise_keyboard_interrupt)
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is True
-
-
-def test_exit_reject_with_n(monkeypatch):
-    """输入 n 时不停止守护进程"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "n")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
-def test_exit_reject_with_arbitrary(monkeypatch):
-    """输入任意非确认字符串时不停止守护进程"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-    _setup_input(monkeypatch, lambda *a: "xyz123")
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
-def test_exit_eof_in_non_tty(monkeypatch):
-    """input() 抛 EOFError 时不停止守护进程（非 TTY 环境）"""
-    state = _setup_mocks(monkeypatch, daemon_running=True, has_enabled=True)
-
-    def _raise_eof(*a):
-        raise EOFError()
-
-    _setup_input(monkeypatch, _raise_eof)
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    handle_daemon_exit_on_interrupt()
-    assert state["stop_called"] is False
-
-
-def test_exit_swallows_unexpected_exception(monkeypatch, caplog):
-    """退出路径异常（如 channels.json 权限不足）应被静默吞掉，不破坏退出体验
-
-    回归测试：旧代码 _kill_channel_daemon 有 try/except Exception 兜底，
-    重构后 handle_daemon_exit_on_interrupt 必须保留同等防御性。
-    """
-    # is_channel_daemon_running 抛 OSError（模拟 PID 文件读取失败）
-    monkeypatch.setattr(
-        "illusion.channels.is_channel_daemon_running",
-        lambda: (_ for _ in ()).throw(OSError("permission denied")),
+    assert "input(" not in source, (
+        "exit_handler 不应再有 input() 调用（确认提示已移除）"
     )
-
-    from illusion.channels.exit_handler import handle_daemon_exit_on_interrupt
-
-    # 不应抛异常
-    handle_daemon_exit_on_interrupt()

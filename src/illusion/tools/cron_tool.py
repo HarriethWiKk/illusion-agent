@@ -241,6 +241,15 @@ Returns JSON result for each action."""
         if status.get("pid"):
             lines.append(f"PID: {status['pid']}")
 
+        # 显示引用计数（引用方主程序数量）
+        try:
+            from illusion.utils.ref_count import alive_refs
+            from illusion.config.paths import get_cron_dir
+            refs = alive_refs(get_cron_dir() / "scheduler.refs")
+            lines.append(f"Refs: {len(refs)}")
+        except Exception:
+            pass
+
         return ToolResult(output="\n".join(lines))
 
     # ------------------------------------------------------------------
@@ -351,12 +360,12 @@ Returns JSON result for each action."""
         job_id = upsert_cron_job(job_data)
 
         # 自动启动调度器（如果未运行）
+        # 通过 spawn cron 守护进程实现，引用计数支持多实例共享
         try:
-            scheduler = get_scheduler()
-            if not scheduler.is_running:
-                await scheduler.start()
+            from illusion.services.cron_spawn import maybe_spawn_cron_daemon
+            maybe_spawn_cron_daemon()
         except Exception:
-            # 调度器启动失败不应阻止任务创建
+            # spawn 失败不应阻止任务创建
             pass
 
         kind = "recurring" if (arguments.recurring if arguments.recurring is not None else True) else "one-shot"
