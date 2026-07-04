@@ -33,7 +33,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from illusion.channels.pid import is_process_alive
 from illusion.utils.atomic_write import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -156,6 +155,9 @@ def alive_refs(refs_path: Path) -> list[int]:
     """
     lock_path = refs_path.with_suffix(refs_path.suffix + ".lock")
     with _file_lock(lock_path):
+        # 延迟导入避免与 illusion.channels.__init__ 的循环导入
+        from illusion.channels.pid import is_process_alive
+
         pids = _read_pids(refs_path)
         alive = [p for p in pids if is_process_alive(p)]
         # 清理死 PID
