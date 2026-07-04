@@ -128,17 +128,23 @@ def run_channel_serve() -> None:
         logger.warning("写入 daemon.pid 失败: %s", exc)
 
     try:
-        asyncio.run(_serve_async(cfg, settings))
+        asyncio.run(_serve_async(cfg, settings, pid_file))
     except KeyboardInterrupt:
         stream_handler.flush()
         file_handler.flush()
         from illusion.config.i18n import t
         print()
         print(t("channel_interrupted_closing"))
+        # 关键：_force_shutdown 调用 os._exit(0) 会跳过 finally 块，
+        # 必须在此处先释放 PID 文件，避免 daemon.pid 残留导致重启时误判
+        try:
+            pid_file.release()
+        except Exception:  # noqa: BLE001
+            pass
         # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
         _force_shutdown()
     finally:
-        # 退出时释放 PID 文件，避免 maybe_spawn_channel_daemon 误判为仍在运行
+        # 覆盖正常退出路径（ref_monitor_loop 触发 stop_event 后 asyncio.run 正常返回）
         try:
             pid_file.release()
         except Exception:  # noqa: BLE001
@@ -220,12 +226,13 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
             backoff_idx = 0
 
 
-async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
+async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None) -> None:
     """异步 serve 所有启用渠道
 
     Args:
         cfg: 渠道配置
         settings: 主设置
+        pid_file: PID 文件管理对象，关闭完成后释放以避免重启时误判
     """
     from illusion.config.i18n import t
     from illusion.config.paths import get_channels_data_dir
@@ -312,11 +319,43 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any) -> None:
         pass
 
     # 优雅关闭：取消看门狗任务并关闭各 runner
+    # 注意：WS executor 线程（lark-oapi）可能阻塞 shutdown 无法返回，
+    # 用 wait_for 加超时避免 asyncio.run 永不完成导致 finally 块不执行
     for task in tasks:
         task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("取消看门狗任务超时（10s），跳过等待")
     for r in runners:
         try:
-            await r.shutdown()
+            await asyncio.wait_for(r.shutdown(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("关闭渠道超时（5s），跳过: %s", r)
         except Exception as exc:  # noqa: BLE001
             logger.warning("关闭渠道异常: %s", exc)
+
+    # 关键：_serve_async 正常返回后，asyncio.run 会调用
+    # loop.shutdown_default_executor() 等待所有 executor 线程完成。
+    # 但飞书 WS 客户端通过 run_in_executor 在默认线程池中阻塞运行，
+    # 不会响应 cancel → shutdown_default_executor 挂起 → asyncio.run 永不返回
+    # → run_channel_serve 的 finally 块不执行 → daemon.pid 残留。
+    # 因此必须在协程内部完成 PID 释放并强制退出。
+    if pid_file is not None:
+        try:
+            pid_file.release()
+            logger.info("守护进程关闭完成，已释放 PID 文件")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("释放 PID 文件失败: %s", exc)
+    # 强制退出，跳过 asyncio.run 的 executor 清理（会挂起）
+    logger.info("守护进程强制退出")
+    # 刷新所有日志 handler 确保落盘
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    os._exit(0)

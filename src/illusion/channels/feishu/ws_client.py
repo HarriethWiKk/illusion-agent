@@ -6,7 +6,7 @@
 官方客户端的 start() 是同步阻塞的，本模块在 executor 线程运行它，
 通过回调把强类型事件对象投递出去，再由 adapter 线程安全地投递到 asyncio.Queue。
 
-事件对象结构（lark-oapi 强类型，非 dict）：
+事件对象结构（lark-oapi 强类型，非 dict）:
     P2ImMessageReceiveV1:
         .event: P2ImMessageReceiveV1Data
             .sender: EventSender
@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import asyncio  # 跨线程调度
 import logging  # 日志
 from typing import Any, Callable  # 类型
 
@@ -91,10 +92,28 @@ class FeishuWSClient:
             self._running = False
 
     def stop(self) -> None:
-        """停止 WS 客户端"""
+        """停止 WS 客户端
+
+        lark-oapi 的 Client 没有公开的 stop() 方法，
+        通过 _disconnect() 关闭 WS 连接。
+        _disconnect() 是 async 方法，需在 lark-oapi 自己的事件循环中调度
+        （start() 后该 loop 持续运行，被 _select() 阻塞）。
+        """
         self._running = False
         if self._client is not None:
             try:
-                self._client.stop()
+                # 获取 lark-oapi 模块级事件循环
+                from lark_oapi.ws.client import loop as lark_loop
+                if lark_loop.is_running():
+                    # 跨线程调度 _disconnect() 到 lark loop，等待 2s
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._client._disconnect(), lark_loop
+                    )
+                    future.result(timeout=2.0)
+                    logger.info("飞书 WS 客户端已断开连接")
+                else:
+                    # lark loop 未运行（start() 未调用或已退出），直接清理
+                    self._client._conn = None
+                    logger.debug("lark loop 未运行，跳过 _disconnect()")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("停止飞书 WS 客户端异常: %s", exc)

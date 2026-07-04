@@ -659,13 +659,21 @@ class CronScheduler:
                 logger.error("Unexpected error executing cron job: %s", result)
 
     def status(self) -> dict[str, Any]:
-        """返回调度器状态信息。"""
+        """返回调度器状态信息。
+
+        注意：running/pid 通过 PID 文件判断守护进程状态（跨进程一致），
+        而非进程内单例状态。非 daemon 进程（如 TUI）中 is_running 始终为 False，
+        但 PID 文件指向存活的 daemon → running 应为 True。
+        """
         jobs = load_cron_jobs()
         enabled = [j for j in jobs if j.get("enabled", True)]
         log_path = get_logs_dir() / "cron_scheduler.log"
+        # 使用 PID 文件判断守护进程状态（跨进程一致）
+        running = is_scheduler_running()
+        pid = read_pid()
         return {
-            "running": self.is_running,
-            "pid": os.getpid() if self.is_running else None,
+            "running": running,
+            "pid": pid,
             "total_jobs": len(jobs),
             "enabled_jobs": len(enabled),
             "log_file": str(log_path),
