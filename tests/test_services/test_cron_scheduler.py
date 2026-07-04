@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -242,3 +243,14 @@ class TestSchedulerClass:
         assert "running" in status
         assert "total_jobs" in status
         assert "enabled_jobs" in status
+
+
+def test_start_daemon_deprecated_returns_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """start_daemon 标记废弃后仍返回当前进程 PID"""
+    from illusion.services.cron_scheduler import start_daemon
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        pid = start_daemon()
+    assert pid == os.getpid()
