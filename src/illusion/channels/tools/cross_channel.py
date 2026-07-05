@@ -1,23 +1,23 @@
-"""跨渠道文件传输工具
+"""跨渠道消息传输工具
 
-提供 LLM 可调用的跨渠道文件投递工具。当用户要求把文件发送到
+提供 LLM 可调用的跨渠道投递工具。当用户要求把文件或文本发送到
 另一个渠道（如 QQ → 微信，或 PC 终端 → 飞书）时使用。
 
 工具说明：
     - ListChannelSessionsTool: 列出指定渠道的活跃会话（查找 chat_id）
-    - SendToChannelTool: 发送本地文件到指定渠道会话
+    - SendToChannelTool: 发送本地文件或文本消息到指定渠道会话
 
 工作流：
-    1. 用户要求跨渠道发文件（如"把这个文件发到微信"）
+    1. 用户要求跨渠道发送（如"把这个文件发到微信"/"给飞书群发条消息"）
     2. LLM 先检查系统提示词中的 "Other Enabled Channels" 章节，看目标渠道会话
     3. 若目标渠道在系统提示词中只有一个会话：LLM 直接用该 chat_id 调 send_to_channel
        若有多个会话或不在系统提示词中：调 list_channel_sessions 查找
     4. list_channel_sessions 返回一个会话：直接使用，无需询问用户
        返回多个会话：LLM 用 ask_user_question 询问用户确认目标 chat_id
-    5. LLM 调 send_to_channel 发送文件
+    5. LLM 调 send_to_channel 发送文件或文本
 
-设计原则：与 SendMediaTool 互补——SendMediaTool 用于当前渠道内发文件，
-SendToChannelTool 用于跨渠道发文件。LLM 根据用户意图选择。
+设计原则：与 SendMediaTool 互补——SendMediaTool 用于当前渠道内发送，
+SendToChannelTool 用于跨渠道发送。LLM 根据用户意图选择。
 """
 from __future__ import annotations
 
@@ -140,13 +140,16 @@ class ListChannelSessionsTool(BaseTool[ListChannelSessionsInput]):
 
 
 class SendToChannelInput(BaseModel):
-    """跨渠道文件投递工具输入
+    """跨渠道投递工具输入
 
     Attributes:
         channel_name: 目标渠道名 "feishu"/"qq"/"weixin"
         chat_id: 目标渠道中的会话 ID（通过 list_channel_sessions 查找）
-        file_path: 本地文件路径
-        caption: 可选附注文字
+        file_path: 本地文件路径（与 text 二选一）
+        text: 文本消息内容（与 file_path 二选一）
+        caption: 可选附注文字（仅 file_path 模式有效）
+        markdown: 是否按 markdown 渲染，None=按渠道配置自动判断
+        chat_type: QQ 投递目标类型 "group"/"c2c"，仅 QQ 需要
     """
 
     channel_name: str = Field(..., description="Target channel: feishu/qq/weixin")
@@ -160,35 +163,69 @@ class SendToChannelInput(BaseModel):
             "(3) only if both fail, ask the user."
         ),
     )
-    file_path: str = Field(..., description="Local file path to send")
-    caption: str = Field(default="", description="Optional caption text")
+    file_path: str = Field(
+        default="",
+        description="Local file path to send (mutually exclusive with 'text'; one must be set)",
+    )
+    text: str = Field(
+        default="",
+        description=(
+            "Text message content to send (mutually exclusive with 'file_path'; one must be set). "
+            "Supports markdown on feishu/qq (per channel config). "
+            "Auto-split into chunks if exceeds channel limit."
+        ),
+    )
+    caption: str = Field(
+        default="",
+        description="Optional caption text (only valid with file_path)",
+    )
+    markdown: bool | None = Field(
+        default=None,
+        description=(
+            "Whether to render as markdown. None=auto per channel config "
+            "(feishu=True, qq=config.markdown_support, weixin=False). "
+            "Set True/False to override."
+        ),
+    )
+    chat_type: str = Field(
+        default="",
+        description=(
+            "QQ target type: 'group' or 'c2c'. Only needed for QQ. "
+            "Empty=auto-fallback (try group first, then c2c). "
+            "Explicit value avoids fallback waste."
+        ),
+    )
 
 
 class SendToChannelTool(BaseTool[SendToChannelInput]):
-    """发送本地文件到另一个渠道的会话
+    """发送文件或文本到另一个渠道的会话
 
-    当用户要求跨渠道传输文件时使用（如"把这个文件发到微信"）。
-    对于当前渠道内发文件，应使用 send_media 工具。
+    当用户要求跨渠道传输文件或文本时使用（如"把这个文件发到微信"/"给飞书群发条消息"）。
+    对于当前渠道内发送，应使用 send_media 工具。
 
     工作流：
-        1. 用户要求跨渠道发文件
+        1. 用户要求跨渠道发送（文件或文本）
         2. 先检查系统提示词中的 "Other Enabled Channels" 章节
         3. 若目标渠道在系统提示词中只有一个会话：直接使用该 chat_id
            若有多个会话或不在系统提示词中：调 list_channel_sessions 查找
         4. list_channel_sessions 返回一个会话：直接使用
            返回多个会话：用 ask_user_question 询问用户确认
-        5. 调 send_to_channel 发送文件
+        5. 调 send_to_channel 发送文件或文本
 
-    工具内部调用 deliver_file_to_channel 构造临时 API 客户端发送，
-    不依赖当前渠道实例。
+    文件投递调用 deliver_file_to_channel，文本投递调用 deliver_to_channel，
+    均构造临时 API 客户端发送，不依赖当前渠道实例。
     """
 
     name = "send_to_channel"
     description = (
-        "Send a local file to a user/group in ANOTHER messaging channel. "
-        "Use this when the user asks to send a file to a different channel "
-        "(e.g., from QQ to WeChat, or from PC terminal to Feishu). "
+        "Send a local file OR a text message to a user/group in ANOTHER messaging "
+        "channel. Use this when the user asks to send something to a different "
+        "channel (e.g., from QQ to WeChat, or from PC terminal to Feishu). "
         "For sending within the current channel, use send_media instead. "
+        "TWO MODES (mutually exclusive, one must be set): "
+        "(a) file_path: send a local file (with optional caption); "
+        "(b) text: send a text message (markdown supported on feishu/qq per config, "
+        "auto-split into chunks if exceeds channel limit). "
         "To find the target chat_id, follow this order: "
         "(1) CHECK THE SYSTEM PROMPT FIRST: the 'Other Enabled Channels' section "
         "already lists active sessions per channel. If the target channel shows "
@@ -205,6 +242,7 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
         "(4) Only if ALL above fail, ask the user for the chat_id directly. "
         "KEY RULE: when the target channel has exactly one active session, "
         "NEVER ask the user — just use that chat_id. "
+        "QQ NOTE: set chat_type='group' or 'c2c' to avoid auto-fallback waste. "
         "Do NOT ask the user for a chat_id without first trying (1)-(3) — "
         "most users don't know it."
     )
@@ -221,7 +259,7 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
     async def execute(
         self, arguments: BaseModel, context: ToolExecutionContext
     ) -> ToolResult:
-        """执行跨渠道文件投递"""
+        """执行跨渠道投递（文件或文本）"""
         assert isinstance(arguments, SendToChannelInput)
 
         # 校验目标渠道是否启用
@@ -232,28 +270,62 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
                 is_error=True,
             )
 
-        path = Path(arguments.file_path)
-        if not path.exists():
+        # file_path 与 text 二选一
+        has_file = bool(arguments.file_path)
+        has_text = bool(arguments.text)
+        if not has_file and not has_text:
             return ToolResult(
-                output=f"File not found: {arguments.file_path}", is_error=True
+                output="Either 'file_path' or 'text' must be set (one of them)",
+                is_error=True,
+            )
+        if has_file and has_text:
+            return ToolResult(
+                output="'file_path' and 'text' are mutually exclusive — set only one",
+                is_error=True,
             )
 
         try:
-            success = await deliver_file_to_channel(
-                arguments.channel_name,
-                arguments.chat_id,
-                arguments.file_path,
-                config=self._config,
-                caption=arguments.caption,
-            )
-            if success:
-                return ToolResult(
-                    output=f"Sent {path.name} to {arguments.channel_name}:{arguments.chat_id}"
+            if has_file:
+                # 文件模式
+                path = Path(arguments.file_path)
+                if not path.exists():
+                    return ToolResult(
+                        output=f"File not found: {arguments.file_path}", is_error=True
+                    )
+                success = await deliver_file_to_channel(
+                    arguments.channel_name,
+                    arguments.chat_id,
+                    arguments.file_path,
+                    config=self._config,
+                    caption=arguments.caption,
                 )
-            return ToolResult(
-                output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}",
-                is_error=True,
-            )
+                if success:
+                    return ToolResult(
+                        output=f"Sent {path.name} to {arguments.channel_name}:{arguments.chat_id}"
+                    )
+                return ToolResult(
+                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}",
+                    is_error=True,
+                )
+            else:
+                # 文本模式
+                from illusion.channels.delivery import deliver_to_channel
+                success = await deliver_to_channel(
+                    arguments.channel_name,
+                    arguments.chat_id,
+                    arguments.text,
+                    config=self._config,
+                    markdown=arguments.markdown,
+                    chat_type=arguments.chat_type,
+                )
+                if success:
+                    return ToolResult(
+                        output=f"Sent text message to {arguments.channel_name}:{arguments.chat_id}"
+                    )
+                return ToolResult(
+                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}",
+                    is_error=True,
+                )
         except Exception as exc:  # noqa: BLE001
             return ToolResult(
                 output=f"Failed to send to channel: {exc}", is_error=True

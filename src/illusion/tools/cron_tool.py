@@ -81,7 +81,15 @@ class CronToolInput(BaseModel):
     )
     prompt: str | None = Field(
         default=None,
-        description="Prompt to execute in an isolated session when the job fires (required for add; optional for update)",
+        description=(
+            "Prompt to execute in an isolated session when the job fires (required for add; optional for update). "
+            "CRITICAL: this prompt should focus ONLY on the task itself (e.g., '检查 git 状态并生成简洁报告'). "
+            "Do NOT include delivery instructions in the prompt — do NOT write things like "
+            "'use send_to_channel to send to WeChat' or 'send the result to <channel>'. "
+            "Delivery is handled automatically by the scheduler via the 'deliver_to' field, "
+            "which delivers the subprocess stdout to the target channel. "
+            "The subprocess cannot see your current channel sessions and should not attempt delivery itself."
+        ),
     )
     recurring: bool | None = Field(
         default=None,
@@ -112,9 +120,11 @@ class CronToolInput(BaseModel):
     deliver_to: str = Field(
         default="",
         description=(
-            "Delivery target for cron job output. "
-            "Empty = local only (terminal execution). "
+            "Delivery target for cron job STDOUT (auto-delivered by scheduler after the job runs). "
+            "Empty = local only (terminal execution, no channel delivery). "
             "MUST include chat_id: use 'channel:chat_id' format. "
+            "This is a SCHEDULER-level field — the scheduler reads subprocess stdout and delivers it "
+            "to this channel:chat_id. Do NOT also write delivery instructions inside the 'prompt' field. "
             "To find the chat_id, follow this order: "
             "(1) PREFER calling the list_channel_sessions tool to show active "
             "sessions and pick the right chat_id; "
@@ -165,13 +175,27 @@ AVOID :00 AND :30 when the task allows it:
   "every morning around 9" -> "57 8 * * *" or "3 9 * * *" (not "0 9 * * *")
   "hourly" -> "7 * * * *" (not "0 * * * *")
 
+PROMPT vs DELIVER_TO (CRITICAL — read this before writing the prompt field):
+  - The 'prompt' field is ONLY the task itself (e.g., "检查 git 状态并生成简洁报告").
+    Do NOT put delivery instructions in the prompt — no "send the result to WeChat",
+    no "use send_to_channel to deliver", no chat_id inside the prompt.
+  - The 'deliver_to' field is a SCHEDULER-level field. After the subprocess finishes,
+    the scheduler reads its stdout and delivers it to the channel:chat_id you set here.
+    The LLM running inside the cron subprocess CANNOT see your current channel sessions
+    and should NOT try to deliver anything itself.
+  - Wrong:   prompt="检查 git 状态...然后使用 send_to_channel 发送到微信,chat_id=xxx"
+  - Right:   prompt="检查 git 状态并生成简洁报告"  +  deliver_to="weixin:xxx"
+
 DELIVER_TO (add action, optional):
-  Targets cron output to a messaging channel. Format: 'channel:chat_id'.
+  Format: 'channel:chat_id'. Empty = local only (no channel delivery).
   To find the chat_id, follow this order:
   (1) PREFER calling the list_channel_sessions tool first to show active
-      sessions and let the user pick the right one;
+      sessions and pick the right one — if the target channel has only one
+      session, use that chat_id directly without asking the user;
   (2) if the tool is unavailable or returns nothing, manually check
-      ~/.illusion/channels/<channel>/sessions/ and strip the filename prefix;
+      ~/.illusion/channels/<channel>/sessions/ and strip the filename prefix
+      (feishu 'u_ou_xxx.json' -> 'ou_xxx', 'g_oc_xxx_ou_xxx.json' -> 'oc_xxx';
+       weixin 'u_<wxid>.json' -> '<wxid>'; qq '<openid>.json' -> '<openid>');
   (3) only if BOTH fail, ask the user for the chat_id directly.
   Do NOT ask the user for a chat_id without first trying (1) and (2) —
   most users don't know it.
@@ -179,6 +203,8 @@ DELIVER_TO (add action, optional):
 EXECUTION:
   Jobs run via `illusion -p` in an isolated subprocess, not blocking the current session.
   The scheduler auto-starts when a job is created.
+  The subprocess stdout is what gets delivered to deliver_to — keep the prompt
+  focused on producing the report/output you want delivered.
   Recurring jobs do not auto-expire; delete them manually when no longer needed.
 
 Returns JSON result for each action."""

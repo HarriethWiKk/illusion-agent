@@ -68,17 +68,25 @@ async def deliver_to_channel(
     text: str,
     *,
     config: "ChannelsConfig | None" = None,
+    markdown: bool | None = None,
+    chat_type: str = "",
 ) -> bool:
     """投递文本消息到指定渠道会话
 
-    读取 channels.json，构造临时 API 客户端发送后关闭。
-    供 cron scheduler 在子进程外调用。
+    复用各渠道 adapter 的 markdown 渲染和分片逻辑，确保跨渠道文本投递
+    与渠道内 send_text 行为一致。
 
     Args:
         channel_name: 渠道名（"feishu"/"qq"/"weixin"）
         chat_id: 目标会话 ID
-        text: 文本内容
+        text: 文本内容（可能包含 markdown 标记）
         config: 渠道配置（None 时从 channels.json 加载）
+        markdown: 是否按 markdown 渲染
+            None=按渠道配置自动判断（feishu=True, qq=config.markdown_support, weixin=False）
+            True/False=显式覆盖
+        chat_type: QQ 投递目标类型，"group"=群组, "c2c"=私聊, ""=未知
+            仅 QQ 需要显式指定（其他渠道通过 chat_id 前缀自动判断）
+            空串时 QQ 走"先群组失败回退 C2C"容错策略
 
     Returns:
         bool: 是否投递成功
@@ -88,64 +96,87 @@ async def deliver_to_channel(
         config = load_channels_config()
 
     if channel_name == "feishu":
-        return await _deliver_feishu(config.feishu, chat_id, text)
+        return await _deliver_feishu(config.feishu, chat_id, text, markdown=markdown)
     if channel_name == "qq":
-        return await _deliver_qq(config.qq, chat_id, text)
+        return await _deliver_qq(config.qq, chat_id, text, markdown=markdown, chat_type=chat_type)
     if channel_name == "weixin":
-        return await _deliver_weixin(config.weixin, chat_id, text)
+        return await _deliver_weixin(config.weixin, chat_id, text, markdown=markdown)
 
     logger.warning("未知渠道: %s", channel_name)
     return False
 
 
-async def _deliver_feishu(config: "FeishuChannelConfig", chat_id: str, text: str) -> bool:
-    """飞书投递：构造 lark.Client → 发送消息
+async def _deliver_feishu(
+    config: "FeishuChannelConfig",
+    chat_id: str,
+    text: str,
+    *,
+    markdown: bool | None = None,
+) -> bool:
+    """飞书文本投递：复用 send_card 走 markdown 交互卡片
 
-    根据 chat_id 前缀自动判断 receive_id_type：
-        - oc_ 开头 → chat_id（群聊）
-        - ou_ 开头 → open_id（用户）
-        - 其他 → chat_id（默认）
+    飞书默认支持 markdown，markdown=True/None 时走 send_card 卡片渲染，
+    markdown=False 时降级为纯文本 msg_type=text。
+    卡片承载超长内容，无分片需求。
     """
     if not config.enabled:
         logger.warning("飞书渠道未启用，跳过投递")
         return False
     try:
-        import json
-        from illusion.channels.feishu.messaging import build_lark_client, resolve_receive_id
-        try:
-            from lark_oapi.api.im.v1 import CreateMessageRequest  # type: ignore[import-untyped]
-        except ImportError:
-            logger.error("飞书投递需要 lark_oapi")
-            return False
-
-        # 复用 feishu adapter 的 ID 解析逻辑，避免两处前缀判断漂移
-        _receive_id, receive_id_type = resolve_receive_id(chat_id)
+        from illusion.channels.feishu.messaging import build_lark_client, send_card
 
         client = build_lark_client(config)
-        body = {
-            "receive_id": chat_id,
-            "msg_type": "text",
-            "content": json.dumps({"text": text}),
-        }
-        builder = CreateMessageRequest.builder().receive_id_type(receive_id_type)
-        builder = builder.request_body(body)  # pyright: ignore[reportArgumentType]
-        req = builder.build()
-        resp = await asyncio.to_thread(client.im.v1.message.create, req)
-        if not resp.success():
-            logger.error("飞书投递失败: code=%s msg=%s", resp.code, resp.msg)
-            return False
+        # markdown=None 或 True → 走卡片（飞书默认支持 markdown）
+        # markdown=False → 走纯文本
+        use_markdown = markdown is not False
+        if use_markdown:
+            # send_card 内部用 msg_type=interactive + markdown 元素，飞书客户端渲染
+            await send_card(client, chat_id, text)
+        else:
+            import json
+            from illusion.channels.feishu.messaging import resolve_receive_id
+            try:
+                from lark_oapi.api.im.v1 import CreateMessageRequest  # type: ignore[import-untyped]
+            except ImportError:
+                logger.error("飞书投递需要 lark_oapi")
+                return False
+
+            _receive_id, receive_id_type = resolve_receive_id(chat_id)
+            body = {
+                "receive_id": chat_id,
+                "msg_type": "text",
+                "content": json.dumps({"text": text}),
+            }
+            builder = CreateMessageRequest.builder().receive_id_type(receive_id_type)
+            builder = builder.request_body(body)  # pyright: ignore[reportArgumentType]
+            req = builder.build()
+            resp = await asyncio.to_thread(client.im.v1.message.create, req)
+            if not resp.success():
+                logger.error("飞书纯文本投递失败: code=%s msg=%s", resp.code, resp.msg)
+                return False
         return True
     except Exception as exc:  # noqa: BLE001
         logger.exception("飞书投递异常: %s", exc)
         return False
 
 
-async def _deliver_qq(config: "QQChannelConfig", chat_id: str, text: str) -> bool:
-    """QQ 投递：构造 aiohttp session → 获取 token → 发送消息
+async def _deliver_qq(
+    config: "QQChannelConfig",
+    chat_id: str,
+    text: str,
+    *,
+    markdown: bool | None = None,
+    chat_type: str = "",
+) -> bool:
+    """QQ 文本投递：复用 split_text 分片 + send_c2c/group_message
 
-    QQ Bot API v2 为模块级函数，需要传入 session 和 token。
-    cron 投递场景无 msg_id（被动消息引用），群聊主动消息可能受限，
-    因此采用"先尝试群组失败回退 C2C"的容错策略。
+    QQ Bot API v2 需要 msg_id（被动消息引用）才能可靠投递主动消息，
+    cron/跨渠道投递场景无 msg_id，群聊主动消息可能受限。
+
+    Args:
+        chat_type: "group"=群组, "c2c"=私聊, ""=未知
+            空串时走"先群组失败回退 C2C"容错策略
+            显式指定可避免回退消耗（如 chat_id 实为 group_openid 时 C2C 必然失败）
     """
     if not config.enabled:
         logger.warning("QQ 渠道未启用，跳过投递")
@@ -156,46 +187,78 @@ async def _deliver_qq(config: "QQChannelConfig", chat_id: str, text: str) -> boo
             ensure_token,
             send_c2c_message,
             send_group_message,
+            split_text,
         )
+
+        # markdown=None → 按渠道配置；否则用显式值
+        use_markdown = config.markdown_support if markdown is None else markdown
 
         async with aiohttp.ClientSession() as session:
             token = await ensure_token(
                 session, config.app_id, config.client_secret,
             )
-            # cron 投递无 msg_id（被动消息引用 ID），传空串。
-            # QQ 投递目标类型由 LLM 在 deliver_to 中隐式决定：
-            #   群组 → send_group_message；私聊 → send_c2c_message
-            # 由于 chat_id 本身不区分 group_openid / user_openid 命名空间，
-            # 这里先尝试群组（更常见的 cron 场景），失败时 best-effort 回退到 C2C。
-            # 注意：若 chat_id 实为 group_openid，C2C 回退几乎必然失败——
-            # 这是有意的折中：保留回退以覆盖 ID 类型可变的边界情况，
-            # 失败会被外层 except 捕获并记日志，不会误报成功。
-            try:
-                await send_group_message(
-                    session, token, chat_id, text, msg_id="",
-                    markdown=config.markdown_support,
-                )
-            except Exception as group_exc:  # noqa: BLE001
-                logger.warning(
-                    "QQ 群组投递失败 (chat_id=%s)，best-effort 尝试 C2C（若 chat_id 为 group_openid 则 C2C 也会失败）: %s",
-                    chat_id, group_exc,
-                )
-                await send_c2c_message(
-                    session, token, chat_id, text, msg_id="",
-                    markdown=config.markdown_support,
-                )
+
+            # 分片投递：QQ split_text 代码块感知，max_length=4000
+            chunks = split_text(text) if text else [text]
+            if not chunks:
+                chunks = [text] if text else []
+
+            async def _send_to_target(*, is_group: bool) -> None:
+                """向指定类型目标发送所有分片"""
+                for chunk in chunks:
+                    if is_group:
+                        await send_group_message(
+                            session, token, chat_id, chunk, msg_id="",
+                            markdown=use_markdown,
+                        )
+                    else:
+                        await send_c2c_message(
+                            session, token, chat_id, chunk, msg_id="",
+                            markdown=use_markdown,
+                        )
+
+            # 路由策略
+            if chat_type == "group":
+                await _send_to_target(is_group=True)
+            elif chat_type == "c2c":
+                await _send_to_target(is_group=False)
+            else:
+                # chat_type 未知：先群组失败回退 C2C
+                try:
+                    await _send_to_target(is_group=True)
+                except Exception as group_exc:  # noqa: BLE001
+                    logger.warning(
+                        "QQ 群组投递失败 (chat_id=%s)，best-effort 尝试 C2C: %s",
+                        chat_id, group_exc,
+                    )
+                    await _send_to_target(is_group=False)
         return True
     except Exception as exc:  # noqa: BLE001
         logger.exception("QQ 投递异常: %s", exc)
         return False
 
 
-async def _deliver_weixin(config: "WeixinChannelConfig", chat_id: str, text: str) -> bool:
-    """微信投递：复用 iLink API 发送文本消息
+async def _deliver_weixin(
+    config: "WeixinChannelConfig",
+    chat_id: str,
+    text: str,
+    *,
+    markdown: bool | None = None,
+) -> bool:
+    """微信文本投递：复用 send_message + _split_text 分片
 
-    cron 投递场景无 context_token（iLink 硬约束：每 peer 回复必须回传），
-    尝试从持久化文件加载，加载失败则不传（首次主动消息可能被拒绝）。
+    微信 iLink API 不支持 markdown，markdown 参数被忽略。
+    复用 _split_text 按段落边界分片（max_len=2000）。
+    context_token 从持久化文件加载（iLink 硬约束：每 peer 回复必须回传）。
+
+    对齐 adapter.WeixinAdapter.send_text 的 errcode 处理：
+        - SESSION_EXPIRED: 去掉 context_token 降级重试一次
+        - RATE_LIMIT: 等待后重试
+        - 其他非零 errcode: 重试最多 3 次
     """
+    # 微信不支持 markdown，显式 True 也降级为纯文本
+    del markdown  # 忽略参数
+
     if not config.enabled:
         logger.warning("微信渠道未启用，跳过投递")
         return False
@@ -203,12 +266,11 @@ async def _deliver_weixin(config: "WeixinChannelConfig", chat_id: str, text: str
         import uuid
 
         from illusion.channels.weixin.ilink_api import (
-            EP_SEND_MESSAGE,
-            ITEM_TEXT,
-            MSG_STATE_FINISH,
-            MSG_TYPE_BOT,
-            _api_post,
             _make_ssl_connector,
+            _split_text,
+            send_message,
+            SESSION_EXPIRED_ERRCODE,
+            RATE_LIMIT_ERRCODE,
         )
 
         connector = _make_ssl_connector()
@@ -216,31 +278,69 @@ async def _deliver_weixin(config: "WeixinChannelConfig", chat_id: str, text: str
         async with aiohttp.ClientSession(trust_env=True, connector=connector) as session:
             # 尝试从持久化文件加载 context_token
             context_token = _load_weixin_context_token(chat_id)
-
-            message = {
-                "from_user_id": "",
-                "to_user_id": chat_id,
-                "client_id": f"cron-{uuid.uuid4().hex[:16]}",
-                "message_type": MSG_TYPE_BOT,
-                "message_state": MSG_STATE_FINISH,
-                "item_list": [{"type": ITEM_TEXT, "text_item": {"text": text}}],
-            }
-            if context_token:
-                message["context_token"] = context_token
-
-            resp = await _api_post(
-                session,
-                base_url=config.base_url,
-                endpoint=EP_SEND_MESSAGE,
-                payload={"msg": message},
-                token=config.token,
-                timeout_ms=15000,
+            logger.info(
+                "微信投递开始: chat_id=%s text_len=%d has_ctx=%s",
+                chat_id, len(text), bool(context_token),
             )
-            errcode = resp.get("errcode", 0)
-            if errcode != 0:
-                logger.error("微信投递失败: errcode=%s resp=%s", errcode, resp)
-                return False
-        return True
+
+            # 分片投递：微信 _split_text 段落边界，max_len=2000
+            chunks = _split_text(text) if text else []
+            if not chunks:
+                chunks = [text] if text else []
+
+            sent_any = False
+            for chunk in chunks:
+                ctx_token = context_token
+                # 重试逻辑（最多 3 次，对齐 adapter.send_text）
+                for attempt in range(3):
+                    resp = await send_message(
+                        session,
+                        base_url=config.base_url,
+                        token=config.token,
+                        to=chat_id,
+                        text=chunk,
+                        context_token=ctx_token or None,
+                        client_id=f"cron-{uuid.uuid4().hex[:16]}",
+                    )
+                    errcode = resp.get("errcode", 0)
+                    if errcode == SESSION_EXPIRED_ERRCODE:
+                        # 会话过期：去掉 context_token 降级重试一次
+                        if attempt == 0:
+                            ctx_token = ""
+                            logger.warning("微信会话过期，去掉 context_token 重试")
+                            continue
+                        logger.warning(
+                            "微信投递失败: 会话过期 (chat_id=%s errcode=%d)",
+                            chat_id, errcode,
+                        )
+                        return False
+                    if errcode == RATE_LIMIT_ERRCODE:
+                        logger.warning("微信投递限流，3s 后重试")
+                        await asyncio.sleep(3)
+                        continue
+                    if errcode != 0:
+                        logger.warning(
+                            "微信投递失败 (attempt %d/3): errcode=%d resp=%s",
+                            attempt + 1, errcode, str(resp)[:200],
+                        )
+                        if attempt < 2:
+                            await asyncio.sleep(1)
+                            continue
+                        return False
+                    # errcode == 0：成功
+                    logger.info(
+                        "微信分片投递成功 (attempt %d): chunk_len=%d",
+                        attempt + 1, len(chunk),
+                    )
+                    sent_any = True
+                    break
+                else:
+                    # for-else: 重试 3 次都失败
+                    return False
+
+                # 分片间隔，防限流（对齐 adapter.send_text）
+                await asyncio.sleep(1.5)
+            return sent_any
     except Exception as exc:  # noqa: BLE001
         logger.exception("微信投递异常: %s", exc)
         return False

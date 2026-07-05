@@ -441,6 +441,12 @@ async def execute_job(
     else:
         output = stdout
 
+    # 诊断日志：确认投递分支的判断条件
+    logger.info(
+        "Cron deliver check: job=%r deliver_to=%r chat_id=%r stdout_len=%d stderr_len=%d output_strip=%s",
+        name, deliver_to, chat_id, len(stdout), len(stderr), bool(output.strip()),
+    )
+
     if deliver_to and output and output.strip():
         try:
             from illusion.channels.delivery import (
@@ -449,10 +455,15 @@ async def execute_job(
             )
 
             target = parse_deliver_to(deliver_to, chat_id)
+            logger.info("Cron deliver parse: deliver_to=%r -> target=%r", deliver_to, target)
             if target:
                 channel_name, target_chat_id = target
                 deliver_ok = await deliver_to_channel(
                     channel_name, target_chat_id, output
+                )
+                logger.info(
+                    "Cron deliver result: job=%r channel=%s chat_id=%s ok=%s output_len=%d",
+                    name, channel_name, target_chat_id, deliver_ok, len(output),
                 )
                 if not deliver_ok:
                     logger.warning(
@@ -460,7 +471,7 @@ async def execute_job(
                         name, channel_name, target_chat_id,
                     )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cron 投递异常: %s", exc)
+            logger.warning("Cron 投递异常: %s", exc, exc_info=True)
 
     entry = {
         "id": job.get("id", ""),
