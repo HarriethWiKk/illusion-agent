@@ -13,75 +13,106 @@ try:
 except ImportError:
     _has_lark_oapi = False
 
-from illusion.channels.delivery import parse_deliver_to
+from illusion.channels.delivery import parse_deliver_targets
 
 
-def test_parse_empty():
-    """空字符串返回 None"""
-    assert parse_deliver_to("") is None
+def test_parse_empty_list():
+    """空列表返回空"""
+    assert parse_deliver_targets([]) == []
 
 
 def test_parse_channel_with_chat_id():
     """渠道名:chat_id 格式（显式 chat_id 优先级最高）"""
-    assert parse_deliver_to("feishu:oc_456") == ("feishu", "oc_456")
+    assert parse_deliver_targets(["feishu:oc_456"]) == [("feishu", "oc_456", "")]
 
 
 def test_parse_qq_format():
     """QQ 渠道格式"""
-    assert parse_deliver_to("qq:group_123") == ("qq", "group_123")
+    assert parse_deliver_targets(["qq:group_123"]) == [("qq", "group_123", "")]
 
 
 def test_parse_weixin_format():
     """微信渠道格式"""
-    assert parse_deliver_to("weixin:wxid_abc") == ("weixin", "wxid_abc")
+    assert parse_deliver_targets(["weixin:wxid_abc"]) == [("weixin", "wxid_abc", "")]
 
 
 def test_parse_feishu_open_id():
     """飞书用户 open_id 格式"""
-    assert parse_deliver_to("feishu:ou_xxx") == ("feishu", "ou_xxx")
+    assert parse_deliver_targets(["feishu:ou_xxx"]) == [("feishu", "ou_xxx", "")]
 
 
 def test_parse_invalid_format():
-    """deliver_to 含冒号但缺 channel 或 chat_id → None"""
-    assert parse_deliver_to("feishu:") is None
-    assert parse_deliver_to(":oc_123") is None
+    """deliver_to 项含冒号但缺 channel 或 chat_id → 跳过"""
+    assert parse_deliver_targets(["feishu:"]) == []
+    assert parse_deliver_targets([":oc_123"]) == []
 
 
 def test_parse_channel_only_with_chat_id():
     """仅渠道名 + chat_id 有值 → 用 chat_id 回投来源会话"""
-    assert parse_deliver_to("feishu", "oc_origin") == ("feishu", "oc_origin")
+    assert parse_deliver_targets(["feishu"], chat_id="oc_origin") == [("feishu", "oc_origin", "")]
 
 
 def test_parse_channel_only_without_chat_id():
-    """仅渠道名 + chat_id 为空 → None（LLM 应填完整 ID）"""
-    assert parse_deliver_to("feishu") is None
+    """仅渠道名 + chat_id 为空 → 跳过（LLM 应填完整 ID）"""
+    assert parse_deliver_targets(["feishu"]) == []
 
 
 def test_parse_channel_only_with_empty_chat_id():
-    """仅渠道名 + chat_id 空串 → None"""
-    assert parse_deliver_to("qq", "") is None
+    """仅渠道名 + chat_id 空串 → 跳过"""
+    assert parse_deliver_targets(["qq"], chat_id="") == []
 
 
 def test_parse_explicit_chat_id_overrides_origin():
     """显式 chat_id（含冒号）优先于 origin chat_id"""
-    assert parse_deliver_to("feishu:oc_explicit", "oc_origin") == ("feishu", "oc_explicit")
+    assert parse_deliver_targets(["feishu:oc_explicit"], chat_id="oc_origin") == [("feishu", "oc_explicit", "")]
 
 
 def test_parse_unknown_channel_with_chat_id():
     """未知渠道名 + chat_id → 仍返回（渠道名校验在 deliver_to_channel 中）"""
-    assert parse_deliver_to("unknown:xxx") == ("unknown", "xxx")
+    assert parse_deliver_targets(["unknown:xxx"]) == [("unknown", "xxx", "")]
 
 
 def test_parse_unknown_channel_without_chat_id():
-    """未知渠道名 + 无 chat_id → None"""
-    assert parse_deliver_to("unknown") is None
+    """未知渠道名 + 无 chat_id → 跳过"""
+    assert parse_deliver_targets(["unknown"]) == []
 
 
 def test_parse_strips_whitespace_around_channel_and_chat_id():
     """LLM 输出常在冒号后带空格，应 strip 两端空白"""
-    assert parse_deliver_to("feishu: oc_456") == ("feishu", "oc_456")
-    assert parse_deliver_to(" feishu : ou_xxx ") == ("feishu", "ou_xxx")
-    assert parse_deliver_to("qq:  group_123") == ("qq", "group_123")
+    assert parse_deliver_targets(["feishu: oc_456"]) == [("feishu", "oc_456", "")]
+    assert parse_deliver_targets([" feishu : ou_xxx "]) == [("feishu", "ou_xxx", "")]
+    assert parse_deliver_targets(["qq:  group_123"]) == [("qq", "group_123", "")]
+
+
+def test_parse_multiple_targets():
+    """多目标广播：每个目标独立解析"""
+    assert parse_deliver_targets(["feishu:oc_1", "weixin:wxid1", "qq:openid1"]) == [
+        ("feishu", "oc_1", ""),
+        ("weixin", "wxid1", ""),
+        ("qq", "openid1", ""),
+    ]
+
+
+def test_parse_partial_invalid_skipped():
+    """部分无效项跳过，不影响其他有效项"""
+    assert parse_deliver_targets(["feishu:oc_1", "", "invalid:", "qq:openid1"]) == [
+        ("feishu", "oc_1", ""),
+        ("qq", "openid1", ""),
+    ]
+
+
+def test_parse_non_string_items_skipped():
+    """非字符串项跳过"""
+    assert parse_deliver_targets(["feishu:oc_1", 123, None, "qq:openid1"]) == [  # type: ignore[list-item]
+        ("feishu", "oc_1", ""),
+        ("qq", "openid1", ""),
+    ]
+
+
+def test_parse_mixed_explicit_and_origin_chat_id():
+    """混合：显式 chat_id + 仅渠道名（用 origin chat_id 回退）"""
+    result = parse_deliver_targets(["feishu:oc_explicit", "weixin"], chat_id="wxid_origin")
+    assert result == [("feishu", "oc_explicit", ""), ("weixin", "wxid_origin", "")]
 
 
 # ── 测试 deliver_file_to_channel ──────────────────────────────

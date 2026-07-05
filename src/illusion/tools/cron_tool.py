@@ -116,15 +116,15 @@ class CronToolInput(BaseModel):
         le=3600,
         description="Timeout in seconds for manual run",
     )
-    # add 操作参数：投递目标
-    deliver_to: str = Field(
-        default="",
+    # add 操作参数：投递目标列表
+    deliver_to: list[str] = Field(
+        default_factory=list,
         description=(
-            "Delivery target for cron job STDOUT (auto-delivered by scheduler after the job runs). "
-            "Empty = local only (terminal execution, no channel delivery). "
-            "MUST include chat_id: use 'channel:chat_id' format. "
+            "Delivery targets for cron job STDOUT (auto-delivered by scheduler after the job runs). "
+            "Empty list = local only (terminal execution, no channel delivery). "
+            "Each item MUST use 'channel:chat_id' format. Multiple items = broadcast to all targets. "
             "This is a SCHEDULER-level field — the scheduler reads subprocess stdout and delivers it "
-            "to this channel:chat_id. Do NOT also write delivery instructions inside the 'prompt' field. "
+            "to each channel:chat_id. Do NOT also write delivery instructions inside the 'prompt' field. "
             "To find the chat_id, follow this order: "
             "(1) PREFER calling the list_channel_sessions tool to show active "
             "sessions and pick the right chat_id; "
@@ -135,7 +135,7 @@ class CronToolInput(BaseModel):
             "weixin 'u_<wxid>.json' -> '<wxid>' (strip leading 'u_'); "
             "qq '<openid>.json' -> '<openid>' (filename is the ID). "
             "(3) only if BOTH fail, ask the user for the chat_id. "
-            "Examples: 'feishu:oc_xxx', 'feishu:ou_xxx', 'weixin:wxid@im.wechat', 'qq:openid'. "
+            "Examples: ['feishu:oc_xxx'], ['weixin:wxid@im.wechat', 'feishu:ou_xxx'], ['qq:openid']. "
             "If created from a channel session, the origin chat_id is auto-filled."
         ),
     )
@@ -180,14 +180,15 @@ PROMPT vs DELIVER_TO (CRITICAL — read this before writing the prompt field):
     Do NOT put delivery instructions in the prompt — no "send the result to WeChat",
     no "use send_to_channel to deliver", no chat_id inside the prompt.
   - The 'deliver_to' field is a SCHEDULER-level field. After the subprocess finishes,
-    the scheduler reads its stdout and delivers it to the channel:chat_id you set here.
+    the scheduler reads its stdout and delivers it to each channel:chat_id you set here.
     The LLM running inside the cron subprocess CANNOT see your current channel sessions
     and should NOT try to deliver anything itself.
   - Wrong:   prompt="检查 git 状态...然后使用 send_to_channel 发送到微信,chat_id=xxx"
-  - Right:   prompt="检查 git 状态并生成简洁报告"  +  deliver_to="weixin:xxx"
+  - Right:   prompt="检查 git 状态并生成简洁报告"  +  deliver_to=["weixin:xxx"]
 
 DELIVER_TO (add action, optional):
-  Format: 'channel:chat_id'. Empty = local only (no channel delivery).
+  Format: list of 'channel:chat_id' strings. Empty list = local only.
+  Multiple items = broadcast stdout to all targets (best-effort, failures logged).
   To find the chat_id, follow this order:
   (1) PREFER calling the list_channel_sessions tool first to show active
       sessions and pick the right one — if the target channel has only one

@@ -90,9 +90,9 @@ def _normalize_job(job: dict[str, Any]) -> dict[str, Any]:
     job.setdefault("recurring", True)
     job.setdefault("delete_after_run", False)
     job.setdefault("consecutive_errors", 0)
-    job.setdefault("deliver_to", "")        # 投递目标
-    job.setdefault("origin_channel", "")    # 来源渠道
-    job.setdefault("chat_id", "")           # 来源会话（记录用，投递时由 deliver_to 自动解析）
+    job.setdefault("deliver_to", [])         # 投递目标列表 list[str]
+    job.setdefault("origin_channel", "")     # 来源渠道
+    job.setdefault("chat_id", "")            # 来源会话（记录用，投递时由 deliver_to 自动解析）
     job.setdefault("created_at", _now_iso())
     job.setdefault("updated_at", job["created_at"])
 

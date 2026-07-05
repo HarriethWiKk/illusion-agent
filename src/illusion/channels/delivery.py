@@ -20,46 +20,57 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def parse_deliver_to(
-    deliver_to: str,
+def parse_deliver_targets(
+    deliver_to_list: list[str],
     chat_id: str = "",
-) -> tuple[str, str] | None:
-    """解析 deliver_to 字段为 (channel_name, target_chat_id)
+) -> list[tuple[str, str, str]]:
+    """解析 deliver_to 列表为 [(channel_name, target_chat_id, chat_type), ...]
 
-    解析规则：
-        1. 空 → None（本地执行，不投递）
-        2. 含 ":" → 拆分为 (channel, chat_id)，显式指定的 chat_id 优先级最高
-        3. 仅渠道名 + chat_id 有值 → 用 chat_id（从渠道会话创建的任务回投来源会话）
-        4. 仅渠道名 + chat_id 为空 → None（LLM 应在创建任务时填写完整 ID）
+    支持多目标投递：每个目标独立解析，跳过无效项。
+
+    格式：
+        - 'channel:chat_id' → (channel, chat_id, "")
+        - 仅渠道名 + chat_id 有值 → (channel, chat_id, "")
+
+    返回三段元组以兼容多渠道接口签名，chat_type 为空串表示按渠道默认策略
+    （QQ 渠道在 _deliver_qq 中走"先群组失败回退 C2C"容错路径）。
 
     Args:
-        deliver_to: 投递目标字符串
-        chat_id: 来源会话 ID（从渠道会话创建任务时自动填充）
+        deliver_to_list: 投递目标列表
+        chat_id: 来源会话 ID（仅渠道名时回退使用）
 
     Returns:
-        tuple[str, str] | None: (channel_name, target_chat_id)，解析失败返回 None
+        list[tuple[str, str, str]]: 解析成功的 (channel, chat_id, chat_type) 列表
+            chat_type 始终为 ""（由 _deliver_qq 内部决定路由策略）
+            空列表 = 不投递或全部解析失败
     """
-    if not deliver_to:
-        return None
+    targets: list[tuple[str, str, str]] = []
+    for item in deliver_to_list:
+        if not isinstance(item, str) or not item:
+            continue
 
-    if ":" in deliver_to:
-        channel, cid = deliver_to.split(":", 1)
-        channel = channel.strip()
-        cid = cid.strip()
-        if channel and cid:
-            return (channel, cid)
-        logger.warning("deliver_to 格式无效: %s", deliver_to)
-        return None
+        if ":" in item:
+            channel, cid = item.split(":", 1)
+            channel = channel.strip()
+            cid = cid.strip()
+            if channel and cid:
+                targets.append((channel, cid, ""))
+            else:
+                logger.warning("deliver_to 项格式无效: %s", item)
+            continue
 
-    # 仅渠道名：用来源会话 chat_id（从渠道会话创建的任务）
-    if chat_id:
-        return (deliver_to, chat_id)
-
-    logger.info(
-        "deliver_to=%s 缺少 chat_id，任务仅在终端执行",
-        deliver_to,
-    )
-    return None
+        # 仅渠道名：用来源会话 chat_id（从渠道会话创建的任务）
+        channel = item.strip()
+        if not channel:
+            continue
+        if chat_id:
+            targets.append((channel, chat_id, ""))
+        else:
+            logger.info(
+                "deliver_to=%s 缺少 chat_id，跳过该项",
+                item,
+            )
+    return targets
 
 
 async def deliver_to_channel(
@@ -193,6 +204,12 @@ async def _deliver_qq(
         # markdown=None → 按渠道配置；否则用显式值
         use_markdown = config.markdown_support if markdown is None else markdown
 
+        logger.info(
+            "QQ 投递开始: chat_id=%s chat_type=%s markdown=%s chunks=%d",
+            chat_id, chat_type or "auto(group→c2c)", use_markdown,
+            len(split_text(text)) if text else 0,
+        )
+
         async with aiohttp.ClientSession() as session:
             token = await ensure_token(
                 session, config.app_id, config.client_secret,
@@ -203,19 +220,55 @@ async def _deliver_qq(
             if not chunks:
                 chunks = [text] if text else []
 
+            async def _send_chunk(*, is_group: bool, chunk: str) -> None:
+                """发送单个分片，markdown 失败时降级为纯文本重试
+
+                对齐 adapter.send_text 的降级逻辑：QQ Bot API v2 markdown
+                消息需预批准模板，普通开发者账号会触发 err_code=11255。
+                """
+                md = use_markdown
+                target_label = "群组" if is_group else "C2C"
+                for attempt in range(3):
+                    try:
+                        if is_group:
+                            await send_group_message(
+                                session, token, chat_id, chunk, msg_id="",
+                                markdown=md,
+                            )
+                        else:
+                            await send_c2c_message(
+                                session, token, chat_id, chunk, msg_id="",
+                                markdown=md,
+                            )
+                        logger.info(
+                            "QQ %s投递成功 (attempt %d): markdown=%s chunk_len=%d",
+                            target_label, attempt + 1, md, len(chunk),
+                        )
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        if md and attempt == 0:
+                            # markdown 权限/格式错误，自动降级为纯文本
+                            logger.info(
+                                "QQ %smarkdown 发送失败，自动降级为纯文本重试: %s",
+                                target_label, exc,
+                            )
+                            md = False
+                            continue
+                        if attempt < 2:
+                            logger.info(
+                                "QQ %s投递失败 (attempt %d/3)，重试中: %s",
+                                target_label, attempt + 1, exc,
+                            )
+                            await asyncio.sleep(2)
+                        else:
+                            raise
+
             async def _send_to_target(*, is_group: bool) -> None:
                 """向指定类型目标发送所有分片"""
-                for chunk in chunks:
-                    if is_group:
-                        await send_group_message(
-                            session, token, chat_id, chunk, msg_id="",
-                            markdown=use_markdown,
-                        )
-                    else:
-                        await send_c2c_message(
-                            session, token, chat_id, chunk, msg_id="",
-                            markdown=use_markdown,
-                        )
+                for i, chunk in enumerate(chunks):
+                    if i > 0:
+                        await asyncio.sleep(1.5)  # 分片间隔，防限流
+                    await _send_chunk(is_group=is_group, chunk=chunk)
 
             # 路由策略
             if chat_type == "group":
@@ -223,12 +276,12 @@ async def _deliver_qq(
             elif chat_type == "c2c":
                 await _send_to_target(is_group=False)
             else:
-                # chat_type 未知：先群组失败回退 C2C
+                # chat_type 未知：先群组失败回退 C2C（QQ C2C/group openid 格式相同）
                 try:
                     await _send_to_target(is_group=True)
                 except Exception as group_exc:  # noqa: BLE001
-                    logger.warning(
-                        "QQ 群组投递失败 (chat_id=%s)，best-effort 尝试 C2C: %s",
+                    logger.info(
+                        "QQ 群组投递失败，自动降级为 C2C (chat_id=%s): %s",
                         chat_id, group_exc,
                     )
                     await _send_to_target(is_group=False)

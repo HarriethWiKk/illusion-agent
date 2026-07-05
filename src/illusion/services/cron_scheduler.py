@@ -403,13 +403,15 @@ async def execute_job(
 
     # 拼接 cron 上下文前缀：告知 LLM 这是自动任务且 scheduler 会自动投递 stdout，
     # 避免 LLM 调用 send_to_channel / send_media 等投递工具造成重复投递
-    deliver_to = job.get("deliver_to", "")
-    if deliver_to:
+    deliver_to_list = job.get("deliver_to", []) or []
+
+    if deliver_to_list:
+        targets_display = ", ".join(deliver_to_list)
         cron_prefix = (
             "[CRON TASK CONTEXT]\n"
             "You are running as an automated cron task.\n"
-            "The scheduler will automatically deliver your stdout to the target channel "
-            f"({deliver_to}).\n"
+            "The scheduler will automatically deliver your stdout to the target channel(s) "
+            f"({targets_display}).\n"
             "Do NOT call send_to_channel / send_media / list_channel_sessions tools — "
             "the scheduler handles delivery for you.\n"
             "Just execute the task and print the final result to stdout.\n\n"
@@ -419,7 +421,7 @@ async def execute_job(
         actual_prompt = prompt
 
     # 设置环境变量标记 cron 任务上下文，子进程据此屏蔽 channel_hints 注入
-    extra_env = {"ILLUSION_CRON_TASK": "1"} if deliver_to else None
+    extra_env = {"ILLUSION_CRON_TASK": "1"} if deliver_to_list else None
 
     # 在独立子进程中执行提示词
     result = await _execute_prompt_in_subprocess(
@@ -443,35 +445,48 @@ async def execute_job(
 
     # 诊断日志：确认投递分支的判断条件
     logger.info(
-        "Cron deliver check: job=%r deliver_to=%r chat_id=%r stdout_len=%d stderr_len=%d output_strip=%s",
-        name, deliver_to, chat_id, len(stdout), len(stderr), bool(output.strip()),
+        "Cron deliver check: job=%r deliver_to_list=%r chat_id=%r stdout_len=%d stderr_len=%d output_strip=%s",
+        name, deliver_to_list, chat_id, len(stdout), len(stderr), bool(output.strip()),
     )
 
-    if deliver_to and output and output.strip():
+    if deliver_to_list and output and output.strip():
         try:
             from illusion.channels.delivery import (
                 deliver_to_channel,
-                parse_deliver_to,
+                parse_deliver_targets,
             )
 
-            target = parse_deliver_to(deliver_to, chat_id)
-            logger.info("Cron deliver parse: deliver_to=%r -> target=%r", deliver_to, target)
-            if target:
-                channel_name, target_chat_id = target
-                deliver_ok = await deliver_to_channel(
-                    channel_name, target_chat_id, output
-                )
-                logger.info(
-                    "Cron deliver result: job=%r channel=%s chat_id=%s ok=%s output_len=%d",
-                    name, channel_name, target_chat_id, deliver_ok, len(output),
-                )
-                if not deliver_ok:
-                    logger.warning(
-                        "Cron job %s 投递到 %s:%s 失败",
-                        name, channel_name, target_chat_id,
-                    )
+            targets = parse_deliver_targets(deliver_to_list, chat_id)
+            logger.info(
+                "Cron deliver parse: deliver_to_list=%r -> targets=%r",
+                deliver_to_list, targets,
+            )
+            if targets:
+                # 广播到所有目标：每个目标独立投递，单点失败不影响其他目标
+                for channel_name, target_chat_id, target_chat_type in targets:
+                    try:
+                        deliver_ok = await deliver_to_channel(
+                            channel_name, target_chat_id, output,
+                            chat_type=target_chat_type,
+                        )
+                        logger.info(
+                            "Cron deliver result: job=%r channel=%s chat_id=%s ok=%s output_len=%d",
+                            name, channel_name, target_chat_id, deliver_ok, len(output),
+                        )
+                        if not deliver_ok:
+                            logger.warning(
+                                "Cron job %s 投递到 %s:%s 失败",
+                                name, channel_name, target_chat_id,
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        # 单目标异常不中断其他目标
+                        logger.warning(
+                            "Cron 投递到 %s:%s 异常: %s",
+                            channel_name, target_chat_id, exc,
+                            exc_info=True,
+                        )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cron 投递异常: %s", exc, exc_info=True)
+            logger.warning("Cron 投递整体异常: %s", exc, exc_info=True)
 
     entry = {
         "id": job.get("id", ""),
