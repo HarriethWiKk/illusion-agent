@@ -9,9 +9,12 @@
 
 工作流：
     1. 用户要求跨渠道发文件（如"把这个文件发到微信"）
-    2. LLM 先调 list_channel_sessions 查找目标渠道的活跃会话
-    3. LLM 拿到会话列表后，用 ask_user_question 询问用户确认目标 chat_id
-    4. 用户确认后，LLM 调 send_to_channel 发送文件
+    2. LLM 先检查系统提示词中的 "Other Enabled Channels" 章节，看目标渠道会话
+    3. 若目标渠道在系统提示词中只有一个会话：LLM 直接用该 chat_id 调 send_to_channel
+       若有多个会话或不在系统提示词中：调 list_channel_sessions 查找
+    4. list_channel_sessions 返回一个会话：直接使用，无需询问用户
+       返回多个会话：LLM 用 ask_user_question 询问用户确认目标 chat_id
+    5. LLM 调 send_to_channel 发送文件
 
 设计原则：与 SendMediaTool 互补——SendMediaTool 用于当前渠道内发文件，
 SendToChannelTool 用于跨渠道发文件。LLM 根据用户意图选择。
@@ -45,19 +48,25 @@ class ListChannelSessionsInput(BaseModel):
 class ListChannelSessionsTool(BaseTool[ListChannelSessionsInput]):
     """列出指定渠道的活跃会话
 
-    当用户要求跨渠道发文件但未指定具体 chat_id 时，先调用此工具
-    查找目标渠道的活跃会话列表，然后询问用户确认要发送到哪个会话。
+    当系统提示词中未列出目标渠道会话、或会话列表过期时，调用此工具
+    查找目标渠道的活跃会话。
 
     返回的会话列表包含 chat_id、user_name（如有）、chat_type、last_active。
-    LLM 应将这些信息呈现给用户，让用户选择目标会话。
+    - 若只有一个会话：LLM 直接使用该 chat_id，无需询问用户
+    - 若有多个会话：LLM 将这些信息呈现给用户，让用户选择目标会话
     """
 
     name = "list_channel_sessions"
     description = (
         "List active sessions in a messaging channel to find a target chat_id. "
-        "Use this FIRST when the user asks to send a file to another channel "
-        "but hasn't specified a chat_id. After getting the session list, "
-        "present the options to the user and ask which one to send to. "
+        "Use this when the user asks to send a file to another channel but hasn't "
+        "specified a chat_id, AND the target channel's session list is not already "
+        "visible in your system prompt (the 'Other Enabled Channels' section shows "
+        "active sessions per channel — check there FIRST). "
+        "If the returned list contains ONLY ONE session, use that chat_id directly "
+        "to call send_to_channel — no need to ask the user. "
+        "If MULTIPLE sessions are returned, present the options to the user and ask "
+        "which one to send to. "
         "Do NOT ask the user for a chat_id directly — most users don't know it."
     )
     input_model = ListChannelSessionsInput
@@ -110,10 +119,19 @@ class ListChannelSessionsTool(BaseTool[ListChannelSessionsInput]):
                     parts.append(f"last_active={s.last_active}")
                 lines.append(" | ".join(parts))
             lines.append("")
-            lines.append(
-                "Present these options to the user and ask which one to send the file to. "
-                "Do NOT proceed to send without user confirmation."
-            )
+            if len(sessions) == 1:
+                # 只有一个会话：告知 LLM 直接使用该 chat_id，无需询问用户
+                lines.append(
+                    "Only one active session found — use this chat_id directly "
+                    "to call send_to_channel. No need to ask the user for confirmation."
+                )
+            else:
+                # 多个会话：需要询问用户选择
+                lines.append(
+                    "Multiple sessions found — present these options to the user "
+                    "and ask which one to send the file to. "
+                    "Do NOT proceed to send without user confirmation."
+                )
             return ToolResult(output="\n".join(lines))
         except Exception as exc:  # noqa: BLE001
             return ToolResult(
@@ -154,9 +172,12 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
 
     工作流：
         1. 用户要求跨渠道发文件
-        2. 先调 list_channel_sessions 查找目标渠道的活跃会话
-        3. 用 ask_user_question 询问用户确认目标 chat_id
-        4. 用户确认后，调 send_to_channel 发送文件
+        2. 先检查系统提示词中的 "Other Enabled Channels" 章节
+        3. 若目标渠道在系统提示词中只有一个会话：直接使用该 chat_id
+           若有多个会话或不在系统提示词中：调 list_channel_sessions 查找
+        4. list_channel_sessions 返回一个会话：直接使用
+           返回多个会话：用 ask_user_question 询问用户确认
+        5. 调 send_to_channel 发送文件
 
     工具内部调用 deliver_file_to_channel 构造临时 API 客户端发送，
     不依赖当前渠道实例。
@@ -169,14 +190,22 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
         "(e.g., from QQ to WeChat, or from PC terminal to Feishu). "
         "For sending within the current channel, use send_media instead. "
         "To find the target chat_id, follow this order: "
-        "(1) PREFER calling list_channel_sessions first to show active "
-        "sessions, then ask the user to confirm which one to send to; "
-        "(2) if the tool is unavailable or returns nothing, manually check "
-        "~/.illusion/channels/<channel>/sessions/ and strip the filename "
+        "(1) CHECK THE SYSTEM PROMPT FIRST: the 'Other Enabled Channels' section "
+        "already lists active sessions per channel. If the target channel shows "
+        "ONLY ONE session there, use that chat_id directly — no tool call needed. "
+        "If it shows MULTIPLE sessions, ask the user to confirm which one to send to. "
+        "(2) If the system prompt is missing or the target channel's sessions are "
+        "not listed, call list_channel_sessions. If ONLY ONE session is returned, "
+        "use that chat_id directly; if MULTIPLE sessions are returned, ask the "
+        "user to confirm. "
+        "(3) If list_channel_sessions is unavailable or returns nothing, manually "
+        "check ~/.illusion/channels/<channel>/sessions/ and strip the filename "
         "prefix (feishu 'u_ou_xxx.json' -> 'ou_xxx', 'g_oc_xxx_ou_xxx.json' "
-        "-> 'oc_xxx'; weixin 'u_<wxid>.json' -> '<wxid>'; qq filename is the ID); "
-        "(3) only if BOTH fail, ask the user for the chat_id directly. "
-        "Do NOT ask the user for a chat_id without first trying (1) and (2) — "
+        "-> 'oc_xxx'; weixin 'u_<wxid>.json' -> '<wxid>'; qq filename is the ID). "
+        "(4) Only if ALL above fail, ask the user for the chat_id directly. "
+        "KEY RULE: when the target channel has exactly one active session, "
+        "NEVER ask the user — just use that chat_id. "
+        "Do NOT ask the user for a chat_id without first trying (1)-(3) — "
         "most users don't know it."
     )
     input_model = SendToChannelInput
