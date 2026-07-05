@@ -256,6 +256,7 @@ async def _execute_prompt_in_subprocess(
     prompt: str,
     cwd: Path,
     timeout: int = _JOB_TIMEOUT_SECONDS,
+    extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """在独立子进程中执行提示词。
 
@@ -266,11 +267,17 @@ async def _execute_prompt_in_subprocess(
         prompt: 要执行的提示词
         cwd: 工作目录
         timeout: 超时秒数
+        extra_env: 额外环境变量（如 ILLUSION_CRON_TASK=1，用于子进程识别 cron 上下文）
 
     Returns:
         包含 returncode, stdout, stderr, status 的结果字典
     """
     cmd = _find_illusion_command() + ["-p", prompt]
+
+    # 合并环境变量：继承父进程 + 额外变量
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
 
     logger.info("Executing cron subprocess: %s", " ".join(cmd[:3]) + " -p <prompt>")
     logger.debug("Full command: %s, cwd: %s", cmd, cwd)
@@ -284,6 +291,7 @@ async def _execute_prompt_in_subprocess(
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd),
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             # Windows: 防止句柄继承死锁
@@ -393,15 +401,36 @@ async def execute_job(
 
     logger.info("Executing cron job %r: %.80s", name, prompt)
 
+    # 拼接 cron 上下文前缀：告知 LLM 这是自动任务且 scheduler 会自动投递 stdout，
+    # 避免 LLM 调用 send_to_channel / send_media 等投递工具造成重复投递
+    deliver_to = job.get("deliver_to", "")
+    if deliver_to:
+        cron_prefix = (
+            "[CRON TASK CONTEXT]\n"
+            "You are running as an automated cron task.\n"
+            "The scheduler will automatically deliver your stdout to the target channel "
+            f"({deliver_to}).\n"
+            "Do NOT call send_to_channel / send_media / list_channel_sessions tools — "
+            "the scheduler handles delivery for you.\n"
+            "Just execute the task and print the final result to stdout.\n\n"
+        )
+        actual_prompt = cron_prefix + prompt
+    else:
+        actual_prompt = prompt
+
+    # 设置环境变量标记 cron 任务上下文，子进程据此屏蔽 channel_hints 注入
+    extra_env = {"ILLUSION_CRON_TASK": "1"} if deliver_to else None
+
     # 在独立子进程中执行提示词
-    result = await _execute_prompt_in_subprocess(prompt, cwd, timeout=timeout)
+    result = await _execute_prompt_in_subprocess(
+        actual_prompt, cwd, timeout=timeout, extra_env=extra_env
+    )
 
     ended_at = _now_local()
     success = result["status"] == "success"
 
     # 投递到渠道：仅在 deliver_to 非空且有输出（stdout 或 stderr）时触发
     # 失败不影响任务状态，仅记录日志
-    deliver_to = job.get("deliver_to", "")
     chat_id = job.get("chat_id", "")
     stdout = result.get("stdout", "")
     stderr = result.get("stderr", "")

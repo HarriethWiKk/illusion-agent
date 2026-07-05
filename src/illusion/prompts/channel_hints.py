@@ -7,9 +7,11 @@
     - 无 enabled 渠道时不注入（PC 终端和渠道端都跳过）
     - PC 终端（current_channel=None）+ 有 enabled 渠道 → 注入 PC 身份 + 渠道概览
     - 渠道端（current_channel="qq" 等）+ 有其他 enabled 渠道 → 注入当前身份 + 其他渠道概览
+    - cron 任务子进程（ILLUSION_CRON_TASK=1）→ 不注入，避免 LLM 调用投递工具造成重复投递
 """
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -140,6 +142,8 @@ def get_channel_hint(
         2. 其他 enabled 渠道概览（含活跃会话列表）
 
     无 enabled 渠道时返回 None（不注入提示词）。
+    cron 任务子进程（ILLUSION_CRON_TASK=1）也返回 None，避免 LLM 调用投递工具
+    造成重复投递（cron scheduler 会自动把 stdout 投递到 deliver_to 指定的渠道）。
 
     Args:
         current_channel: 当前渠道名，None=PC 终端
@@ -148,8 +152,12 @@ def get_channel_hint(
         active_sessions: 各渠道活跃会话字典 {channel_name: [SessionInfo]}
 
     Returns:
-        str | None: 提示词文本，无 enabled 渠道时返回 None
+        str | None: 提示词文本，无 enabled 渠道或 cron 任务时返回 None
     """
+    # cron 任务子进程：不注入 channel_hints，避免 LLM 调用投递工具造成重复投递
+    if os.environ.get("ILLUSION_CRON_TASK") == "1":
+        return None
+
     # PC 终端：无任何 enabled 渠道时不注入
     if current_channel is None and not channels_config.has_enabled_channels():
         return None

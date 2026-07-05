@@ -208,7 +208,40 @@ class TestExecuteJob:
             job = {"name": "test", "id": "test1", "prompt": "echo hello", "cwd": str(tmp_path)}
             entry = await execute_job(job)
             assert entry["status"] == "success"
-            mock_exec.assert_called_once_with("echo hello", tmp_path, timeout=300)
+            # 无 deliver_to 时：不拼接前缀，extra_env=None
+            mock_exec.assert_called_once_with(
+                "echo hello", tmp_path, timeout=300, extra_env=None
+            )
+
+    @pytest.mark.asyncio
+    async def test_execute_with_deliver_to_adds_cron_prefix(self, tmp_path: Path) -> None:
+        """有 deliver_to 时应拼接 cron 上下文前缀并设置环境变量标记。"""
+        mock_result = {
+            "returncode": 0,
+            "status": "success",
+            "stdout": "OK",
+            "stderr": "",
+        }
+        with patch(
+            "illusion.services.cron_scheduler._execute_prompt_in_subprocess",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_exec:
+            job = {
+                "name": "test",
+                "id": "test1",
+                "prompt": "发送早安问候",
+                "cwd": str(tmp_path),
+                "deliver_to": "weixin:wxid@im.wechat",
+            }
+            entry = await execute_job(job)
+            assert entry["status"] == "success"
+            # 验证调用参数
+            call_args = mock_exec.call_args
+            actual_prompt = call_args.args[0]
+            assert "[CRON TASK CONTEXT]" in actual_prompt
+            assert "发送早安问候" in actual_prompt
+            assert call_args.kwargs["extra_env"] == {"ILLUSION_CRON_TASK": "1"}
 
 
 class TestSchedulerClass:
