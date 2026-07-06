@@ -198,25 +198,6 @@ async def launch_react_tui(
     if not package_json.exists():
         raise RuntimeError(f"React terminal frontend is missing: {package_json}")
 
-    # 解析 npm 路径
-    npm = _resolve_npm()
-
-    # 检查并安装依赖
-    if not (frontend_dir / "node_modules").exists():
-        install_kwargs: dict[str, Any] = {}
-        if sys.platform == "win32":
-            install_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        install = await asyncio.create_subprocess_exec(
-            npm,
-            "install",
-            "--no-fund",
-            "--no-audit",
-            cwd=str(frontend_dir),
-            **install_kwargs,
-        )
-        if await install.wait() != 0:
-            raise RuntimeError("Failed to install React terminal frontend dependencies")
-
     # 设置环境变量
     env = os.environ.copy()
     env["ILLUSION_FRONTEND_CONFIG"] = json.dumps(
@@ -238,7 +219,7 @@ async def launch_react_tui(
     dist_entry = frontend_dir / "dist" / "index.mjs"
 
     if dist_entry.exists():
-        # 优先使用 esbuild 预编译产物（最快启动路径）
+        # 优先使用 esbuild 预编译产物（自包含 bundle，不需要 npm 和 node_modules）
         process = await asyncio.create_subprocess_exec(
             node,
             str(dist_entry),
@@ -249,7 +230,23 @@ async def launch_react_tui(
             stderr=None,
         )
     else:
-        # 回退到 tsx 实时编译（开发模式）
+        # 开发模式：需要 node_modules，按需安装
+        npm = _resolve_npm()
+        if not (frontend_dir / "node_modules").exists():
+            install_kwargs: dict[str, Any] = {}
+            if sys.platform == "win32":
+                install_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            install = await asyncio.create_subprocess_exec(
+                npm,
+                "install",
+                "--no-fund",
+                "--no-audit",
+                cwd=str(frontend_dir),
+                **install_kwargs,
+            )
+            if await install.wait() != 0:
+                raise RuntimeError("Failed to install React terminal frontend dependencies")
+
         tsx_cmd = _resolve_tsx_bin(frontend_dir)
         if tsx_cmd is not None:
             process = await asyncio.create_subprocess_exec(
