@@ -338,7 +338,7 @@ When multiple channels are enabled, the LLM can perceive all enabled channels an
 ### How It Works
 
 1. **Channel-aware prompts**: System prompt includes current channel identity + overview of other enabled channels (with active sessions)
-2. **Cross-channel tool**: `send_to_channel` for cross-channel file transfer, `send_media` for within-current-channel
+2. **Cross-channel tool**: `send_to_channel` for cross-channel file/text transfer, `send_media` for within-current-channel files
 3. **Active session list**: Up to 5 recent sessions per channel (sorted by last active time) to help LLM decide delivery target
 
 ### Use Cases
@@ -349,6 +349,6 @@ When multiple channels are enabled, the LLM can perceive all enabled channels an
 
 ### Limitations
 
-- For cross-channel **text** messages, use cron tasks (`send_to_channel` only supports files)
+- `send_to_channel` supports both files and text messages (markdown supported on feishu/qq per config, auto-split into chunks if exceeds channel limit)
 - QQ and WeChat file upload APIs are complex; current version uses text prompts as fallback. Feishu is fully supported
 - Active session list comes from session storage directory; users never interacted with won't appear
