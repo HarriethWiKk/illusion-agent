@@ -150,9 +150,16 @@ class WeixinChannel(Channel):
                 return None
 
             # 提取并缓存 context_token
+            # 收到消息时立即落盘，确保跨进程（如 PC 终端跨渠道投递）能读到最新 token。
+            # 此前仅在 send_text 中持久化，导致跨渠道投递读到空或过期 token，
+            # iLink API 返回 errcode==0 但静默不投递。
             ctx_token = raw_msg.get("context_token", "")
             if ctx_token:
                 self._context_tokens[user_id] = ctx_token
+                try:
+                    self._save_context_tokens()
+                except Exception as save_exc:  # noqa: BLE001
+                    logger.warning("context_token 持久化失败（不影响消息处理）: %s", save_exc)
 
             # 提取文本和附件（从 item_list）
             text = ""

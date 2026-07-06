@@ -703,6 +703,18 @@ async def _deliver_file_weixin(
         connector = _make_ssl_connector()
         async with aiohttp.ClientSession(trust_env=True, connector=connector) as session:
             context_token = _load_weixin_context_token(chat_id)
+            if not context_token:
+                logger.warning(
+                    "微信文件投递缺少 context_token (chat_id=%s)，"
+                    "iLink API 可能返回 errcode==0 但静默不投递。"
+                    "请确认微信 daemon 已收到过该用户的消息。",
+                    chat_id,
+                )
+            else:
+                logger.info(
+                    "微信文件投递: chat_id=%s has_context_token=True",
+                    chat_id,
+                )
 
             # 获取上传 URL
             upload_response = await get_upload_url(
