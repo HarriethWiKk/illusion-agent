@@ -19,7 +19,7 @@ async def new_handler(_: str, context: CommandContext) -> CommandResult:
     """启动新会话"""
     if context.session_id and context.engine.messages:
         settings = load_settings()
-        system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
+        system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint)
         save_session_snapshot(
             cwd=context.cwd,
             model=settings.active_model_name,
@@ -51,12 +51,12 @@ async def status_handler(_: str, context: CommandContext) -> CommandResult:
 
 
 async def context_handler(args: str, context: CommandContext) -> CommandResult:
-    """显示上下文使用量或管理上下文窗口"""
+    """显示上下文使用量、系统提示词或管理上下文窗口"""
     settings = load_settings()
     tokens = args.split(maxsplit=1)
     subcommand = tokens[0] if tokens else "usage"
 
-    if subcommand in ("usage", "show", "__usage__"):
+    if subcommand in ("usage", "__usage__"):
         from illusion.services.compact import estimate_conversation_tokens, get_context_window
         estimated = estimate_conversation_tokens(context.engine.messages)
         usage = context.engine.total_usage
@@ -72,6 +72,10 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
                 f"Messages: {len(context.engine.messages)}"
             )
         )
+    if subcommand == "show":
+        # 显示当前运行时完整的系统提示词
+        system_prompt = context.engine._system_prompt
+        return CommandResult(message=system_prompt or "(no system prompt)")
     if subcommand == "window":
         return CommandResult(message=f"Context window: {settings.context_window:,} tokens")
     if subcommand == "set" and len(tokens) == 2:
@@ -84,7 +88,7 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message=f"Context window set to {value:,} tokens")
         except ValueError:
             return CommandResult(message="Error: invalid number")
-    return CommandResult(message="Usage: /context [usage|window|set N]")
+    return CommandResult(message="Usage: /context [usage|show|window|set N]")
 
 
 async def summary_handler(args: str, context: CommandContext) -> CommandResult:
@@ -118,7 +122,7 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
 
     try:
         settings = load_settings()
-        system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd)
+        system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint)
         compacted = await compact_conversation(
             context.engine.messages,
             api_client=context.engine._api_client,

@@ -64,6 +64,7 @@ class CommandContext:
     tool_registry: ToolRegistry | None = None  # 工具注册表
     app_state: AppStateStore | None = None  # 应用状态
     session_id: str = ""  # 当前会话ID
+    channel_hint: str | None = None  # 渠道感知提示词（重建系统提示词时复用）
 
 
 # 命令处理器类型别名

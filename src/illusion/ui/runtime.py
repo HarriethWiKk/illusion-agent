@@ -120,6 +120,8 @@ class RuntimeBundle:
     settings_overrides: dict[str, Any] = field(default_factory=dict[str, Any])
     # 钩子注入的 additionalContext（在 start_runtime 中设置，每次 handle_line 重建系统提示词后追加）
     hook_additional_contexts: list[str] = field(default_factory=list[Any])
+    # 渠道感知提示词（PC 终端或渠道端注入），handle_line 重建系统提示词时复用
+    channel_hint: str | None = None
 
     def current_settings(self) -> Settings:
         """返回会话的有效设置。
@@ -359,6 +361,7 @@ async def build_runtime(
         external_api_client=api_client is not None,
         session_id=session_id,
         settings_overrides=settings_overrides,
+        channel_hint=channel_hint,
     )
 
 
@@ -633,6 +636,7 @@ async def handle_line(
                 tool_registry=bundle.tool_registry,
                 app_state=bundle.app_state,
                 session_id=bundle.session_id,
+                channel_hint=bundle.channel_hint,
             ),
         )
         if result.reset_session:
@@ -656,6 +660,7 @@ async def handle_line(
                 settings,
                 cwd=bundle.cwd,
                 latest_user_prompt=_last_user_text(bundle.engine.messages),
+                channel_hint=bundle.channel_hint,
             )
             for ctx in bundle.hook_additional_contexts:
                 if ctx:
@@ -685,7 +690,7 @@ async def handle_line(
     # 处理普通用户消息
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
-    system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line)
+    system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line, channel_hint=bundle.channel_hint)
     # 追加钩子注入的 additionalContext
     for ctx in bundle.hook_additional_contexts:
         if ctx:

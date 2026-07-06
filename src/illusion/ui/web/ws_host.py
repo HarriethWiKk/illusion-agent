@@ -602,7 +602,7 @@ class WebBackendHost:
         settings = self._bundle.current_settings()
         self._bundle.engine.set_max_turns(settings.max_turns)
         from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state  # type: ignore[attr-defined]
-        system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line)
+        system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line, channel_hint=self._bundle.channel_hint)
         for ctx in self._bundle.hook_additional_contexts:
             if ctx:
                 system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)

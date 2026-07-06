@@ -198,7 +198,7 @@ async def effort_handler(args: str, context: CommandContext) -> CommandResult:
     settings.effort = value
     save_settings(settings)
     context.engine.effort = effort_level
-    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd))
+    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
     if context.app_state is not None:
         context.app_state.set(effort=value)
     return CommandResult(message=f"Reasoning effort set to {value}.")
@@ -217,7 +217,7 @@ async def passes_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message="Usage: /passes [show|COUNT]")
     settings.passes = passes
     save_settings(settings)
-    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd))
+    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
     if context.app_state is not None:
         context.app_state.set(passes=passes)
     return CommandResult(message=f"Pass count set to {passes}.")
