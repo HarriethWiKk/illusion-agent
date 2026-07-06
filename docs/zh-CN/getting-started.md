@@ -5,15 +5,15 @@
 ### 环境要求
 
 - Python >= 3.10
-- Node.js 18+
 - 支持 Windows、macOS、Linux
 - Windows 用户：自动查找 Git，无需手动配置 PATH
+- Node.js 18+：仅从源码安装时需要；通过 `pip install illusion-code` 安装无需 Node.js 环境
 
 ### 安装
 
 #### 推荐方式：从 PyPI 安装
 
-最简单的安装方式，自动安装前端并注册 `illusion` 命令到全局 PATH。
+最简单的安装方式，自动安装前端并注册 `illusion` 命令到全局 PATH。**无需 Node.js 环境**，前端资源已预构建并包含在包中。
 
 ```bash
 pip install illusion-code
@@ -117,6 +117,7 @@ cd ../..
 |---|---|---|---|---|
 | 来源 | PyPI | 本地 git clone | 本地 git clone | 本地 git clone |
 | 前端构建 | 预构建（已包含） | 自动（hatch hook） | 自动（hatch hook） | 手动 |
+| Node.js 要求 | **不需要** | 需要 18+ | 需要 18+ | 需要 18+ |
 | `illusion` 命令 | 全局可用 | 全局可用 | 全局可用 | 仅项目内（需 `uv run` 或激活虚拟环境） |
 | 安装类型 | 标准安装 | 标准安装 | 可编辑安装 | 可编辑安装 |
 | 代码修改生效 | 需重新安装 | 需重新安装 | 即时生效 | 即时生效 |

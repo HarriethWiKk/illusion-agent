@@ -54,16 +54,16 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 ### 环境要求
 
 - Python >= 3.10
-- Node.js 18+
 - 支持 Windows、macOS、Linux
+- Node.js 18+（仅源码安装需要，`pip install illusion-code` 无需 Node.js）
 
 ### 安装
 
 ```bash
-# 推荐方式：从 PyPI 安装
+# 推荐方式：从 PyPI 安装（无需 Node.js）
 pip install illusion-code
 
-# 备选方式：从源码安装
+# 备选方式：从源码安装（需要 Node.js 18+）
 git clone https://github.com/YunTaiHua/illusion-code.git
 cd illusion-code
 pip install .

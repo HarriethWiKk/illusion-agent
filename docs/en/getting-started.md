@@ -3,15 +3,15 @@
 ## Requirements
 
 - Python >= 3.10
-- Node.js 18+
 - Supports Windows, macOS, Linux
 - Windows users: Auto-detect Git, no manual PATH configuration needed
+- Node.js 18+: Only required for source installs; `pip install illusion-code` does not need Node.js
 
 ## Installation
 
 ### Recommended: pip install from PyPI
 
-The simplest way to install IllusionCode. Automatically installs both frontends and registers the `illusion` command globally.
+The simplest way to install IllusionCode. Automatically installs both frontends and registers the `illusion` command globally. **No Node.js required** — frontend assets are pre-built and included in the package.
 
 ```bash
 pip install illusion-code
@@ -115,6 +115,7 @@ cd ../..
 |---|---|---|---|---|
 | Source | PyPI | Local git clone | Local git clone | Local git clone |
 | Frontend build | Pre-built (included) | Automatic (hatch hook) | Automatic (hatch hook) | Manual |
+| Node.js required | **No** | Yes (18+) | Yes (18+) | Yes (18+) |
 | `illusion` command | Global | Global | Global | Project-only (via `uv run` or venv activation) |
 | Install type | Standard | Standard | Editable | Editable |
 | Code changes take effect | Reinstall needed | Reinstall needed | Immediately | Immediately |
