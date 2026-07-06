@@ -50,6 +50,15 @@ def _build_current_channel_section(
     qq_markdown_support: bool | None,
 ) -> str:
     """构建当前渠道身份描述"""
+    # 工具选择规则：明确区分当前渠道与跨渠道发送
+    tool_rule = (
+        "TOOL SELECTION RULE for sending files/images: "
+        "(1) If the user asks to send a file to the CURRENT channel or does not specify a target channel, "
+        "use the send_media tool. "
+        "(2) The send_to_channel tool is ONLY for sending to OTHER channels — "
+        "do NOT use it to send to the current channel. "
+        "(3) Only use send_to_channel when the user explicitly names a DIFFERENT channel as the target."
+    )
     if current_channel is None:
         return (
             "You are running in the PC terminal. "
@@ -61,9 +70,9 @@ def _build_current_channel_section(
             "You are conversing through Feishu (飞书). "
             "Markdown is supported and rendered via interactive cards. "
             "You can use tables, code blocks, lists, headings, and blockquotes. "
-            "Files and images can be sent natively via the send_media tool (within Feishu) "
-            "or send_to_channel tool (to other channels). "
-            "Group chats require @mention to respond (configured per channel)."
+            "To send files/images to the current Feishu chat, use the send_media tool. "
+            "Group chats require @mention to respond (configured per channel). "
+            + tool_rule
         )
     if current_channel == "qq":
         markdown_supported = bool(qq_markdown_support)
@@ -75,18 +84,18 @@ def _build_current_channel_section(
         return (
             "You are conversing through QQ Bot. "
             + md_line
-            + "Files and images can be sent natively via the send_media tool (within QQ) "
-            "or send_to_channel tool (to other channels). "
-            "Group chats require @mention and only support passive replies."
+            + "To send files/images to the current QQ chat, use the send_media tool. "
+            "Group chats require @mention and only support passive replies. "
+            + tool_rule
         )
     if current_channel == "weixin":
         return (
             "You are conversing through WeChat (微信). "
             "Markdown is supported but keep messages compact and chat-friendly. "
             "Messages cannot be edited after sending; long replies are split into chunks. "
-            "Files and images can be sent natively via the send_media tool (within WeChat) "
-            "or send_to_channel tool (to other channels). "
-            "WeChat bot only supports direct messages (no group chats)."
+            "To send files/images to the current WeChat user, use the send_media tool. "
+            "WeChat bot only supports direct messages (no group chats). "
+            + tool_rule
         )
     return ""
 
@@ -109,8 +118,8 @@ def _build_other_channels_section(
         "",
         "# Other Enabled Channels",
         "The following channels are also active. Use the `send_to_channel` tool to send "
-        "files to users in these channels (you cannot send text messages cross-channel "
-        "via this tool — for text, use cron tasks instead).",
+        "files OR text messages to users in THESE OTHER channels only — NOT to the current channel. "
+        "For the current channel, use send_media (files) or reply directly (text).",
         "",
     ]
     for name in other_names:
