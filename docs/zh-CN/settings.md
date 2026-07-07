@@ -7,7 +7,7 @@
 - [全局配置 (settings.json)](#全局配置-settingsjson)
   - [working_directory](#working_directory)
   - [环境配置 (EnvConfig)](#环境配置-envconfig)
-  - [各提供商配置示例](#各提供商配置示例)
+  - [各 API 格式配置示例](#各-api-格式配置示例)
   - [权限配置](#权限配置)
   - [环境变量](#环境变量)
   - [记忆系统配置](#记忆系统配置)
@@ -27,9 +27,8 @@
 ### 配置优先级
 
 1. **CLI 参数** — 最高优先级
-2. **环境变量** — `ANTHROPIC_API_KEY`、`ANTHROPIC_MODEL` 等
-3. **配置文件** — `~/.illusion/settings.json`
-4. **默认值** — 内置默认配置
+2. **配置文件** — `~/.illusion/settings.json`
+3. **默认值** — 内置默认配置
 
 ---
 
@@ -55,7 +54,7 @@
 | **安全模式** | `credentials.json`（由 `illusion auth login` 管理） | 密钥与配置分离，文件权限受保护 |
 | **便捷模式** | `settings.json` 的 `env_N.api_key` | 配置集中在一个文件 |
 
-运行时优先级：`env_N.api_key` > 环境变量 > `credentials.json`。
+运行时优先级：`env_N.api_key` > `credentials.json`。
 
 > **文件权限 600**：在 Unix/Linux 上，文件设置为 `rw-------`（仅所有者可读写）。Windows 上静默跳过。
 
@@ -199,7 +198,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `api_format` | string | 是 | API 格式：`anthropic` / `openai` |
+| `api_format` | string | 是 | API 格式：`anthropic` / `openai` / `copilot` / `codex` |
 | `base_url` | string\|null | 否 | 自定义 API 端点，null 使用默认端点 |
 | `api_key` | string | 否 | API 密钥（或通过 `illusion auth login` 存储到 credentials.json） |
 | `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
@@ -228,7 +227,7 @@ illusion -m env_1.model_2       # CLI 参数指定
 
 ---
 
-### 各提供商配置示例
+### 各 API 格式配置示例
 
 #### 1. Anthropic Claude API
 
@@ -257,9 +256,9 @@ illusion -m env_1.model_2       # CLI 参数指定
 }
 ```
 
-#### 3. 自定义提供商
+#### 3. 自定义格式
 
-在 `illusion auth login` 中选择"自定义提供商"，输入 API 格式、端点、密钥和模型名。
+在 `illusion auth login` 中选择"自定义格式"，输入 API 格式、端点、密钥和模型名。
 
 #### 4. GitHub Copilot
 
@@ -272,10 +271,9 @@ illusion auth login  # 选择 GitHub Copilot
 ```json
 {
   "env_1": {
-    "api_format": "openai",
+    "api_format": "copilot",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "provider": "copilot"
+    "model_1": "gpt-5.5"
   }
 }
 ```
@@ -283,24 +281,22 @@ illusion auth login  # 选择 GitHub Copilot
 #### 5. OpenAI Codex（ChatGPT 订阅）
 
 ```bash
-codex auth login      # 先安装并认证 Codex CLI
 illusion auth login   # 选择 OpenAI Codex
 ```
 
-使用 ChatGPT 订阅认证，读取 `~/.codex/auth.json`。
+使用 Device Code 流程完成 ChatGPT 订阅认证。认证数据存储在 `~/.illusion/codex_oauth_auth.json`。
 
 ```json
 {
   "env_1": {
-    "api_format": "openai",
+    "api_format": "codex",
     "base_url": "https://chatgpt.com/backend-api",
-    "model_1": "codex-mini",
-    "provider": "codex"
+    "model_1": "codex-mini"
   }
 }
 ```
 
-#### 6. 多提供商混合配置
+#### 6. 多格式混合配置
 
 ```json
 {
@@ -315,10 +311,9 @@ illusion auth login   # 选择 OpenAI Codex
     "model_1": "gpt-5.4"
   },
   "env_3": {
-    "api_format": "openai",
+    "api_format": "copilot",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "provider": "copilot"
+    "model_1": "gpt-5.5"
   },
   "model": "env_1.model_1"
 }
@@ -357,16 +352,11 @@ illusion auth login   # 选择 OpenAI Codex
 
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `ANTHROPIC_MODEL` | 默认模型 |
-| `ANTHROPIC_BASE_URL` | API 端点 |
-| `ILLUSION_MAX_TOKENS` | 最大 token 数 |
-| `ILLUSION_MAX_TURNS` | 最大对话轮数 |
-| `ILLUSION_SANDBOX_ENABLED` | 启用沙箱 |
-| `ILLUSION_CONFIG_DIR` | 配置目录路径 |
-| `ILLUSION_DATA_DIR` | 数据目录路径 |
-| `ILLUSION_LOGS_DIR` | 日志目录路径 |
+| `ILLUSION_CONFIG_DIR` | 覆盖配置目录路径（默认：`~/.illusion/`） |
+| `ILLUSION_DATA_DIR` | 覆盖数据目录路径（默认：`~/.illusion/data/`） |
+| `ILLUSION_LOGS_DIR` | 覆盖日志目录路径（默认：`~/.illusion/logs/`） |
+
+> **注意：** API 密钥、模型名称等运行时设置仅通过 `settings.json` 和 `credentials.json` 管理。使用 `illusion auth login` 配置凭据。
 
 ---
 
@@ -461,10 +451,3 @@ illusion auth login   # 选择 OpenAI Codex
   }
 }
 ```
-
-#### 环境变量覆盖
-
-| 变量 | 覆盖字段 |
-|------|----------|
-| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled` |
-| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |

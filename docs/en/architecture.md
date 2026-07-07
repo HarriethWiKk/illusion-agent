@@ -41,9 +41,9 @@ Supports multiple AI providers:
 |----------|------------|----------------|
 | Anthropic Claude | anthropic | API Key |
 | OpenAI / Compatible | openai | API Key |
-| GitHub Copilot | openai | OAuth Device Flow |
-| OpenAI Codex | openai | External CLI (Codex CLI) |
-| Custom Provider | anthropic / openai | API Key |
+| GitHub Copilot | copilot | OAuth Device Flow |
+| OpenAI Codex | codex | OAuth Device Flow |
+| Custom Format | anthropic / openai | API Key |
 
 ### Tool System
 

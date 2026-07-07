@@ -7,7 +7,7 @@
 - [Global Configuration (settings.json)](#global-configuration-settingsjson)
   - [working_directory](#working_directory)
   - [Environment Configuration (EnvConfig)](#environment-configuration-envconfig)
-  - [Provider Configuration Examples](#provider-configuration-examples)
+  - [API Format Configuration Examples](#api-format-configuration-examples)
   - [Permission Configuration](#permission-configuration)
   - [Environment Variables](#environment-variables)
   - [Memory System Configuration](#memory-system-configuration)
@@ -27,9 +27,8 @@ Environment variable overrides: `ILLUSION_CONFIG_DIR` replaces `~/.illusion/`, `
 ### Configuration Priority
 
 1. **CLI Arguments** — highest priority
-2. **Environment Variables** — `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, etc.
-3. **Configuration Files** — `~/.illusion/settings.json`
-4. **Default Values** — built-in defaults
+2. **Configuration Files** — `~/.illusion/settings.json`
+3. **Default Values** — built-in defaults
 
 ---
 
@@ -55,7 +54,7 @@ Located at `~/.illusion/credentials.json`, managed by `illusion auth login`. Cre
 | **Secure mode** | `credentials.json` (managed by `illusion auth login`) | Keys separated from config, file permissions protected |
 | **Convenient mode** | `env_N.api_key` in `settings.json` | All config in one file |
 
-Runtime priority: `env_N.api_key` > environment variables > `credentials.json`.
+Runtime priority: `env_N.api_key` > `credentials.json`.
 
 > **File Permission 600**: On Unix/Linux, file is set to `rw-------` (owner only). Silently skipped on Windows.
 
@@ -199,7 +198,7 @@ Fixed working directory. If set, illusion-code will automatically switch to this
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `api_format` | string | Yes | API format: `anthropic` / `openai` |
+| `api_format` | string | Yes | API format: `anthropic` / `openai` / `copilot` / `codex` |
 | `base_url` | string\|null | No | Custom API endpoint, null uses default |
 | `api_key` | string | No | API key (or use `illusion auth login` for credentials.json) |
 | `system_prompt` | string\|null | No | Per-environment system prompt (overrides global) |
@@ -228,7 +227,7 @@ illusion -m env_1.model_2       # CLI parameter
 
 ---
 
-### Provider Configuration Examples
+### API Format Configuration Examples
 
 #### 1. Anthropic Claude API
 
@@ -257,9 +256,9 @@ illusion -m env_1.model_2       # CLI parameter
 }
 ```
 
-#### 3. Custom Provider
+#### 3. Custom Format
 
-Select "Custom provider" in `illusion auth login`, enter API format, endpoint, API key, and model name.
+Select "Custom format" in `illusion auth login`, enter API format, endpoint, API key, and model name.
 
 #### 4. GitHub Copilot
 
@@ -272,10 +271,9 @@ After GitHub authorization in browser, auto-configured. Auth stored in `~/.illus
 ```json
 {
   "env_1": {
-    "api_format": "openai",
+    "api_format": "copilot",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "provider": "copilot"
+    "model_1": "gpt-5.5"
   }
 }
 ```
@@ -283,24 +281,22 @@ After GitHub authorization in browser, auto-configured. Auth stored in `~/.illus
 #### 5. OpenAI Codex (ChatGPT Subscription)
 
 ```bash
-codex auth login      # Install and authenticate Codex CLI first
 illusion auth login   # Select OpenAI Codex
 ```
 
-Uses ChatGPT subscription auth from `~/.codex/auth.json`.
+Uses ChatGPT subscription auth via Device Code flow. Auth stored in `~/.illusion/codex_oauth_auth.json`.
 
 ```json
 {
   "env_1": {
-    "api_format": "openai",
+    "api_format": "codex",
     "base_url": "https://chatgpt.com/backend-api",
-    "model_1": "codex-mini",
-    "provider": "codex"
+    "model_1": "codex-mini"
   }
 }
 ```
 
-#### 6. Multi-Provider Mixed Configuration
+#### 6. Multi-Format Mixed Configuration
 
 ```json
 {
@@ -315,10 +311,9 @@ Uses ChatGPT subscription auth from `~/.codex/auth.json`.
     "model_1": "gpt-5.4"
   },
   "env_3": {
-    "api_format": "openai",
+    "api_format": "copilot",
     "base_url": "https://api.githubcopilot.com",
-    "model_1": "gpt-5.5",
-    "provider": "copilot"
+    "model_1": "gpt-5.5"
   },
   "model": "env_1.model_1"
 }
@@ -357,16 +352,11 @@ Uses ChatGPT subscription auth from `~/.codex/auth.json`.
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_MODEL` | Default model |
-| `ANTHROPIC_BASE_URL` | API endpoint |
-| `ILLUSION_MAX_TOKENS` | Maximum token count |
-| `ILLUSION_MAX_TURNS` | Maximum conversation turns |
-| `ILLUSION_SANDBOX_ENABLED` | Enable sandbox |
-| `ILLUSION_CONFIG_DIR` | Configuration directory path |
-| `ILLUSION_DATA_DIR` | Data directory path |
-| `ILLUSION_LOGS_DIR` | Logs directory path |
+| `ILLUSION_CONFIG_DIR` | Override configuration directory (default: `~/.illusion/`) |
+| `ILLUSION_DATA_DIR` | Override data directory (default: `~/.illusion/data/`) |
+| `ILLUSION_LOGS_DIR` | Override logs directory (default: `~/.illusion/logs/`) |
+
+> **Note:** API keys, model names, and other runtime settings are managed exclusively through `settings.json` and `credentials.json`. Use `illusion auth login` to configure credentials.
 
 ---
 
@@ -461,10 +451,3 @@ The sandbox system provides OS-level isolation for shell commands. Supports thre
   }
 }
 ```
-
-#### Environment Variable Overrides
-
-| Variable | Overrides |
-|----------|-----------|
-| `ILLUSION_SANDBOX_ENABLED` | `sandbox.enabled` |
-| `ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE` | `sandbox.fail_if_unavailable` |

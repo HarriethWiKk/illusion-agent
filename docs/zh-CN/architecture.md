@@ -43,9 +43,9 @@ illusion-code/
 |--------|----------|----------|
 | Anthropic Claude | anthropic | API Key |
 | OpenAI / 兼容接口 | openai | API Key |
-| GitHub Copilot | openai | OAuth 设备码 |
-| OpenAI Codex | openai | 外部 CLI (Codex CLI) |
-| 自定义提供商 | anthropic / openai | API Key |
+| GitHub Copilot | copilot | OAuth 设备码 |
+| OpenAI Codex | codex | OAuth 设备码 |
+| 自定义格式 | anthropic / openai | API Key |
 
 ### 工具系统
 
