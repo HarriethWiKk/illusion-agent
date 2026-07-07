@@ -43,6 +43,7 @@ Runtime 运行时模块
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -228,34 +229,46 @@ async def build_runtime(
     plugins = load_plugins(settings, cwd)
     # 解析 API 客户端
     resolved_api_client: SupportsStreamingMessages
-    if api_client:
-        resolved_api_client = api_client
-    elif settings.api_format == "copilot":
-        from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
-        _copilot = CopilotAuth()
-        _copilot_token = _copilot.get_valid_token()
-        resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
-            api_key=_copilot_token,
-            base_url=settings.base_url or "https://api.githubcopilot.com",
-            extra_headers=copilot_extra_headers(),
-        )
-    elif settings.api_format == "codex":
-        from illusion.auth.codex_oauth import CodexOAuth
-        from illusion.api.codex_client import CodexApiClient
-        resolved_api_client = CodexApiClient(  # type: ignore[assignment]
-            auth_token_resolver=CodexOAuth().get_valid_token,
-            base_url=settings.base_url,
-        )
-    elif settings.api_format == "anthropic":
-        resolved_api_client = AnthropicApiClient(  # type: ignore[assignment]
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
-    else:  # "openai" 及其他 OpenAI 兼容格式
-        resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
+    try:
+        if api_client:
+            resolved_api_client = api_client
+        elif settings.api_format == "copilot":
+            from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
+            _copilot = CopilotAuth()
+            _copilot_token = _copilot.get_valid_token()
+            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
+                api_key=_copilot_token,
+                base_url=settings.base_url or "https://api.githubcopilot.com",
+                extra_headers=copilot_extra_headers(),
+            )
+        elif settings.api_format == "codex":
+            from illusion.auth.codex_oauth import CodexOAuth
+            from illusion.api.codex_client import CodexApiClient
+            resolved_api_client = CodexApiClient(  # type: ignore[assignment]
+                auth_token_resolver=CodexOAuth().get_valid_token,
+                base_url=settings.base_url,
+            )
+        elif settings.api_format == "anthropic":
+            resolved_api_client = AnthropicApiClient(  # type: ignore[assignment]
+                api_key=settings.resolve_api_key(),
+                base_url=settings.base_url,
+            )
+        else:  # "openai" 及其他 OpenAI 兼容格式
+            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
+                api_key=settings.resolve_api_key(),
+                base_url=settings.base_url,
+            )
+    except (ValueError, RuntimeError) as exc:
+        # 友好提示而非让异常冒泡成 "后端无法连接"
+        import sys
+
+        import click
+
+        from illusion.config.i18n import t as _t
+
+        click.echo(str(exc), err=True)
+        click.echo(_t("terminal_auth_hint"), err=True)
+        sys.exit(1)
     # 创建 MCP 客户端管理器
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
     await mcp_manager.connect_all()
@@ -555,37 +568,50 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
 def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
     """根据当前设置重建 API 客户端（跨 env 切换模型时调用）
 
+    当 API key 缺失或无效时，设置 auth_status="missing" 并返回，
+    而非抛出异常导致后端崩溃。
+
     Args:
         bundle: 运行时数据 bundle
         settings: 当前设置
     """
-    _api_format = settings.api_format
-    if _api_format == "copilot":
-        from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
-        _copilot = CopilotAuth()
-        _copilot_token = _copilot.get_valid_token()
-        new_client = OpenAICompatibleClient(
-            api_key=_copilot_token,
-            base_url=settings.base_url or "https://api.githubcopilot.com",
-            extra_headers=copilot_extra_headers(),
-        )
-    elif _api_format == "codex":
-        from illusion.auth.codex_oauth import CodexOAuth
-        from illusion.api.codex_client import CodexApiClient
-        new_client = CodexApiClient(  # type: ignore[assignment]
-            auth_token_resolver=CodexOAuth().get_valid_token,
-            base_url=settings.base_url,
-        )
-    elif _api_format == "anthropic":
-        new_client = AnthropicApiClient(  # type: ignore[assignment]
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
-    else:  # "openai" 及其他 OpenAI 兼容格式
-        new_client = OpenAICompatibleClient(
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
+    try:
+        _api_format = settings.api_format
+        if _api_format == "copilot":
+            from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
+            _copilot = CopilotAuth()
+            _copilot_token = _copilot.get_valid_token()
+            new_client = OpenAICompatibleClient(
+                api_key=_copilot_token,
+                base_url=settings.base_url or "https://api.githubcopilot.com",
+                extra_headers=copilot_extra_headers(),
+            )
+        elif _api_format == "codex":
+            from illusion.auth.codex_oauth import CodexOAuth
+            from illusion.api.codex_client import CodexApiClient
+            new_client = CodexApiClient(  # type: ignore[assignment]
+                auth_token_resolver=CodexOAuth().get_valid_token,
+                base_url=settings.base_url,
+            )
+        elif _api_format == "anthropic":
+            new_client = AnthropicApiClient(  # type: ignore[assignment]
+                api_key=settings.resolve_api_key(),
+                base_url=settings.base_url,
+            )
+        else:  # "openai" 及其他 OpenAI 兼容格式
+            new_client = OpenAICompatibleClient(
+                api_key=settings.resolve_api_key(),
+                base_url=settings.base_url,
+            )
+    except (ValueError, RuntimeError) as exc:
+        # 不退出，设置 auth_status 为 missing 并返回
+        # web 前端会检测到 missing 状态并弹出设置弹窗
+        logging.getLogger(__name__).warning("API client rebuild failed: %s", exc)
+        try:
+            bundle.app_state.get().auth_status = "missing"
+        except Exception:
+            pass
+        return
 
     bundle.api_client = new_client  # type: ignore[assignment]
     bundle.engine.set_api_client(new_client)  # type: ignore[arg-type]
