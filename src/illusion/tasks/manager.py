@@ -30,9 +30,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import asyncio
+import logging
 import shlex
 import time
 from dataclasses import replace
@@ -42,6 +43,8 @@ from uuid import uuid4
 from illusion.config.paths import get_tasks_dir
 from illusion.tasks.types import TaskRecord, TaskStatus, TaskType, to_task_internal_status
 from illusion.utils.shell import create_shell_subprocess
+
+logger = logging.getLogger(__name__)
 
 
 class BackgroundTaskManager:
@@ -54,6 +57,8 @@ class BackgroundTaskManager:
         self._output_locks: dict[str, asyncio.Lock] = {}
         self._input_locks: dict[str, asyncio.Lock] = {}
         self._generations: dict[str, int] = {}
+        # 子进程退出时回调，用于通知 bg_agent_tracker（由 runtime.py 注册）
+        self.on_task_complete: Callable[[str, "TaskRecord"], None] | None = None
 
     def create_pending_task(
         self,
@@ -280,6 +285,13 @@ class BackgroundTaskManager:
         task.ended_at = time.time()
         self._processes.pop(task_id, None)
         self._waiters.pop(task_id, None)
+
+        # 通知 on_task_complete 回调（若已注册）
+        if self.on_task_complete is not None:
+            try:
+                self.on_task_complete(task_id, task)
+            except Exception:
+                logger.exception("[manager] on_task_complete callback failed for %s", task_id)
 
     async def _copy_output(self, task_id: str, process: asyncio.subprocess.Process) -> None:
         """将进程输出复制到任务输出文件。"""
