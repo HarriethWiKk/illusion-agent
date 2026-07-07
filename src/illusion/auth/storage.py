@@ -5,26 +5,22 @@
 本模块为 IllusionCode 提供安全的凭据存储功能。
 
 默认后端：~/.illusion/credentials.json，权限 600
-可选后端：系统 keyring（如果安装了 keyring 包）
 
 函数说明：
-    - store_credential: 存储凭据
-    - load_credential: 加载凭据
-    - clear_provider_credentials: 清除提供商凭据
-    - store_external_binding/load_external_binding: 外部绑定存储/加载
+    - store_env_credential/load_env_credential: 按 env_N 分组存取凭据
+    - clear_env_credentials: 清除指定环境的凭据
     - encrypt/decrypt: 轻量级混淆加密
 
 使用示例：
-    >>> from illusion.auth.storage import store_credential, load_credential
-    >>> store_credential("anthropic", "api_key", "sk-...")
-    >>> key = load_credential("anthropic", "api_key")
+    >>> from illusion.auth.storage import store_env_credential, load_env_credential
+    >>> store_env_credential("env_1", "api_key", "sk-...")
+    >>> key = load_env_credential("env_1", "api_key")
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -36,25 +32,6 @@ log = logging.getLogger(__name__)
 # 常量定义
 _CREDS_FILE_NAME = "credentials.json"  # 凭据文件名
 _KEYRING_SERVICE = "illusion"  # keyring 服务名
-
-
-@dataclass(frozen=True)
-class ExternalAuthBinding:
-    """指向外部 CLI 管理的凭据的指针
-    
-    Attributes:
-        provider: 提供商名称
-        source_path: 源路径
-        source_kind: 源类型
-        managed_by: 管理程序
-        profile_label: 配置标签
-    """
-
-    provider: str
-    source_path: str
-    source_kind: str
-    managed_by: str
-    profile_label: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -97,142 +74,6 @@ def _save_creds_file(data: dict[str, Any]) -> None:
         path.chmod(0o600)
     except OSError:
         pass
-
-
-# ---------------------------------------------------------------------------
-# Keyring 后端（可选）
-# ---------------------------------------------------------------------------
-
-
-def _keyring_available() -> bool:
-    """检查 keyring 是否可用
-    
-    Returns:
-        bool: keyring 是否可用
-    """
-    try:
-        import keyring  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-def _keyring_key(provider: str, key: str) -> str:
-    """生成 keyring 键
-    
-    Args:
-        provider: 提供商名称
-        key: 键名
-    
-    Returns:
-        str: 组合键名
-    """
-    return f"{provider}:{key}"
-
-
-# ---------------------------------------------------------------------------
-# 公共 API
-# ---------------------------------------------------------------------------
-
-
-def store_credential(provider: str, key: str, value: str, *, use_keyring: bool | None = None) -> None:
-    """持久化 provider 下的凭据
-    
-    如果未设置 use_keyring，在可用时使用 keyring。
-    
-    Args:
-        provider: 提供商名称
-        key: 键名
-        value: 凭据值
-        use_keyring: 是否使用 keyring（可选）
-    """
-    if use_keyring is None:
-        use_keyring = _keyring_available()
-
-    if use_keyring:
-        try:
-            import keyring
-
-            keyring.set_password(_KEYRING_SERVICE, _keyring_key(provider, key), value)
-            log.debug("Stored %s/%s in keyring", provider, key)
-            return
-        except Exception as exc:
-            log.warning("Keyring store failed, falling back to file: %s", exc)
-
-    data = _load_creds_file()
-    data.setdefault(provider, {})[key] = value
-    _save_creds_file(data)
-    log.debug("Stored %s/%s in credentials file", provider, key)
-
-
-def load_credential(provider: str, key: str, *, use_keyring: bool | None = None) -> str | None:
-    """返回存储的凭据，未找到返回 None
-    
-    Args:
-        provider: 提供商名称
-        key: 键名
-        use_keyring: 是否使用 keyring（可选）
-    
-    Returns:
-        str | None: 凭据值或 None
-    """
-    if use_keyring is None:
-        use_keyring = _keyring_available()
-
-    if use_keyring:
-        try:
-            import keyring
-
-            value = keyring.get_password(_KEYRING_SERVICE, _keyring_key(provider, key))
-            if value is not None:
-                return value
-        except Exception as exc:
-            log.warning("Keyring load failed, falling back to file: %s", exc)
-
-    data = _load_creds_file()
-    file_value: str | None = data.get(provider, {}).get(key)
-    return file_value
-
-
-def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None) -> None:
-    """删除 provider 的所有存储凭据
-    
-    Args:
-        provider: 提供商名称
-        use_keyring: 是否使用 keyring（可选）
-    """
-    if use_keyring is None:
-        use_keyring = _keyring_available()
-
-    if use_keyring:
-        try:
-            import keyring
-            from keyring.errors import PasswordDeleteError
-
-            # 尝试常见键；静默忽略缺失的
-            for key in ("api_key", "token", "github_token"):
-                try:
-                    keyring.delete_password(_KEYRING_SERVICE, _keyring_key(provider, key))
-                except (PasswordDeleteError, Exception):
-                    pass
-        except ImportError:
-            pass
-
-    data = _load_creds_file()
-    if provider in data:
-        del data[provider]
-        _save_creds_file(data)
-    log.debug("Cleared credentials for provider: %s", provider)
-
-
-def list_stored_providers() -> list[str]:
-    """返回文件中存储了凭据的提供商列表
-
-    Returns:
-        list[str]: 提供商名称列表
-    """
-    return list(_load_creds_file().keys())
 
 
 # ---------------------------------------------------------------------------
@@ -280,47 +121,6 @@ def clear_env_credentials(env_key: str) -> None:
         del data[env_key]
         _save_creds_file(data)
     log.debug("Cleared credentials for env: %s", env_key)
-
-
-def store_external_binding(binding: ExternalAuthBinding) -> None:
-    """持久化描述 provider 外部认证源的元数据
-    
-    Args:
-        binding: 外部认证绑定
-    """
-    data = _load_creds_file()
-    entry = data.setdefault(binding.provider, {})
-    entry["external_binding"] = asdict(binding)
-    _save_creds_file(data)
-    log.debug("Stored external auth binding for provider: %s", binding.provider)
-
-
-def load_external_binding(provider: str) -> ExternalAuthBinding | None:
-    """如果存在，加载 provider 的外部认证绑定元数据
-    
-    Args:
-        provider: 提供商名称
-    
-    Returns:
-        ExternalAuthBinding | None: 外部绑定或 None
-    """
-    entry = _load_creds_file().get(provider, {})
-    if not isinstance(entry, dict):
-        return None
-    raw = entry.get("external_binding")
-    if not isinstance(raw, dict):
-        return None
-    try:
-        return ExternalAuthBinding(
-            provider=str(raw["provider"]),
-            source_path=str(raw["source_path"]),
-            source_kind=str(raw["source_kind"]),
-            managed_by=str(raw["managed_by"]),
-            profile_label=str(raw.get("profile_label", "") or ""),
-        )
-    except KeyError:
-        log.warning("Ignoring malformed external auth binding for provider: %s", provider)
-        return None
 
 
 # ---------------------------------------------------------------------------

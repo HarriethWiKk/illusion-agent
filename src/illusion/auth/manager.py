@@ -193,23 +193,3 @@ class AuthManager:
             env_key: 环境键名（如 "env_1"）
         """
         clear_env_credentials(env_key)
-
-    def store_credential(self, provider: str, key: str, value: str) -> None:
-        """存储凭据（兼容旧接口，按 provider 存储）
-
-        Args:
-            provider: 提供商名称
-            key: 键名
-            value: 凭据值
-        """
-        from illusion.auth.storage import store_credential
-        store_credential(provider, key, value)
-
-    def clear_credential(self, provider: str) -> None:
-        """删除凭据（兼容旧接口，按 provider 清除）
-
-        Args:
-            provider: 提供商名称
-        """
-        from illusion.auth.storage import clear_provider_credentials
-        clear_provider_credentials(provider)

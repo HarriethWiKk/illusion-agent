@@ -7,9 +7,7 @@
 主要组件：
     - AuthManager: 认证管理器
     - ApiKeyFlow: API 密钥认证流程
-    - store_credential/load_credential: 凭据存储/加载（按 provider）
     - store_env_credential/load_env_credential: 凭据存储/加载（按 env_N）
-    - store_external_binding/load_external_binding: 外部绑定存储/加载
     - encrypt/decrypt: 加密/解密功能
 
 使用示例：
@@ -23,28 +21,18 @@ from illusion.auth.flows import ApiKeyFlow
 from illusion.auth.manager import AuthManager
 from illusion.auth.storage import (
     clear_env_credentials,
-    clear_provider_credentials,
     decrypt,
     encrypt,
-    load_credential,
     load_env_credential,
-    load_external_binding,
-    store_credential,
     store_env_credential,
-    store_external_binding,
 )
 
 __all__ = [
     "AuthManager",
     "ApiKeyFlow",
-    "store_credential",
-    "load_credential",
     "store_env_credential",
     "load_env_credential",
     "clear_env_credentials",
-    "store_external_binding",
-    "load_external_binding",
-    "clear_provider_credentials",
     "encrypt",
     "decrypt",
 ]

@@ -9,9 +9,8 @@ Settings 模型和加载逻辑模块
 
 设置解析优先级（从高到低）：
     1. CLI 参数
-    2. 环境变量（ANTHROPIC_API_KEY, ANTHROPIC_MODEL 等）
-    3. 配置文件（~/.illusion/settings.json）
-    4. 默认值
+    2. 配置文件（~/.illusion/settings.json）
+    3. 默认值
 
 类说明：
     - Settings: 主设置模型，使用 env_N 分组管理多个环境配置
@@ -29,7 +28,6 @@ Settings 模型和加载逻辑模块
 from __future__ import annotations
 
 import json  # 导入 json 模块用于配置文件读写
-import os  # 导入 os 模块用于环境变量访问
 from dataclasses import dataclass  # 导入 dataclass 用于创建不可变数据结构
 from pathlib import Path  # 导入 Path 用于路径处理
 from typing import Any  # 导入 Any 类型用于泛型
@@ -193,18 +191,16 @@ class SandboxSettings(BaseModel):
 @dataclass(frozen=True)
 class ResolvedAuth:
     """规范化的认证材料
-    
+
     用于构造 API 客户端的标准化认证信息。
-    
+
     Attributes:
-        provider: 提供商名称
         auth_kind: 认证类型
         value: 认证值
         source: 认证来源
         state: 状态（默认为 "configured"）
     """
 
-    provider: str  # 提供商
     auth_kind: str  # 认证类型（api_key、oauth 等）
     value: str  # 认证值
     source: str  # 来源描述
@@ -352,14 +348,6 @@ class Settings(BaseModel):
         return self._active_env.base_url
 
     @property
-    def provider(self) -> str:
-        """兼容性属性：根据 api_format 推断提供商"""
-        fmt = self._active_env.api_format
-        if fmt == "anthropic":
-            return "anthropic"
-        return "openai"
-
-    @property
     def api_format(self) -> str:
         """兼容性属性：当前活跃环境的 API 格式"""
         return self._active_env.api_format
@@ -367,7 +355,7 @@ class Settings(BaseModel):
     def resolve_api_key(self) -> str:
         """解析 API 密钥
 
-        优先级：EnvConfig.api_key > 环境变量 > credentials.json(env_N) > 旧格式 credentials.json(provider) > 空
+        优先级：EnvConfig.api_key > credentials.json(env_N)
 
         Returns:
             str: API 密钥字符串
@@ -381,27 +369,11 @@ class Settings(BaseModel):
         if env.api_key:
             return env.api_key
 
-        # 检查环境变量
-        if env.api_format == "openai":
-            env_var_key = os.environ.get("OPENAI_API_KEY", "")
-            if env_var_key:
-                return env_var_key
-        env_var_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if env_var_key:
-            return env_var_key
-
         # 从 credentials.json 的 env_N 读取
         from illusion.auth.storage import load_env_credential
         env_cred = load_env_credential(self._active_env_key, "api_key")
         if env_cred:
             return env_cred
-
-        # 兼容旧格式：按 provider 名读取
-        from illusion.auth.storage import load_credential
-        provider = self.provider
-        old_cred = load_credential(provider, "api_key")
-        if old_cred:
-            return old_cred
 
         from illusion.config.i18n import t as _t
         raise ValueError(_t("no_api_key"))
@@ -416,37 +388,13 @@ class Settings(BaseModel):
             ValueError: 认证配置错误时抛出
         """
         env = self._active_env
-        provider = self.provider
-        api_format = env.api_format
 
         # 检查 EnvConfig 中的 api_key
         if env.api_key:
             return ResolvedAuth(
-                provider=provider,
                 auth_kind="api_key",
                 value=env.api_key,
                 source="env_config",
-                state="configured",
-            )
-
-        # 检查环境变量
-        if api_format == "openai":
-            openai_val = os.environ.get("OPENAI_API_KEY", "")
-            if openai_val:
-                return ResolvedAuth(
-                    provider=provider,
-                    auth_kind="api_key",
-                    value=openai_val,
-                    source="env:OPENAI_API_KEY",
-                    state="configured",
-                )
-        anthropic_val = os.environ.get("ANTHROPIC_API_KEY", "")
-        if anthropic_val:
-            return ResolvedAuth(
-                provider=provider,
-                auth_kind="api_key",
-                value=anthropic_val,
-                source="env:ANTHROPIC_API_KEY",
                 state="configured",
             )
 
@@ -455,22 +403,9 @@ class Settings(BaseModel):
         env_cred = load_env_credential(self._active_env_key, "api_key")
         if env_cred:
             return ResolvedAuth(
-                provider=provider,
                 auth_kind="api_key",
                 value=env_cred,
                 source=f"file:{self._active_env_key}",
-                state="configured",
-            )
-
-        # 兼容旧格式：按 provider 名读取
-        from illusion.auth.storage import load_credential
-        old_cred = load_credential(provider, "api_key")
-        if old_cred:
-            return ResolvedAuth(
-                provider=provider,
-                auth_kind="api_key",
-                value=old_cred,
-                source=f"file:{provider}",
                 state="configured",
             )
 
@@ -480,95 +415,28 @@ class Settings(BaseModel):
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """返回应用了 CLI 覆盖的新 Settings（仅非 None 值）
 
+        对全局字段（model/max_turns/effort 等）直接使用 model_copy。
+        对 env 级字段（api_key/base_url/api_format）创建更新后的 EnvConfig
+        并 setattr 到活跃 env_N 上，使 --api-key/--base-url/--api-format 真正生效。
+
         Args:
             **overrides: 要覆盖的字段
 
         Returns:
             Settings: 应用覆盖后的新实例
         """
-        updates = {k: v for k, v in overrides.items() if v is not None}
-        if not updates:
-            return self
-        return self.model_copy(update=updates)
+        # env 级覆盖需写入活跃 EnvConfig，不能直接 model_copy
+        env_keys = {"api_key", "base_url", "api_format"}
+        env_overrides = {k: v for k, v in overrides.items() if v is not None and k in env_keys}
+        global_updates = {k: v for k, v in overrides.items() if v is not None and k not in env_keys}
 
-
-def _apply_env_overrides(settings: Settings) -> Settings:
-    """在加载的设置上应用环境变量覆盖到活跃的 EnvConfig
-
-    直接修改活跃 env 的 api_key、model、base_url 等字段，
-    而不是设置 Settings 的属性（属性会 shadow extras）。
-
-    Args:
-        settings: 原始设置
-
-    Returns:
-        Settings: 应用环境变量覆盖后的设置
-    """
-    env = settings._active_env
-    env_modified = False
-
-    model = os.environ.get("ANTHROPIC_MODEL")
-    if model:
-        # 修改当前活跃的 model_N 字段，而不是写入 env.model
-        model_key = settings._active_model_key
-        env = env.model_copy(update={model_key: model})
-        env_modified = True
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if api_key:
-        env.api_key = api_key
-        env_modified = True
-
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    if base_url:
-        env.base_url = base_url
-        env_modified = True
-
-    # 非模型相关的全局字段覆盖仍使用 model_copy
-    updates: dict[str, Any] = {}
-
-    max_tokens = os.environ.get("ILLUSION_MAX_TOKENS") or os.environ.get("illusion_MAX_TOKENS")
-    if max_tokens:
-        updates["max_tokens"] = int(max_tokens)
-
-    max_turns = os.environ.get("ILLUSION_MAX_TURNS") or os.environ.get("illusion_MAX_TURNS")
-    if max_turns:
-        updates["max_turns"] = int(max_turns)
-
-    effort = os.environ.get("ILLUSION_EFFORT") or os.environ.get("illusion_EFFORT")
-    if effort:
-        updates["effort"] = effort
-
-    sandbox_enabled = os.environ.get("ILLUSION_SANDBOX_ENABLED") or os.environ.get("illusion_SANDBOX_ENABLED")
-    sandbox_fail = os.environ.get("ILLUSION_SANDBOX_FAIL_IF_UNAVAILABLE") or os.environ.get("illusion_SANDBOX_FAIL_IF_UNAVAILABLE")
-    sandbox_updates: dict[str, Any] = {}
-    if sandbox_enabled is not None:
-        sandbox_updates["enabled"] = _parse_bool_env(sandbox_enabled)
-    if sandbox_fail is not None:
-        sandbox_updates["fail_if_unavailable"] = _parse_bool_env(sandbox_fail)
-    if sandbox_updates:
-        updates["sandbox"] = settings.sandbox.model_copy(update=sandbox_updates)
-
-    # 将修改后的 env 写回 settings 的 extras
-    if env_modified:
-        env_key = settings._active_env_key
-        updates[env_key] = env
-
-    if not updates:
-        return settings
-    return settings.model_copy(update=updates)
-
-
-def _parse_bool_env(value: str) -> bool:
-    """解析布尔环境变量
-
-    Args:
-        value: 环境变量值字符串
-
-    Returns:
-        bool: 解析后的布尔值
-    """
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+        new_settings = self.model_copy(update=global_updates)
+        if env_overrides:
+            env = new_settings._active_env
+            env_key = new_settings._active_env_key
+            updated_env = env.model_copy(update=env_overrides)
+            setattr(new_settings, env_key, updated_env)
+        return new_settings
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
@@ -578,7 +446,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         config_path: settings.json 的路径。如果为 None，使用默认位置。
 
     Returns:
-        Settings: 应用环境变量覆盖后的 Settings 实例
+        Settings: 从配置文件加载的 Settings 实例
     """
     if config_path is None:
         from illusion.config.paths import get_config_file_path
@@ -596,10 +464,9 @@ def load_settings(config_path: Path | None = None) -> Settings:
             if key.startswith("env_") and isinstance(raw[key], dict):
                 raw[key].pop("model", None)
 
-        settings = Settings.model_validate(raw)
-        return _apply_env_overrides(settings)
+        return Settings.model_validate(raw)
 
-    return _apply_env_overrides(Settings())
+    return Settings()
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:
