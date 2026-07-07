@@ -51,7 +51,7 @@ from uuid import uuid4
 from illusion.api.client import AnthropicApiClient, SupportsStreamingMessages
 from illusion.api.effort import EffortMapper
 from illusion.api.openai_client import OpenAICompatibleClient
-from illusion.api.provider import auth_status, detect_provider
+from illusion.api.auth_status import auth_status
 from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
 from illusion.commands.registry import CommandRegistry
@@ -230,35 +230,29 @@ async def build_runtime(
     resolved_api_client: SupportsStreamingMessages
     if api_client:
         resolved_api_client = api_client
-    elif settings.api_format == "openai":
-        # 检测是否为 Copilot 或 Codex 提供商
-        _provider_info = detect_provider(settings)
-        if _provider_info.name == "copilot":
-            from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
-            _copilot = CopilotAuth()
-            _copilot_token = _copilot.get_valid_token()
-            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
-                api_key=_copilot_token,
-                base_url=settings.base_url or "https://api.githubcopilot.com",
-                extra_headers=copilot_extra_headers(),
-            )
-        elif _provider_info.name == "codex":
-            from illusion.auth.external import default_binding_for_provider, load_external_credential
-            from illusion.api.codex_client import CodexApiClient
-            _binding = default_binding_for_provider("openai_codex")
-            _cred = load_external_credential(_binding)
-            resolved_api_client = CodexApiClient(  # type: ignore[assignment]
-                auth_token=_cred.value,
-                base_url=settings.base_url,
-            )
-        else:
-            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
-                api_key=settings.resolve_api_key(),
-                base_url=settings.base_url,
-                provider=_provider_info.name,
-            )
-    else:
+    elif settings.api_format == "copilot":
+        from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
+        _copilot = CopilotAuth()
+        _copilot_token = _copilot.get_valid_token()
+        resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
+            api_key=_copilot_token,
+            base_url=settings.base_url or "https://api.githubcopilot.com",
+            extra_headers=copilot_extra_headers(),
+        )
+    elif settings.api_format == "codex":
+        from illusion.auth.codex_oauth import CodexOAuth
+        from illusion.api.codex_client import CodexApiClient
+        resolved_api_client = CodexApiClient(  # type: ignore[assignment]
+            auth_token_resolver=CodexOAuth().get_valid_token,
+            base_url=settings.base_url,
+        )
+    elif settings.api_format == "anthropic":
         resolved_api_client = AnthropicApiClient(  # type: ignore[assignment]
+            api_key=settings.resolve_api_key(),
+            base_url=settings.base_url,
+        )
+    else:  # "openai" 及其他 OpenAI 兼容格式
+        resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
         )
@@ -267,8 +261,6 @@ async def build_runtime(
     await mcp_manager.connect_all()
     # 创建工具注册器
     tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
-    # 检测提供者
-    provider = detect_provider(settings)
     # 获取桥接管理器
     bridge_manager = get_bridge_manager()
     # 创建应用状态存储
@@ -278,7 +270,6 @@ async def build_runtime(
             permission_mode=settings.permission.mode.value,
             ui_language=settings.ui_language,
             cwd=cwd,
-            provider=provider.name,
             auth_status=auth_status(settings),
             base_url=settings.base_url or "",
             fast_mode=settings.fast_mode,
@@ -518,13 +509,11 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     from illusion.services.compact import estimate_conversation_tokens
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
-    provider = detect_provider(settings)
     bundle.app_state.set(
         model=settings.active_model_name,
         permission_mode=settings.permission.mode.value,
         ui_language=settings.ui_language,
         cwd=bundle.cwd,
-        provider=provider.name,
         auth_status=auth_status(settings),
         base_url=settings.base_url or "",
         fast_mode=settings.fast_mode,
@@ -549,10 +538,8 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
         bundle: 运行时数据 bundle
         settings: 当前设置
     """
-    from illusion.api.provider import detect_provider as _detect
-
-    _provider_info = _detect(settings)
-    if _provider_info.name == "copilot":
+    _api_format = settings.api_format
+    if _api_format == "copilot":
         from illusion.auth.copilot import CopilotAuth, copilot_extra_headers
         _copilot = CopilotAuth()
         _copilot_token = _copilot.get_valid_token()
@@ -561,23 +548,20 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
             base_url=settings.base_url or "https://api.githubcopilot.com",
             extra_headers=copilot_extra_headers(),
         )
-    elif _provider_info.name == "codex":
-        from illusion.auth.external import default_binding_for_provider, load_external_credential
+    elif _api_format == "codex":
+        from illusion.auth.codex_oauth import CodexOAuth
         from illusion.api.codex_client import CodexApiClient
-        _binding = default_binding_for_provider("openai_codex")
-        _cred = load_external_credential(_binding)
         new_client = CodexApiClient(  # type: ignore[assignment]
-            auth_token=_cred.value,
+            auth_token_resolver=CodexOAuth().get_valid_token,
             base_url=settings.base_url,
         )
-    elif settings.api_format == "openai":
-        new_client = OpenAICompatibleClient(
+    elif _api_format == "anthropic":
+        new_client = AnthropicApiClient(  # type: ignore[assignment]
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
-            provider=_provider_info.name,
         )
-    else:
-        new_client = AnthropicApiClient(  # type: ignore[assignment]
+    else:  # "openai" 及其他 OpenAI 兼容格式
+        new_client = OpenAICompatibleClient(
             api_key=settings.resolve_api_key(),
             base_url=settings.base_url,
         )

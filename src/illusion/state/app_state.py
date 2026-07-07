@@ -30,7 +30,6 @@ class AppState:
         permission_mode: 权限模式 (default/plan/bypassPermissions 等)
         ui_language: UI语言 (默认 zh-CN)
         cwd: 当前工作目录
-        provider: API提供者名称
         auth_status: 认证状态
         base_url: API基础URL
         fast_mode: 是否启用快速模式
@@ -49,7 +48,6 @@ class AppState:
     permission_mode: str  # 权限模式
     ui_language: str = "zh-CN"  # UI语言
     cwd: str = "."  # 当前工作目录
-    provider: str = "unknown"  # API提供者
     auth_status: str = "missing"  # 认证状态
     base_url: str = ""  # API基础URL
     fast_mode: bool = False  # 快速模式标志
