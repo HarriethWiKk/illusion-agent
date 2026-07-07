@@ -79,6 +79,10 @@ def create_app(
             except Exception:
                 pass
 
+    # 注册 env/oauth/settings REST 路由（在 StaticFiles mount 之前）
+    from illusion.ui.web.env_routes import register_env_routes
+    register_env_routes(app, host_config)
+
     if not dev:
         dist_dir = _find_frontend_dist()
         if dist_dir is not None:
