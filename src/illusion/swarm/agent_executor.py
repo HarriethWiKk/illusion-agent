@@ -151,6 +151,10 @@ class AgentExecutionContext:
     task_id: str | None = None
     """任务管理器中的任务 ID。"""
 
+    # 进程内代理执行所需上下文（由 TeammateSpawnConfig 传入）
+    query_context: Any | None = None
+    parent_registry: Any | None = None
+
 
 # 代理上下文变量
 _agent_context_var: ContextVar[AgentExecutionContext | None] = ContextVar(

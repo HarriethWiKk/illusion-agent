@@ -191,3 +191,93 @@ async def test_shutdown_all(backend, tmp_path, monkeypatch):
 
     await backend.shutdown_all(force=True, timeout=2.0)
     assert backend.list_agents() == []
+
+
+# ---------------------------------------------------------------------------
+# _run_agent: query_context-aware dispatch (Task 3.4 / 3.5)
+# ---------------------------------------------------------------------------
+
+
+async def test_run_agent_calls_run_agent_in_process_when_query_context_provided(
+    tmp_path, monkeypatch
+):
+    """当 TeammateSpawnConfig 提供 query_context 和 parent_registry 时，_run_agent 应调用 run_agent_in_process。"""
+    from illusion.swarm.agent_executor import AgentResult, TaskNotification
+    from types import SimpleNamespace
+
+    # mock run_agent_in_process
+    call_log: dict = {}
+
+    async def _fake_run_agent_in_process(
+        config,
+        query_context,
+        parent_registry,
+        *,
+        is_async=False,
+        existing_context=None,
+        on_progress=None,
+    ):
+        call_log["called"] = True
+        call_log["is_async"] = is_async
+        return AgentResult(
+            agent_id="test-agent",
+            success=True,
+            notification=TaskNotification(
+                task_id="test-agent",
+                status="completed",
+                summary="done",
+                result=None,
+                usage=None,
+            ),
+        )
+
+    monkeypatch.setattr(
+        "illusion.swarm.agent_executor.run_agent_in_process", _fake_run_agent_in_process
+    )
+
+    backend = InProcessBackend()
+    config = TeammateSpawnConfig(
+        name="worker",
+        team="test-team",
+        prompt="hello",
+        cwd=str(tmp_path),
+        parent_session_id="sess-001",
+        query_context=SimpleNamespace(),  # 非 None
+        parent_registry=SimpleNamespace(),  # 非 None
+    )
+    result = await backend.spawn(config)
+    assert result.success
+
+    await asyncio.sleep(0.3)  # 等待 _run_agent 执行
+
+    assert call_log.get("called") is True
+    assert call_log.get("is_async") is True
+
+    await backend.shutdown_all()
+
+
+async def test_run_agent_falls_back_to_stub_without_query_context(tmp_path, monkeypatch):
+    """当 TeammateSpawnConfig 未提供 query_context 时，_run_agent 应回退到 stub 行为。"""
+    # mock run_agent_in_process - 若被调用则失败
+    async def _should_not_be_called(*args, **kwargs):
+        raise AssertionError("run_agent_in_process should not be called without query_context")
+
+    monkeypatch.setattr(
+        "illusion.swarm.agent_executor.run_agent_in_process", _should_not_be_called
+    )
+
+    backend = InProcessBackend()
+    config = TeammateSpawnConfig(
+        name="worker",
+        team="test-team",
+        prompt="hello",
+        cwd=str(tmp_path),
+        parent_session_id="sess-001",
+        # query_context 和 parent_registry 未提供
+    )
+    result = await backend.spawn(config)
+    assert result.success
+
+    await asyncio.sleep(0.2)
+    await backend.shutdown_all()
+    # 未崩溃即通过
