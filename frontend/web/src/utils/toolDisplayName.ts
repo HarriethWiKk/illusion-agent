@@ -45,10 +45,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   skill: 'Skill',
 
   // 任务管理类
-  task_create: 'TaskCreate',
-  task_update: 'TaskUpdate',
-  task_get: 'TaskGet',
-  task_list: 'TaskList',
   task_output: 'Task Output',
   task_stop: 'Stop Task',
 
