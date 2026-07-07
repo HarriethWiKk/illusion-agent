@@ -43,6 +43,8 @@ export interface SettingsModalProps {
   onClose: () => void;
   /** 环境变更通知（可选，通知父组件刷新） */
   onEnvsChanged?: () => void;
+  /** 切换界面语言（可选，参数为后端格式 'zh-CN' | 'en-US'）；未提供时回退到 REST PATCH */
+  onSetUiLanguage?: (lang: string) => void;
 }
 
 /** API 格式选项 */
@@ -77,7 +79,7 @@ function toBackendLang(lang: UiLanguage): string {
  * @param props - 组件属性
  * @returns 返回设置弹窗的 JSX 元素
  */
-export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged }: SettingsModalProps) {
+export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged, onSetUiLanguage }: SettingsModalProps) {
   const [envs, setEnvs] = useState<EnvInfo[]>([]);
   const [selectedEnvKey, setSelectedEnvKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -161,6 +163,15 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
     };
   }, []);
 
+  // 弹窗关闭时（非卸载）清理 OAuth 轮询定时器（防御性：open=false 时组件不卸载）
+  useEffect(() => {
+    if (!open && oauthPollRef.current) {
+      clearTimeout(oauthPollRef.current);
+      oauthPollRef.current = null;
+      setOauthStatus('idle');
+    }
+  }, [open]);
+
   /** 关闭弹窗时重置状态 */
   const handleClose = useCallback(() => {
     if (oauthPollRef.current) {
@@ -176,7 +187,7 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
   const handleCreateEnv = useCallback(async () => {
     setError(null);
     if (!isOAuthFormat(formApiFormat) && !formModel1.trim()) {
-      setError(lang === 'zh-CN' ? '请输入模型名称' : 'Please enter model name');
+      setError(t(lang, 'web_env_model_required'));
       return;
     }
     setLoading(true);
@@ -220,13 +231,19 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
       const removeModels: string[] = [];
       // 比较 model_1
       const origModel1 = env?.models?.[0] || '';
-      if (formModel1.trim() && formModel1.trim() !== origModel1) {
+      if (!formModel1.trim() && origModel1) {
+        // 用户清空了已有模型 → 移除
+        removeModels.push('model_1');
+      } else if (formModel1.trim() && formModel1.trim() !== origModel1) {
         if (origModel1) removeModels.push('model_1');
         addModels.push({ key: 'model_1', value: formModel1.trim() });
       }
       // 比较 model_2
       const origModel2 = env?.models?.[1] || '';
-      if (formModel2.trim() && formModel2.trim() !== origModel2) {
+      if (!formModel2.trim() && origModel2) {
+        // 用户清空了已有模型 → 移除
+        removeModels.push('model_2');
+      } else if (formModel2.trim() && formModel2.trim() !== origModel2) {
         if (origModel2) removeModels.push('model_2');
         addModels.push({ key: 'model_2', value: formModel2.trim() });
       }
@@ -336,8 +353,16 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
       // 间隔由响应 interval 字段决定，默认 5 秒
       const interval = (Number(startData.interval) || 5) * 1000;
       if (!deviceCode) throw new Error('Missing device_code');
+      // OAuth 轮询超时保护（15 分钟），避免后端持续返回"继续轮询"时无限循环
+      const startTime = Date.now();
+      const MAX_POLL_MS = 15 * 60 * 1000;
       // 轮询 OAuth 完成状态
       const poll = async () => {
+        if (Date.now() - startTime > MAX_POLL_MS) {
+          setOauthStatus('failed');
+          setError(t(lang, 'web_env_oauth_failed') + ': timeout');
+          return;
+        }
         try {
           const pollRes = await fetch(`/api/oauth/${provider}/poll`, {
             method: 'POST',
@@ -370,21 +395,32 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
       setOauthStatus('failed');
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [formApiFormat, isCreating, selectedEnvKey, fetchEnvs]);
+  }, [formApiFormat, isCreating, selectedEnvKey, fetchEnvs, lang]);
 
   /** 切换界面语言（发送后端格式 'en-US'/'zh-CN'） */
   const handleUiLangChange = useCallback(async (newLang: UiLanguage) => {
     setUiLang(newLang);
+    const backendLang = toBackendLang(newLang);
+    // 优先走 WebSocket（onSetUiLanguage）：后端会推送 web_setting_changed + state_snapshot，界面即时生效
+    if (onSetUiLanguage) {
+      try {
+        onSetUiLanguage(backendLang);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
+    // 回退到 REST PATCH（无 WebSocket 推送，需刷新才能生效）
     try {
       await fetch('/api/settings/ui_language', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ui_language: toBackendLang(newLang) }),
+        body: JSON.stringify({ ui_language: backendLang }),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [onSetUiLanguage]);
 
   if (!open) return null;
 
@@ -448,7 +484,7 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
               const env = envs.find((e) => e.env_key === selectedEnvKey);
               return env?.has_credential && oauthStatus !== 'waiting' ? (
                 <div className="text-xs text-success">
-                  {lang === 'zh-CN' ? '已授权' : 'Authorized'}
+                  {t(lang, 'web_env_authorized')}
                 </div>
               ) : null;
             })()}
@@ -492,7 +528,7 @@ export default function SettingsModal({ open, mode, lang, onClose, onEnvsChanged
                 type="text"
                 value={formModel2}
                 onChange={(e) => setFormModel2(e.target.value)}
-                placeholder={lang === 'zh-CN' ? '（可选）' : '(optional)'}
+                placeholder={t(lang, 'web_env_model_optional')}
                 className="w-full bg-white/60 border border-white/40 rounded-lg px-3 py-2 text-sm text-content-primary outline-none focus:border-primary/40 transition-colors"
               />
             </div>

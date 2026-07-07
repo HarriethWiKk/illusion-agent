@@ -107,10 +107,13 @@ export default function App() {
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
 
-  // 检测鉴权缺失：自动弹出 onboarding 设置弹窗
+  // 检测鉴权缺失：自动弹出 onboarding 设置弹窗；auth_status 变正常时自动关闭
   useEffect(() => {
     if (session.status?.auth_status === 'missing') {
       setSettingsOpen(true);
+    } else if (session.status?.auth_status && session.status.auth_status !== 'missing') {
+      // auth_status 变为正常值（如 'configured'）时自动关闭弹窗
+      setSettingsOpen(false);
     }
   }, [session.status?.auth_status]);
 
@@ -547,6 +550,7 @@ export default function App() {
         mode={session.status?.auth_status === 'missing' ? 'onboarding' : 'settings'}
         lang={lang}
         onClose={() => setSettingsOpen(false)}
+        onSetUiLanguage={(backendLang: string) => session.sendRequest({ type: 'web_set_setting', setting_key: 'ui_language', setting_value: backendLang })}
       />
     </div>
   );
