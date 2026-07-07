@@ -6,7 +6,7 @@ React 终端后端主机模块
 
 主要功能：
     - 基于 stdin/stdout 的 JSON-lines 协议通信
-    - 命令处理（/provider, /resume, /permissions 等）
+    - 命令处理（/env, /resume, /permissions 等）
     - 权限确认和工作流管理
     - 会话状态快照
     - 任务管理快照
@@ -671,8 +671,8 @@ class ReactBackendHost:
 
     def _build_select_command_line(self, command: str, value: str) -> str | None:
         """构建选择命令的实际命令字符串。"""
-        if command == "provider":
-            return f"/provider {value}"
+        if command == "env":
+            return f"/env {value}"
         if command == "resume":
             return f"/resume {value}" if value else "/resume"
         if command == "permissions":
@@ -798,7 +798,7 @@ class ReactBackendHost:
         zh = locale.lower().startswith("zh")
         current_model = settings.active_model_name
 
-        if command == "provider":
+        if command == "env":
             statuses = AuthManager(settings).get_env_credential_statuses()
             options = [
                 {
@@ -812,7 +812,7 @@ class ReactBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "环境配置" if zh else "Env Config", "command": "provider"},
+                    modal={"kind": "select", "title": "环境配置" if zh else "Env Config", "command": "env"},
                     select_options=options,
                 )
             )
@@ -949,7 +949,7 @@ class ReactBackendHost:
             return
 
         if command == "model":
-            options = self._model_select_options(current_model, settings.provider)
+            options = self._model_select_options(current_model)
             await self._emit(
                 BackendEvent(
                     type="select_request",
@@ -1170,7 +1170,7 @@ class ReactBackendHost:
 
         await self._emit(BackendEvent(type="error", message=(f"/{command} 暂无可选项" if zh else f"No selector available for /{command}")))
 
-    def _model_select_options(self, current_model: str, provider: str) -> list[dict[str, object]]:
+    def _model_select_options(self, current_model: str) -> list[dict[str, object]]:
         """从 settings.json 的 env_N 配置中提取所有实际可用的模型。"""
         assert self._bundle is not None
         settings = self._bundle.current_settings()

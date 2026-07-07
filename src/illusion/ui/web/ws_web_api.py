@@ -509,7 +509,7 @@ class WebApiDispatcher:
         """
         settings = bundle.current_settings()
         current_model = settings.active_model_name
-        options = self._host._model_select_options(current_model, settings.provider)  # type: ignore[attr-defined]
+        options = self._host._model_select_options(current_model)  # type: ignore[attr-defined]
         await self._emit(BackendEvent(type="web_models", web_models=options))
 
     async def handle_web_request_resources(self, request: FrontendRequest) -> None:
