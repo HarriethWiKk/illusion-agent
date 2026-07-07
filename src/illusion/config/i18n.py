@@ -272,6 +272,95 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "渠道状态：",
         "en-US": "Channel status:",
     },
+    # --- web 端设置弹窗和 terminal 认证提示 ---
+    "terminal_auth_hint": {
+        "zh-CN": "请运行 'illusion auth login' 配置 API 环境",
+        "en-US": "Run 'illusion auth login' to configure API environment",
+    },
+    "web_settings_title": {
+        "zh-CN": "设置",
+        "en-US": "Settings",
+    },
+    "web_onboarding_subtitle": {
+        "zh-CN": "配置 API 环境以开始使用",
+        "en-US": "Configure API environment to get started",
+    },
+    "web_env_add": {
+        "zh-CN": "新增环境",
+        "en-US": "Add Environment",
+    },
+    "web_env_delete": {
+        "zh-CN": "删除",
+        "en-US": "Delete",
+    },
+    "web_env_activate": {
+        "zh-CN": "设为当前",
+        "en-US": "Activate",
+    },
+    "web_env_active": {
+        "zh-CN": "当前",
+        "en-US": "Active",
+    },
+    "web_env_api_format": {
+        "zh-CN": "API 格式",
+        "en-US": "API Format",
+    },
+    "web_env_base_url": {
+        "zh-CN": "Base URL",
+        "en-US": "Base URL",
+    },
+    "web_env_api_key": {
+        "zh-CN": "API Key",
+        "en-US": "API Key",
+    },
+    "web_env_model": {
+        "zh-CN": "模型",
+        "en-US": "Model",
+    },
+    "web_env_add_model": {
+        "zh-CN": "新增模型",
+        "en-US": "Add Model",
+    },
+    "web_env_oauth_login_github": {
+        "zh-CN": "使用 GitHub 登录",
+        "en-US": "Login with GitHub",
+    },
+    "web_env_oauth_login_openai": {
+        "zh-CN": "使用 OpenAI 登录",
+        "en-US": "Login with OpenAI",
+    },
+    "web_env_oauth_waiting": {
+        "zh-CN": "请在弹出的浏览器窗口中完成授权...",
+        "en-US": "Please complete authorization in the browser window...",
+    },
+    "web_env_oauth_success": {
+        "zh-CN": "OAuth 认证成功",
+        "en-US": "OAuth authentication successful",
+    },
+    "web_env_oauth_failed": {
+        "zh-CN": "OAuth 认证失败",
+        "en-US": "OAuth authentication failed",
+    },
+    "web_ui_language": {
+        "zh-CN": "界面语言",
+        "en-US": "UI Language",
+    },
+    "web_settings_save": {
+        "zh-CN": "保存",
+        "en-US": "Save",
+    },
+    "web_settings_cancel": {
+        "zh-CN": "取消",
+        "en-US": "Cancel",
+    },
+    "web_settings_close": {
+        "zh-CN": "关闭",
+        "en-US": "Close",
+    },
+    "settings_tooltip": {
+        "zh-CN": "设置",
+        "en-US": "Settings",
+    },
 }
 
 # --- 命令描述翻译 ---
