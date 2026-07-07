@@ -787,6 +787,14 @@ async def run_agent_subprocess(
 
     logger.debug("[agent_executor] Spawned subprocess agent %s as task %s", agent_id, record.id)
 
+    # 写入 agent_id 到 metadata，供 on_task_complete 回调使用
+    record.metadata["agent_id"] = agent_id
+    manager._tasks[record.id] = record
+
+    # 架构说明：子进程代理完成后，通过 BackgroundTaskManager.on_task_complete 回调
+    # 通知主循环的 bg_agent_tracker，注入 <task-notification> XML。
+    # agent_id 通过 task.metadata["agent_id"] 传递。
+
     return AgentResult(
         agent_id=agent_id,
         success=True,
