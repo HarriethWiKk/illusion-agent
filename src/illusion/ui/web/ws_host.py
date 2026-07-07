@@ -54,7 +54,6 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
-from illusion.tasks.todo_sync import sync_todos_to_tasks, todos_from_tasks
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
@@ -471,16 +470,7 @@ class WebBackendHost:
                                 })
                         if all(t.get("status") == "completed" for t in todo_items) and len(todo_items) >= 1:
                             todo_items = []
-                        # Todo → Task 同步
-                        sync_todos_to_tasks(todo_items, _manager)
                         await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
-                elif event.tool_name in (
-                    "task_create", "task_update", "task_stop",
-                    "TaskCreate", "TaskUpdate", "TaskStop",
-                ):
-                    # Task → Todo 同步
-                    todo_items = todos_from_tasks(_manager.list_tasks())
-                    await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
                 await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
                 await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
@@ -808,16 +798,6 @@ class WebBackendHost:
             mcp_servers=self._bundle.mcp_manager.list_statuses(),
             bridge_sessions=get_bridge_manager().list_sessions(),
         )
-
-    async def _emit_todo_update_from_output(self, output: str) -> None:
-        """从工具输出中提取 markdown 复选框并发送 todo_update 事件。"""
-        # TodoWrite 工具通常会回显写入的内容
-        # 我们查找 markdown 复选框模式
-        lines = output.splitlines()
-        checklist_lines = [line for line in lines if line.strip().startswith("- [")]
-        if checklist_lines:
-            markdown = "\n".join(checklist_lines)
-            await self._emit(BackendEvent(type="todo_update", todo_markdown=markdown))
 
     def _emit_swarm_status(self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None) -> None:
         """同步发送 swarm_status 事件（调度为协程）。"""
