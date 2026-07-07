@@ -47,12 +47,8 @@ from illusion.tools.sleep_tool import SleepTool
 from illusion.tools.structured_output_tool import StructuredOutputTool
 from illusion.tools.team_create_tool import TeamCreateTool
 from illusion.tools.team_delete_tool import TeamDeleteTool
-from illusion.tools.task_create_tool import TaskCreateTool
-from illusion.tools.task_get_tool import TaskGetTool
-from illusion.tools.task_list_tool import TaskListTool
 from illusion.tools.task_output_tool import TaskOutputTool
 from illusion.tools.task_stop_tool import TaskStopTool
-from illusion.tools.task_update_tool import TaskUpdateTool
 from illusion.tools.todo_write_tool import TodoWriteTool
 from illusion.tools.tool_search_tool import ToolSearchTool
 from illusion.tools.web_fetch_tool import WebFetchTool
@@ -100,12 +96,8 @@ def create_default_tool_registry(
         EnterPlanModeTool(),
         ExitPlanModeTool(),
         CronTool(),
-        TaskCreateTool(),
-        TaskGetTool(),
-        TaskListTool(),
         TaskStopTool(),
         TaskOutputTool(),
-        TaskUpdateTool(),
         AgentTool(),
         SendMessageTool(),
         TeamCreateTool(),
