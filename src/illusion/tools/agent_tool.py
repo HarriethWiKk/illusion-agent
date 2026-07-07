@@ -13,6 +13,14 @@
     >>> tool = AgentTool()
 """
 
+# 架构说明：
+# 本工具参考 Claude Code 的 Agent 工具设计，支持 run_in_background 参数。
+# 后台代理通过 BackgroundAgentTracker（engine/query.py）实现事件驱动唤醒，
+# 完成后通过 <task-notification> XML 注入用户消息，主循环无需轮询。
+# 与 Claude Code 的差异：
+# - 使用 asyncio.Task 而非 JS async generator
+# - 子进程路径通过 on_task_complete 回调通知（Claude Code 无子进程路径）
+
 from __future__ import annotations
 
 import asyncio
