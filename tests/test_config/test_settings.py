@@ -31,20 +31,7 @@ class TestSettings:
         s = Settings(env_1={"api_format": "anthropic", "api_key": "sk-test-123"})
         assert s.resolve_api_key() == "sk-test-123"
 
-    def test_resolve_api_key_from_env_var(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-456")
-        s = Settings()
-        assert s.resolve_api_key() == "sk-env-456"
-
-    def test_resolve_api_key_env_config_takes_precedence(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-456")
-        s = Settings(env_1={"api_format": "anthropic", "api_key": "sk-instance-789"})
-        assert s.resolve_api_key() == "sk-instance-789"
-
-    def test_resolve_api_key_missing_raises(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def test_resolve_api_key_missing_raises(self):
         s = Settings()
         with pytest.raises(ValueError, match="未找到 API 密钥"):
             s.resolve_api_key()
@@ -61,6 +48,20 @@ class TestSettings:
         assert s.model != updated.model
         assert s is not updated
 
+    def test_merge_cli_overrides_env_fields(self):
+        """merge_cli_overrides 正确覆盖 env 级字段（api_key/base_url/api_format）。"""
+        s = Settings(env_1={"api_format": "anthropic", "api_key": "sk-old", "base_url": "https://old.com"})
+        updated = s.merge_cli_overrides(api_key="sk-new", base_url="https://new.com", api_format="openai")
+        assert updated.api_key == "sk-new"
+        assert updated.base_url == "https://new.com"
+        assert updated.api_format == "openai"
+
+    def test_merge_cli_overrides_does_not_mutate_original(self):
+        """merge_cli_overrides 永远返回新实例，不修改原始 Settings。"""
+        s = Settings(env_1={"api_format": "anthropic", "api_key": "sk-original"})
+        _ = s.merge_cli_overrides(api_key="sk-changed")
+        assert s.api_key == "sk-original"
+
     def test_active_env_properties(self):
         s = Settings(
             env_1={"api_format": "openai", "api_key": "sk-test", "base_url": "https://api.example.com"},
@@ -68,7 +69,6 @@ class TestSettings:
         assert s.api_format == "openai"
         assert s.api_key == "sk-test"
         assert s.base_url == "https://api.example.com"
-        assert s.provider == "openai"
 
     def test_active_model_name_from_env(self):
         s = Settings(
@@ -84,21 +84,14 @@ class TestSettings:
 
 
 class TestLoadSaveSettings:
-    def test_load_missing_file_returns_defaults(self, tmp_path: Path, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def test_load_missing_file_returns_defaults(self, tmp_path: Path):
         path = tmp_path / "nonexistent.json"
         s = load_settings(path)
         assert s.model == "env_1.model_1"
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
 
-    def test_load_existing_file(self, tmp_path: Path, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    def test_load_existing_file(self, tmp_path: Path):
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({
             "model": "env_1.model_1",
@@ -112,10 +105,7 @@ class TestLoadSaveSettings:
         assert s.fast_mode is True
         assert s.api_key == ""
 
-    def test_save_and_load_roundtrip(self, tmp_path: Path, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    def test_save_and_load_roundtrip(self, tmp_path: Path):
         path = tmp_path / "settings.json"
         original = Settings(
             env_1={"api_format": "anthropic", "api_key": "sk-roundtrip", "model_1": "claude-opus-4-20250514"},
@@ -148,31 +138,6 @@ class TestLoadSaveSettings:
         assert s.permission.mode == "full_auto"
         assert s.permission.allowed_tools == ["Bash", "Read"]
 
-    def test_load_applies_env_overrides(self, tmp_path: Path, monkeypatch):
-        path = tmp_path / "settings.json"
-        path.write_text(json.dumps({
-            "model": "env_1.model_1",
-            "env_1": {"api_format": "anthropic", "model_1": "from-file"},
-        }))
-        monkeypatch.setenv("ANTHROPIC_MODEL", "from-env-model")
-        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
-        monkeypatch.setenv("illusion_MAX_TURNS", "42")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-override")
-        monkeypatch.setenv("illusion_SANDBOX_ENABLED", "true")
-        monkeypatch.setenv("illusion_SANDBOX_FAIL_IF_UNAVAILABLE", "1")
-
-        s = load_settings(path)
-
-        # env overrides go into the active env config
-        # ANTHROPIC_MODEL now updates model_N field instead of env.model
-        assert s._active_env.get_model("model_1") == "from-env-model"
-        assert s._active_env.base_url == "https://env.example/anthropic"
-        assert s._active_env.api_key == "sk-env-override"
-        # global overrides
-        assert s.max_turns == 42
-        assert s.sandbox.enabled is True
-        assert s.sandbox.fail_if_unavailable is True
-
     def test_load_with_sandbox_settings(self, tmp_path: Path):
         path = tmp_path / "settings.json"
         path.write_text(
@@ -196,11 +161,8 @@ class TestLoadSaveSettings:
         assert s.sandbox.filesystem.allow_write == [".", "/tmp"]
         assert s.sandbox.filesystem.deny_write == [".env"]
 
-    def test_load_with_env_config(self, tmp_path: Path, monkeypatch):
+    def test_load_with_env_config(self, tmp_path: Path):
         """Test loading a file that uses the new env_N format."""
-        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         path.write_text(
             json.dumps(
@@ -219,13 +181,9 @@ class TestLoadSaveSettings:
         s = load_settings(path)
         assert s.api_key == "sk-test"
         assert s.active_model_name == "claude-sonnet-4-6"
-        assert s.provider == "anthropic"
 
-    def test_save_preserves_env_config(self, tmp_path: Path, monkeypatch):
+    def test_save_preserves_env_config(self, tmp_path: Path):
         """Test that save/load roundtrip preserves env_N config."""
-        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         path = tmp_path / "settings.json"
         original = Settings(
             model="env_1.model_2",

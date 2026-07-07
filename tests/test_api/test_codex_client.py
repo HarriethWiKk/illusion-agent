@@ -218,3 +218,68 @@ async def test_codex_client_collects_reasoning_delta(monkeypatch):
     thinking_blocks = [block for block in complete.message.content if isinstance(block, ThinkingBlock)]
     assert len(thinking_blocks) == 1
     assert thinking_blocks[0].thinking == "先分析。"
+
+
+@pytest.mark.asyncio
+async def test_codex_client_auth_token_resolver_refreshes_per_request(monkeypatch):
+    """auth_token_resolver 在每次请求前调用，刷新的 token 出现在 Authorization 头中。"""
+    sink: dict[str, Any] = {}
+    calls: list[str] = []
+    token_counter = {"value": "token-v1"}
+
+    def _resolver() -> str:
+        calls.append(token_counter["value"])
+        return token_counter["value"]
+
+    response = _FakeStreamResponse(
+        lines=[
+            'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}',
+            "",
+        ]
+    )
+    monkeypatch.setattr(
+        "illusion.api.codex_client.httpx.AsyncClient",
+        lambda *args, **kwargs: _FakeAsyncClient(response, sink),
+    )
+
+    client = CodexApiClient(auth_token_resolver=_resolver)
+    request = ApiMessageRequest(
+        model="codex-mini",
+        messages=[ConversationMessage.from_user_text("hi")],
+    )
+
+    # 第一次请求
+    [e async for e in client.stream_message(request)]
+    assert sink["headers"]["Authorization"] == "Bearer token-v1"
+
+    # 模拟 token 刷新
+    token_counter["value"] = "token-v2"
+
+    # 第二次请求应拿到新 token
+    [e async for e in client.stream_message(request)]
+    assert sink["headers"]["Authorization"] == "Bearer token-v2"
+    assert calls == ["token-v1", "token-v2"]
+
+
+@pytest.mark.asyncio
+async def test_codex_client_auth_token_resolver_raises_auth_failure(monkeypatch):
+    """resolver 抛出 RuntimeError（未认证）时，应翻译为 AuthenticationFailure。"""
+    from illusion.api.errors import AuthenticationFailure
+
+    def _resolver_raises() -> str:
+        raise RuntimeError("未认证，请先运行 'illusion auth login' 选择 Codex")
+
+    response = _FakeStreamResponse(lines=[])
+    monkeypatch.setattr(
+        "illusion.api.codex_client.httpx.AsyncClient",
+        lambda *args, **kwargs: _FakeAsyncClient(response, {}),
+    )
+
+    client = CodexApiClient(auth_token_resolver=_resolver_raises)
+    request = ApiMessageRequest(
+        model="codex-mini",
+        messages=[ConversationMessage.from_user_text("hi")],
+    )
+
+    with pytest.raises(AuthenticationFailure, match="未认证"):
+        [e async for e in client.stream_message(request)]
