@@ -20,8 +20,10 @@ import { t, type UiLanguage } from '../i18n';
 interface SidebarProps {
   /** 当前 UI 语言 */
   lang: UiLanguage;
-  /** 是否已连接 */
-  connected: boolean;
+  /** 设置是否就绪（已连接且鉴权完成） */
+  settingsReady: boolean;
+  /** 打开设置弹窗回调 */
+  onOpenSettings: () => void;
   /** 会话列表 */
   sessions: { value: string; label: string }[];
   /** 新建会话回调 */
@@ -90,7 +92,7 @@ function SessionItem({ session, index, isRestoring, onSelect }: {
 }
 
 export default function Sidebar({
-  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId,
+  lang, settingsReady, onOpenSettings, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [listExpanded, setListExpanded] = useState(false);
@@ -159,7 +161,7 @@ export default function Sidebar({
       <div className="px-4 py-3">
         <button
           onClick={onNewSession}
-          disabled={!connected}
+          disabled={!settingsReady}
           className="pill-badge w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
         >
           <span className="w-5 h-5 rounded-md bg-primary flex items-center justify-center text-white font-bold text-xs">+</span>
@@ -198,7 +200,7 @@ export default function Sidebar({
         ) : (
           <button
             onClick={onListSessions}
-            disabled={!connected}
+            disabled={!settingsReady}
             className="w-full text-left px-3 py-2 rounded-lg text-sm text-content-disabled glass-option-hover hover:text-content-secondary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {t(lang, 'load_more')}
@@ -206,10 +208,15 @@ export default function Sidebar({
         )}
       </div>
       <div className="px-4 py-3 border-t border-border-light">
-        <div className="flex items-center gap-2 text-xs">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`} style={connected ? { boxShadow: '0 0 6px rgba(76, 175, 125, 0.5)' } : undefined} />
-          <span className="text-content-disabled text-[11px]">{connected ? 'Connected' : t(lang, 'disconnected')}</span>
-        </div>
+        <button onClick={onOpenSettings}
+          title={t(lang, 'settings_tooltip')}
+          className="flex items-center gap-2 text-xs text-content-secondary hover:text-content-primary transition-colors cursor-pointer w-full">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span className="text-[11px]">{t(lang, 'settings_tooltip')}</span>
+        </button>
       </div>
     </aside>
   );
