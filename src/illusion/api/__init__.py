@@ -9,7 +9,6 @@ API 模块
     - OpenAICompatibleClient: OpenAI 兼容 API 客户端
     - CodexApiClient: OpenAI Codex 客户端
     - IllusionCodeApiError: API 异常基类
-    - ProviderInfo: 提供商元数据
     - UsageSnapshot: 使用量追踪
 
 使用示例：
@@ -17,11 +16,11 @@ API 模块
     >>> client = AnthropicApiClient(api_key="sk-...")
 """
 
+from illusion.api.auth_status import auth_status
 from illusion.api.client import AnthropicApiClient
 from illusion.api.codex_client import CodexApiClient
 from illusion.api.errors import IllusionCodeApiError
 from illusion.api.openai_client import OpenAICompatibleClient
-from illusion.api.provider import ProviderInfo, auth_status, detect_provider
 from illusion.api.usage import UsageSnapshot
 
 __all__ = [
@@ -29,8 +28,6 @@ __all__ = [
     "CodexApiClient",
     "OpenAICompatibleClient",
     "IllusionCodeApiError",
-    "ProviderInfo",
     "UsageSnapshot",
     "auth_status",
-    "detect_provider",
 ]
