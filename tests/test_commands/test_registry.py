@@ -63,7 +63,7 @@ def _make_context(tmp_path: Path) -> CommandContext:
 
 @pytest.mark.asyncio
 async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     command, args = registry.lookup("/permissions set full_auto")
     assert command is not None
@@ -76,7 +76,7 @@ async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_command_persists(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     # 预设 env_1 环境和 model_a 模型
     save_settings(
         Settings().model_copy(
@@ -98,7 +98,7 @@ async def test_model_command_persists(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_command_accepts_direct_value(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     # 预设环境
     save_settings(
         Settings().model_copy(
@@ -120,7 +120,7 @@ async def test_model_command_accepts_direct_value(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_command_default_clears_profile_override(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     # 预设两个环境
     save_settings(
         Settings().model_copy(
@@ -143,7 +143,7 @@ async def test_model_command_default_clears_profile_override(tmp_path: Path, mon
 
 @pytest.mark.asyncio
 async def test_turns_show_reports_unlimited_engine_when_session_is_unbounded(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
     context.engine.set_max_turns(None)
@@ -158,7 +158,7 @@ async def test_turns_show_reports_unlimited_engine_when_session_is_unbounded(tmp
 
 @pytest.mark.asyncio
 async def test_turns_command_accepts_numeric_value(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -173,7 +173,7 @@ async def test_turns_command_accepts_numeric_value(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     save_settings(
         Settings().model_copy(
             update={
@@ -196,7 +196,7 @@ async def test_config_command_switches_active_profile(tmp_path: Path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_doctor_command_reports_context(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     command, args = registry.lookup("/doctor")
     assert command is not None
@@ -218,8 +218,8 @@ async def test_doctor_command_reports_context(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_memory_command_manages_entries(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -242,7 +242,7 @@ async def test_memory_command_manages_entries(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_compact_summary_and_usage_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
     context.engine.load_messages(
@@ -269,7 +269,7 @@ async def test_compact_summary_and_usage_commands(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -320,7 +320,7 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
 
 @pytest.mark.asyncio
 async def test_fast_command_without_args_toggles_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -339,7 +339,7 @@ async def test_fast_command_without_args_toggles_state(tmp_path: Path, monkeypat
 
 @pytest.mark.asyncio
 async def test_thinking_command_without_args_toggles_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -358,8 +358,8 @@ async def test_thinking_command_without_args_toggles_state(tmp_path: Path, monke
 
 @pytest.mark.asyncio
 async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -382,8 +382,8 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_auth_feedback_and_project_context_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -415,8 +415,8 @@ async def test_auth_feedback_and_project_context_commands(tmp_path: Path, monkey
 
 @pytest.mark.asyncio
 async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
     (tmp_path / "src").mkdir()
@@ -443,8 +443,8 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
 
 @pytest.mark.asyncio
 async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -492,8 +492,8 @@ async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
     context.engine.load_messages(
@@ -529,8 +529,8 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mcp_and_language_commands_report_richer_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     settings = Settings(
         mcp_servers={
             "http-demo": McpHttpServerConfig(url="https://example.com/mcp"),
@@ -559,7 +559,7 @@ async def test_mcp_and_language_commands_report_richer_state(tmp_path: Path, mon
 
 @pytest.mark.asyncio
 async def test_new_command_clears_messages_and_requests_new_session(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
     context.engine.load_messages(
@@ -581,7 +581,7 @@ async def test_new_command_clears_messages_and_requests_new_session(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_git_commands_report_repository_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "config", "user.email", "illusion@example.com"],
@@ -623,8 +623,8 @@ def test_stop_command_removed_from_registry() -> None:
 
 @pytest.mark.asyncio
 async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 

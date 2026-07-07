@@ -133,8 +133,8 @@ async def test_plugin_command_lifecycle_flow(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resume_followed_by_session_tag_uses_restored_session_id(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _build_context(tmp_path)
 

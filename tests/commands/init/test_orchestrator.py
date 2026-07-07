@@ -18,8 +18,8 @@ def _make_context(tmp_path: Path) -> MagicMock:
 @pytest.mark.asyncio
 async def test_run_init_creates_all_files(tmp_path: Path, monkeypatch):
     """测试完整流程创建所有文件"""
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     # 创建一个简单的 Python 项目
     (tmp_path / "src").mkdir()
@@ -61,8 +61,8 @@ async def test_run_init_creates_all_files(tmp_path: Path, monkeypatch):
 @pytest.mark.asyncio
 async def test_run_init_idempotent(tmp_path: Path, monkeypatch):
     """测试幂等性：第二次运行不会重复创建文件"""
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
@@ -82,8 +82,8 @@ async def test_run_init_idempotent(tmp_path: Path, monkeypatch):
 @pytest.mark.asyncio
 async def test_run_init_updates_claudemd(tmp_path: Path, monkeypatch):
     """测试重新运行时更新 CLAUDE.md 的 marker 内容"""
-    monkeypatch.setenv("illusion_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("illusion_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
