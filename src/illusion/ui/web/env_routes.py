@@ -5,12 +5,14 @@ WebSocket 继续承载实时聊天流，与此处 HTTP 端点职责分离。
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from illusion.auth.manager import AuthManager
+from illusion.config.i18n import t as _t
 from illusion.config.settings import Settings, load_settings, save_settings
 
 
@@ -23,13 +25,24 @@ class CreateEnvRequest(BaseModel):
     model_2: str | None = None
 
 
+class ModelEntry(BaseModel):
+    """模型条目。"""
+    key: str = Field(..., pattern=r"^model_\d+$", description="模型键名（如 model_1）")
+    value: str = Field(..., min_length=1, description="模型名称")
+
+
 class UpdateEnvRequest(BaseModel):
     """修改 env 请求体。"""
     api_format: str | None = None
     base_url: str | None = None
     api_key: str | None = None
-    add_models: list[dict[str, str]] | None = None
+    add_models: list[ModelEntry] | None = None
     remove_models: list[str] | None = None
+
+
+class OauthPollRequest(BaseModel):
+    """OAuth 轮询请求体。"""
+    device_code: str = Field(..., min_length=1, description="设备码")
 
 
 class UpdateUiLanguageRequest(BaseModel):
@@ -104,7 +117,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         settings = load_settings()
         envs = settings.list_envs()
         if env_key not in envs:
-            raise HTTPException(status_code=404, detail=f"env {env_key} not found")
+            raise HTTPException(status_code=404, detail=_t("unknown_env", env_key=env_key))
         # 使用 AuthManager.update_env 处理 api_format/base_url/api_key
         manager = AuthManager()
         if req.api_format is not None or req.base_url is not None or req.api_key is not None:
@@ -122,7 +135,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             if isinstance(env_data, dict):
                 if req.add_models:
                     for m in req.add_models:
-                        env_data[m["key"]] = m["value"]
+                        env_data[m.key] = m.value
                 if req.remove_models:
                     for key in req.remove_models:
                         env_data.pop(key, None)
@@ -137,10 +150,10 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         manager = AuthManager()
         # 先检查环境是否存在
         if env_key not in manager.list_envs():
-            raise HTTPException(status_code=404, detail=f"env {env_key} not found")
+            raise HTTPException(status_code=404, detail=_t("unknown_env", env_key=env_key))
         # 再检查是否为活动环境
         if env_key == manager.get_active_env_key():
-            raise HTTPException(status_code=400, detail="cannot delete active env")
+            raise HTTPException(status_code=400, detail=_t("cannot_remove_active_env"))
         manager.remove_env(env_key)
         manager.clear_env_api_key(env_key)
         return {"success": True}
@@ -151,8 +164,8 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         manager = AuthManager()
         try:
             manager.use_env(env_key)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+        except ValueError:
+            raise HTTPException(status_code=404, detail=_t("unknown_env", env_key=env_key))
         return {"success": True}
 
     @app.post("/api/oauth/{provider}/start")
@@ -161,25 +174,22 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         if provider == "copilot":
             from illusion.auth.copilot import CopilotAuth
             auth = CopilotAuth()
-            return auth.start_device_flow()
+            return await asyncio.to_thread(auth.start_device_flow)
         elif provider == "codex":
             from illusion.auth.codex_oauth import CodexOAuth
             auth = CodexOAuth()
-            return auth.start_device_flow()
+            return await asyncio.to_thread(auth.start_device_flow)
         else:
-            raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
+            raise HTTPException(status_code=400, detail=_t("unknown_oauth_provider", provider=provider))
 
     @app.post("/api/oauth/{provider}/poll")
-    async def oauth_poll(provider: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def oauth_poll(provider: str, req: OauthPollRequest) -> dict[str, Any]:
         """轮询 OAuth 完成状态。"""
-        device_code = body.get("device_code", "")
-        if not device_code:
-            raise HTTPException(status_code=400, detail="device_code required")
         if provider == "copilot":
             from illusion.auth.copilot import CopilotAuth
             auth = CopilotAuth()
             try:
-                success = auth.poll_for_token(device_code)
+                success = await asyncio.to_thread(auth.poll_for_token, req.device_code)
                 return {"success": success}
             except RuntimeError as e:
                 return {"success": False, "error": str(e)}
@@ -187,12 +197,12 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             from illusion.auth.codex_oauth import CodexOAuth
             auth = CodexOAuth()
             try:
-                success = auth.poll_for_token(device_code)
+                success = await asyncio.to_thread(auth.poll_for_token, req.device_code)
                 return {"success": success}
             except RuntimeError as e:
                 return {"success": False, "error": str(e)}
         else:
-            raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
+            raise HTTPException(status_code=400, detail=_t("unknown_oauth_provider", provider=provider))
 
     @app.patch("/api/settings/ui_language")
     async def update_ui_language(req: UpdateUiLanguageRequest) -> dict[str, Any]:

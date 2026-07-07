@@ -361,6 +361,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "设置",
         "en-US": "Settings",
     },
+    "unknown_oauth_provider": {
+        "zh-CN": "未知的 OAuth 提供商: {provider}",
+        "en-US": "Unknown OAuth provider: {provider}",
+    },
+    "device_code_required": {
+        "zh-CN": "device_code 为必填项",
+        "en-US": "device_code is required",
+    },
 }
 
 # --- 命令描述翻译 ---

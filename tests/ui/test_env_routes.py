@@ -164,3 +164,91 @@ def test_oauth_start_copilot(client, monkeypatch):
     data = resp.json()
     assert "device_code" in data
     assert "verification_uri" in data
+
+
+def test_oauth_poll_copilot_success(client, monkeypatch):
+    """POST /api/oauth/copilot/poll 轮询成功。"""
+    def _fake_poll(self, device_code):
+        return True
+    monkeypatch.setattr("illusion.auth.copilot.CopilotAuth.poll_for_token", _fake_poll)
+
+    resp = client.post("/api/oauth/copilot/poll", json={"device_code": "test-code"})
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+def test_oauth_poll_codex_success(client, monkeypatch):
+    """POST /api/oauth/codex/poll 轮询成功。"""
+    def _fake_poll(self, device_code):
+        return True
+    monkeypatch.setattr("illusion.auth.codex_oauth.CodexOAuth.poll_for_token", _fake_poll)
+
+    resp = client.post("/api/oauth/codex/poll", json={"device_code": "test-code"})
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+def test_oauth_poll_missing_device_code_returns_422(client):
+    """POST /api/oauth/copilot/poll 缺少 device_code 返回 422。"""
+    resp = client.post("/api/oauth/copilot/poll", json={})
+    assert resp.status_code == 422
+
+
+def test_oauth_start_unknown_provider_returns_400(client):
+    """POST /api/oauth/unknown/start 返回 400。"""
+    resp = client.post("/api/oauth/unknown/start")
+    assert resp.status_code == 400
+
+
+def test_update_env_add_models(client):
+    """PATCH /api/envs/{env_key} 添加模型。"""
+    create_resp = client.post("/api/envs", json={
+        "api_format": "anthropic",
+        "api_key": "sk-test",
+        "model_1": "claude-sonnet-4-6",
+    })
+    env_key = create_resp.json()["env_key"]
+
+    resp = client.patch(f"/api/envs/{env_key}", json={
+        "add_models": [{"key": "model_2", "value": "claude-haiku-3-5"}],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    # 验证模型已添加
+    get_resp = client.get("/api/envs")
+    env = next(e for e in get_resp.json()["envs"] if e["env_key"] == env_key)
+    assert "model_2" in env["models"]
+
+
+def test_update_env_remove_models(client):
+    """PATCH /api/envs/{env_key} 删除模型。"""
+    create_resp = client.post("/api/envs", json={
+        "api_format": "anthropic",
+        "api_key": "sk-test",
+        "model_1": "claude-sonnet-4-6",
+        "model_2": "claude-haiku-3-5",
+    })
+    env_key = create_resp.json()["env_key"]
+
+    resp = client.patch(f"/api/envs/{env_key}", json={
+        "remove_models": ["model_2"],
+    })
+    assert resp.status_code == 200
+
+    # 验证模型已删除
+    get_resp = client.get("/api/envs")
+    env = next(e for e in get_resp.json()["envs"] if e["env_key"] == env_key)
+    assert "model_2" not in env["models"]
+
+
+def test_activate_unknown_env_returns_404(client):
+    """POST /api/envs/env_99/activate 不存在的 env 返回 404。"""
+    resp = client.post("/api/envs/env_99/activate")
+    assert resp.status_code == 404
+
+
+def test_update_ui_language_invalid_returns_422(client):
+    """PATCH /api/settings/ui_language 非法值返回 422。"""
+    resp = client.patch("/api/settings/ui_language", json={"ui_language": "fr-FR"})
+    assert resp.status_code == 422
