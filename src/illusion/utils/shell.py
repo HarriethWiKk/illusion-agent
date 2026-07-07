@@ -82,6 +82,41 @@ def resolve_shell_command(
     return [shell, "-lc", command]
 
 
+# 子进程中需要剥离的变量（认证/配置类，统一通过 settings.json 管理）
+# 精确匹配：仅剥离这些确切名称的变量
+_ENV_STRIP_EXACT: frozenset[str] = frozenset({
+    "ILLUSION_MODEL",
+    "ILLUSION_EFFORT",
+})
+# 前缀匹配：剥离以这些前缀开头的所有变量
+_ENV_STRIP_PREFIXES: tuple[str, ...] = (
+    "ANTHROPIC_",
+    "OPENAI_",
+    "CLAUDE_",
+    "ILLUSION_API_",
+    "ILLUSION_BASE_",
+    "ILLUSION_MAX_",
+    "ILLUSION_SANDBOX_",
+)
+
+
+def _build_filtered_env() -> dict[str, str]:
+    """构建过滤后的子进程环境变量。
+
+    剥离认证/配置类变量（ANTHROPIC_*、OPENAI_*、CLAUDE_*、ILLUSION_* 等），
+    保留代理、证书、系统变量（HTTP_PROXY、SSL_CERT_FILE、PATH、HOME 等）。
+    """
+    result: dict[str, str] = {}
+    for key, value in os.environ.items():
+        upper = key.upper()
+        if upper in _ENV_STRIP_EXACT:
+            continue
+        if any(upper.startswith(prefix) for prefix in _ENV_STRIP_PREFIXES):
+            continue
+        result[key] = value
+    return result
+
+
 async def create_shell_subprocess(
     command: str,
     *,
@@ -130,13 +165,15 @@ async def create_shell_subprocess(
         kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        # 显式过滤子进程环境：剥离认证/配置类变量，保留代理/证书/系统变量
+        child_env = env if env is not None else _build_filtered_env()
         process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=str(Path(cwd).resolve()),
             stdin=stdin,
             stdout=stdout,
             stderr=stderr,
-            env=dict(env) if env is not None else None,
+            env=child_env,
             **kwargs,
         )
     except Exception:

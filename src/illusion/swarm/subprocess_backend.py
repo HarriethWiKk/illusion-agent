@@ -22,7 +22,6 @@ import logging
 
 from illusion.swarm.agent_executor import (
     _build_agent_cli_flags,
-    _build_agent_env_vars,
     _get_agent_command,
 )
 from illusion.swarm.types import (
@@ -57,12 +56,10 @@ class SubprocessBackend:
             model=config.model,
             permission_mode=None,
         )
-        extra_env = _build_agent_env_vars()
-        env_prefix = " ".join(f"{k}={v!r}" for k, v in extra_env.items())
 
         agent_cmd = _get_agent_command()
         cmd_parts = [agent_cmd, "-m", "illusion"] + flags
-        command = f"{env_prefix} {' '.join(cmd_parts)}" if env_prefix else " ".join(cmd_parts)
+        command = " ".join(cmd_parts)
 
         # 创建任务
         manager = get_task_manager()

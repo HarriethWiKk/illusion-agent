@@ -33,7 +33,6 @@ from __future__ import annotations
 from typing import Any
 
 import asyncio
-import os
 import shlex
 import time
 from dataclasses import replace
@@ -124,12 +123,8 @@ class BackgroundTaskManager:
     ) -> TaskRecord:
         """作为子进程启动本地 agent 任务。"""
         if command is None:
-            effective_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-            if not effective_api_key:
-                raise ValueError(
-                    "Local agent tasks require ANTHROPIC_API_KEY or an explicit command override"
-                )
-            cmd = ["python", "-m", "illusion", "--headless", "--api-key", effective_api_key]
+            # 子进程会自行 load_settings，无需注入 api_key 到命令行
+            cmd = ["python", "-m", "illusion", "--headless"]
             if model:
                 cmd.extend(["--model", model])
             command = " ".join(shlex.quote(part) for part in cmd)

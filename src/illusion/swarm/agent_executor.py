@@ -431,32 +431,6 @@ def resolve_agent_tools(
 # 环境变量：覆盖代理命令
 _AGENT_COMMAND_ENV_VAR = "ILLUSION_TEAMMATE_COMMAND"
 
-# 要转发到子进程的环境变量
-_AGENT_ENV_VARS = [
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_BASE_URL",
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "CLAUDE_CONFIG_DIR",
-    "CLAUDE_CODE_REMOTE",
-    "CLAUDE_CODE_REMOTE_MEMORY_DIR",
-    "HTTPS_PROXY",
-    "https_proxy",
-    "HTTP_PROXY",
-    "http_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "SSL_CERT_FILE",
-    "NODE_EXTRA_CA_CERTS",
-    "REQUESTS_CA_BUNDLE",
-    "CURL_CA_BUNDLE",
-    "ILLUSION_API_FORMAT",
-    "ILLUSION_BASE_URL",
-    "ILLUSION_MODEL",
-    "OPENAI_API_KEY",
-]
-
 
 def _get_agent_command() -> str:
     """返回用于生成代理子进程的可执行文件。"""
@@ -488,18 +462,6 @@ def _build_agent_cli_flags(
         flags.extend(["--model", shlex.quote(model)])
 
     return flags
-
-
-def _build_agent_env_vars() -> dict[str, str]:
-    """构建要转发到子代理的环境变量。"""
-    env: dict[str, str] = {
-        "ILLUSION_AGENT_TEAMS": "1",
-    }
-    for key in _AGENT_ENV_VARS:
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
-    return env
 
 
 # ---------------------------------------------------------------------------
@@ -797,12 +759,10 @@ async def run_agent_subprocess(
         model=config.model,
         permission_mode=config.permission_mode or (agent_def.permission_mode if agent_def else None),
     )
-    extra_env = _build_agent_env_vars()
-    env_prefix = " ".join(f"{k}={v!r}" for k, v in extra_env.items())
 
     agent_cmd = _get_agent_command()
     cmd_parts = [agent_cmd, "-m", "illusion"] + flags
-    command = f"{env_prefix} {' '.join(cmd_parts)}" if env_prefix else " ".join(cmd_parts)
+    command = " ".join(cmd_parts)
 
     # 创建任务
     from illusion.tasks.manager import get_task_manager
