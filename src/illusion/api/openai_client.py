@@ -2,7 +2,7 @@
 OpenAI 兼容 API 客户端模块
 =========================
 
-本模块提供 OpenAI 兼容 API 客户端封装，支持阿里巴巴 DashScope、GitHub Models 等提供商。
+本模块提供 OpenAI 兼容 API 客户端封装。
 
 主要功能：
     - 流式文本增量生成
@@ -291,14 +291,13 @@ class OpenAICompatibleClient:
         _client: AsyncOpenAI 客户端实例
     """
 
-    def __init__(self, api_key: str, *, base_url: str | None = None, extra_headers: dict[str, str] | None = None, provider: str = "") -> None:
+    def __init__(self, api_key: str, *, base_url: str | None = None, extra_headers: dict[str, str] | None = None) -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
         if extra_headers:
             kwargs["default_headers"] = extra_headers
         self._client = AsyncOpenAI(**kwargs)
-        self._provider = provider
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """流式生成文本增量和最终消息，匹配 Anthropic 客户端接口
@@ -526,9 +525,7 @@ class OpenAICompatibleClient:
     def _should_use_responses_api(self, model: str) -> bool:
         """判断是否应使用 Responses API 而非 chat/completions
 
-        条件：
-        - provider 为 codex（通过 auth login 配置的 codex 认证）
-        - 或模型名包含 "codex"（codex 后缀模型）
+        Codex 认证使用专用 CodexApiClient，此处仅按模型名判断。
 
         Args:
             model: 模型名称
@@ -536,8 +533,6 @@ class OpenAICompatibleClient:
         Returns:
             bool: 是否使用 Responses API
         """
-        if self._provider == "codex":
-            return True
         return "codex" in model.lower()
 
     @staticmethod

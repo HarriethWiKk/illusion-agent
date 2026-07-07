@@ -27,7 +27,7 @@ import base64
 import json
 import logging
 import platform
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import httpx
 
@@ -328,15 +328,23 @@ def _is_effort_unsupported_error(exc: Exception) -> bool:
 
 class CodexApiClient:
     """ChatGPT/Codex 订阅支持的 Codex Responses 客户端
-    
+
     Attributes:
         _auth_token: 认证令牌
+        _auth_token_resolver: 认证令牌解析器（每次请求前调用，自动刷新过期令牌）
         _base_url: 基础 URL
         _url: 解析后的 API URL
     """
 
-    def __init__(self, auth_token: str, *, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        auth_token: str = "",
+        *,
+        base_url: str | None = None,
+        auth_token_resolver: Callable[[], str] | None = None,
+    ) -> None:
         self._auth_token = auth_token
+        self._auth_token_resolver = auth_token_resolver
         self._base_url = base_url
         self._url = _resolve_codex_url(base_url)
 
@@ -372,6 +380,22 @@ class CodexApiClient:
         if last_error is not None:
             raise self._translate_error(last_error) from last_error
 
+    def _resolve_auth_token(self) -> str:
+        """解析当前认证令牌，若有 resolver 则每次请求前刷新
+
+        Returns:
+            str: 有效的认证令牌
+
+        Raises:
+            AuthenticationFailure: 未认证或刷新失败
+        """
+        if self._auth_token_resolver is not None:
+            try:
+                self._auth_token = self._auth_token_resolver()
+            except (RuntimeError, ValueError) as exc:
+                raise AuthenticationFailure(str(exc)) from exc
+        return self._auth_token
+
     async def _stream_once(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         body: dict[str, Any] = {
             "model": request.model,
@@ -396,7 +420,7 @@ class CodexApiClient:
         collected_reasoning = ""
         completed_response: dict[str, Any] | None = None
 
-        headers = _build_codex_headers(self._auth_token)
+        headers = _build_codex_headers(self._resolve_auth_token())
         try:
             async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
                 async with client.stream("POST", self._url, headers=headers, json=body) as response:
