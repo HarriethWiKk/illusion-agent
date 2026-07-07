@@ -7,7 +7,6 @@ Anthropic API 客户端模块
 主要功能：
     - 流式文本增量生成
     - 自动重试 transient 错误
-    - OAuth 支持
     - 错误转换
 
 类说明：
@@ -28,11 +27,9 @@ Anthropic API 客户端模块
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import uuid
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Protocol
+from typing import Any, AsyncIterator, Protocol
 
 from anthropic import APIError, APIStatusError, AsyncAnthropic
 from anthropic.types import ThinkingBlock as _SDKThinkingBlock
@@ -50,12 +47,6 @@ from illusion.api.errors import (  # noqa: E402
     RateLimitFailure,
     RequestFailure,
 )
-from illusion.auth.external import (  # noqa: E402
-    claude_attribution_header,
-    claude_oauth_betas,
-    claude_oauth_headers,
-    get_claude_code_session_id,
-)
 from illusion.api.usage import UsageSnapshot  # noqa: E402
 from illusion.engine.messages import (  # noqa: E402
     ConversationMessage,
@@ -72,7 +63,6 @@ MAX_RETRIES = 3  # 最大重试次数
 BASE_DELAY = 1.0  # 基础延迟（秒）
 MAX_DELAY = 30.0  # 最大延迟（秒）
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 529}  # 可重试的状态码集合
-OAUTH_BETA_HEADER = "oauth-2025-04-20"  # OAuth beta 版本头
 
 
 @dataclass(frozen=True)
@@ -266,16 +256,12 @@ def _get_retry_delay(attempt: int, exc: Exception | None = None) -> float:
 
 class AnthropicApiClient:
     """Anthropic 异步 SDK 封装类
-    
+
     带重试逻辑的 Anthropic API 薄封装。
-    
+
     Attributes:
         _api_key: API 密钥
-        _auth_token: 认证令牌
         _base_url: 基础 URL
-        _claude_oauth: 是否使用 OAuth
-        _auth_token_resolver: 认证令牌解析器
-        _session_id: 会话 ID
         _client: AsyncAnthropic 客户端实例
     """
 
@@ -283,50 +269,24 @@ class AnthropicApiClient:
         self,
         api_key: str | None = None,
         *,
-        auth_token: str | None = None,
         base_url: str | None = None,
-        claude_oauth: bool = False,
-        auth_token_resolver: Callable[[], str] | None = None,
     ) -> None:
         self._api_key = api_key
-        self._auth_token = auth_token
         self._base_url = base_url
-        self._claude_oauth = claude_oauth
-        self._auth_token_resolver = auth_token_resolver
-        self._session_id = get_claude_code_session_id() if claude_oauth else ""
         self._client = self._create_client()
 
     def _create_client(self) -> AsyncAnthropic:
         """创建 Anthropic 客户端
-        
+
         Returns:
             AsyncAnthropic: 配置好的客户端实例
         """
         kwargs: dict[str, Any] = {}
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        if self._auth_token:
-            kwargs["auth_token"] = self._auth_token
-            kwargs["default_headers"] = (
-                claude_oauth_headers()
-                if self._claude_oauth
-                else {"anthropic-beta": OAUTH_BETA_HEADER}
-            )
         if self._base_url:
             kwargs["base_url"] = self._base_url
         return AsyncAnthropic(**kwargs)
-
-    def _refresh_client_auth(self) -> None:
-        """刷新客户端认证
-        
-        如果使用 OAuth 且有令牌解析器，则刷新认证令牌。
-        """
-        if not self._claude_oauth or self._auth_token_resolver is None:
-            return
-        next_token = self._auth_token_resolver()
-        if next_token and next_token != self._auth_token:
-            self._auth_token = next_token
-            self._client = self._create_client()
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
         """流式生成文本增量并在 transient 错误时自动重试
@@ -344,7 +304,6 @@ class AnthropicApiClient:
 
         for attempt in range(MAX_RETRIES + 1):
             try:
-                self._refresh_client_auth()
                 async for event in self._stream_once(request):
                     yield event
                 return  # 成功
@@ -438,37 +397,13 @@ class AnthropicApiClient:
         # 添加系统提示词
         if request.system_prompt:
             params["system"] = request.system_prompt
-        # OAuth 认证：添加归属头
-        if self._claude_oauth:
-            attribution = claude_attribution_header()
-            params["system"] = (
-                f"{attribution}\n{params['system']}"
-                if params.get("system")
-                else attribution
-            )
         # 添加工具定义
         if request.tools:
             params["tools"] = request.tools
         # Anthropic API 不支持 reasoning_effort 参数，effort 通过系统提示词传递
-        # OAuth 附加参数
-        if self._claude_oauth:
-            params["betas"] = claude_oauth_betas()
-            params["metadata"] = {
-                "user_id": json.dumps(
-                    {
-                        "device_id": "illusion",
-                        "session_id": self._session_id,
-                        "account_uuid": "",
-                    },
-                    separators=(",", ":"),
-                )
-            }
-            params["extra_headers"] = {"x-client-request-id": str(uuid.uuid4())}
 
         try:
-            # 根据是否使用 OAuth 选择 API 端点
-            stream_api = self._client.beta.messages if self._claude_oauth else self._client.messages
-            async with stream_api.stream(**params) as stream:
+            async with self._client.messages.stream(**params) as stream:
                 async for event in stream:
                     event_type = getattr(event, "type", None)
                     # 处理工具调用开始事件：模型开始生成工具调用时立即通知
