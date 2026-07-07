@@ -54,7 +54,9 @@ def get_default_write_paths() -> list[str]:
     npm_logs = os.path.expanduser("~/.npm/_logs")
     if os.path.exists(os.path.dirname(npm_logs)):
         paths.append(npm_logs)
-    paths.append(os.path.expanduser("~/.illusion/debug"))
+    from illusion.config.paths import get_logs_dir
+
+    paths.append(str(get_logs_dir() / "debug"))
     return paths
 
 

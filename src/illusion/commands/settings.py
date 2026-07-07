@@ -111,7 +111,7 @@ async def privacy_settings_handler(_: str, context: CommandContext) -> CommandRe
         f"- session_dir: {session_dir}",
         f"- feedback_log: {get_feedback_log_path()}",
         f"- api_base_url: {settings.base_url or '(default Anthropic-compatible endpoint)'}",
-        "- network: enabled only for provider and explicit web/MCP calls",
+        "- network: enabled only for API endpoint and explicit web/MCP calls",
         "- storage: local files under ~/.illusion and project .illusion",
     ]
     return CommandResult(message="\n".join(lines))

@@ -429,8 +429,8 @@ def _ensure_language() -> str:
     return lang
 
 
-_PROVIDER_OPTIONS: list[tuple[str, dict[str, str]]] = [
-    ("custom", _I18N["custom_provider"]),
+_FORMAT_OPTIONS: list[tuple[str, dict[str, str]]] = [
+    ("custom", _I18N["custom_format"]),
     ("anthropic", _I18N["anthropic_label"]),
     ("openai", _I18N["openai_label"]),
     ("copilot", _I18N["copilot_label"]),
@@ -471,17 +471,17 @@ def auth_login() -> None:
     _ensure_language()
     manager = AuthManager()
 
-    # 1. 选择提供商
-    print(_t("select_provider"))
-    for i, (key, labels) in enumerate(_PROVIDER_OPTIONS, 1):
+    # 1. 选择 API 格式
+    print(_t("select_api_format"))
+    for i, (key, labels) in enumerate(_FORMAT_OPTIONS, 1):
         lang = manager.settings.ui_language or "en-US"
         label = labels.get(lang, labels.get("en-US", key))
         print(f"  {i}. {label}")
     raw = typer.prompt(_t("enter_number"), default="1")
     try:
         idx = int(raw.strip()) - 1
-        if 0 <= idx < len(_PROVIDER_OPTIONS):
-            provider_choice = _PROVIDER_OPTIONS[idx][0]
+        if 0 <= idx < len(_FORMAT_OPTIONS):
+            format_choice = _FORMAT_OPTIONS[idx][0]
         else:
             print(_t("invalid_selection"), file=sys.stderr)
             raise typer.Exit(1)
@@ -490,21 +490,21 @@ def auth_login() -> None:
         raise typer.Exit(1)
 
     # --- Copilot 走设备码 OAuth 流程 ---
-    if provider_choice == "copilot":
+    if format_choice == "copilot":
         _copilot_login(manager)
         return
 
     # --- Codex 走外部 CLI 凭据读取流程 ---
-    if provider_choice == "codex":
+    if format_choice == "codex":
         _codex_login(manager)
         return
 
     # --- 其他提供商走 API 密钥流程 ---
 
     # 2. 确定 API 格式
-    if provider_choice == "anthropic":
+    if format_choice == "anthropic":
         api_format = "anthropic"
-    elif provider_choice == "openai":
+    elif format_choice == "openai":
         api_format = "openai"
     else:
         # 自定义提供商：让用户选择 API 格式
@@ -524,7 +524,7 @@ def auth_login() -> None:
             raise typer.Exit(1)
 
     # 3. 输入端点
-    default_ep = _DEFAULT_ENDPOINTS.get(provider_choice, "")
+    default_ep = _DEFAULT_ENDPOINTS.get(format_choice, "")
     if default_ep:
         prompt_text = f"{_t('enter_endpoint')} ({_t('default_endpoint')}: {default_ep}): "
         endpoint = input(prompt_text).strip()
@@ -545,7 +545,7 @@ def auth_login() -> None:
         raise typer.Exit(1)
 
     # 5. 输入模型名称
-    default_model = _DEFAULT_MODELS.get(provider_choice, "")
+    default_model = _DEFAULT_MODELS.get(format_choice, "")
     if default_model:
         prompt_text = f"{_t('enter_model')} ({_t('default_endpoint')}: {default_model}): "
         model_name = input(prompt_text).strip()
@@ -580,7 +580,7 @@ def auth_login() -> None:
         "model_1": model_name,
     }
     setattr(manager.settings, env_key, env_config)
-    manager.settings.model = f"{env_key}:model_1"
+    manager.settings.model = f"{env_key}.model_1"
     manager.save_settings()
 
     # 保存密钥到 credentials.json
@@ -659,14 +659,13 @@ def _copilot_login(manager: Any) -> None:
     env_key = f"env_{next_num}"
 
     env_config = {
-        "api_format": "openai",
+        "api_format": "copilot",
         "base_url": _DEFAULT_ENDPOINTS["copilot"],
         "api_key": "",
         "model_1": model_name,
-        "provider": "copilot",
     }
     setattr(manager.settings, env_key, env_config)
-    manager.settings.model = f"{env_key}:model_1"
+    manager.settings.model = f"{env_key}.model_1"
     manager.save_settings()
 
     print(_t("env_saved", env_key=env_key))
@@ -741,14 +740,13 @@ def _codex_login(manager: Any) -> None:
     env_key = f"env_{next_num}"
 
     env_config = {
-        "api_format": "openai",
+        "api_format": "codex",
         "base_url": _DEFAULT_ENDPOINTS["codex"],
         "api_key": "",
         "model_1": model_name,
-        "provider": "codex",
     }
     setattr(manager.settings, env_key, env_config)
-    manager.settings.model = f"{env_key}:model_1"
+    manager.settings.model = f"{env_key}.model_1"
     manager.save_settings()
 
     print(_t("env_saved", env_key=env_key))

@@ -19,8 +19,8 @@ from typing import Any
 # i18n 消息表
 MESSAGES: dict[str, dict[str, str]] = {
     # --- auth ---
-    "select_provider": {"zh-CN": "选择提供商:", "en-US": "Select a provider:"},
-    "custom_provider": {"zh-CN": "自定义提供商", "en-US": "Custom provider"},
+    "select_api_format": {"zh-CN": "选择 API 格式:", "en-US": "Select API format:"},
+    "custom_format": {"zh-CN": "自定义格式", "en-US": "Custom format"},
     "anthropic_label": {"zh-CN": "Anthropic (Claude API)", "en-US": "Anthropic (Claude API)"},
     "openai_label": {"zh-CN": "OpenAI / 兼容接口", "en-US": "OpenAI / compatible"},
     "copilot_label": {"zh-CN": "GitHub Copilot", "en-US": "GitHub Copilot"},
@@ -45,7 +45,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "codex_not_authenticated": {"zh-CN": "未认证 Codex，请先运行 'illusion auth login'", "en-US": "Codex not authenticated, run 'illusion auth login' first"},
     "enter_number": {"zh-CN": "输入序号", "en-US": "Enter number"},
     "invalid_selection": {"zh-CN": "无效选择", "en-US": "Invalid selection"},
-    "select_api_format": {"zh-CN": "选择 API 格式:", "en-US": "Select API format:"},
     "enter_endpoint": {"zh-CN": "输入 API 端点", "en-US": "Enter API endpoint"},
     "enter_api_key": {"zh-CN": "输入 API 密钥", "en-US": "Enter API key"},
     "enter_model": {"zh-CN": "输入模型名称", "en-US": "Enter model name"},
@@ -131,8 +130,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "print_requires_prompt": {"zh-CN": "错误: -p/--print 需要提供提示词，例如 -p '你的提示词'", "en-US": "Error: -p/--print requires a prompt, e.g. -p 'your prompt'"},
     # --- settings ---
     "cwd_invalid": {"zh-CN": "settings.json中配置的working_directory不存在或不是目录: {path}", "en-US": "working_directory in settings.json does not exist or is not a directory: {path}"},
-    "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置，或设置 ANTHROPIC_API_KEY / OPENAI_API_KEY 环境变量", "en-US": "No API key found. Run 'illusion auth login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY environment variable"},
-    "no_auth": {"zh-CN": "未找到认证信息。请使用 'illusion auth login' 配置，或设置对应的环境变量", "en-US": "No credentials found. Run 'illusion auth login' or set the matching environment variable"},
+    "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置", "en-US": "No API key found. Run 'illusion auth login' to configure"},
+    "no_auth": {"zh-CN": "未找到认证信息。请使用 'illusion auth login' 配置", "en-US": "No credentials found. Run 'illusion auth login' to configure"},
     # --- manager ---
     "unknown_env": {"zh-CN": "未知环境: {env_key}", "en-US": "Unknown environment: {env_key}"},
     "cannot_remove_active_env": {"zh-CN": "不能移除当前活动环境", "en-US": "Cannot remove the active environment"},
@@ -437,7 +436,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /login API_KEY": "用法：/login API_KEY",
     # Doctor
     "- backend host: available": "- 后端宿主：可用",
-    "- network: enabled only for provider and explicit web/MCP calls": "- 网络：仅用于提供商和显式 web/MCP 调用",
+    "- network: enabled only for API endpoint and explicit web/MCP calls": "- 网络：仅用于 API 端点和显式 web/MCP 调用",
     "- storage: local files under ~/.illusion and project .illusion": "- 存储：本地文件位于 ~/.illusion 和项目 .illusion",
     # 沙箱
     "Sandbox status: enabled": "沙箱状态：已启用",
@@ -593,7 +592,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Rules directory: (.+)$", r"规则目录：\1"),
     # 前缀行（doctor, privacy-settings, bridge, login, stats, permissions 等）
     (r"^- backend host: available$", r"- 后端宿主：可用"),
-    (r"^- network: enabled only for provider and explicit web/MCP calls$", r"- 网络：仅用于提供商和显式 web/MCP 调用"),
+    (r"^- network: enabled only for API endpoint and explicit web/MCP calls$", r"- 网络：仅用于 API 端点和显式 web/MCP 调用"),
     (r"^- storage: local files under ~\/\.illusion and project \.illusion$", r"- 存储：本地文件位于 ~/.illusion 和项目 .illusion"),
     (r"^- messages: (\d+)$", r"- 消息数：\1"),
     (r"^- estimated_tokens: (\d+)$", r"- 预估 token：\1"),
@@ -604,7 +603,6 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^- cwd: (.+)$", r"- 工作目录：\1"),
     (r"^- sessions: (\d+)$", r"- 会话数：\1"),
     (r"^- utilities: (.+)$", r"- 工具集：\1"),
-    (r"^- provider: (.+)$", r"- 提供商：\1"),
     (r"^- auth_status: (.+)$", r"- 认证状态：\1"),
     (r"^- base_url: (.+)$", r"- 基础 URL：\1"),
     (r"^- model: (.+)$", r"- 模型：\1"),

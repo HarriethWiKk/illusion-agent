@@ -171,7 +171,9 @@ class WorktreeManager:
 
     def __init__(self, base_dir: Path | None = None) -> None:
         """初始化 WorktreeManager。"""
-        self.base_dir: Path = base_dir or Path.home() / ".illusion" / "worktrees"
+        from illusion.config.paths import get_config_dir
+
+        self.base_dir: Path = base_dir or get_config_dir() / "worktrees"
 
     # ------------------------------------------------------------------
     # 公开 API

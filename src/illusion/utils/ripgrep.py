@@ -8,7 +8,6 @@ import os
 import platform
 import shutil
 import sys
-from pathlib import Path
 
 
 class RipgrepNotFoundError(Exception):
@@ -74,7 +73,9 @@ def get_cache_dir() -> str:
     Returns:
         缓存目录路径：~/.illusion/ripgrep/
     """
-    return os.path.join(str(Path.home()), ".illusion", "ripgrep")
+    from illusion.config.paths import get_config_dir
+
+    return str(get_config_dir() / "ripgrep")
 
 
 def find_rg_path() -> str:

@@ -47,24 +47,19 @@ def _sanitize_path_component(value: str) -> str:
 
 def get_config_dir() -> Path:
     """返回配置目录，必要时创建
-    
+
     解析顺序：
     1. ILLUSION_CONFIG_DIR 环境变量（优先）
     2. ~/.illusion/（默认）
-    
+
     Returns:
         Path: 配置目录路径
     """
-    # 检查环境变量 ILLUSION_CONFIG_DIR 是否设置（同时支持大写和小写）
-    env_dir = os.environ.get("ILLUSION_CONFIG_DIR") or os.environ.get("illusion_CONFIG_DIR")
+    env_dir = os.environ.get("ILLUSION_CONFIG_DIR")
     if env_dir:
-        # 使用环境变量指定的目录
         config_dir = Path(env_dir)
     else:
-        # 使用默认目录 ~/.illusion/
         config_dir = Path.home() / _DEFAULT_BASE_DIR
-
-    # 确保目录存在，不存在则创建
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
 
@@ -80,44 +75,38 @@ def get_config_file_path() -> Path:
 
 def get_data_dir() -> Path:
     """返回数据目录（用于缓存、历史等）
-    
+
     解析顺序：
     1. ILLUSION_DATA_DIR 环境变量（优先）
     2. ~/.illusion/data/（默认）
-    
+
     Returns:
         Path: 数据目录路径
     """
-    # 检查环境变量 ILLUSION_DATA_DIR 是否设置（同时支持大写和小写）
-    env_dir = os.environ.get("ILLUSION_DATA_DIR") or os.environ.get("illusion_DATA_DIR")
+    env_dir = os.environ.get("ILLUSION_DATA_DIR")
     if env_dir:
         data_dir = Path(env_dir)
     else:
-        # 默认使用配置目录下的 data 子目录
         data_dir = get_config_dir() / "data"
-
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
 
 def get_logs_dir() -> Path:
     """返回日志目录
-    
+
     解析顺序：
     1. ILLUSION_LOGS_DIR 环境变量（优先）
     2. ~/.illusion/logs/（默认）
-    
+
     Returns:
         Path: 日志目录路径
     """
-    # 检查环境变量 ILLUSION_LOGS_DIR 是否设置
     env_dir = os.environ.get("ILLUSION_LOGS_DIR")
     if env_dir:
         logs_dir = Path(env_dir)
     else:
-        # 默认使用配置目录下的 logs 子目录
         logs_dir = get_config_dir() / "logs"
-
     logs_dir.mkdir(parents=True, exist_ok=True)
     return logs_dir
 
