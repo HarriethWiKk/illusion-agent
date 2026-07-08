@@ -774,45 +774,7 @@ class ChannelRunner:
         return await asyncio.wait_for(fut, timeout=timeout)
 
 
-def _format_question_options(questions: object) -> str:
-    """将结构化问题选项格式化为渠道可显示的文本
-
-    questions 结构：list[dict]，每个 dict 含：
-        - question: str 子问题文本
-        - header: str 标题
-        - options: list[dict] 选项列表，每项含 label/description
-        - multiSelect: bool 是否多选
-        - noCustomInput: bool 是否禁止自定义输入
-
-    Args:
-        questions: 结构化问题数据
-
-    Returns:
-        str: 格式化后的选项文本，无选项返回空串
-    """
-    if not isinstance(questions, (list, tuple)):
-        return ""
-    lines: list[str] = []
-    for q in questions:
-        if not isinstance(q, dict):
-            continue
-        opts = q.get("options") or []
-        if not opts:
-            continue
-        header = str(q.get("header") or "").strip()
-        sub_q = str(q.get("question") or "").strip()
-        if header:
-            lines.append(f"【{header}】")
-        if sub_q:
-            lines.append(sub_q)
-        for opt in opts:
-            if not isinstance(opt, dict):
-                continue
-            label = str(opt.get("label") or "").strip()
-            desc = str(opt.get("description") or "").strip()
-            if label:
-                lines.append(f"  • {label}" + (f" — {desc}" if desc else ""))
-    return "\n".join(lines)
+from illusion.ui.terminal_io import format_question_options as _format_question_options
 
 
 def _get_weixin_channel_class() -> Any:
