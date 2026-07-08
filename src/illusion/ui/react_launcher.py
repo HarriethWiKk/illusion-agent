@@ -124,11 +124,11 @@ def build_backend_command(
     cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     effort: str | None = None,
+    permission_mode: str | None = None,
+    name: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
 ) -> list[str]:
     """返回 React 前端用于生成后端主机的命令。
 
@@ -136,11 +136,11 @@ def build_backend_command(
         cwd: 工作目录
         model: 模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         effort: 推理强度级别
+        permission_mode: 权限模式
+        name: 会话名称
+        continue_session: 继续上一会话
+        resume: 恢复指定会话
 
     Returns:
         list[str]: 后端启动命令列表
@@ -152,16 +152,16 @@ def build_backend_command(
         command.extend(["--model", model])
     if max_turns is not None:
         command.extend(["--max-turns", str(max_turns)])
-    if base_url:
-        command.extend(["--base-url", base_url])
-    if system_prompt:
-        command.extend(["--system-prompt", system_prompt])
-    if api_key:
-        command.extend(["--api-key", api_key])
-    if api_format:
-        command.extend(["--api-format", api_format])
     if effort:
         command.extend(["--effort", effort])
+    if permission_mode:
+        command.extend(["--permission-mode", permission_mode])
+    if name:
+        command.extend(["--name", name])
+    if continue_session:
+        command.append("--continue")
+    if resume:
+        command.extend(["--resume", resume])
     return command
 
 
@@ -171,11 +171,11 @@ async def launch_react_tui(
     cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     effort: str | None = None,
+    permission_mode: str | None = None,
+    name: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
 ) -> int:
     """启动 React 终端前端作为默认 UI。
 
@@ -184,11 +184,11 @@ async def launch_react_tui(
         cwd: 工作目录
         model: 模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         effort: 推理强度级别
+        permission_mode: 权限模式
+        name: 会话名称
+        continue_session: 继续上一会话
+        resume: 恢复指定会话
 
     Returns:
         int: 退出代码
@@ -206,11 +206,11 @@ async def launch_react_tui(
                 cwd=cwd or str(Path.cwd()),
                 model=model,
                 max_turns=max_turns,
-                base_url=base_url,
-                system_prompt=system_prompt,
-                api_key=api_key,
-                api_format=api_format,
                 effort=effort,
+                permission_mode=permission_mode,
+                name=name,
+                continue_session=continue_session,
+                resume=resume,
             ),
             "initial_prompt": prompt,
         }

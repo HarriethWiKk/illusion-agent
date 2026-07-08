@@ -177,7 +177,26 @@ illusion channel serve
 
 自动模式适用于渠道会话中的所有工具（bash、文件写入、编辑等），无需手动审批。
 
-> **注意**：`ask_user` 提问和计划审批仍需用户输入——这些是交互式提示，不是权限检查。
+> **注意**：`ask_user_question` 提问和计划审批仍需用户输入——这些是交互式提示，不是权限检查。
+
+#### ask_user_question 多问题处理
+
+当 LLM 调用 `ask_user_question` 工具时，渠道按以下规则处理：
+
+- **单问题**（`len(questions) == 1`）：合并为一条消息发送，用户回复一条文本。`multiSelect=true` 时在消息末尾添加"（可多选，用逗号分隔）"提示，用户回复如 `选项A,选项B`，拆分为 list 返回。
+- **多问题**（`len(questions) > 1`）：**逐个询问**，每个问题单独发送一条消息（含序号 `[1/3]`、`[2/3]` 等），收到回复后再发下一个，最后合并为 dict 返回（key 为 header）。
+- **无结构化数据**（`questions=None`）：直接发送问题文本，等待回复字符串。
+
+示例：3 个问题的交互流程
+```
+渠道 → 用户: ❓ [1/3] Model: 哪个模型?  • A — 选项A  • B — 选项B
+用户 → 渠道: A
+渠道 → 用户: ❓ [2/3] Effort: 推理强度?  • low  • high
+用户 → 渠道: high
+渠道 → 用户: ❓ [3/3] Theme: 主题?  • dark  • light
+用户 → 渠道: dark
+（工具返回 {Model: A, Effort: high, Theme: dark} 给 LLM）
+```
 
 ### 常见问题排查
 

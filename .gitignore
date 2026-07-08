@@ -67,3 +67,6 @@ yarn-error.log*
 # Frontend build artifacts
 frontend/terminal/dist/
 frontend/web/dist/
+
+temp_test_data/
+temp_test_config/

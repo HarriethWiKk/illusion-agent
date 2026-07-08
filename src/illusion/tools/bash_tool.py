@@ -71,8 +71,9 @@ def _get_background_usage_note() -> str | None:
         "the command completes later. You do not need to check the output right away - you'll be "
         "notified when it finishes. You do not need to use '&' at the end of the command when "
         "using this parameter. "
-        "IMPORTANT: Background commands will NOT return their output directly. "
-        "If you need to see the command's output or result, use the `task_output` tool with the task_id."
+        "You will be automatically notified when it completes — do NOT sleep or poll "
+        "task_output for progress. If you need the full output later, use `task_output` "
+        "with the task_id. Continue with other work or respond to the user instead."
     )
 
 
@@ -412,6 +413,10 @@ class BashTool(BaseTool[BashToolInput]):
             record.output_file.write_text("", encoding="utf-8")
             manager._tasks[task_id] = record
             manager._output_locks[task_id] = asyncio.Lock()
+            # 注册到 bg_agent_tracker，使完成时能自动通知 LLM
+            tracker = context.metadata.get("bg_agent_tracker") if context.metadata else None
+            if tracker is not None:
+                tracker.register(task_id)
 
             async def _background_wait() -> None:
                 """后台等待进程完成，累积输出到 task output_file。"""

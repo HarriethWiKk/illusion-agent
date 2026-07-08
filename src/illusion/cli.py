@@ -1180,25 +1180,19 @@ def main(
         None,
         "--model",
         "-m",
-        help="Model alias (e.g. 'sonnet', 'opus') or full model ID",
+        help="Model ID in env_N.model_N format (e.g. 'env_1.model_2')",
         rich_help_panel="Model & Effort",
     ),
     effort: str | None = typer.Option(
         None,
-        "--effort",
-        help="Effort level for the session (low, medium, high, max)",
-        rich_help_panel="Model & Effort",
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        help="Override verbose mode setting from config",
+        "-e", "--effort",
+        help="Effort level (low, medium, high, max). Persists to settings.",
         rich_help_panel="Model & Effort",
     ),
     max_turns: int | None = typer.Option(
         None,
-        "--max-turns",
-        help="Maximum number of agentic turns (useful with --print)",
+        "-t", "--max-turns",
+        help="Maximum agentic turns. Persists to settings.",
         rich_help_panel="Model & Effort",
     ),
     # --- Output ---
@@ -1228,77 +1222,7 @@ def main(
         help="Bypass all permission checks (only for sandboxed environments)",
         rich_help_panel="Permissions",
     ),
-    allowed_tools: Optional[list[str]] = typer.Option(
-        None,
-        "--allowed-tools",
-        help="Comma or space-separated list of tool names to allow",
-        rich_help_panel="Permissions",
-    ),
-    disallowed_tools: Optional[list[str]] = typer.Option(
-        None,
-        "--disallowed-tools",
-        help="Comma or space-separated list of tool names to deny",
-        rich_help_panel="Permissions",
-    ),
-    # --- System & Context ---
-    system_prompt: str | None = typer.Option(
-        None,
-        "--system-prompt",
-        "-s",
-        help="Override the default system prompt",
-        rich_help_panel="System & Context",
-    ),
-    append_system_prompt: str | None = typer.Option(
-        None,
-        "--append-system-prompt",
-        help="Append text to the default system prompt",
-        rich_help_panel="System & Context",
-    ),
-    settings_file: str | None = typer.Option(
-        None,
-        "--settings",
-        help="Path to a JSON settings file or inline JSON string",
-        rich_help_panel="System & Context",
-    ),
-    base_url: str | None = typer.Option(
-        None,
-        "--base-url",
-        help="Anthropic-compatible API base URL",
-        rich_help_panel="System & Context",
-    ),
-    api_key: str | None = typer.Option(
-        None,
-        "--api-key",
-        "-k",
-        help="API key (overrides config and environment)",
-        rich_help_panel="System & Context",
-    ),
-    bare: bool = typer.Option(
-        False,
-        "--bare",
-        help="Minimal mode: skip hooks, plugins, MCP, and auto-discovery",
-        rich_help_panel="System & Context",
-    ),
-    api_format: str | None = typer.Option(
-        None,
-        "--api-format",
-        help="API format: 'anthropic' (default) or 'openai' (DashScope, GitHub Models, etc.)",
-        rich_help_panel="System & Context",
-    ),
     # --- Advanced ---
-    debug: bool = typer.Option(
-        False,
-        "--debug",
-        "-d",
-        help="Enable debug logging",
-        rich_help_panel="Advanced",
-    ),
-    mcp_config: Optional[list[str]] = typer.Option(
-        None,
-        "--mcp-config",
-        help="Load MCP servers from JSON files or strings",
-        rich_help_panel="Advanced",
-    ),
     cwd: Optional[str] = typer.Option(
         None,
         "--cwd",
@@ -1327,23 +1251,11 @@ def main(
         name: 会话显示名称
         model: 模型别名或完整模型 ID
         effort: 会话努力级别
-        verbose: 覆盖详细输出模式设置
         max_turns: 最大代理轮次数
         print_mode: 打印模式提示词
         output_format: 输出格式
         permission_mode: 权限模式
         dangerously_skip_permissions: 跳过权限检查
-        allowed_tools: 允许的工具列表
-        disallowed_tools: 禁止的工具列表
-        system_prompt: 覆盖默认系统提示词
-        append_system_prompt: 追加到默认系统提示词
-        settings_file: 设置文件路径
-        base_url: Anthropic 兼容 API 基础 URL
-        api_key: API 密钥
-        bare: 最小模式
-        api_format: API 格式
-        debug: 启用调试日志
-        mcp_config: 从 JSON 文件或字符串加载 MCP 服务器
         cwd: 会话工作目录
         backend_only: 运行结构化后端主机
     """
@@ -1424,67 +1336,76 @@ def main(
 
     from illusion.ui.app import run_print_mode, run_repl  # 导入 UI 模块
 
+    # -c/-r 不带 -p 且非 --backend-only 时报错
+    if (continue_session or resume is not None) and print_mode is None and not backend_only:
+        print(_t("continue_requires_print"), file=sys.stderr)
+        raise typer.Exit(1)
+
     # 处理 --continue 和 --resume 标志
     if continue_session or resume is not None:
-        from illusion.services.session_storage import (  # 导入会话存储模块
-            list_session_snapshots,  # 列出会话快照
-            load_session_by_id,  # 按 ID 加载会话
-            load_session_snapshot,  # 加载会话快照
-        )
-
-        session_data = None  # 会话数据
-        assert cwd is not None
-        if continue_session:
-            session_data = load_session_snapshot(cwd)
-            if session_data is None:
-                print(_t("session_not_found_prev"), file=sys.stderr)
-                raise typer.Exit(1)
-            print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
-        elif resume == "" or resume is None:
-            sessions = list_session_snapshots(cwd, limit=10)
-            if not sessions:
-                print(_t("session_no_saved"), file=sys.stderr)
-                raise typer.Exit(1)
-            print(_t("session_saved_list"))
-            for i, s in enumerate(sessions, 1):
-                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
-            choice = typer.prompt(_t("session_enter_id"))
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(sessions):
-                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
-                else:
-                    print(_t("invalid_selection"), file=sys.stderr)
-                    raise typer.Exit(1)
-            except ValueError:
-                session_data = load_session_by_id(cwd, choice)
-            if session_data is None:
-                print(_t("session_not_found", id=choice), file=sys.stderr)
-                raise typer.Exit(1)
-        else:
-            session_data = load_session_by_id(cwd, resume)
-            if session_data is None:
-                print(_t("session_not_found", id=resume), file=sys.stderr)
-                raise typer.Exit(1)
-
-        # 将会话传递给 REPL
-        asyncio.run(
-            run_repl(
-                prompt=None,  # 无提示词，使用恢复的会话
-                cwd=cwd,  # 工作目录
-                model=session_data.get("model") or model,  # 模型
-                backend_only=backend_only,  # 仅后端模式
-                base_url=base_url,  # 基础 URL
-                system_prompt=session_data.get("system_prompt") or system_prompt,  # 系统提示词
-                api_key=api_key,  # API 密钥
-                restore_messages=session_data.get("messages"),  # 恢复的消息
-                restore_session_id=session_data.get("session_id"),
-                effort=effort,  # 推理强度级别
-                channel_hint=pc_channel_hint,
-                channel_tools=pc_channel_tools,
+        if backend_only:
+            # backend-only 模式：在当前进程加载会话（子进程路径）
+            from illusion.services.session_storage import (
+                list_session_snapshots,
+                load_session_by_id,
+                load_session_snapshot,
             )
-        )
-        return
+
+            session_data = None
+            assert cwd is not None
+            if continue_session:
+                session_data = load_session_snapshot(cwd)
+                if session_data is None:
+                    print(_t("session_not_found_prev"), file=sys.stderr)
+                    raise typer.Exit(1)
+                print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+            elif resume == "" or resume is None:
+                sessions = list_session_snapshots(cwd, limit=10)
+                if not sessions:
+                    print(_t("session_no_saved"), file=sys.stderr)
+                    raise typer.Exit(1)
+                print(_t("session_saved_list"))
+                for i, s in enumerate(sessions, 1):
+                    print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
+                choice = typer.prompt(_t("session_enter_id"))
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(sessions):
+                        session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+                    else:
+                        print(_t("invalid_selection"), file=sys.stderr)
+                        raise typer.Exit(1)
+                except ValueError:
+                    session_data = load_session_by_id(cwd, choice)
+                if session_data is None:
+                    print(_t("session_not_found", id=choice), file=sys.stderr)
+                    raise typer.Exit(1)
+            else:
+                session_data = load_session_by_id(cwd, resume)
+                if session_data is None:
+                    print(_t("session_not_found", id=resume), file=sys.stderr)
+                    raise typer.Exit(1)
+
+            # 会话数据直接传入 backend host
+            asyncio.run(
+                run_repl(
+                    prompt=None,
+                    cwd=cwd,
+                    model=session_data.get("model") or model,
+                    backend_only=True,
+                    restore_messages=session_data.get("messages"),
+                    restore_session_id=session_data.get("session_id"),
+                    effort=effort,
+                    channel_hint=pc_channel_hint,
+                    channel_tools=pc_channel_tools,
+                    # 透传其他参数
+                    permission_mode=permission_mode,
+                    name=name,
+                )
+            )
+            return
+        # 非 backend_only 时 fall through 到 print_mode 分支
+        # （Step 2 已拦截 -c/-r 不带 -p 的情况）
 
     # 打印模式处理
     if print_mode is not None:
@@ -1492,6 +1413,24 @@ def main(
         if not prompt:
             print(_t("print_requires_prompt"), file=sys.stderr)
             raise typer.Exit(1)
+        # resume="" 在 print 模式下报错（先校验，避免持久化副作用）
+        if resume == "":
+            print(_t("session_resume_requires_id"), file=sys.stderr)
+            raise typer.Exit(1)
+        # 持久化 model/effort/max_turns/permission_mode 到 settings.json
+        if any(v is not None for v in (model, effort, max_turns, permission_mode)):
+            from illusion.config import load_settings, save_settings
+            _settings = load_settings()
+            if model is not None:
+                _settings.model = model
+            if effort is not None:
+                _settings.effort = effort
+            if max_turns is not None:
+                _settings.max_turns = max_turns
+            if permission_mode is not None:
+                from illusion.permissions.modes import PermissionMode
+                _settings.permission.mode = PermissionMode(permission_mode)
+            save_settings(_settings)
         # 运行打印模式
         asyncio.run(
             run_print_mode(
@@ -1499,14 +1438,12 @@ def main(
                 output_format=output_format or "text",  # 输出格式
                 cwd=cwd,  # 工作目录
                 model=model,  # 模型
-                base_url=base_url,  # 基础 URL
-                system_prompt=system_prompt,  # 系统提示词
-                append_system_prompt=append_system_prompt,  # 追加系统提示词
-                api_key=api_key,  # API 密钥
-                api_format=api_format,  # API 格式
                 permission_mode=permission_mode,  # 权限模式
                 max_turns=max_turns,  # 最大轮次
                 effort=effort,  # 推理强度级别
+                continue_session=continue_session,
+                resume=resume,
+                name=name,
             )
         )
         return
@@ -1524,13 +1461,14 @@ def main(
                 model=model,  # 模型
                 max_turns=max_turns,  # 最大轮次
                 backend_only=backend_only,  # 仅后端模式
-                base_url=base_url,  # 基础 URL
-                system_prompt=system_prompt,  # 系统提示词
-                api_key=api_key,  # API 密钥
-                api_format=api_format,  # API 格式
                 effort=effort,  # 推理强度级别
                 channel_hint=pc_channel_hint,
                 channel_tools=pc_channel_tools,
+                # 透传其他 CLI 参数
+                permission_mode=permission_mode,
+                name=name,
+                continue_session=continue_session,
+                resume=resume,
             )
         )
     except KeyboardInterrupt:

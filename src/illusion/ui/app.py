@@ -35,6 +35,95 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.ui.backend_host import run_backend_host
 from illusion.ui.react_launcher import launch_react_tui
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.terminal_io import PENDING_ANSWER_MARKER
+
+
+def _inject_answer_to_pending_tool_result(
+    messages: list[dict[str, Any]],
+    answer: str,
+) -> list[dict[str, Any]]:
+    """把用户答案注入到消息历史中 PENDING_ANSWER_MARKER 的 tool_result
+
+    扫描 messages（反向），找到最后一个 content 包含 PENDING_ANSWER_MARKER
+    的 tool_result block，替换其 content 为用户的答案。
+
+    Args:
+        messages: 序列化的会话消息列表
+        answer: 用户的答案文本
+
+    Returns:
+        list[dict]: 修改后的消息列表（浅拷贝）
+    """
+    import copy
+    result = copy.deepcopy(messages)
+    # 反向扫描，找最后一个 PENDING_ANSWER_MARKER 的 tool_result
+    for msg in reversed(result):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            block_content = block.get("content")
+            # content 可能是 str 或 list
+            if isinstance(block_content, str) and PENDING_ANSWER_MARKER in block_content:
+                block["content"] = answer
+                block["is_error"] = False
+                return result
+            if isinstance(block_content, list):
+                for sub in block_content:
+                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                        if PENDING_ANSWER_MARKER in sub["text"]:
+                            sub["text"] = answer
+                            block["is_error"] = False
+                            return result
+    return result
+
+
+def _format_multi_answer(prompt: str, questions: list[Any] | None) -> str:
+    """把用户的多问题答案解析并格式化为 header: value 行
+
+    支持 JSON 格式：{"header1": "value1", "header2": "value2"}
+    multiSelect 用数组：{"header": ["v1", "v2"]}
+
+    格式化逻辑与 ask_user_question 工具的 dict 返回一致：
+    - str 值 → "header: value"
+    - list 值 → 每个元素一行 "header: item"
+
+    单问题或解析失败时原样返回 prompt（向后兼容）。
+
+    Args:
+        prompt: 用户输入的答案文本
+        questions: 持久化的问题列表（含 header 字段）
+
+    Returns:
+        str: 格式化后的答案字符串
+    """
+    if not questions or len(questions) <= 1:
+        return prompt
+    import json as _json
+    text = prompt.strip()
+    if not text.startswith("{"):
+        return prompt  # 非 JSON，原样返回
+    try:
+        answers = _json.loads(text)
+    except (ValueError, TypeError):
+        return prompt  # 解析失败，原样返回
+    if not isinstance(answers, dict):
+        return prompt
+    # 格式化为 header: value 行（与 ask_user_question 工具的 dict 格式化逻辑一致）
+    lines: list[str] = []
+    for k, v in answers.items():
+        if isinstance(v, list):
+            for item in v:
+                lines.append(f"{k}: {item}")
+        else:
+            lines.append(f"{k}: {v}")
+    return "\n".join(lines) if lines else prompt
 
 
 async def run_repl(
@@ -43,10 +132,6 @@ async def run_repl(
     cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     backend_only: bool = False,
     restore_messages: list[dict[str, Any]] | None = None,
@@ -54,6 +139,10 @@ async def run_repl(
     effort: str | None = None,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
+    permission_mode: str | None = None,
+    name: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
 ) -> None:
     """运行默认的 IllusionCode 交互式应用程序（React TUI）。
 
@@ -62,10 +151,6 @@ async def run_repl(
         cwd: 工作目录
         model: 使用的模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式（openai/anthropic）
         api_client: 流式 API 客户端实例
         backend_only: 是否仅运行后端
         restore_messages: 恢复的会话消息列表
@@ -73,6 +158,10 @@ async def run_repl(
         effort: 推理强度级别（low/medium/high/xhigh/max）
         channel_hint: 渠道感知提示词（PC 终端注入系统提示词，含已启用渠道概览）
         channel_tools: 跨渠道工具列表（如 SendToChannelTool）
+        permission_mode: 权限模式
+        name: 会话名称
+        continue_session: 继续上一会话
+        resume: 恢复指定会话
     """
     # 后端单独运行模式
     if backend_only:
@@ -80,10 +169,6 @@ async def run_repl(
             cwd=cwd,
             model=model,
             max_turns=max_turns,
-            base_url=base_url,
-            system_prompt=system_prompt,
-            api_key=api_key,
-            api_format=api_format,
             api_client=api_client,
             restore_messages=restore_messages,
             restore_session_id=restore_session_id,
@@ -91,6 +176,10 @@ async def run_repl(
             effort=effort,
             channel_hint=channel_hint,
             channel_tools=channel_tools,
+            permission_mode=permission_mode,
+            name=name,
+            continue_session=continue_session,
+            resume=resume,
         )
         return
 
@@ -100,11 +189,11 @@ async def run_repl(
         cwd=cwd,
         model=model,
         max_turns=max_turns,
-        base_url=base_url,
-        system_prompt=system_prompt,
-        api_key=api_key,
-        api_format=api_format,
         effort=effort,
+        permission_mode=permission_mode,
+        name=name,
+        continue_session=continue_session,
+        resume=resume,
     )
     # 如果前端退出代码非零，抛出 SystemExit
     if exit_code != 0:
@@ -117,15 +206,13 @@ async def run_print_mode(
     output_format: str = "text",
     cwd: str | None = None,
     model: str | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    append_system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     permission_mode: str | None = None,
     max_turns: int | None = None,
     effort: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
+    name: str | None = None,
 ) -> None:
     """非交互式模式：提交提示词，流式输出，然后退出。
 
@@ -134,15 +221,13 @@ async def run_print_mode(
         output_format: 输出格式（text/json/stream-json）
         cwd: 工作目录
         model: 使用的模型名称
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        append_system_prompt: 追加的系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         api_client: 流式 API 客户端实例
         permission_mode: 权限模式
         max_turns: 最大对话轮次
         effort: 推理强度级别
+        continue_session: 继续上一会话
+        resume: 恢复指定会话 ID（空字符串则报错）
+        name: 会话名称
     """
     from illusion.engine.stream_events import (
         AssistantTextDelta,
@@ -152,35 +237,93 @@ async def run_print_mode(
         ToolExecutionCompleted,
         ToolExecutionStarted,
     )
+    from illusion.config.i18n import t as _t
+    from illusion.ui.terminal_io import print_mode_permission, make_print_mode_ask_user
+    from illusion.services.session_storage import (
+        delete_pending_question,
+        load_pending_question,
+        load_session_by_id,
+        load_session_snapshot,
+    )
+    from pathlib import Path
 
-    # 空权限回调 - 自动允许所有操作
-    async def _noop_permission(tool_name: str, reason: str) -> bool:
-        return True
+    # 会话恢复
+    restore_messages: list[dict[str, Any]] | None = None
+    restore_session_id: str | None = None
+    effective_cwd = cwd or str(Path.cwd())
+    if continue_session:
+        session_data = load_session_snapshot(effective_cwd)
+        if session_data is None:
+            print(_t("session_not_found_prev"), file=sys.stderr)
+            raise SystemExit(1)
+        restore_messages = session_data.get("messages", [])
+        restore_session_id = session_data.get("session_id")
+        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
+    elif resume is not None:
+        if resume == "":
+            print(_t("session_resume_requires_id"), file=sys.stderr)
+            raise SystemExit(1)
+        session_data = load_session_by_id(effective_cwd, resume)
+        if session_data is None:
+            print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
+            raise SystemExit(1)
+        restore_messages = session_data.get("messages", [])
+        restore_session_id = resume
+        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
 
-    # 空问答回调 - 返回空字符串
-    async def _noop_ask(question: str, questions: object = None) -> str:
-        return ""
+    # 检测 pending question（上次 print 模式退出时遗留的待回答问题）
+    pending_question: dict[str, Any] | None = None
+    if restore_session_id:
+        pending_question = load_pending_question(effective_cwd, restore_session_id)
+        if pending_question:
+            # 把用户的 prompt 作为答案注入到消息历史中的 PENDING_ANSWER_MARKER tool_result
+            if restore_messages:
+                # 多问题时，把 JSON 格式答案解析为 header: value 行（与工具 dict 返回一致）
+                questions_data = pending_question.get("questions") or []
+                formatted_answer = _format_multi_answer(prompt, questions_data)
+                restore_messages = _inject_answer_to_pending_tool_result(
+                    restore_messages, formatted_answer
+                )
+            delete_pending_question(effective_cwd, restore_session_id)
+            print(_t("print_mode_resuming_answer"), file=sys.stderr)
+
+    # 预生成 session_id（确保 make_print_mode_ask_user 和 build_runtime 一致）
+    from uuid import uuid4
+    effective_session_id = restore_session_id or uuid4().hex[:12]
+
+    # 构造 print 模式非交互状态字典
+    print_state: dict[str, Any] = {}
 
     # 构建运行时
     bundle = await build_runtime(
         prompt=prompt,
         model=model,
         max_turns=max_turns,
-        base_url=base_url,
-        system_prompt=system_prompt,
-        api_key=api_key,
-        api_format=api_format,
         api_client=api_client,
-        permission_prompt=_noop_permission,
-        ask_user_prompt=_noop_ask,
+        permission_prompt=print_mode_permission,
+        ask_user_prompt=make_print_mode_ask_user(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
         effort=effort,
         is_interactive=False,
+        permission_mode=permission_mode,
+        name=name,
+        restore_messages=restore_messages,
+        restore_session_id=effective_session_id,
     )
     await start_runtime(bundle)
 
     # 收集输出
     collected_text = ""
     events_list: list[dict[str, Any]] = []
+    # 前缀打印状态：跟踪当前段是否已输出前缀（避免每个 delta 重复输出）
+    # 工具事件后重置，使下一轮思考/回复获得新前缀
+    _reasoning_prefix_printed = False
+    _assistant_prefix_printed = False
+    # 是否已输出过至少一个段落（用于在段落间插入空行分隔）
+    _any_section_printed = False
 
     try:
         # 系统消息打印回调
@@ -193,22 +336,58 @@ async def run_print_mode(
                 print(json.dumps(obj), flush=True)
                 events_list.append(obj)
 
+        def _print_section_header(header: str) -> None:
+            """输出段落前缀，非首个段落前加空行分隔
+
+            若上一段内容未以换行结尾（如 reasoning 通过 write 输出），
+            先补一个换行再输出空行，确保段落视觉分隔清晰。
+            """
+            nonlocal _any_section_printed
+            if _any_section_printed:
+                print(file=sys.stderr)  # 空行分隔
+            print(header, file=sys.stderr)
+            _any_section_printed = True
+
         # 流式事件渲染回调
         async def _render_event(event: StreamEvent) -> None:
-            nonlocal collected_text
+            nonlocal collected_text, _reasoning_prefix_printed, _assistant_prefix_printed, _any_section_printed
             obj: dict[str, Any]
-            # 助手文本增量
+            # 助手文本/思考增量（同一事件可能携带 text 和/或 reasoning）
             if isinstance(event, AssistantTextDelta):
-                collected_text += event.text
-                if output_format == "text":
-                    sys.stdout.write(event.text)
-                    sys.stdout.flush()
-                elif output_format == "stream-json":
-                    obj = {"type": "assistant_delta", "text": event.text}
-                    print(json.dumps(obj), flush=True)
-                    events_list.append(obj)
+                # 思考过程：输出到 stderr（text 模式），stream-json 加入 reasoning 字段
+                if event.reasoning:
+                    if output_format == "text":
+                        if not _reasoning_prefix_printed:
+                            _print_section_header(_t("print_mode_prefix_reasoning"))
+                            _reasoning_prefix_printed = True
+                        sys.stderr.write(event.reasoning)
+                        sys.stderr.flush()
+                    elif output_format == "stream-json":
+                        obj = {"type": "assistant_delta", "text": "", "reasoning": event.reasoning}
+                        print(json.dumps(obj), flush=True)
+                        events_list.append(obj)
+                # 最终回复：stdout 保持清洁，前缀标记输出到 stderr
+                if event.text:
+                    collected_text += event.text
+                    if output_format == "text":
+                        if not _assistant_prefix_printed:
+                            # 思考段后补换行，使下一前缀从新行开始
+                            if _reasoning_prefix_printed:
+                                sys.stderr.write("\n")
+                                sys.stderr.flush()
+                            _print_section_header(_t("print_mode_prefix_assistant"))
+                            _assistant_prefix_printed = True
+                        sys.stdout.write(event.text)
+                        sys.stdout.flush()
+                    elif output_format == "stream-json":
+                        obj = {"type": "assistant_delta", "text": event.text}
+                        print(json.dumps(obj), flush=True)
+                        events_list.append(obj)
             # 助手回合完成
             elif isinstance(event, AssistantTurnComplete):
+                # 重置前缀标记，为下一轮做准备
+                _reasoning_prefix_printed = False
+                _assistant_prefix_printed = False
                 if output_format == "text":
                     sys.stdout.write("\n")
                     sys.stdout.flush()
@@ -218,13 +397,23 @@ async def run_print_mode(
                     events_list.append(obj)
             # 工具开始执行
             elif isinstance(event, ToolExecutionStarted):
-                if output_format == "stream-json":
+                # 重置前缀标记：工具调用后下一轮思考/回复需要新前缀
+                _reasoning_prefix_printed = False
+                _assistant_prefix_printed = False
+                if output_format == "text":
+                    _print_section_header(_t("print_mode_prefix_tool_call") + " " + event.tool_name)
+                elif output_format == "stream-json":
                     obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             # 工具执行完成
             elif isinstance(event, ToolExecutionCompleted):
-                if output_format == "stream-json":
+                if output_format == "text":
+                    marker = "❌" if event.is_error else "✅"
+                    _print_section_header(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}")
+                    # 完整输出工具结果（print 模式面向 agent，不截断）
+                    print(event.output, file=sys.stderr)
+                elif output_format == "stream-json":
                     obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
@@ -249,19 +438,35 @@ async def run_print_mode(
         async def _clear_output() -> None:
             pass
 
-        # 处理输入行
-        await handle_line(
-            bundle,
-            prompt,
-            print_system=_print_system,
-            render_event=_render_event,
-            clear_output=_clear_output,
-        )
+        # 执行：如果有 pending_question，用 continue_pending（答案已注入 messages）
+        # 否则用 handle_line 正常提交新 prompt
+        if pending_question:
+            # 答案已注入到 restore_messages 中，直接继续执行
+            from illusion.engine.query import MaxTurnsExceeded
+            try:
+                async for event in bundle.engine.continue_pending(
+                    max_turns=bundle.engine.max_turns
+                ):
+                    await _render_event(event)
+            except MaxTurnsExceeded as exc:
+                await _print_system(_t("print_mode_max_turns_stopped", max_turns=exc.max_turns))
+        else:
+            await handle_line(
+                bundle,
+                prompt,
+                print_system=_print_system,
+                render_event=_render_event,
+                clear_output=_clear_output,
+            )
 
         # JSON 格式输出最终结果
         if output_format == "json":
             result = {"type": "result", "text": collected_text.strip()}
             print(json.dumps(result))
+
+        # 如果 ask_user_question 触发了 pending question，以退出码 2 退出
+        if print_state.get("pending_question_raised"):
+            raise SystemExit(2)
     finally:
         # 关闭运行时
         await close_runtime(bundle)

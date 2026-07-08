@@ -12,17 +12,11 @@ def test_build_backend_command_includes_flags():
     command = build_backend_command(
         cwd="/tmp/demo",
         model="kimi-k2.5",
-        base_url="https://api.moonshot.cn/anthropic",
-        system_prompt="system",
-        api_key="secret",
     )
     assert command[:3] == [command[0], "-m", "illusion"]
     assert "--backend-only" in command
     assert "--cwd" in command
     assert "--model" in command
-    assert "--base-url" in command
-    assert "--system-prompt" in command
-    assert "--api-key" in command
 
 
 @pytest.mark.asyncio

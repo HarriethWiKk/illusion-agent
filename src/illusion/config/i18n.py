@@ -122,12 +122,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     # --- session ---
     "session_not_found_prev": {"zh-CN": "未找到之前的会话", "en-US": "No previous session found"},
     "session_continuing": {"zh-CN": "继续会话: {summary}", "en-US": "Continuing session: {summary}"},
+    "session_resume_requires_id": {"zh-CN": "--resume 需要指定会话 ID", "en-US": "--resume requires a session ID"},
+    "session_not_found_id": {"zh-CN": "未找到会话: {session_id}", "en-US": "Session not found: {session_id}"},
     "session_no_saved": {"zh-CN": "未找到保存的会话", "en-US": "No saved sessions found"},
     "session_saved_list": {"zh-CN": "已保存的会话:", "en-US": "Saved sessions:"},
     "session_msg_count": {"zh-CN": "{n} 条消息", "en-US": "{n} msgs"},
     "session_enter_id": {"zh-CN": "输入会话序号或 ID", "en-US": "Enter session number or ID"},
     "session_not_found": {"zh-CN": "未找到会话: {id}", "en-US": "Session not found: {id}"},
     "print_requires_prompt": {"zh-CN": "错误: -p/--print 需要提供提示词，例如 -p '你的提示词'", "en-US": "Error: -p/--print requires a prompt, e.g. -p 'your prompt'"},
+    "continue_requires_print": {"zh-CN": "--continue/--resume 需要配合 -p 使用", "en-US": "--continue/--resume requires -p"},
     # --- settings ---
     "cwd_invalid": {"zh-CN": "settings.json中配置的working_directory不存在或不是目录: {path}", "en-US": "working_directory in settings.json does not exist or is not a directory: {path}"},
     "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置", "en-US": "No API key found. Run 'illusion auth login' to configure"},
@@ -276,6 +279,71 @@ MESSAGES: dict[str, dict[str, str]] = {
     "terminal_auth_hint": {
         "zh-CN": "请运行 'illusion auth login' 配置 API 环境",
         "en-US": "Run 'illusion auth login' to configure API environment",
+    },
+    # --- terminal_io 终端交互回调 ---
+    "terminal_permission_request": {
+        "zh-CN": "\n⚠️ 权限请求: {tool_name}",
+        "en-US": "\n⚠️ Permission request: {tool_name}",
+    },
+    "terminal_permission_reason": {
+        "zh-CN": "   原因: {reason}",
+        "en-US": "   Reason: {reason}",
+    },
+    "terminal_permission_prompt": {
+        "zh-CN": "   允许执行? [y/N] ",
+        "en-US": "   Allow execution? [y/N] ",
+    },
+    "terminal_ask_user_question": {
+        "zh-CN": "\n❓ {question}",
+        "en-US": "\n❓ {question}",
+    },
+    "print_mode_question_asked": {
+        "zh-CN": "📋 已提出问题，请使用 illusion -c -p \"<答案>\" 回答后继续",
+        "en-US": "📋 Question asked, answer with illusion -c -p \"<answer>\" to continue",
+    },
+    "print_mode_resuming_answer": {
+        "zh-CN": "✅ 检测到待回答问题，正在注入答案并继续执行...",
+        "en-US": "✅ Pending question detected, injecting answer and continuing...",
+    },
+    "print_mode_permission_denied": {
+        "zh-CN": "⏸️ 权限拒绝: {tool_name} ({reason})。print 模式不支持交互式权限确认，如需允许请使用 --permission-mode full_auto",
+        "en-US": "⏸️ Permission denied: {tool_name} ({reason}). Print mode does not support interactive permission confirmation, use --permission-mode full_auto to allow",
+    },
+    "print_mode_multi_question_format": {
+        "zh-CN": "📋 多问题请用 JSON 格式回答（key 为方括号内的 header）：\n{example}\n（multiSelect 用数组，如 {{\"header\": [\"选项A\", \"选项B\"]}}）",
+        "en-US": "📋 For multiple questions, answer in JSON format (key = header in brackets):\n{example}\n(multiSelect uses array, e.g. {{\"header\": [\"optionA\", \"optionB\"]}})",
+    },
+    # print 模式事件前缀（text 格式输出到 stderr，区分不同事件类型）
+    "print_mode_prefix_reasoning": {
+        "zh-CN": "[思考过程]",
+        "en-US": "[Thinking]",
+    },
+    "print_mode_prefix_tool_call": {
+        "zh-CN": "[工具调用]",
+        "en-US": "[Tool Call]",
+    },
+    "print_mode_prefix_tool_result": {
+        "zh-CN": "[工具结果]",
+        "en-US": "[Tool Result]",
+    },
+    "print_mode_prefix_assistant": {
+        "zh-CN": "[最终回复]",
+        "en-US": "[Assistant]",
+    },
+    # print 模式 max_turns 耗尽提示
+    "print_mode_max_turns_stopped": {
+        "zh-CN": "已达到最大轮次 ({max_turns})，停止执行",
+        "en-US": "Stopped after {max_turns} turns (max_turns)",
+    },
+    # 会话摘要缺失时的回退文本
+    "session_summary_fallback": {
+        "zh-CN": "(无摘要)",
+        "en-US": "(no summary)",
+    },
+    # ask_user_question header 格式（zh-CN 用全角括号，en-US 用半角括号）
+    "question_header_format": {
+        "zh-CN": "【{header}】",
+        "en-US": "[{header}]",
     },
     "web_settings_title": {
         "zh-CN": "设置",

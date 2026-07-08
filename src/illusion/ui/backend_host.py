@@ -83,24 +83,20 @@ class BackendHostConfig:
     Attributes:
         model: 使用的模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式（openai/anthropic）
         api_client: 流式 API 客户端实例
         restore_messages: 恢复的会话消息列表
         enforce_max_turns: 是否强制限制最大轮次
         effort: 推理强度级别（low/medium/high/xhigh/max）
         channel_hint: 渠道感知提示词（PC 终端或渠道端注入系统提示词）
         channel_tools: 跨渠道工具列表（如 SendToChannelTool）
+        permission_mode: 权限模式
+        name: 会话名称
+        continue_session: 继续上一会话
+        resume: 恢复指定会话
     """
 
     model: str | None = None
     max_turns: int | None = None
-    base_url: str | None = None
-    system_prompt: str | None = None
-    api_key: str | None = None
-    api_format: str | None = None
     api_client: SupportsStreamingMessages | None = None
     restore_messages: list[dict[str, Any]] | None = None
     restore_session_id: str | None = None
@@ -108,6 +104,10 @@ class BackendHostConfig:
     effort: str | None = None
     channel_hint: str | None = None
     channel_tools: list[Any] | None = None
+    permission_mode: str | None = None
+    name: str | None = None
+    continue_session: bool = False
+    resume: str | None = None
 
 
 class ReactBackendHost:
@@ -154,10 +154,6 @@ class ReactBackendHost:
         self._bundle = await build_runtime(
             model=self._config.model,
             max_turns=self._config.max_turns,
-            base_url=self._config.base_url,
-            system_prompt=self._config.system_prompt,
-            api_key=self._config.api_key,
-            api_format=self._config.api_format,
             api_client=self._config.api_client,
             restore_messages=self._config.restore_messages,
             restore_session_id=self._config.restore_session_id,
@@ -167,6 +163,8 @@ class ReactBackendHost:
             effort=self._config.effort,
             channel_hint=self._config.channel_hint,
             channel_tools=self._config.channel_tools,
+            permission_mode=self._config.permission_mode,
+            name=self._config.name,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)
@@ -1367,10 +1365,6 @@ async def run_backend_host(
     *,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     cwd: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     restore_messages: list[dict[str, Any]] | None = None,
@@ -1379,6 +1373,10 @@ async def run_backend_host(
     effort: str | None = None,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
+    permission_mode: str | None = None,
+    name: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -1387,10 +1385,6 @@ async def run_backend_host(
         BackendHostConfig(
             model=model,
             max_turns=max_turns,
-            base_url=base_url,
-            system_prompt=system_prompt,
-            api_key=api_key,
-            api_format=api_format,
             api_client=api_client,
             restore_messages=restore_messages,
             restore_session_id=restore_session_id,
@@ -1398,6 +1392,10 @@ async def run_backend_host(
             effort=effort,
             channel_hint=channel_hint,
             channel_tools=channel_tools,
+            permission_mode=permission_mode,
+            name=name,
+            continue_session=continue_session,
+            resume=resume,
         )
     )
     return await host.run()

@@ -170,6 +170,82 @@ class RuntimeBundle:
         return "\n".join(lines)
 
 
+def _on_task_complete(
+    task_id: str,
+    task: "TaskRecord",
+    tracker: "BackgroundAgentTracker",
+) -> None:
+    """后台任务完成后，通过 bg_agent_tracker 注入通知 XML。
+
+    支持 agent 类任务（local_agent/remote_agent/in_process_teammate）
+    和 bash/powershell 后台命令（local_bash）。其他类型忽略。
+
+    Args:
+        task_id: 任务 ID
+        task: 任务记录
+        tracker: 后台代理追踪器，用于注入 <task-notification> XML
+    """
+    from illusion.swarm.agent_executor import TaskNotification, format_task_notification
+
+    if task.type in {"local_agent", "remote_agent", "in_process_teammate"}:
+        agent_id = task.metadata.get("agent_id", task_id)
+        # 构建通知 XML（子进程不返回 AgentResult，使用 task 描述作为 summary）
+        notification = TaskNotification(
+            task_id=agent_id,
+            status=task.status,
+            summary=task.description or f"Agent {agent_id} {task.status}",
+            result=None,
+            usage=None,
+        )
+        notification_xml = format_task_notification(notification)
+        tracker.notify_completed(agent_id, notification_xml)
+    elif task.type == "local_bash":
+        # 后台 Bash/PowerShell 命令完成后通知 LLM，与工具提示词承诺一致
+        summary = f'Background command "{task.description}" {task.status}'
+        if task.return_code is not None:
+            summary += f" (exit code {task.return_code})"
+        notification = TaskNotification(
+            task_id=task_id,
+            status=task.status,
+            summary=summary,
+            result=None,
+            usage=None,
+        )
+        notification_xml = format_task_notification(notification)
+        tracker.notify_completed(task_id, notification_xml)
+
+
+def _build_system_prompt_with_append(
+    settings: Any,
+    *,
+    cwd: str,
+    latest_user_prompt: str | None,
+    channel_hint: str | None,
+    append_system_prompt: str | None,
+) -> str:
+    """构建系统提示词，并可选追加用户指定内容。
+
+    Args:
+        settings: 配置实例
+        cwd: 工作目录
+        latest_user_prompt: 最新的用户提示词
+        channel_hint: 渠道感知提示词
+        append_system_prompt: 追加到系统提示词末尾的内容
+
+    Returns:
+        str: 完整的系统提示词
+    """
+    _base_prompt = build_runtime_system_prompt(
+        settings,
+        cwd=cwd,
+        latest_user_prompt=latest_user_prompt,
+        channel_hint=channel_hint,
+    )
+    if append_system_prompt:
+        _base_prompt = _base_prompt + "\n\n" + append_system_prompt
+    return _base_prompt
+
+
 async def build_runtime(
     *,
     prompt: str | None = None,
@@ -189,6 +265,16 @@ async def build_runtime(
     is_interactive: bool = True,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
+    settings_file: str | None = None,
+    permission_mode: str | None = None,
+    append_system_prompt: str | None = None,
+    verbose: bool = False,
+    debug: bool = False,
+    bare: bool = False,
+    allowed_tools: list[str] | None = None,
+    disallowed_tools: list[str] | None = None,
+    mcp_config: list[str] | None = None,
+    name: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -208,10 +294,23 @@ async def build_runtime(
         restore_messages: 恢复的会话消息列表
         effort: 推理强度级别（low/medium/high/xhigh/max）
         is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
+        verbose: 启用 INFO 级别日志（CLI --verbose）
+        debug: 启用 DEBUG 级别日志（CLI --debug）
+        bare: 纯净模式，跳过 plugins/MCP auto-discovery（CLI --bare）
+        allowed_tools: 工具白名单，仅保留指定名称的工具（CLI --allowed-tools）
+        disallowed_tools: 工具黑名单，移除指定名称的工具（CLI --disallowed-tools）
+        mcp_config: 额外 MCP 服务器配置（JSON 字符串或文件路径列表，CLI --mcp-config）
+        name: 会话显示名称，存入 tool_metadata（CLI --name）
 
     Returns:
         RuntimeBundle: 运行时数据 bundle
     """
+    # 配置日志级别（CLI --verbose / --debug）
+    import logging
+    if debug:
+        logging.getLogger("illusion").setLevel(logging.DEBUG)
+    elif verbose:
+        logging.getLogger("illusion").setLevel(logging.INFO)
     # 构建设置覆盖字典
     settings_overrides: dict[str, Any] = {
         "model": model,
@@ -222,12 +321,31 @@ async def build_runtime(
         "api_format": api_format,
         "effort": effort,
     }
-    settings = load_settings().merge_cli_overrides(**settings_overrides)
+    settings = load_settings(
+        config_path=Path(settings_file) if settings_file else None
+    ).merge_cli_overrides(**settings_overrides)
+    # 覆盖权限模式（CLI --permission-mode / --dangerously-skip-permissions）
+    if permission_mode is not None:
+        from illusion.permissions.modes import PermissionMode
+        try:
+            settings = settings.model_copy(update={
+                "permission": settings.permission.model_copy(
+                    update={"mode": PermissionMode(permission_mode)}
+                )
+            })
+        except ValueError:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Invalid permission_mode: {permission_mode}, ignoring"
+            )
     session_id = restore_session_id or uuid4().hex[:12]
     # 获取当前工作目录
     cwd = str(Path.cwd())
-    # 加载插件
-    plugins = load_plugins(settings, cwd)
+    # 加载插件（--bare 模式跳过）
+    if not bare:
+        plugins = load_plugins(settings, cwd)
+    else:
+        plugins = []
     # 解析 API 客户端
     resolved_api_client: SupportsStreamingMessages
     _web_auth_missing = False
@@ -283,11 +401,37 @@ async def build_runtime(
             click.echo(str(exc), err=True)
             click.echo(_t("terminal_auth_hint"), err=True)
             sys.exit(1)
-    # 创建 MCP 客户端管理器
-    mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
-    await mcp_manager.connect_all()
+    # 创建 MCP 客户端管理器（--bare 模式跳过自动发现，但 --mcp-config 仍生效）
+    if not bare:
+        server_configs: dict[str, object] = load_mcp_server_configs(settings, plugins, cwd)
+    else:
+        server_configs = {}
+    # 加载 CLI 指定的额外 MCP 配置（--bare 模式也允许显式指定）
+    if mcp_config:
+        from illusion.mcp.config import load_mcp_config_from_string
+        for cfg in mcp_config:
+            try:
+                extra = load_mcp_config_from_string(cfg)
+                server_configs.update(extra)
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    f"Failed to load MCP config from {cfg}: {exc}"
+                )
+    mcp_manager = McpClientManager(server_configs)
+    if not bare or server_configs:
+        await mcp_manager.connect_all()
     # 创建工具注册器
     tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
+    # 应用 CLI 工具过滤（--allowed-tools / --disallowed-tools）
+    if allowed_tools is not None or disallowed_tools is not None:
+        filtered = ToolRegistry()
+        for tool in tool_registry.list_tools():
+            if disallowed_tools and tool.name in disallowed_tools:
+                continue
+            if allowed_tools is not None and tool.name not in allowed_tools:
+                continue
+            filtered.register(tool)
+        tool_registry = filtered
     # 获取桥接管理器
     bridge_manager = get_bridge_manager()
     # 创建应用状态存储
@@ -334,11 +478,12 @@ async def build_runtime(
         permission_checker=permission_checker,
         cwd=cwd,
         model=settings.active_model_name,
-        system_prompt=build_runtime_system_prompt(
+        system_prompt=_build_system_prompt_with_append(
             settings,
             cwd=cwd,
             latest_user_prompt=prompt,
             channel_hint=channel_hint,
+            append_system_prompt=append_system_prompt,
         ),
         max_tokens=settings.max_tokens,
         max_turns=settings.max_turns,
@@ -352,6 +497,7 @@ async def build_runtime(
             "app_state_store": app_state,
             "session_id": session_id,
             "session_hook_store": session_hook_store,
+            "session_name": name,
         },
         effort=EffortMapper.normalize(settings.effort),
         session_id=session_id,
@@ -361,26 +507,13 @@ async def build_runtime(
     # 将后台代理追踪器添加到工具元数据中，供 AgentTool 使用
     engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
 
-    # 注册 on_task_complete 回调：子进程代理完成后通知 bg_agent_tracker
-    def _on_task_complete(task_id: str, task: "TaskRecord") -> None:
-        """子进程代理完成后，通过 bg_agent_tracker 注入通知 XML。"""
-        if task.type not in {"local_agent", "remote_agent", "in_process_teammate"}:
-            return
-        agent_id = task.metadata.get("agent_id", task_id)
-        # 构建通知 XML（子进程不返回 AgentResult，使用 task 描述作为 summary）
-        from illusion.swarm.agent_executor import TaskNotification, format_task_notification
-        notification = TaskNotification(
-            task_id=agent_id,
-            status=task.status,
-            summary=task.description or f"Agent {agent_id} {task.status}",
-            result=None,
-            usage=None,
-        )
-        notification_xml = format_task_notification(notification)
-        engine._bg_agent_tracker.notify_completed(agent_id, notification_xml)
+    # 注册 on_task_complete 回调：后台任务完成后通知 bg_agent_tracker
+    # 闭包仅捕获 engine._bg_agent_tracker，实际逻辑委托给模块级 _on_task_complete
+    def _on_task_complete_callback(task_id: str, task: "TaskRecord") -> None:
+        _on_task_complete(task_id, task, engine._bg_agent_tracker)
 
     from illusion.tasks.manager import get_task_manager
-    get_task_manager().on_task_complete = _on_task_complete
+    get_task_manager().on_task_complete = _on_task_complete_callback
     # 从保存的会话恢复消息（如果提供）
     if restore_messages:
         restored = [

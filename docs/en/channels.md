@@ -175,7 +175,26 @@ All channel sessions run in **auto mode** by default — tool calls are automati
 
 The auto mode applies to all tools (bash, file write, edit, etc.) in channel sessions. No manual approval is needed.
 
-> **Note**: `ask_user` questions and plan approvals still require user input — these are interactive prompts, not permission checks.
+> **Note**: `ask_user_question` questions and plan approvals still require user input — these are interactive prompts, not permission checks.
+
+#### ask_user_question Multi-Question Handling
+
+When the LLM calls the `ask_user_question` tool, channels handle it as follows:
+
+- **Single question** (`len(questions) == 1`): Sent as one message, user replies with one text. When `multiSelect=true`, a "(multi-select, separate with commas)" hint is appended; user replies like `OptionA,OptionB`, which is split into a list.
+- **Multiple questions** (`len(questions) > 1`): **Asked one by one** — each question is sent as a separate message (with sequence number `[1/3]`, `[2/3]`, etc.), and the next is sent only after receiving a reply. Finally, answers are merged into a dict (keyed by header).
+- **No structured data** (`questions=None`): Question text is sent directly, waiting for a reply string.
+
+Example: 3-question interaction flow
+```
+Channel → User: ❓ [1/3] Model: Which model?  • A — Option A  • B — Option B
+User → Channel: A
+Channel → User: ❓ [2/3] Effort: Reasoning level?  • low  • high
+User → Channel: high
+Channel → User: ❓ [3/3] Theme: Theme?  • dark  • light
+User → Channel: dark
+(Tool returns {Model: A, Effort: high, Theme: dark} to LLM)
+```
 
 ## Troubleshooting
 

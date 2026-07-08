@@ -1,5 +1,101 @@
 # Command System
 
+## Main Command-Line Options
+
+The `illusion` main command supports the following options, grouped by function:
+
+### Session
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--continue` | `-c` | Continue the most recent conversation in the current directory |
+| `--resume <SESSION_ID>` | `-r` | Resume a conversation by session ID (ID required) |
+| `--name <NAME>` | `-n` | Set a display name for this session (stored in `tool_metadata.session_name`) |
+
+### Model & Effort
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--model <MODEL>` | `-m` | Model ID in `env_N.model_N` format (e.g. `env_1.model_2`), persists to settings.json |
+| `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max`, persists to settings.json |
+| `--max-turns <N>` | `-t` | Maximum agentic turns, persists to settings.json |
+
+### Output
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--print <PROMPT>` | `-p` | Non-interactive print mode: execute a single prompt and exit |
+| `--output-format <FORMAT>` | - | Output format for `--print` mode: `text` (default) / `json` / `stream-json` |
+
+### Permissions
+
+| Option | Description |
+|--------|-------------|
+| `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto`, persists to settings.json |
+| `--dangerously-skip-permissions` | Bypass all permission checks (equivalent to `--permission-mode full_auto`, only for sandboxed environments) |
+
+### Global
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--version` | `-v` | Show version and exit |
+| `--help` | `-h` | Show help and exit |
+
+### Run Modes
+
+`illusion` supports three main run modes:
+
+#### 1. Interactive Session Mode (default)
+
+```bash
+illusion                            # Start interactive session
+illusion -m env_1.model_2           # Start with a specific model
+illusion --permission-mode full_auto  # Start with auto permission mode
+illusion -e high                    # Start with high effort (persists to settings)
+```
+
+#### 2. Non-Interactive Print Mode
+
+```bash
+illusion -p "Analyze the project structure"
+illusion -p "say hi" --output-format json
+illusion -p "refactor this" -t 10
+illusion -e high -p "Analyze code"  # Persist effort and execute
+```
+
+#### 3. Session Resume Mode
+
+```bash
+illusion -c -p "Continue analysis"           # Continue the most recent session (requires -p)
+illusion -r <session-id> -p "Continue"       # Resume a specific session (requires -p)
+illusion -c -p "Continue" --name "feature-work"  # Continue and name the session
+```
+
+Note: `-c`/`-r` now require `-p`; otherwise an error is raised. The `--resume` picker mode (no value) has been removed (non-backend-only path).
+
+### Parameter Pass-Through
+
+Core command options (model/effort/max_turns/permission_mode/name/continue/resume) are fully passed through to the React terminal frontend (`launch_react_tui` → `build_backend_command`) and the structured backend host (`run_backend_host` → `build_runtime`), ensuring they take effect in interactive mode, the `--backend-only` subprocess mode, and `-c`/`-r` session resume mode.
+
+### Common Combinations
+
+```bash
+# Model + permission mode
+illusion -m env_1.model_2 --permission-mode plan
+
+# High effort + print mode (persists effort)
+illusion -e high -p "Analyze performance bottlenecks in this code"
+
+# Limit turns + print mode (persists max_turns)
+illusion -t 5 -p "Quick syntax check"
+
+# Continue session + print mode
+illusion -c -p "Continue the previous task"
+
+# Name a session
+illusion --name "debug-auth-issue"
+```
+
 ## Subcommands
 
 ```bash
@@ -60,3 +156,66 @@ In interactive sessions, you can use the following commands:
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
 | Multi-Agent | `/continue` | Agent collaboration |
 | Self-Update | `/update` | Check for and install IllusionCode updates |
+
+### Non-Interactive Mode (Print Mode) Available Parameters
+
+Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single prompt and exit, suitable for scripts and automation. The following parameters can be used with `-p`:
+
+| Parameter | Short | Description | Persists |
+|-----------|-------|-------------|----------|
+| `--print <PROMPT>` | `-p` | Enter print mode, PROMPT is the prompt text | No |
+| `--output-format <FORMAT>` | - | Output format: `text` (default) / `json` / `stream-json` | No |
+| `--model <MODEL>` | `-m` | Model alias or full model ID | Yes (writes `settings.model`) |
+| `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max` | Yes (writes `settings.effort`) |
+| `--max-turns <N>` | `-t` | Maximum agentic turns | Yes (writes `settings.max_turns`) |
+| `--permission-mode <MODE>` | - | Permission mode: `default` / `plan` / `full_auto` | Yes (writes `settings.permission.mode`) |
+| `--continue` | `-c` | Continue the most recent session in the current directory (requires `-p`) | No |
+| `--resume <SESSION_ID>` | `-r` | Resume a specific session by ID (requires `-p`) | No |
+| `--name <NAME>` | `-n` | Set a display name for this session | No |
+| `--dangerously-skip-permissions` | - | Bypass all permission checks (equivalent to `--permission-mode full_auto`) | No |
+
+**Interactive Behavior**:
+
+- **Permission confirmation**: Print mode is fully non-interactive — in `default` mode, tools requiring permission are **directly denied** (no Y/N prompt, denial message printed to stderr); use `--permission-mode full_auto` to allow tools to execute; `plan` mode blocks all mutation tools.
+- **ask_user_question interaction**: When the LLM calls the ask_user_question tool, print mode uses a **cross-turn non-interactive** pattern:
+  1. **Turn 1**: `illusion -p "do something"` → agent calls ask_user_question during execution → tool persists the question to `pending-question-<session_id>.json`, returns a special marker as tool_result → agent ends the turn → program exits with **exit code 2** (indicating waiting for user answer)
+  2. **Turn 2**: `illusion -c -p "<answer>"` → detects pending question → injects the answer as tool_result (replacing the marker) → calls `continue_pending` to resume agent execution
+
+  This design allows illusion code to be controlled by other agents: each `-p` invocation is an atomic request-response, without waiting for interactive input within the same turn. Exit code semantics:
+  - `0`: Normal completion
+  - `1`: Error
+  - `2`: Waiting for user answer (answer with `-c -p` next time)
+
+  **Multi-question answer format** (agent-friendly):
+  - **Single question**: Enter the answer text directly. For `multiSelect`, separate with commas, e.g. `optionA,optionB`
+  - **Multiple questions**: Use JSON format, where keys are the headers shown in brackets:
+    ```bash
+    illusion -c -p "{\"Fruit\": \"strawberry\", \"OS\": \"Windows\", \"Emoji\": \"less\"}"
+    ```
+    `multiSelect` values use arrays: `{"Fruit": ["strawberry", "mango"]}`. Non-JSON input is passed as-is to the LLM (backward compatible)
+- **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.
+
+**Examples**:
+
+```bash
+# Basic usage
+illusion -p "Analyze the project structure"
+
+# Specify model + JSON output
+illusion -m env_1.model_2 -p "List TODO comments" --output-format json
+
+# High effort + limit turns (both persist)
+illusion -e high -t 10 -p "Refactor this function"
+
+# Full auto permissions + persist
+illusion --permission-mode full_auto -p "Run tests"
+
+# Continue previous session
+illusion -c -p "Continue the previous task"
+
+# Resume a specific session
+illusion -r <session-id> -p "Continue"
+
+# Combined: model + permission + effort + turns + session resume
+illusion -m env_1.model_2 -e max -t 20 --permission-mode full_auto -c -p "Complete this feature"
+```
