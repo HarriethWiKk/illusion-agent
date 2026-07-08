@@ -198,6 +198,10 @@ class ReactBackendHost:
             verbose=self._config.verbose,
             debug=self._config.debug,
             bare=self._config.bare,
+            allowed_tools=self._config.allowed_tools,
+            disallowed_tools=self._config.disallowed_tools,
+            mcp_config=self._config.mcp_config,
+            name=self._config.name,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)

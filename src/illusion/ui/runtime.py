@@ -271,6 +271,10 @@ async def build_runtime(
     verbose: bool = False,
     debug: bool = False,
     bare: bool = False,
+    allowed_tools: list[str] | None = None,
+    disallowed_tools: list[str] | None = None,
+    mcp_config: list[str] | None = None,
+    name: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -293,6 +297,10 @@ async def build_runtime(
         verbose: 启用 INFO 级别日志（CLI --verbose）
         debug: 启用 DEBUG 级别日志（CLI --debug）
         bare: 纯净模式，跳过 plugins/MCP auto-discovery（CLI --bare）
+        allowed_tools: 工具白名单，仅保留指定名称的工具（CLI --allowed-tools）
+        disallowed_tools: 工具黑名单，移除指定名称的工具（CLI --disallowed-tools）
+        mcp_config: 额外 MCP 服务器配置（JSON 字符串或文件路径列表，CLI --mcp-config）
+        name: 会话显示名称，存入 tool_metadata（CLI --name）
 
     Returns:
         RuntimeBundle: 运行时数据 bundle
@@ -393,16 +401,37 @@ async def build_runtime(
             click.echo(str(exc), err=True)
             click.echo(_t("terminal_auth_hint"), err=True)
             sys.exit(1)
-    # 创建 MCP 客户端管理器（--bare 模式跳过自动发现，仅创建空管理器）
+    # 创建 MCP 客户端管理器（--bare 模式跳过自动发现，但 --mcp-config 仍生效）
     if not bare:
-        mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
-        await mcp_manager.connect_all()
+        server_configs: dict[str, object] = load_mcp_server_configs(settings, plugins, cwd)
     else:
-        # --bare 模式：空 MCP 管理器，不连接任何服务器
-        # 注意：仍允许 --mcp-config 显式指定的服务器加载（见 Task 11）
-        mcp_manager = McpClientManager({})
+        server_configs = {}
+    # 加载 CLI 指定的额外 MCP 配置（--bare 模式也允许显式指定）
+    if mcp_config:
+        from illusion.mcp.config import load_mcp_config_from_string
+        for cfg in mcp_config:
+            try:
+                extra = load_mcp_config_from_string(cfg)
+                server_configs.update(extra)
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    f"Failed to load MCP config from {cfg}: {exc}"
+                )
+    mcp_manager = McpClientManager(server_configs)
+    if not bare or server_configs:
+        await mcp_manager.connect_all()
     # 创建工具注册器
     tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
+    # 应用 CLI 工具过滤（--allowed-tools / --disallowed-tools）
+    if allowed_tools is not None or disallowed_tools is not None:
+        filtered = ToolRegistry()
+        for tool in tool_registry.list_tools():
+            if disallowed_tools and tool.name in disallowed_tools:
+                continue
+            if allowed_tools is not None and tool.name not in allowed_tools:
+                continue
+            filtered.register(tool)
+        tool_registry = filtered
     # 获取桥接管理器
     bridge_manager = get_bridge_manager()
     # 创建应用状态存储
@@ -468,6 +497,7 @@ async def build_runtime(
             "app_state_store": app_state,
             "session_id": session_id,
             "session_hook_store": session_hook_store,
+            "session_name": name,
         },
         effort=EffortMapper.normalize(settings.effort),
         session_id=session_id,

@@ -155,3 +155,59 @@ def load_mcp_server_configs(settings: Any, plugins: list[LoadedPlugin], cwd: str
         }
 
     return servers
+
+
+def load_mcp_config_from_string(cfg: str) -> dict[str, object]:
+    """从 JSON 字符串或文件路径加载 MCP 服务器配置。
+
+    支持两种输入：
+    1. 文件路径（Path 存在时）：读取 JSON 文件
+    2. JSON 字符串：直接解析
+
+    支持两种格式：
+    1. {"mcpServers": {...}} 或 {"mcp_servers": {...}}（多服务器）
+    2. {...}（单服务器配置，返回 {"_inline": config}）
+
+    Args:
+        cfg: 文件路径或 JSON 字符串
+
+    Returns:
+        dict[str, object]: 服务器名称到配置的映射
+    """
+    from pydantic import TypeAdapter
+    from illusion.mcp.types import McpServerConfig
+
+    _server_adapter: TypeAdapter[McpServerConfig] = TypeAdapter(McpServerConfig)
+
+    # 判断是文件路径还是 JSON 字符串
+    cfg_path = Path(cfg)
+    if cfg_path.exists():
+        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    else:
+        raw = json.loads(cfg)
+
+    # 兼容 mcp_servers（snake_case）键
+    if "mcp_servers" in raw and "mcpServers" not in raw:
+        raw["mcpServers"] = raw.pop("mcp_servers")
+
+    # 多服务器格式
+    if "mcpServers" in raw:
+        servers: dict[str, object] = {}
+        for name, server_cfg in raw["mcpServers"].items():
+            try:
+                config = _server_adapter.validate_python(server_cfg)
+                if getattr(config, "enabled", True):
+                    servers[name] = config
+            except Exception as exc:
+                logger.warning("Failed to parse MCP server '%s': %s", name, exc)
+        return servers
+
+    # 单服务器格式（使用 "_inline" 作为名称）
+    try:
+        config = _server_adapter.validate_python(raw)
+        if getattr(config, "enabled", True):
+            return {"_inline": config}
+    except Exception as exc:
+        logger.warning("Failed to parse MCP config: %s", exc)
+
+    return {}
