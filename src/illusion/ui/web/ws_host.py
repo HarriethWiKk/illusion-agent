@@ -175,7 +175,7 @@ class WebBackendHost:
             )
         except Exception as exc:
             log.exception("Failed to build runtime")
-            await self._emit(BackendEvent(type="error", message=f"Runtime init failed: {exc}"))
+            await self._emit(BackendEvent(type="error", message=str(exc)))
             return 1
         assert self._bundle is not None
         await start_runtime(self._bundle)

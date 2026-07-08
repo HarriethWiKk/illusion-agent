@@ -229,6 +229,7 @@ async def build_runtime(
     plugins = load_plugins(settings, cwd)
     # 解析 API 客户端
     resolved_api_client: SupportsStreamingMessages
+    _web_auth_missing = False
     try:
         if api_client:
             resolved_api_client = api_client
@@ -266,9 +267,21 @@ async def build_runtime(
 
         from illusion.config.i18n import t as _t
 
-        click.echo(str(exc), err=True)
-        click.echo(_t("terminal_auth_hint"), err=True)
-        sys.exit(1)
+        # Web 模式：优雅降级 — 用占位客户端继续启动，auth_status="missing"
+        # 前端检测到 missing 会自动弹出 SettingsModal 引导用户配置
+        # 终端模式：打印简短提示后 sys.exit(1)
+        if "illusion.ui.web.ws_host" in sys.modules:
+            logging.getLogger(__name__).warning("API client init failed (web mode, degraded): %s", exc)
+            # 占位客户端：实际不会调用，用户配置后 _rebuild_api_client 会替换
+            resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
+                api_key="",
+                base_url=settings.base_url,
+            )
+            _web_auth_missing = True
+        else:
+            click.echo(str(exc), err=True)
+            click.echo(_t("terminal_auth_hint"), err=True)
+            sys.exit(1)
     # 创建 MCP 客户端管理器
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
     await mcp_manager.connect_all()
@@ -283,7 +296,7 @@ async def build_runtime(
             permission_mode=settings.permission.mode.value,
             ui_language=settings.ui_language,
             cwd=cwd,
-            auth_status=auth_status(settings),
+            auth_status="missing" if _web_auth_missing else auth_status(settings),
             base_url=settings.base_url or "",
             fast_mode=settings.fast_mode,
             effort=settings.effort,
