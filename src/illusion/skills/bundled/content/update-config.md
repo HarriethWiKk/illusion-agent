@@ -769,3 +769,11 @@ If a skill/plugin/MCP isn't loading:
 2. For MCP: check `.illusion/mcp/*.json` file format
 3. For skills: check `.illusion/skills/<name>/SKILL.md` or `.illusion/skills/<name>.md`
 4. For plugins: check `.illusion/plugins/<name>/plugin.json`
+
+### If plan approval is stuck
+
+If plan mode approval seems stuck (agent can't proceed):
+
+1. Check for stale `pending-plan-approval-*.json` files in `<project>/.illusion/sessions/`
+2. Delete the stale file to reset: `rm <project>/.illusion/sessions/pending-plan-approval-*.json`
+3. Restart the session with `illusion -c -p "approve"` or start a new session

@@ -193,6 +193,13 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
     illusion -c -p "{\"Fruit\": \"strawberry\", \"OS\": \"Windows\", \"Emoji\": \"less\"}"
     ```
     `multiSelect` values use arrays: `{"Fruit": ["strawberry", "mango"]}`. Non-JSON input is passed as-is to the LLM (backward compatible)
+- **Plan approval interaction**: When the LLM calls `exit_plan_mode` in print mode, it uses the same cross-turn pattern as ask_user_question:
+  1. **Turn 1**: `illusion -p "implement feature X"` → agent enters plan mode, writes plan file, calls `exit_plan_mode` → plan persisted to `pending-plan-approval-<session_id>.json` → exit code **2**
+  2. **Turn 2**: `illusion -c -p "approve"` → detects pending plan approval → injects approval result → resumes execution
+
+  Exit code semantics: 0=normal completion, 1=error, 2=waiting for user input (ask_user_question or plan approval).
+
+  **Approval input format**: Input "approve"/"yes"/"y" (case-insensitive) means approved; any other input is treated as rejection with the input as feedback. For example, `illusion -c -p "need more test cases"` is parsed as reject + feedback.
 - **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.
 
 **Examples**:
