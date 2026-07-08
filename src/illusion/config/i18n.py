@@ -297,6 +297,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "\n❓ {question}",
         "en-US": "\n❓ {question}",
     },
+    "print_mode_question_asked": {
+        "zh-CN": "📋 已提出问题，请使用 illusion -c -p \"<答案>\" 回答后继续",
+        "en-US": "📋 Question asked, answer with illusion -c -p \"<answer>\" to continue",
+    },
+    "print_mode_resuming_answer": {
+        "zh-CN": "✅ 检测到待回答问题，正在注入答案并继续执行...",
+        "en-US": "✅ Pending question detected, injecting answer and continuing...",
+    },
     "web_settings_title": {
         "zh-CN": "设置",
         "en-US": "Settings",

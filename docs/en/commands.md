@@ -177,7 +177,14 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 **Interactive Behavior**:
 
 - **Permission confirmation**: In `default` mode, tools prompt for `Y/N` confirmation in the terminal before execution (`y`/`yes` to allow, anything else or EOF to deny); `full_auto` mode executes directly; `plan` mode blocks all mutation tools.
-- **ask_user_question interaction**: When the LLM calls the ask_user_question tool, the terminal displays question options, and the user enters an option number or custom text.
+- **ask_user_question interaction**: When the LLM calls the ask_user_question tool, print mode uses a **cross-turn non-interactive** pattern:
+  1. **Turn 1**: `illusion -p "do something"` → agent calls ask_user_question during execution → tool persists the question to `pending-question-<session_id>.json`, returns a special marker as tool_result → agent ends the turn → program exits with **exit code 2** (indicating waiting for user answer)
+  2. **Turn 2**: `illusion -c -p "<answer>"` → detects pending question → injects the answer as tool_result (replacing the marker) → calls `continue_pending` to resume agent execution
+  
+  This design allows illusion code to be controlled by other agents: each `-p` invocation is an atomic request-response, without waiting for interactive input within the same turn. Exit code semantics:
+  - `0`: Normal completion
+  - `1`: Error
+  - `2`: Waiting for user answer (answer with `-c -p` next time)
 - **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.
 
 **Examples**:

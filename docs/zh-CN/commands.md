@@ -179,7 +179,14 @@ illusion update --deps           # 同时更新项目依赖
 **交互行为**：
 
 - **权限确认**：`default` 模式下，工具执行前会在终端提示 `Y/N` 确认（输入 `y`/`yes` 允许，其他或 EOF 拒绝）；`full_auto` 模式直接执行；`plan` 模式阻止所有变更工具。
-- **ask_user_question 交互**：当 LLM 调用 ask_user_question 工具时，终端会显示问题选项，用户输入选项编号或自定义文本。
+- **ask_user_question 交互**：当 LLM 调用 ask_user_question 工具时，print 模式采用**跨轮次非交互**模式：
+  1. **第 1 轮**：`illusion -p "做某事"` → agent 执行中调用 ask_user_question → 工具持久化问题到 `pending-question-<session_id>.json`，返回特殊标记作为 tool_result → agent 结束当前轮次 → 程序以**退出码 2** 退出（表示等待用户回答）
+  2. **第 2 轮**：`illusion -c -p "<答案>"` → 检测到 pending question → 把答案注入为 tool_result（替换标记）→ 调用 `continue_pending` 继续执行 agent
+  
+  这样设计的目的是让 illusion code 可被其他 agent 操控：每次 `-p` 调用是原子的请求-响应，不在同一轮内等待交互输入。退出码语义：
+  - `0`：正常完成
+  - `1`：错误
+  - `2`：等待用户回答（下次用 `-c -p` 回答）
 - **持久化时机**：标记"持久化"的参数会在执行提示词之前写入 `settings.json`，即使后续执行失败，持久化仍生效。
 
 **示例**：

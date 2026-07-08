@@ -6,13 +6,20 @@
     - format_question_options: 将结构化选项格式化为终端文本
     - terminal_permission: 终端 Y/N 权限确认
     - terminal_ask_user: 终端用户问答
+    - make_print_mode_ask_user: print 模式非交互问答回调工厂
 
 参考 channels 的 _format_question_options 实现，提取为共享函数。
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from illusion.config.i18n import t
+
+# print 模式 ask_user_question 返回的特殊标记
+# 作为 tool_result 存储在消息历史中，恢复时用于定位待回答的问题
+PENDING_ANSWER_MARKER = "__PENDING_ANSWER__"
 
 
 def format_question_options(questions: object) -> str:
@@ -102,3 +109,70 @@ async def terminal_ask_user(question: str, questions: object = None) -> str:
     except EOFError:
         return ""
     return answer
+
+
+def make_print_mode_ask_user(
+    *,
+    cwd: str,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> Any:
+    """构造 print 模式非交互 ask_user_question 回调
+
+    回调行为：
+        1. 持久化问题到 pending-question 文件
+        2. 设置 state["pending_question_raised"] = True
+        3. 返回 PENDING_ANSWER_MARKER 作为 tool_result
+
+    agent 收到该标记后会结束当前轮次，run_print_mode 检测到
+    state["pending_question_raised"] 后以退出码 2 退出。
+    下次 illusion -c -p "答案" 恢复时，答案会注入为 tool_result。
+
+    Args:
+        cwd: 工作目录
+        session_id: 会话 ID
+        state: 共享状态字典（用于通知 run_print_mode）
+
+    Returns:
+        ask_user_prompt 回调函数
+    """
+
+    async def _ask(question: str, questions: object = None) -> str:
+        # 持久化问题
+        if session_id:
+            from illusion.services.session_storage import save_pending_question
+            questions_list = (
+                [q if isinstance(q, dict) else _question_item_to_dict(q) for q in questions]
+                if isinstance(questions, (list, tuple))
+                else []
+            )
+            save_pending_question(
+                cwd=cwd,
+                session_id=session_id,
+                tool_use_id="",  # 恢复时从消息历史中定位，不需要显式记录
+                questions=questions_list,
+                question_text=question,
+            )
+        # 通知 run_print_mode
+        state["pending_question_raised"] = True
+        # 输出问题到 stderr（text 模式）供调用方查看
+        import sys
+        print(t("print_mode_question_asked"), file=sys.stderr)
+        print(question, file=sys.stderr)
+        if questions:
+            opts_text = format_question_options(questions)
+            if opts_text:
+                print(opts_text, file=sys.stderr)
+        # 返回特殊标记，作为 tool_result 存储
+        return PENDING_ANSWER_MARKER
+
+    return _ask
+
+
+def _question_item_to_dict(q: Any) -> dict[str, Any]:
+    """将 QuestionItem 对象转为 dict（用于持久化）"""
+    if hasattr(q, "model_dump"):
+        return q.model_dump(mode="json")
+    if isinstance(q, dict):
+        return q
+    return {"question": str(q)}

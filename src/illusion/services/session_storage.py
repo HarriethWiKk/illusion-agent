@@ -275,3 +275,73 @@ def count_turns(messages: list[dict[str, Any]]) -> int:
                 turn_count += 1
 
     return turn_count
+
+
+# ---------------------------------------------------------------------------
+# Pending Question 持久化
+# ---------------------------------------------------------------------------
+
+def _pending_question_path(cwd: str | Path, session_id: str) -> Path:
+    """返回指定会话的 pending question 文件路径"""
+    session_dir = get_project_session_dir(cwd)
+    return session_dir / f"pending-question-{session_id}.json"
+
+
+def save_pending_question(
+    *,
+    cwd: str | Path,
+    session_id: str,
+    tool_use_id: str,
+    questions: list[dict[str, Any]],
+    question_text: str,
+) -> Path:
+    """保存待回答的 ask_user_question 问题
+
+    Args:
+        cwd: 工作目录
+        session_id: 会话 ID
+        tool_use_id: 触发问题的 tool_use ID（用于恢复时匹配 tool_result）
+        questions: 结构化问题数据（list[dict]）
+        question_text: 格式化后的问题文本（用于显示给用户）
+
+    Returns:
+        Path: 持久化文件路径
+    """
+    payload = {
+        "session_id": session_id,
+        "tool_use_id": tool_use_id,
+        "questions": questions,
+        "question_text": question_text,
+        "created_at": time.time(),
+    }
+    path = _pending_question_path(cwd, session_id)
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return path
+
+
+def load_pending_question(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
+    """加载指定会话的 pending question
+
+    Returns:
+        dict | None: 问题数据，无则 None
+    """
+    path = _pending_question_path(cwd, session_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def delete_pending_question(cwd: str | Path, session_id: str) -> bool:
+    """删除指定会话的 pending question
+
+    Returns:
+        bool: 是否成功删除
+    """
+    path = _pending_question_path(cwd, session_id)
+    if path.exists():
+        path.unlink()
+        return True
+    return False

@@ -35,6 +35,53 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.ui.backend_host import run_backend_host
 from illusion.ui.react_launcher import launch_react_tui
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.terminal_io import PENDING_ANSWER_MARKER
+
+
+def _inject_answer_to_pending_tool_result(
+    messages: list[dict[str, Any]],
+    answer: str,
+) -> list[dict[str, Any]]:
+    """把用户答案注入到消息历史中 PENDING_ANSWER_MARKER 的 tool_result
+
+    扫描 messages（反向），找到最后一个 content 包含 PENDING_ANSWER_MARKER
+    的 tool_result block，替换其 content 为用户的答案。
+
+    Args:
+        messages: 序列化的会话消息列表
+        answer: 用户的答案文本
+
+    Returns:
+        list[dict]: 修改后的消息列表（浅拷贝）
+    """
+    import copy
+    result = copy.deepcopy(messages)
+    # 反向扫描，找最后一个 PENDING_ANSWER_MARKER 的 tool_result
+    for msg in reversed(result):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            block_content = block.get("content")
+            # content 可能是 str 或 list
+            if isinstance(block_content, str) and PENDING_ANSWER_MARKER in block_content:
+                block["content"] = answer
+                block["is_error"] = False
+                return result
+            if isinstance(block_content, list):
+                for sub in block_content:
+                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                        if PENDING_ANSWER_MARKER in sub["text"]:
+                            sub["text"] = answer
+                            block["is_error"] = False
+                            return result
+    return result
 
 
 async def run_repl(
@@ -149,8 +196,10 @@ async def run_print_mode(
         ToolExecutionStarted,
     )
     from illusion.config.i18n import t as _t
-    from illusion.ui.terminal_io import terminal_permission, terminal_ask_user
+    from illusion.ui.terminal_io import terminal_permission, make_print_mode_ask_user
     from illusion.services.session_storage import (
+        delete_pending_question,
+        load_pending_question,
         load_session_by_id,
         load_session_snapshot,
     )
@@ -180,6 +229,26 @@ async def run_print_mode(
         restore_session_id = resume
         print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
 
+    # 检测 pending question（上次 print 模式退出时遗留的待回答问题）
+    pending_question: dict[str, Any] | None = None
+    if restore_session_id:
+        pending_question = load_pending_question(effective_cwd, restore_session_id)
+        if pending_question:
+            # 把用户的 prompt 作为答案注入到消息历史中的 PENDING_ANSWER_MARKER tool_result
+            if restore_messages:
+                restore_messages = _inject_answer_to_pending_tool_result(
+                    restore_messages, prompt
+                )
+            delete_pending_question(effective_cwd, restore_session_id)
+            print(_t("print_mode_resuming_answer"), file=sys.stderr)
+
+    # 预生成 session_id（确保 make_print_mode_ask_user 和 build_runtime 一致）
+    from uuid import uuid4
+    effective_session_id = restore_session_id or uuid4().hex[:12]
+
+    # 构造 print 模式非交互状态字典
+    print_state: dict[str, Any] = {}
+
     # 构建运行时
     bundle = await build_runtime(
         prompt=prompt,
@@ -187,13 +256,17 @@ async def run_print_mode(
         max_turns=max_turns,
         api_client=api_client,
         permission_prompt=terminal_permission,
-        ask_user_prompt=terminal_ask_user,
+        ask_user_prompt=make_print_mode_ask_user(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
         effort=effort,
         is_interactive=False,
         permission_mode=permission_mode,
         name=name,
         restore_messages=restore_messages,
-        restore_session_id=restore_session_id,
+        restore_session_id=effective_session_id,
     )
     await start_runtime(bundle)
 
@@ -268,19 +341,35 @@ async def run_print_mode(
         async def _clear_output() -> None:
             pass
 
-        # 处理输入行
-        await handle_line(
-            bundle,
-            prompt,
-            print_system=_print_system,
-            render_event=_render_event,
-            clear_output=_clear_output,
-        )
+        # 执行：如果有 pending_question，用 continue_pending（答案已注入 messages）
+        # 否则用 handle_line 正常提交新 prompt
+        if pending_question:
+            # 答案已注入到 restore_messages 中，直接继续执行
+            from illusion.engine.query_engine import MaxTurnsExceeded
+            try:
+                async for event in bundle.engine.continue_pending(
+                    max_turns=bundle.engine.max_turns
+                ):
+                    await _render_event(event)
+            except MaxTurnsExceeded as exc:
+                await _print_system(f"Stopped after {exc.max_turns} turns (max_turns).")
+        else:
+            await handle_line(
+                bundle,
+                prompt,
+                print_system=_print_system,
+                render_event=_render_event,
+                clear_output=_clear_output,
+            )
 
         # JSON 格式输出最终结果
         if output_format == "json":
             result = {"type": "result", "text": collected_text.strip()}
             print(json.dumps(result))
+
+        # 如果 ask_user_question 触发了 pending question，以退出码 2 退出
+        if print_state.get("pending_question_raised"):
+            raise SystemExit(2)
     finally:
         # 关闭运行时
         await close_runtime(bundle)

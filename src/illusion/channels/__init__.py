@@ -735,25 +735,83 @@ class ChannelRunner:
         """构造用户问答回调（推到飞书等回复）
 
         签名与 backend_host/ws_host 的 _ask_question 一致：
-        (question: str, questions: object = None) -> str
+        (question: str, questions: object = None) -> str | dict[str, str]
 
         questions 是结构化选项数据（list[dict]），含 question/header/options/
-        multiSelect/noCustomInput 字段。渠道只能回复文本，故将选项 label
-        附加到问题文本，让用户回复对应 label。
+        multiSelect/noCustomInput 字段。
+
+        多问题处理：len(questions) > 1 时逐个询问，每个问题单独发送一条消息，
+        收到回复后再发下一个，最后合并为 dict 返回。
+        单问题保持原有行为（拍平选项 + 等待回复）。
+        多选提示：multiSelect=True 时在问题文本中加"(可多选，用逗号分隔)"提示。
         """
-        async def _ask(question: str, questions: object = None) -> str:
-            text = f"❓ {question}"
-            # 将结构化选项附加到问题文本，方便渠道用户回复
-            if questions:
+        async def _ask(question: str, questions: object = None) -> Any:
+            # 无结构化问题数据：直接发问题文本等待回复
+            if not questions or not isinstance(questions, (list, tuple)) or len(questions) == 0:
+                text = f"❓ {question}"
+                await self.channel.send_text(chat_id, text)
+                return await self._wait_reply(chat_id, timeout=300)
+
+            # 单问题：拍平选项 + 多选提示 + 等待回复
+            if len(questions) == 1:
+                q = questions[0]
+                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", lambda: {})()
+                multi = q_dict.get("multiSelect", False)
+                text = f"❓ {question}"
                 try:
-                    opts_lines = _format_question_options(questions)
+                    opts_lines = _format_question_options([q_dict])
                     if opts_lines:
                         text = f"{text}\n\n{opts_lines}"
                 except Exception:  # noqa: BLE001
-                    pass  # 格式化失败时只发问题文本
-            await self.channel.send_text(chat_id, text)
-            return await self._wait_reply(chat_id, timeout=300)
+                    pass
+                if multi:
+                    hint = "（可多选，用逗号分隔）" if self._is_zh() else "(multi-select, separate with commas)"
+                    text = f"{text}\n{hint}"
+                await self.channel.send_text(chat_id, text)
+                reply = await self._wait_reply(chat_id, timeout=300)
+                if multi:
+                    # 多选：拆分为 list，合并为 dict 返回
+                    items = [s.strip() for s in reply.split(",") if s.strip()]
+                    header = q_dict.get("header") or q_dict.get("question") or "answer"
+                    return {header: items}
+                return reply
+
+            # 多问题：逐个询问，合并为 dict 返回
+            answers: dict[str, str | list[str]] = {}
+            for idx, q in enumerate(questions, 1):
+                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", lambda: {})()
+                header = q_dict.get("header") or f"Q{idx}"
+                sub_q = q_dict.get("question") or ""
+                multi = q_dict.get("multiSelect", False)
+                # 格式化单个问题
+                text = f"❓ [{idx}/{len(questions)}] {header}: {sub_q}"
+                try:
+                    opts_lines = _format_question_options([q_dict])
+                    if opts_lines:
+                        text = f"{text}\n\n{opts_lines}"
+                except Exception:  # noqa: BLE001
+                    pass
+                if multi:
+                    hint = "（可多选，用逗号分隔）" if self._is_zh() else "(multi-select, separate with commas)"
+                    text = f"{text}\n{hint}"
+                await self.channel.send_text(chat_id, text)
+                reply = await self._wait_reply(chat_id, timeout=300)
+                if multi:
+                    items = [s.strip() for s in reply.split(",") if s.strip()]
+                    answers[header] = items
+                else:
+                    answers[header] = reply
+            return answers
         return _ask
+
+    def _is_zh(self) -> bool:
+        """判断当前语言是否为中文（用于多选提示文案）"""
+        try:
+            from illusion.config import load_settings
+            lang = load_settings().ui_language or "zh-CN"
+            return lang.lower().startswith("zh")
+        except Exception:  # noqa: BLE001
+            return True
 
     async def _wait_reply(self, chat_id: str, timeout: float) -> str:
         """等待指定 chat_id 的下一条消息作为回复
