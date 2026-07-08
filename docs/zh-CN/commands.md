@@ -18,7 +18,7 @@
 
 | 选项 | 简写 | 说明 |
 |------|------|------|
-| `--model <MODEL>` | `-m` | 模型别名（如 `sonnet`、`opus`）或完整模型 ID（如 `env_1.model_2`），设置后持久化到 settings.json |
+| `--model <MODEL>` | `-m` | 模型 ID，格式为 `env_N.model_N`（如 `env_1.model_2`），设置后持久化到 settings.json |
 | `--effort <LEVEL>` | `-e` | 推理强度级别：`low` / `medium` / `high` / `max`，设置后持久化到 settings.json |
 | `--max-turns <N>` | `-t` | 最大代理轮次数，设置后持久化到 settings.json |
 
@@ -189,7 +189,7 @@ illusion update --deps           # 同时更新项目依赖
 illusion -p "分析这个项目的结构"
 
 # 指定模型 + 输出 JSON
-illusion -m sonnet -p "列出 TODO 注释" --output-format json
+illusion -m env_1.model_2 -p "列出 TODO 注释" --output-format json
 
 # 高推理强度 + 限制轮次（均持久化）
 illusion -e high -t 10 -p "重构这个函数"
@@ -204,5 +204,5 @@ illusion -c -p "继续上次的任务"
 illusion -r <session-id> -p "继续"
 
 # 组合：模型 + 权限 + effort + 轮次 + 会话恢复
-illusion -m opus -e max -t 20 --permission-mode full_auto -c -p "完成这个功能"
+illusion -m env_1.model_2 -e max -t 20 --permission-mode full_auto -c -p "完成这个功能"
 ```

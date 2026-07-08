@@ -1180,7 +1180,7 @@ def main(
         None,
         "--model",
         "-m",
-        help="Model alias (e.g. 'sonnet', 'opus') or full model ID",
+        help="Model ID in env_N.model_N format (e.g. 'env_1.model_2')",
         rich_help_panel="Model & Effort",
     ),
     effort: str | None = typer.Option(

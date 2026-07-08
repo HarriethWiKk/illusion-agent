@@ -16,7 +16,7 @@ The `illusion` main command supports the following options, grouped by function:
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--model <MODEL>` | `-m` | Model alias (e.g. `sonnet`, `opus`) or full model ID (e.g. `env_1.model_2`), persists to settings.json |
+| `--model <MODEL>` | `-m` | Model ID in `env_N.model_N` format (e.g. `env_1.model_2`), persists to settings.json |
 | `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max`, persists to settings.json |
 | `--max-turns <N>` | `-t` | Maximum agentic turns, persists to settings.json |
 
@@ -187,7 +187,7 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 illusion -p "Analyze the project structure"
 
 # Specify model + JSON output
-illusion -m sonnet -p "List TODO comments" --output-format json
+illusion -m env_1.model_2 -p "List TODO comments" --output-format json
 
 # High effort + limit turns (both persist)
 illusion -e high -t 10 -p "Refactor this function"
@@ -202,5 +202,5 @@ illusion -c -p "Continue the previous task"
 illusion -r <session-id> -p "Continue"
 
 # Combined: model + permission + effort + turns + session resume
-illusion -m opus -e max -t 20 --permission-mode full_auto -c -p "Complete this feature"
+illusion -m env_1.model_2 -e max -t 20 --permission-mode full_auto -c -p "Complete this feature"
 ```
