@@ -71,8 +71,9 @@ def _get_background_usage_note() -> str | None:
         "the command completes later. You do not need to check the output right away - you'll be "
         "notified when it finishes. You do not need to use '&' at the end of the command when "
         "using this parameter. "
-        "IMPORTANT: Background commands will NOT return their output directly. "
-        "If you need to see the command's output or result, use the `task_output` tool with the task_id."
+        "You will be automatically notified when it completes — do NOT sleep or poll "
+        "task_output for progress. If you need the full output later, use `task_output` "
+        "with the task_id. Continue with other work or respond to the user instead."
     )
 
 
