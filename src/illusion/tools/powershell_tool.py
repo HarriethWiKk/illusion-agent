@@ -330,6 +330,10 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             record.output_file.write_text("", encoding="utf-8")
             manager._tasks[task_id] = record
             manager._output_locks[task_id] = asyncio.Lock()
+            # 注册到 bg_agent_tracker，使完成时能自动通知 LLM
+            tracker = context.metadata.get("bg_agent_tracker") if context.metadata else None
+            if tracker is not None:
+                tracker.register(task_id)
 
             async def _background_wait() -> None:
                 """后台等待进程完成，累积输出到 task output_file。"""
