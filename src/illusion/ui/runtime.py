@@ -235,6 +235,7 @@ async def build_runtime(
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
     settings_file: str | None = None,
+    permission_mode: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -271,6 +272,20 @@ async def build_runtime(
     settings = load_settings(
         config_path=Path(settings_file) if settings_file else None
     ).merge_cli_overrides(**settings_overrides)
+    # 覆盖权限模式（CLI --permission-mode / --dangerously-skip-permissions）
+    if permission_mode is not None:
+        from illusion.permissions.modes import PermissionMode
+        try:
+            settings = settings.model_copy(update={
+                "permission": settings.permission.model_copy(
+                    update={"mode": PermissionMode(permission_mode)}
+                )
+            })
+        except ValueError:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Invalid permission_mode: {permission_mode}, ignoring"
+            )
     session_id = restore_session_id or uuid4().hex[:12]
     # 获取当前工作目录
     cwd = str(Path.cwd())
