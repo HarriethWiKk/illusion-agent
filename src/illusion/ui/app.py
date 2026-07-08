@@ -35,7 +35,7 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.ui.backend_host import run_backend_host
 from illusion.ui.react_launcher import launch_react_tui
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
-from illusion.ui.terminal_io import PENDING_ANSWER_MARKER
+from illusion.ui.terminal_io import PENDING_ANSWER_MARKER, PENDING_PLAN_APPROVAL_MARKER
 
 
 def _inject_answer_to_pending_tool_result(
@@ -124,6 +124,75 @@ def _format_multi_answer(prompt: str, questions: list[Any] | None) -> str:
         else:
             lines.append(f"{k}: {v}")
     return "\n".join(lines) if lines else prompt
+
+
+def _parse_plan_approval(prompt: str) -> dict[str, Any]:
+    """解析用户对计划审批的回复
+
+    支持的输入：
+        - "批准" / "approve" / "yes" / "y" (case-insensitive) → 批准
+        - 其他任何输入 → 视为拒绝，输入原文作为反馈
+
+    Args:
+        prompt: 用户输入的审批回复
+
+    Returns:
+        dict: {"approved": bool, "feedback": str}
+    """
+    text = prompt.strip().lower()
+    approve_keywords = ("批准", "approve", "yes", "y")
+    if text in approve_keywords:
+        return {"approved": True, "feedback": ""}
+    return {"approved": False, "feedback": prompt.strip() or "User rejected the plan."}
+
+
+def _inject_plan_approval_to_tool_result(
+    messages: list[dict[str, Any]],
+    approval: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """把审批结果注入到消息历史中 PENDING_PLAN_APPROVAL_MARKER 的 tool_result
+
+    扫描 messages（反向），找到最后一个 content 包含 PENDING_PLAN_APPROVAL_MARKER
+    的 tool_result block，替换为审批结果文本。
+
+    Args:
+        messages: 序列化的会话消息列表
+        approval: 审批结果 {"approved": bool, "feedback": str}
+
+    Returns:
+        list[dict]: 修改后的消息列表（深拷贝）
+    """
+    import copy
+    result = copy.deepcopy(messages)
+    if approval["approved"]:
+        replacement = "Plan approved. Starting implementation."
+    else:
+        replacement = f"Plan rejected. Feedback: {approval['feedback']}"
+    # 反向扫描，找最后一个 PENDING_PLAN_APPROVAL_MARKER 的 tool_result
+    for msg in reversed(result):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            block_content = block.get("content")
+            if isinstance(block_content, str) and PENDING_PLAN_APPROVAL_MARKER in block_content:
+                block["content"] = replacement
+                block["is_error"] = not approval["approved"]
+                return result
+            if isinstance(block_content, list):
+                for sub in block_content:
+                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                        if PENDING_PLAN_APPROVAL_MARKER in sub["text"]:
+                            sub["text"] = replacement
+                            block["is_error"] = not approval["approved"]
+                            return result
+    return result
 
 
 async def run_repl(
@@ -238,9 +307,17 @@ async def run_print_mode(
         ToolExecutionStarted,
     )
     from illusion.config.i18n import t as _t
-    from illusion.ui.terminal_io import print_mode_permission, make_print_mode_ask_user
+    from illusion.ui.terminal_io import (
+        PENDING_ANSWER_MARKER,
+        PENDING_PLAN_APPROVAL_MARKER,
+        make_print_mode_ask_user,
+        make_print_mode_plan_approval,
+        print_mode_permission,
+    )
     from illusion.services.session_storage import (
+        delete_pending_plan_approval,
         delete_pending_question,
+        load_pending_plan_approval,
         load_pending_question,
         load_session_by_id,
         load_session_snapshot,
@@ -287,6 +364,24 @@ async def run_print_mode(
             delete_pending_question(effective_cwd, restore_session_id)
             print(_t("print_mode_resuming_answer"), file=sys.stderr)
 
+    # 检测 pending plan approval（上次 print 模式退出时遗留的待审批计划）
+    pending_plan_approval: dict[str, Any] | None = None
+    if restore_session_id:
+        pending_plan_approval = load_pending_plan_approval(effective_cwd, restore_session_id)
+        if pending_plan_approval:
+            # 将用户输入解析为审批结果，注入到 exit_plan_mode 的 tool_result
+            approval_result = _parse_plan_approval(prompt)
+            if restore_messages:
+                restore_messages = _inject_plan_approval_to_tool_result(
+                    restore_messages, approval_result
+                )
+            delete_pending_plan_approval(effective_cwd, restore_session_id)
+            if approval_result["approved"]:
+                print(_t("print_mode_plan_approved"), file=sys.stderr)
+            else:
+                print(_t("print_mode_plan_rejected"), file=sys.stderr)
+            print(_t("print_mode_plan_resuming_approval"), file=sys.stderr)
+
     # 预生成 session_id（确保 make_print_mode_ask_user 和 build_runtime 一致）
     from uuid import uuid4
     effective_session_id = restore_session_id or uuid4().hex[:12]
@@ -302,6 +397,11 @@ async def run_print_mode(
         api_client=api_client,
         permission_prompt=print_mode_permission,
         ask_user_prompt=make_print_mode_ask_user(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
+        plan_approval_prompt=make_print_mode_plan_approval(
             cwd=effective_cwd,
             session_id=effective_session_id,
             state=print_state,
@@ -464,8 +564,8 @@ async def run_print_mode(
             result = {"type": "result", "text": collected_text.strip()}
             print(json.dumps(result))
 
-        # 如果 ask_user_question 触发了 pending question，以退出码 2 退出
-        if print_state.get("pending_question_raised"):
+        # 如果 ask_user_question 或 exit_plan_mode 触发了 pending 状态，以退出码 2 退出
+        if print_state.get("pending_question_raised") or print_state.get("pending_plan_approval_raised"):
             raise SystemExit(2)
     finally:
         # 关闭运行时
