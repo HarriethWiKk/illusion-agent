@@ -1417,14 +1417,19 @@ def main(
         if resume == "":
             print(_t("session_resume_requires_id"), file=sys.stderr)
             raise typer.Exit(1)
-        # 持久化 effort/max_turns 到 settings.json
-        if effort is not None or max_turns is not None:
+        # 持久化 model/effort/max_turns/permission_mode 到 settings.json
+        if any(v is not None for v in (model, effort, max_turns, permission_mode)):
             from illusion.config import load_settings, save_settings
             _settings = load_settings()
+            if model is not None:
+                _settings.model = model
             if effort is not None:
                 _settings.effort = effort
             if max_turns is not None:
                 _settings.max_turns = max_turns
+            if permission_mode is not None:
+                from illusion.permissions.modes import PermissionMode
+                _settings.permission.mode = PermissionMode(permission_mode)
             save_settings(_settings)
         # 运行打印模式
         asyncio.run(

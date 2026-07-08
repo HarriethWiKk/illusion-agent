@@ -16,7 +16,7 @@ The `illusion` main command supports the following options, grouped by function:
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--model <MODEL>` | `-m` | Model alias (e.g. `sonnet`, `opus`) or full model ID (e.g. `env_1.model_2`) |
+| `--model <MODEL>` | `-m` | Model alias (e.g. `sonnet`, `opus`) or full model ID (e.g. `env_1.model_2`), persists to settings.json |
 | `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max`, persists to settings.json |
 | `--max-turns <N>` | `-t` | Maximum agentic turns, persists to settings.json |
 
@@ -31,7 +31,7 @@ The `illusion` main command supports the following options, grouped by function:
 
 | Option | Description |
 |--------|-------------|
-| `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto` |
+| `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto`, persists to settings.json |
 | `--dangerously-skip-permissions` | Bypass all permission checks (equivalent to `--permission-mode full_auto`, only for sandboxed environments) |
 
 ### Global

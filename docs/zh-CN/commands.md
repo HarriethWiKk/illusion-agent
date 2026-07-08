@@ -18,7 +18,7 @@
 
 | 选项 | 简写 | 说明 |
 |------|------|------|
-| `--model <MODEL>` | `-m` | 模型别名（如 `sonnet`、`opus`）或完整模型 ID（如 `env_1.model_2`） |
+| `--model <MODEL>` | `-m` | 模型别名（如 `sonnet`、`opus`）或完整模型 ID（如 `env_1.model_2`），设置后持久化到 settings.json |
 | `--effort <LEVEL>` | `-e` | 推理强度级别：`low` / `medium` / `high` / `max`，设置后持久化到 settings.json |
 | `--max-turns <N>` | `-t` | 最大代理轮次数，设置后持久化到 settings.json |
 
@@ -33,7 +33,7 @@
 
 | 选项 | 说明 |
 |------|------|
-| `--permission-mode <MODE>` | 权限模式：`default` / `plan` / `full_auto` |
+| `--permission-mode <MODE>` | 权限模式：`default` / `plan` / `full_auto`，设置后持久化到 settings.json |
 | `--dangerously-skip-permissions` | 跳过所有权限检查（等价于 `--permission-mode full_auto`，仅适用于沙箱环境） |
 
 #### 全局

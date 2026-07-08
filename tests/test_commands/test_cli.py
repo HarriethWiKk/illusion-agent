@@ -85,3 +85,31 @@ def test_max_turns_short_flag_persists(tmp_path, monkeypatch):
     runner.invoke(app, ["-t", "5", "-p", "test"])
     settings = load_settings()
     assert settings.max_turns == 5
+
+
+def test_model_flag_persists(tmp_path, monkeypatch):
+    """-m 应持久化 model 到 settings。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+
+    from illusion.config import load_settings
+
+    runner = CliRunner()
+    runner.invoke(app, ["-m", "env_2.model_3", "-p", "test"])
+    settings = load_settings()
+    assert settings.model == "env_2.model_3"
+
+
+def test_permission_mode_flag_persists(tmp_path, monkeypatch):
+    """--permission-mode 应持久化到 settings.permission.mode。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+
+    from illusion.config import load_settings
+
+    runner = CliRunner()
+    runner.invoke(app, ["--permission-mode", "plan", "-p", "test"])
+    settings = load_settings()
+    assert settings.permission.mode == "plan"
