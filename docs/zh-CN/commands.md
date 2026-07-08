@@ -11,7 +11,7 @@
 | 选项 | 简写 | 说明 |
 |------|------|------|
 | `--continue` | `-c` | 继续当前目录的最近一次会话 |
-| `--resume [SESSION_ID]` | `-r` | 通过会话 ID 恢复会话；不传值则打开选择器 |
+| `--resume <SESSION_ID>` | `-r` | 通过会话 ID 恢复会话（必须指定 ID） |
 | `--name <NAME>` | `-n` | 为本次会话设置显示名称（存入 `tool_metadata.session_name`） |
 
 #### Model & Effort（模型与推理强度）

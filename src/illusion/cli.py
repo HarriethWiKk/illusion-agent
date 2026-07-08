@@ -1336,7 +1336,7 @@ def main(
 
     from illusion.ui.app import run_print_mode, run_repl  # 导入 UI 模块
 
-    # -c/-s 不带 -p 且非 --backend-only 时报错
+    # -c/-r 不带 -p 且非 --backend-only 时报错
     if (continue_session or resume is not None) and print_mode is None and not backend_only:
         print(_t("continue_requires_print"), file=sys.stderr)
         raise typer.Exit(1)
@@ -1405,13 +1405,17 @@ def main(
             )
             return
         # 非 backend_only 时 fall through 到 print_mode 分支
-        # （Step 2 已拦截 -c/-s 不带 -p 的情况）
+        # （Step 2 已拦截 -c/-r 不带 -p 的情况）
 
     # 打印模式处理
     if print_mode is not None:
         prompt = print_mode.strip()
         if not prompt:
             print(_t("print_requires_prompt"), file=sys.stderr)
+            raise typer.Exit(1)
+        # resume="" 在 print 模式下报错（先校验，避免持久化副作用）
+        if resume == "":
+            print(_t("session_resume_requires_id"), file=sys.stderr)
             raise typer.Exit(1)
         # 持久化 effort/max_turns 到 settings.json
         if effort is not None or max_turns is not None:
@@ -1422,10 +1426,6 @@ def main(
             if max_turns is not None:
                 _settings.max_turns = max_turns
             save_settings(_settings)
-        # resume="" 在 print 模式下报错
-        if resume == "":
-            print(_t("session_resume_requires_id"), file=sys.stderr)
-            raise typer.Exit(1)
         # 运行打印模式
         asyncio.run(
             run_print_mode(

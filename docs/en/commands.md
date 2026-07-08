@@ -9,7 +9,7 @@ The `illusion` main command supports the following options, grouped by function:
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--continue` | `-c` | Continue the most recent conversation in the current directory |
-| `--resume [SESSION_ID]` | `-r` | Resume a conversation by session ID; opens picker if no value given |
+| `--resume <SESSION_ID>` | `-r` | Resume a conversation by session ID (ID required) |
 | `--name <NAME>` | `-n` | Set a display name for this session (stored in `tool_metadata.session_name`) |
 
 ### Model & Effort

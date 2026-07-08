@@ -146,17 +146,17 @@ illusion -p "帮我分析这个项目的结构"
 # 指定模型
 illusion -m env_1.model_2
 
-# 继续最近会话
-illusion --continue
+# 继续最近会话（配合 -p 使用）
+illusion -c -p "继续上次会话"
 
-# 恢复指定会话
-illusion --resume <session-id>
+# 恢复指定会话（配合 -p 使用）
+illusion -r <session-id> -p "继续"
 
 # 设置权限模式
 illusion --permission-mode full_auto
 
-# 指定 API 格式
-illusion --api-format openai
+# 设置推理强度（持久化到 settings）
+illusion -e high
 ```
 
 > **注意**：终端界面（`illusion`）为推荐的首选模式。Web UI（`illusion web`）仅作为终端不可用时的补充方案。

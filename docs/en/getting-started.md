@@ -144,17 +144,17 @@ illusion -p "Analyze the structure of this project"
 # Specify model
 illusion -m env_1.model_2
 
-# Continue most recent session
-illusion --continue
+# Continue most recent session (use with -p)
+illusion -c -p "Continue the previous session"
 
-# Restore specific session
-illusion --resume <session-id>
+# Restore specific session (use with -p)
+illusion -r <session-id> -p "Continue"
 
 # Set permission mode
 illusion --permission-mode full_auto
 
-# Specify API format
-illusion --api-format openai
+# Set effort level (persists to settings)
+illusion -e high
 ```
 
 > **Note**: The terminal interface (`illusion`) is the recommended primary mode. The Web UI (`illusion web`) is a supplementary option for scenarios where a terminal is unavailable.
