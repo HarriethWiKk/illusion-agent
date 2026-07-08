@@ -207,7 +207,7 @@ def make_print_mode_ask_user(
 def _question_item_to_dict(q: Any) -> dict[str, Any]:
     """将 QuestionItem 对象转为 dict（用于持久化）"""
     if hasattr(q, "model_dump"):
-        return q.model_dump(mode="json")
+        return dict(q.model_dump(mode="json"))
     if isinstance(q, dict):
         return q
     return {"question": str(q)}

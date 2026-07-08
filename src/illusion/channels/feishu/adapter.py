@@ -84,7 +84,7 @@ class FeishuChannel(Channel):
         用于自回显检测和 @提及识别。
         """
         try:
-            from lark_oapi.api.im.v1 import GetBotInfoRequest  # type: ignore[import-untyped]
+            from lark_oapi.api.im.v1 import GetBotInfoRequest  # pyright: ignore[reportAttributeAccessIssue]
             req = GetBotInfoRequest.builder().build()
             resp = await asyncio.to_thread(self._client.im.v1.bot_info.get, req)
             if resp.success() and resp.data and getattr(resp.data, "bot", None):

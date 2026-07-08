@@ -752,6 +752,8 @@ class ChannelRunner:
                 await self.channel.send_text(chat_id, text)
                 return await self._wait_reply(chat_id, timeout=300)
 
+            from illusion.ui.terminal_io import format_question_options as _format_question_options
+
             # 单问题：拍平选项 + 多选提示 + 等待回复
             if len(questions) == 1:
                 q = questions[0]
@@ -830,9 +832,6 @@ class ChannelRunner:
         fut: asyncio.Future[str] = loop.create_future()
         self._pending_replies[chat_id] = fut
         return await asyncio.wait_for(fut, timeout=timeout)
-
-
-from illusion.ui.terminal_io import format_question_options as _format_question_options
 
 
 def _get_weixin_channel_class() -> Any:

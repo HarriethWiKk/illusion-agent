@@ -60,7 +60,7 @@ from illusion.config import load_settings
 from illusion.config.settings import Settings
 from illusion.engine import QueryEngine
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
-from illusion.engine.query import MaxTurnsExceeded
+from illusion.engine.query import BackgroundAgentTracker, MaxTurnsExceeded
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor
 from illusion.hooks.loader import load_hook_registry

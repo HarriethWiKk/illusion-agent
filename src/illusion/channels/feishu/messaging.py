@@ -73,7 +73,7 @@ def build_lark_client(cfg: "FeishuChannelConfig") -> Any:
     Returns:
         lark.Client 实例
     """
-    import lark_oapi as lark  # type: ignore[import-untyped]  # 延迟导入
+    import lark_oapi as lark  # 延迟导入
     return (
         lark.Client.builder()
         .app_id(cfg.app_id)
@@ -228,7 +228,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     Returns:
         str: 新消息 ID
     """
-    from lark_oapi.api.im.v1 import (  # type: ignore[import-untyped]
+    from lark_oapi.api.im.v1 import (
         CreateMessageRequest,
     )
 
@@ -553,7 +553,7 @@ async def create_card_entity(client: Any, card_content: str) -> str:
     Returns:
         str: card_id（失败返回空字符串）
     """
-    from lark_oapi.api.cardkit.v1 import CreateCardRequest  # type: ignore[import-untyped]
+    from lark_oapi.api.cardkit.v1 import CreateCardRequest
 
     req = (
         CreateCardRequest.builder()

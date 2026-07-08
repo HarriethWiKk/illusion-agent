@@ -329,7 +329,8 @@ def load_pending_question(cwd: str | Path, session_id: str) -> dict[str, Any] | 
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        result: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
+        return result
     except (json.JSONDecodeError, OSError):
         return None
 

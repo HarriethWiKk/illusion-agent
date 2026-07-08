@@ -147,7 +147,7 @@ async def _deliver_feishu(
             import json
             from illusion.channels.feishu.messaging import resolve_receive_id
             try:
-                from lark_oapi.api.im.v1 import CreateMessageRequest  # type: ignore[import-untyped]
+                from lark_oapi.api.im.v1 import CreateMessageRequest
             except ImportError:
                 logger.error("飞书投递需要 lark_oapi")
                 return False

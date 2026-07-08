@@ -74,7 +74,7 @@ class FeishuDocReadTool(BaseTool[FeishuDocReadInput]):
 
         if arguments.format == "blocks":
             try:
-                from lark_oapi.api.docx.v1 import (  # type: ignore[import-untyped]
+                from lark_oapi.api.docx.v1 import (
                     ListDocumentBlockRequest,
                 )
             except ImportError:
@@ -342,7 +342,7 @@ class FeishuDocDeleteTool(BaseTool[FeishuDocDeleteInput]):
         assert isinstance(arguments, FeishuDocDeleteInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
+            from lark_oapi.api.drive.v1 import (
                 DeleteFileRequest,
             )
         except ImportError:

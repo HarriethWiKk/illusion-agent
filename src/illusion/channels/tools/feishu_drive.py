@@ -64,7 +64,7 @@ class FeishuDriveListTool(BaseTool[FeishuDriveListInput]):
         assert isinstance(arguments, FeishuDriveListInput)
         client = build_lark_client(self._cfg)
         try:
-            from lark_oapi.api.drive.v1 import (  # type: ignore[import-untyped]
+            from lark_oapi.api.drive.v1 import (
                 ListFileRequest,
             )
         except ImportError:
