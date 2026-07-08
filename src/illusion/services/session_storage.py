@@ -346,3 +346,71 @@ def delete_pending_question(cwd: str | Path, session_id: str) -> bool:
         path.unlink()
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Pending Plan Approval 持久化
+# ---------------------------------------------------------------------------
+
+def _pending_plan_approval_path(cwd: str | Path, session_id: str) -> Path:
+    """返回指定会话的 pending plan approval 文件路径"""
+    session_dir = get_project_session_dir(cwd)
+    return session_dir / f"pending-plan-approval-{session_id}.json"
+
+
+def save_pending_plan_approval(
+    *,
+    cwd: str | Path,
+    session_id: str,
+    plan: str,
+    plan_path: str,
+) -> Path:
+    """保存待审批的计划内容（print 模式跨轮次审批机制）
+
+    Args:
+        cwd: 工作目录
+        session_id: 会话 ID
+        plan: 计划内容文本
+        plan_path: 计划文件路径（用于恢复时引用）
+
+    Returns:
+        Path: 持久化文件路径
+    """
+    payload = {
+        "session_id": session_id,
+        "plan": plan,
+        "plan_path": plan_path,
+        "created_at": time.time(),
+    }
+    path = _pending_plan_approval_path(cwd, session_id)
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return path
+
+
+def load_pending_plan_approval(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
+    """加载指定会话的 pending plan approval
+
+    Returns:
+        dict | None: 计划审批数据，无则 None
+    """
+    path = _pending_plan_approval_path(cwd, session_id)
+    if not path.exists():
+        return None
+    try:
+        result: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
+        return result
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def delete_pending_plan_approval(cwd: str | Path, session_id: str) -> bool:
+    """删除指定会话的 pending plan approval
+
+    Returns:
+        bool: 是否成功删除
+    """
+    path = _pending_plan_approval_path(cwd, session_id)
+    if path.exists():
+        path.unlink()
+        return True
+    return False

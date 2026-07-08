@@ -103,3 +103,34 @@ def test_count_turns() -> None:
         {"role": "assistant", "content": [{"type": "text", "text": "Hi"}]},
     ]
     assert count_turns(messages) == 1
+
+
+def test_save_load_delete_pending_plan_approval(tmp_path, monkeypatch):
+    """测试 pending plan approval 的保存、加载、删除"""
+    from illusion.services.session_storage import (
+        save_pending_plan_approval,
+        load_pending_plan_approval,
+        delete_pending_plan_approval,
+    )
+
+    plan = "# My Plan\n\nStep 1: Do X\nStep 2: Do Y"
+    plan_path = "/home/user/.illusion/plans/my-plan.md"
+
+    save_pending_plan_approval(
+        cwd=tmp_path,
+        session_id="abc123",
+        plan=plan,
+        plan_path=plan_path,
+    )
+
+    loaded = load_pending_plan_approval(tmp_path, "abc123")
+    assert loaded is not None
+    assert loaded["plan"] == plan
+    assert loaded["plan_path"] == plan_path
+    assert loaded["session_id"] == "abc123"
+
+    deleted = delete_pending_plan_approval(tmp_path, "abc123")
+    assert deleted is True
+
+    loaded_after = load_pending_plan_approval(tmp_path, "abc123")
+    assert loaded_after is None

@@ -23,6 +23,10 @@ from illusion.config.i18n import t
 # 作为 tool_result 存储在消息历史中，恢复时用于定位待回答的问题
 PENDING_ANSWER_MARKER = "__PENDING_ANSWER__"
 
+# print 模式 exit_plan_mode 返回的特殊标记
+# 作为 tool_result 存储在消息历史中，恢复时用于定位待审批的计划
+PENDING_PLAN_APPROVAL_MARKER = "__PENDING_PLAN_APPROVAL__"
+
 
 def format_question_options(questions: object) -> str:
     """将结构化问题选项格式化为终端可显示的文本
@@ -211,3 +215,51 @@ def _question_item_to_dict(q: Any) -> dict[str, Any]:
     if isinstance(q, dict):
         return q
     return {"question": str(q)}
+
+
+def make_print_mode_plan_approval(
+    *,
+    cwd: str,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> Any:
+    """构造 print 模式非交互 plan_approval_prompt 回调
+
+    回调行为：
+        1. 持久化计划内容到 pending-plan-approval 文件
+        2. 设置 state["pending_plan_approval_raised"] = True
+        3. 不输出计划内容到 stderr（agent 自行用 read 工具读计划文件）
+        4. 返回 (False, PENDING_PLAN_APPROVAL_MARKER) 让 exit_plan_mode
+           返回包含标记的 ToolResult
+
+    agent 收到标记后会结束当前轮次，run_print_mode 检测到
+    state["pending_plan_approval_raised"] 后以退出码 2 退出。
+    下次 illusion -c -p "批准" 恢复时，审批结果会注入为 tool_result。
+
+    Args:
+        cwd: 工作目录
+        session_id: 会话 ID
+        state: 共享状态字典（用于通知 run_print_mode）
+
+    Returns:
+        plan_approval_prompt 回调函数，签名为 async (plan: str) -> tuple[bool, str]
+    """
+    from illusion.config.plan_file import DEFAULT_SESSION_ID, get_plan_file_path
+
+    async def _approve(plan: str) -> tuple[bool, str]:
+        plan_path = str(get_plan_file_path(DEFAULT_SESSION_ID))
+        # 持久化计划内容
+        if session_id:
+            from illusion.services.session_storage import save_pending_plan_approval
+            save_pending_plan_approval(
+                cwd=cwd,
+                session_id=session_id,
+                plan=plan,
+                plan_path=plan_path,
+            )
+        # 通知 run_print_mode
+        state["pending_plan_approval_raised"] = True
+        # 返回 pending 标记，exit_plan_mode 会返回包含标记的 ToolResult
+        return (False, PENDING_PLAN_APPROVAL_MARKER)
+
+    return _approve
