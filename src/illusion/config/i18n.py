@@ -277,6 +277,23 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "请运行 'illusion auth login' 配置 API 环境",
         "en-US": "Run 'illusion auth login' to configure API environment",
     },
+    # --- terminal_io 终端交互回调 ---
+    "terminal_permission_request": {
+        "zh-CN": "\n⚠️ 权限请求: {tool_name}",
+        "en-US": "\n⚠️ Permission request: {tool_name}",
+    },
+    "terminal_permission_reason": {
+        "zh-CN": "   原因: {reason}",
+        "en-US": "   Reason: {reason}",
+    },
+    "terminal_permission_prompt": {
+        "zh-CN": "   允许执行? [y/N] ",
+        "en-US": "   Allow execution? [y/N] ",
+    },
+    "terminal_ask_user_question": {
+        "zh-CN": "\n❓ {question}",
+        "en-US": "\n❓ {question}",
+    },
     "web_settings_title": {
         "zh-CN": "设置",
         "en-US": "Settings",

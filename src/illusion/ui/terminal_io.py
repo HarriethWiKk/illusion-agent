@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from illusion.config.i18n import t
+
 
 def format_question_options(questions: object) -> str:
     """将结构化问题选项格式化为终端可显示的文本
@@ -67,10 +69,10 @@ async def terminal_permission(tool_name: str, reason: str) -> bool:
     Returns:
         bool: True=允许，False=拒绝
     """
-    print(f"\n⚠️ 权限请求: {tool_name}")
-    print(f"   原因: {reason}")
+    print(t("terminal_permission_request").format(tool_name=tool_name))
+    print(t("terminal_permission_reason").format(reason=reason))
     try:
-        answer = input("   允许执行? [y/N] ").strip().lower()
+        answer = input(t("terminal_permission_prompt")).strip().lower()
     except EOFError:
         return False
     return answer in ("y", "yes")
@@ -89,7 +91,7 @@ async def terminal_ask_user(question: str, questions: object = None) -> str:
     Returns:
         str: 用户输入文本
     """
-    text = f"\n❓ {question}"
+    text = t("terminal_ask_user_question").format(question=question)
     if questions:
         opts_text = format_question_options(questions)
         if opts_text:
