@@ -36,12 +36,12 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   agent: 'Agent',
 
   // Web 类
-  web_search: 'Web Search',
+  web_search: 'WebSearch',
   web_fetch: 'Fetch',
 
   // LSP / Notebook / Skill
   lsp: 'LSP',
-  notebook_edit: 'Edit Notebook',
+  notebook_edit: 'EditNotebook',
   skill: 'Skill',
 
   // 任务管理类
@@ -49,8 +49,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   task_update: 'TaskUpdate',
   task_get: 'TaskGet',
   task_list: 'TaskList',
-  task_output: 'Task Output',
-  task_stop: 'Stop Task',
+  task_output: 'TaskOutput',
+  task_stop: 'TaskStop',
 
   // Todo
   todo_write: 'TodoWrite',
@@ -70,9 +70,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   tool_search: 'ToolSearch',
 
   // MCP
-  mcp: 'mcp',
-  list_mcp_resources: 'listMcpResources',
-  read_mcp_resource: 'readMcpResource',
+  mcp: 'MCP',
+  list_mcp_resources: 'ListMcpResources',
+  read_mcp_resource: 'ReadMcpResource',
 
   // 通用工具
   ask_user_question: 'AskUserQuestion',

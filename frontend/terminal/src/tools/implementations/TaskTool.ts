@@ -10,5 +10,5 @@ const noArgsTool = (name: string, displayName: string): Tool => ({
 	renderToolResultMessage: (result: string) => result.split('\n').find((l) => l.trim()) ?? '(Done)',
 });
 
-export const taskOutputTool = noArgsTool('task_output', 'Task Output');
-export const taskStopTool = noArgsTool('task_stop', 'Stop Task');
+export const taskOutputTool = noArgsTool('task_output', 'TaskOutput');
+export const taskStopTool = noArgsTool('task_stop', 'TaskStop');

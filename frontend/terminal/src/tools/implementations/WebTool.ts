@@ -5,7 +5,7 @@ import type {Tool} from '../ToolInterface.js';
 
 export const webSearchTool: Tool = {
 	name: 'web_search',
-	displayName: () => 'Web Search',
+	displayName: () => 'WebSearch',
 	renderToolUseMessage(input?: Record<string, unknown>): string {
 		if (!input?.query) return '';
 		return `"${String(input.query)}"`;
@@ -25,7 +25,7 @@ export const webSearchTool: Tool = {
 
 export const webFetchTool: Tool = {
 	name: 'web_fetch',
-	displayName: () => 'Fetch',
+	displayName: () => 'WebFetch',
 	renderToolUseMessage(input?: Record<string, unknown>): string {
 		if (!input?.url) return '';
 		return String(input.url);
