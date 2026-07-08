@@ -93,6 +93,18 @@ class BackendHostConfig:
         effort: 推理强度级别（low/medium/high/xhigh/max）
         channel_hint: 渠道感知提示词（PC 终端或渠道端注入系统提示词）
         channel_tools: 跨渠道工具列表（如 SendToChannelTool）
+        append_system_prompt: 追加的系统提示词
+        permission_mode: 权限模式
+        settings_file: 设置文件路径
+        verbose: 详细输出
+        debug: 调试模式
+        bare: 纯净模式
+        name: 会话名称
+        mcp_config: MCP 配置文件列表
+        allowed_tools: 允许的工具列表
+        disallowed_tools: 禁用的工具列表
+        continue_session: 继续上一会话
+        resume: 恢复指定会话
     """
 
     model: str | None = None
@@ -108,6 +120,19 @@ class BackendHostConfig:
     effort: str | None = None
     channel_hint: str | None = None
     channel_tools: list[Any] | None = None
+    # 新增字段（Task 5 仅存储，消费逻辑在 Task 6-12 实现）
+    append_system_prompt: str | None = None
+    permission_mode: str | None = None
+    settings_file: str | None = None
+    verbose: bool = False
+    debug: bool = False
+    bare: bool = False
+    name: str | None = None
+    mcp_config: list[str] | None = None
+    allowed_tools: list[str] | None = None
+    disallowed_tools: list[str] | None = None
+    continue_session: bool = False
+    resume: str | None = None
 
 
 class ReactBackendHost:
@@ -1379,6 +1404,18 @@ async def run_backend_host(
     effort: str | None = None,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
+    append_system_prompt: str | None = None,
+    permission_mode: str | None = None,
+    settings_file: str | None = None,
+    verbose: bool = False,
+    debug: bool = False,
+    bare: bool = False,
+    name: str | None = None,
+    mcp_config: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+    disallowed_tools: list[str] | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -1398,6 +1435,18 @@ async def run_backend_host(
             effort=effort,
             channel_hint=channel_hint,
             channel_tools=channel_tools,
+            append_system_prompt=append_system_prompt,
+            permission_mode=permission_mode,
+            settings_file=settings_file,
+            verbose=verbose,
+            debug=debug,
+            bare=bare,
+            name=name,
+            mcp_config=mcp_config,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
+            continue_session=continue_session,
+            resume=resume,
         )
     )
     return await host.run()
