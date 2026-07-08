@@ -278,10 +278,19 @@ Terse command-style prompts produce shallow, generic work.
             bg_tracker = context.metadata.get("bg_agent_tracker")
 
             if query_context is not None:
-                # 进程内后台执行
-                agent_id = f"agent_{uuid.uuid4().hex[:12]}"
+                # 进程内后台执行：注册到 BackgroundTaskManager
+                from illusion.tasks.manager import get_task_manager
 
-                # 注册到追踪器
+                manager = get_task_manager()
+                # 先创建 record（async_task 稍后填充）
+                task_record = manager.register_in_process_agent_task(
+                    description=arguments.description,
+                    cwd=cwd,
+                    prompt=arguments.prompt,
+                )
+                agent_id = task_record.id  # 形如 a3f2c1b4
+
+                # 注册到追踪器（用于通知唤醒主循环）
                 if bg_tracker is not None:
                     bg_tracker.register(agent_id)
 
@@ -316,6 +325,15 @@ Terse command-style prompts produce shallow, generic work.
                                 f"<task-notification><task-id>{agent_id}</task-id>"
                                 f"<status>{status}</status><summary>{summary}</summary></task-notification>"
                             )
+                        # 把最终结果文本累积到 task output
+                        if result.result_text:
+                            await manager.write_to_task_output(agent_id, result.result_text)
+                        # 标记任务完成（更新 status/ended_at/result，触发 on_task_complete）
+                        manager.complete_in_process_agent(
+                            agent_id,
+                            success=result.success,
+                            result=result.result_text,
+                        )
                         # 通知后台代理追踪器（唤醒主 agent）
                         if bg_tracker is not None:
                             bg_tracker.notify_completed(agent_id, notification_xml)
@@ -326,8 +344,27 @@ Terse command-style prompts produce shallow, generic work.
                                 text=notification_xml,
                                 from_agent="system",
                             ))
+                    except asyncio.CancelledError:
+                        # task_stop 取消时，标记为 killed
+                        manager.complete_in_process_agent(
+                            agent_id,
+                            success=False,
+                            result="Agent was stopped by task_stop",
+                        )
+                        if bg_tracker is not None:
+                            bg_tracker.notify_completed(
+                                agent_id,
+                                f"<task-notification><task-id>{agent_id}</task-id>"
+                                f"<status>killed</status><summary>Agent was stopped by task_stop</summary></task-notification>",
+                            )
+                        raise
                     except Exception:
                         logger.exception("[AgentTool] Background agent %s failed", agent_id)
+                        manager.complete_in_process_agent(
+                            agent_id,
+                            success=False,
+                            result="Agent crashed with unhandled exception",
+                        )
                         # 即使异常也通知追踪器，避免主 agent 永远等待
                         if bg_tracker is not None:
                             bg_tracker.notify_completed(
@@ -339,12 +376,15 @@ Terse command-style prompts produce shallow, generic work.
                         _unregister_agent(agent_id)
                         await _cleanup_worktree()
 
-                asyncio.create_task(_run_background(), name=f"agent-{agent_id}")
+                bg_async_task = asyncio.create_task(_run_background(), name=f"agent-{agent_id}")
+                task_record.async_task = bg_async_task
 
                 return ToolResult(
                     output=(
-                        f"Agent '{config.name}' launched in background (agent_id={agent_id}). "
-                        f"You will be notified when it completes."
+                        f"Agent '{config.name}' launched in background (task_id={agent_id}).\n"
+                        "You will be automatically notified when it completes — do NOT sleep, poll, "
+                        "or call task_output to check its progress. Continue with other work or "
+                        "respond to the user instead."
                     ),
                 )
             else:
@@ -361,8 +401,10 @@ Terse command-style prompts produce shallow, generic work.
                     return ToolResult(output=result.error or "Failed to spawn agent", is_error=True)
                 return ToolResult(
                     output=(
-                        f"Agent '{config.name}' launched as subprocess (agent_id={result.agent_id}). "
-                        f"You will be notified when it completes."
+                        f"Agent '{config.name}' launched as subprocess (agent_id={result.agent_id}).\n"
+                        "You will be automatically notified when it completes — do NOT sleep, poll, "
+                        "or call task_output to check its progress. Continue with other work or "
+                        "respond to the user instead."
                     ),
                 )
         else:

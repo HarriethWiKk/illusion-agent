@@ -21,7 +21,7 @@ Swarm 后端类型定义模块
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +85,10 @@ class TeammateSpawnConfig:
 
     session_id: str | None = None
     """明确的会话 ID（如果未提供则生成）。"""
+
+    # 进程内代理执行所需上下文（由调用方传入，未传入时 _run_agent 回退到 stub）
+    query_context: Any | None = None
+    parent_registry: Any | None = None
 
 
 # ---------------------------------------------------------------------------

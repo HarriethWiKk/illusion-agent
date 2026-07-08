@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from illusion.tasks.manager import get_task_manager
 from illusion.tools import create_default_tool_registry
 from illusion.tools.base import ToolExecutionContext
 from illusion.utils.file_state_cache import FileStateCache
@@ -58,39 +59,26 @@ async def test_task_and_todo_flow_across_registry(tmp_path: Path, monkeypatch):
 
     tool_search = registry.get("tool_search")
     todo_write = registry.get("todo_write")
-    task_create = registry.get("task_create")
-    task_get = registry.get("task_get")
     task_output = registry.get("task_output")
-    task_update = registry.get("task_update")
 
-    search_result = await tool_search.execute(tool_search.input_model(query="select:task_create,task_get,task_output,task_update"), context)
-    assert "task_create" in search_result.output
+    # task_create/task_get/task_update 工具已删除，仅保留 task_output
+    search_result = await tool_search.execute(tool_search.input_model(query="select:task_output,todo_write"), context)
+    assert "task_output" in search_result.output
+    assert "todo_write" in search_result.output
 
     await todo_write.execute(todo_write.input_model(todos=[{"content": "integration flow item", "status": "pending", "activeForm": "integrating flow item"}]), context)
 
-    create_result = await task_create.execute(
-        task_create.input_model(
-            subject="integration flow task",
-            description="integration flow task",
-        ),
-        context,
+    # 通过 task manager 直接创建后台任务（TaskCreateTool 已删除）
+    manager = get_task_manager()
+    record = await manager.create_shell_task(
+        description="integration flow task",
+        cwd=str(tmp_path),
+        command="printf 'flow ok'",
     )
-    task_id = create_result.output.split()[2]
-    update_result = await task_update.execute(
-        task_update.input_model(
-            task_id=task_id,
-            progress=25,
-            status_note="started",
-        ),
-        context,
-    )
-    assert "25" in update_result.output
+    await asyncio.wait_for(manager._waiters[record.id], timeout=5)  # type: ignore[attr-defined]
 
-    task_detail = await task_get.execute(task_get.input_model(task_id=task_id), context)
-    assert "status:" in task_detail.output
-
-    output = await task_output.execute(task_output.input_model(task_id=task_id), context)
-    assert output.output == "(no output)"
+    output = await task_output.execute(task_output.input_model(task_id=record.id), context)
+    assert "flow ok" in output.output
 
 
 @pytest.mark.asyncio

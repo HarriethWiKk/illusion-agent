@@ -113,6 +113,11 @@ class InProcessBackend:
         )
         _register_agent(ctx)
 
+        # 将 TeammateSpawnConfig 的 query_context / parent_registry 存入 ctx
+        # 供 _run_agent 调用 run_agent_in_process 使用
+        ctx.query_context = config.query_context
+        ctx.parent_registry = config.parent_registry
+
         # 创建 asyncio Task
         task = asyncio.create_task(
             self._run_agent(spawn_config, agent_id, abort_controller, ctx),
@@ -148,7 +153,11 @@ class InProcessBackend:
         abort_controller: AgentAbortController,
         ctx: AgentExecutionContext | None = None,
     ) -> None:
-        """运行代理的内部协程。"""
+        """运行代理的内部协程。
+
+        当 ctx 提供 query_context 和 parent_registry 时，调用 run_agent_in_process
+        执行实际代理逻辑；否则回退到 stub 行为（等待取消）。
+        """
         if ctx is None:
             ctx = AgentExecutionContext(
                 agent_id=agent_id,
@@ -161,16 +170,30 @@ class InProcessBackend:
             _register_agent(ctx)
         set_agent_context(ctx)
 
-        try:
-            # 注意：这里需要 query_context 和 parent_registry
-            # 在实际使用中，这些应该通过某种方式传入
-            # 目前这是一个占位实现
-            logger.info("[InProcessBackend] %s: agent started (stub)", agent_id)
-            ctx.status = "running"
+        # 从 ctx 读取 TeammateSpawnConfig 传递的上下文
+        query_context = getattr(ctx, "query_context", None)
+        parent_registry = getattr(ctx, "parent_registry", None)
 
-            # 等待取消或完成
-            while not abort_controller.is_cancelled:
-                await asyncio.sleep(0.1)
+        try:
+            if query_context is not None and parent_registry is not None:
+                from illusion.swarm.agent_executor import run_agent_in_process
+                logger.info("[InProcessBackend] %s: agent started (in-process)", agent_id)
+                ctx.status = "running"
+                await run_agent_in_process(
+                    config=config,
+                    query_context=query_context,
+                    parent_registry=parent_registry,
+                    is_async=True,
+                    existing_context=ctx,
+                )
+            else:
+                # 回退到 stub 行为（未提供 query_context）
+                logger.warning(
+                    "[InProcessBackend] %s: no query_context, running stub", agent_id
+                )
+                ctx.status = "running"
+                while not abort_controller.is_cancelled:
+                    await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
             logger.debug("[InProcessBackend] %s: task cancelled", agent_id)

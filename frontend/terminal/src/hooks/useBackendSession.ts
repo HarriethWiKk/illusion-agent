@@ -17,6 +17,8 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {spawn, type ChildProcess} from 'node:child_process';
 import readline from 'node:readline';
 
+import {normalizeLanguage, t} from '../i18n.js';
+
 import type {
 	BackendEvent,
 	BridgeSessionSnapshot,
@@ -104,6 +106,15 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [assistantBuffer, setAssistantBuffer] = useState('');
 	/** 后端状态信息 */
 	const [status, setStatus] = useState<Record<string, unknown>>({});
+	/** status 的 ref 镜像，供 child.on('exit') 等闭包读取最新值 */
+	const statusRef = useRef<Record<string, unknown>>({});
+	const updateStatus = useCallback((next: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>)) => {
+		setStatus((prev) => {
+			const resolved = typeof next === 'function' ? next(prev) : next;
+			statusRef.current = resolved;
+			return resolved;
+		});
+	}, []);
 	/** 任务列表快照 */
 	const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
 	/** 可用命令列表 */
@@ -120,6 +131,8 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [busy, setBusy] = useState(false);
 	/** 后端是否已就绪 */
 	const [ready, setReady] = useState(false);
+	/** 后端是否已退出（退出后不再显示"正在连接后端..."提示） */
+	const [exited, setExited] = useState(false);
 	/** 是否显示思考过程 */
 	const [showThinking, setShowThinking] = useState(true);
 	/** 待办事项列表 */
@@ -269,6 +282,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 
 		child.on('exit', (code) => {
 			pushStatic({role: 'system', text: `backend exited with code ${code ?? 0}`});
+			// 非零退出（且非 SIGTERM 143）时追加 i18n 友好提示，引导用户排查
+			// 后端 stderr 已通过 'inherit' 直接输出到终端，此处仅补充兜底引导
+			if (code && code !== 143) {
+				const lang = normalizeLanguage(statusRef.current.ui_language);
+				pushStatic({role: 'system', text: t(lang, 'backend_exit_hint')});
+			}
+			setExited(true);
 			process.exitCode = code ?? 0;
 			onExit(code);
 		});
@@ -341,7 +361,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
-			setStatus(event.state ?? {});
+			updateStatus(event.state ?? {});
 			const showThinkingFromState = event.state?.show_thinking;
 			if (typeof showThinkingFromState === 'boolean') {
 				setShowThinking(showThinkingFromState);
@@ -358,7 +378,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'state_snapshot') {
-			setStatus(event.state ?? {});
+			updateStatus(event.state ?? {});
 			const showThinkingFromState = event.state?.show_thinking;
 			if (typeof showThinkingFromState === 'boolean') {
 				setShowThinking(showThinkingFromState);
@@ -613,7 +633,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'plan_mode_change') {
 			if (event.plan_mode != null) {
-				setStatus((s) => ({...s, permission_mode: event.plan_mode}));
+				updateStatus((s) => ({...s, permission_mode: event.plan_mode}));
 			}
 			return;
 		}
@@ -648,6 +668,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			selectRequest,
 			busy,
 			ready,
+			exited,
 			todoItems,
 			pendingToolCalls,
 			swarmTeammates,
@@ -662,6 +683,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearStaticItems,
 			pushStatic,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems, bgAgentLabel]
+		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, exited, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems, bgAgentLabel]
 	);
 }

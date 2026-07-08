@@ -19,7 +19,7 @@ import {webSearchTool, webFetchTool} from './implementations/WebTool.js';
 import {lspTool} from './implementations/LspTool.js';
 import {notebookTool} from './implementations/NotebookTool.js';
 import {skillTool} from './implementations/SkillTool.js';
-import {taskCreateTool, taskUpdateTool, taskGetTool, taskListTool, taskOutputTool, taskStopTool} from './implementations/TaskTool.js';
+import {taskOutputTool, taskStopTool} from './implementations/TaskTool.js';
 import {enterPlanModeTool, exitPlanModeTool} from './implementations/PlanTool.js';
 import {enterWorktreeTool, exitWorktreeTool} from './implementations/WorktreeTool.js';
 import {cronTool} from './implementations/CronTool.js';
@@ -87,10 +87,6 @@ function ensureInitialized(): void {
 	registerAliases(skillTool, ['skill']);
 
 	// 任务管理类
-	register(taskCreateTool);
-	register(taskUpdateTool);
-	register(taskGetTool);
-	register(taskListTool);
 	register(taskOutputTool);
 	register(taskStopTool);
 

@@ -302,24 +302,84 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             **kwargs,
         )
 
-        # 后台运行模式
+        # 后台运行模式：注册到 BackgroundTaskManager，返回 task_id
         if arguments.run_in_background:
-            async def _background_wait() -> None:
-                try:
-                    # 必须消费 stdout/stderr，避免管道缓冲区满导致进程挂起
-                    assert process.stdout is not None
-                    stdout_task = asyncio.create_task(process.stdout.read())
-                    assert process.stderr is not None
-                    stderr_task = asyncio.create_task(process.stderr.read())
-                    await process.wait()
-                    stdout_task.cancel()
-                    stderr_task.cancel()
-                except Exception:
-                    pass
+            import time as _time
+            from illusion.config.paths import get_tasks_dir
+            from illusion.tasks.manager import get_task_manager, _task_id
+            from illusion.tasks.types import TaskRecord
 
-            asyncio.create_task(_background_wait(), name=f"ps-bg-{process.pid}")
+            manager = get_task_manager()
+            task_id = _task_id("local_bash")  # powershell 也归入 local_bash 类型
+
+            record = TaskRecord(
+                id=task_id,
+                type="local_bash",
+                status="running",
+                description=arguments.command[:80] if arguments.command else "powershell background",
+                cwd=str(cwd.resolve()),
+                output_file=get_tasks_dir() / f"{task_id}.log",
+                command=arguments.command,
+                created_at=_time.time(),
+                started_at=_time.time(),
+            )
+            record.output_file.parent.mkdir(parents=True, exist_ok=True)
+            record.output_file.write_text("", encoding="utf-8")
+            manager._tasks[task_id] = record
+            manager._output_locks[task_id] = asyncio.Lock()
+
+            async def _background_wait() -> None:
+                """后台等待进程完成，累积输出到 task output_file。"""
+                try:
+                    assert process.stdout is not None
+                    assert process.stderr is not None
+                    while True:
+                        chunk = await process.stdout.read(4096)
+                        if not chunk:
+                            break
+                        async with manager._output_locks[task_id]:
+                            with record.output_file.open("ab") as handle:
+                                handle.write(chunk)
+                    # stderr 也累积到 output_file（与 manager._copy_output 一致）
+                    stderr_data = await process.stderr.read()
+                    if stderr_data:
+                        async with manager._output_locks[task_id]:
+                            with record.output_file.open("ab") as handle:
+                                handle.write(stderr_data)
+                    return_code = await process.wait()
+                    record.return_code = return_code
+                    record.status = "completed" if return_code == 0 else "failed"
+                    record.ended_at = _time.time()
+                    # 通知 on_task_complete 回调
+                    if manager.on_task_complete is not None:
+                        try:
+                            manager.on_task_complete(task_id, record)
+                        except Exception:
+                            pass
+                except asyncio.CancelledError:
+                    # task_stop 取消时，杀掉子进程
+                    try:
+                        process.kill()
+                        await process.wait()
+                    except Exception:
+                        pass
+                    record.status = "killed"
+                    record.ended_at = _time.time()
+                    raise
+                except Exception:
+                    record.status = "failed"
+                    record.ended_at = _time.time()
+
+            bg_async_task = asyncio.create_task(_background_wait(), name=f"ps-bg-{task_id}")
+            record.async_task = bg_async_task
+
             return ToolResult(
-                output=f"Command launched in background (pid={process.pid})",
+                output=(
+                    f"Command launched in background (task_id={task_id}).\n"
+                    "You will be automatically notified when it completes — do NOT sleep, poll, "
+                    "or call task_output to check its progress. Continue with other work or "
+                    "respond to the user instead."
+                ),
                 is_error=False,
             )
 
