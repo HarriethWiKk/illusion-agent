@@ -183,6 +183,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "plan_reject": {"zh-CN": "拒绝", "en-US": "Reject"},
     "plan_start_impl": {"zh-CN": "开始执行", "en-US": "Start implementation"},
     "plan_return_mode": {"zh-CN": "返回计划模式", "en-US": "Return to plan mode"},
+    # print 模式 / 渠道端 计划模式通知与审批
+    "print_mode_plan_approval_pending": {"zh-CN": "计划已提交，等待审批。请用 illusion -c -p \"批准\" 或 \"拒绝 [反馈]\" 回复", "en-US": "Plan submitted, awaiting approval. Reply with illusion -c -p \"approve\" or \"reject [feedback]\""},
+    "print_mode_plan_resuming_approval": {"zh-CN": "检测到待审批计划，正在注入审批结果...", "en-US": "Pending plan approval detected, injecting approval result..."},
+    "print_mode_plan_approved": {"zh-CN": "[计划已批准] 开始执行", "en-US": "[Plan approved] Starting implementation"},
+    "print_mode_plan_rejected": {"zh-CN": "[计划已拒绝] 返回计划模式", "en-US": "[Plan rejected] Returning to plan mode"},
+    "channel_plan_entered": {"zh-CN": "📋 已进入计划模式，代理正在规划方案", "en-US": "📋 Entered plan mode, agent is planning"},
+    "channel_plan_approval_title": {"zh-CN": "📝 计划审批", "en-US": "📝 Plan Approval"},
+    "channel_plan_approval_question": {"zh-CN": "是否批准此计划？回复\"批准\"或输入修改意见（视为拒绝+反馈）", "en-US": "Do you approve this plan? Reply \"approve\" or type feedback (treated as reject + feedback)"},
     # --- channel CLI ---
     "channel_select": {"zh-CN": "选择渠道:", "en-US": "Select a channel:"},
     "channel_feishu_label": {"zh-CN": "飞书 / Feishu (Lark)", "en-US": "Feishu / Feishu (Lark)"},
