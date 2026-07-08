@@ -258,7 +258,7 @@ async def run_print_mode(
             raise SystemExit(1)
         restore_messages = session_data.get("messages", [])
         restore_session_id = session_data.get("session_id")
-        print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
     elif resume is not None:
         if resume == "":
             print(_t("session_resume_requires_id"), file=sys.stderr)
@@ -269,7 +269,7 @@ async def run_print_mode(
             raise SystemExit(1)
         restore_messages = session_data.get("messages", [])
         restore_session_id = resume
-        print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
 
     # 检测 pending question（上次 print 模式退出时遗留的待回答问题）
     pending_question: dict[str, Any] | None = None
@@ -318,6 +318,10 @@ async def run_print_mode(
     # 收集输出
     collected_text = ""
     events_list: list[dict[str, Any]] = []
+    # 前缀打印状态：跟踪当前段是否已输出前缀（避免每个 delta 重复输出）
+    # 工具事件后重置，使下一轮思考/回复获得新前缀
+    _reasoning_prefix_printed = False
+    _assistant_prefix_printed = False
 
     try:
         # 系统消息打印回调
@@ -332,20 +336,40 @@ async def run_print_mode(
 
         # 流式事件渲染回调
         async def _render_event(event: StreamEvent) -> None:
-            nonlocal collected_text
+            nonlocal collected_text, _reasoning_prefix_printed, _assistant_prefix_printed
             obj: dict[str, Any]
-            # 助手文本增量
+            # 助手文本/思考增量（同一事件可能携带 text 和/或 reasoning）
             if isinstance(event, AssistantTextDelta):
-                collected_text += event.text
-                if output_format == "text":
-                    sys.stdout.write(event.text)
-                    sys.stdout.flush()
-                elif output_format == "stream-json":
-                    obj = {"type": "assistant_delta", "text": event.text}
-                    print(json.dumps(obj), flush=True)
-                    events_list.append(obj)
+                # 思考过程：输出到 stderr（text 模式），stream-json 加入 reasoning 字段
+                if event.reasoning:
+                    if output_format == "text":
+                        if not _reasoning_prefix_printed:
+                            print(_t("print_mode_prefix_reasoning"), file=sys.stderr)
+                            _reasoning_prefix_printed = True
+                        sys.stderr.write(event.reasoning)
+                        sys.stderr.flush()
+                    elif output_format == "stream-json":
+                        obj = {"type": "assistant_delta", "text": "", "reasoning": event.reasoning}
+                        print(json.dumps(obj), flush=True)
+                        events_list.append(obj)
+                # 最终回复：stdout 保持清洁，前缀标记输出到 stderr
+                if event.text:
+                    collected_text += event.text
+                    if output_format == "text":
+                        if not _assistant_prefix_printed:
+                            print(_t("print_mode_prefix_assistant"), file=sys.stderr)
+                            _assistant_prefix_printed = True
+                        sys.stdout.write(event.text)
+                        sys.stdout.flush()
+                    elif output_format == "stream-json":
+                        obj = {"type": "assistant_delta", "text": event.text}
+                        print(json.dumps(obj), flush=True)
+                        events_list.append(obj)
             # 助手回合完成
             elif isinstance(event, AssistantTurnComplete):
+                # 重置前缀标记，为下一轮做准备
+                _reasoning_prefix_printed = False
+                _assistant_prefix_printed = False
                 if output_format == "text":
                     sys.stdout.write("\n")
                     sys.stdout.flush()
@@ -355,13 +379,26 @@ async def run_print_mode(
                     events_list.append(obj)
             # 工具开始执行
             elif isinstance(event, ToolExecutionStarted):
-                if output_format == "stream-json":
+                # 重置前缀标记：工具调用后下一轮思考/回复需要新前缀
+                _reasoning_prefix_printed = False
+                _assistant_prefix_printed = False
+                if output_format == "text":
+                    print(_t("print_mode_prefix_tool_call") + " " + event.tool_name, file=sys.stderr)
+                elif output_format == "stream-json":
                     obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             # 工具执行完成
             elif isinstance(event, ToolExecutionCompleted):
-                if output_format == "stream-json":
+                if output_format == "text":
+                    marker = "❌" if event.is_error else "✅"
+                    print(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}", file=sys.stderr)
+                    # 工具输出截断显示（避免过长输出刷屏）
+                    output_preview = event.output
+                    if len(output_preview) > 500:
+                        output_preview = output_preview[:500] + "..."
+                    print(output_preview, file=sys.stderr)
+                elif output_format == "stream-json":
                     obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
@@ -397,7 +434,7 @@ async def run_print_mode(
                 ):
                     await _render_event(event)
             except MaxTurnsExceeded as exc:
-                await _print_system(f"Stopped after {exc.max_turns} turns (max_turns).")
+                await _print_system(_t("print_mode_max_turns_stopped", max_turns=exc.max_turns))
         else:
             await handle_line(
                 bundle,

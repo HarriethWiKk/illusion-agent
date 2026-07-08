@@ -52,7 +52,7 @@ def format_question_options(questions: object) -> str:
         header = str(q.get("header") or "").strip()
         sub_q = str(q.get("question") or "").strip()
         if header:
-            lines.append(f"【{header}】")
+            lines.append(t("question_header_format").format(header=header))
         if sub_q:
             lines.append(sub_q)
         for opt in opts:

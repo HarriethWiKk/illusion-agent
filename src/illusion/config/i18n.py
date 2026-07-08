@@ -313,6 +313,38 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "📋 多问题请用 JSON 格式回答（key 为方括号内的 header）：\n{example}\n（multiSelect 用数组，如 {{\"header\": [\"选项A\", \"选项B\"]}}）",
         "en-US": "📋 For multiple questions, answer in JSON format (key = header in brackets):\n{example}\n(multiSelect uses array, e.g. {{\"header\": [\"optionA\", \"optionB\"]}})",
     },
+    # print 模式事件前缀（text 格式输出到 stderr，区分不同事件类型）
+    "print_mode_prefix_reasoning": {
+        "zh-CN": "[思考过程]",
+        "en-US": "[Thinking]",
+    },
+    "print_mode_prefix_tool_call": {
+        "zh-CN": "[工具调用]",
+        "en-US": "[Tool Call]",
+    },
+    "print_mode_prefix_tool_result": {
+        "zh-CN": "[工具结果]",
+        "en-US": "[Tool Result]",
+    },
+    "print_mode_prefix_assistant": {
+        "zh-CN": "[最终回复]",
+        "en-US": "[Assistant]",
+    },
+    # print 模式 max_turns 耗尽提示
+    "print_mode_max_turns_stopped": {
+        "zh-CN": "已达到最大轮次 ({max_turns})，停止执行",
+        "en-US": "Stopped after {max_turns} turns (max_turns)",
+    },
+    # 会话摘要缺失时的回退文本
+    "session_summary_fallback": {
+        "zh-CN": "(无摘要)",
+        "en-US": "(no summary)",
+    },
+    # ask_user_question header 格式（zh-CN 用全角括号，en-US 用半角括号）
+    "question_header_format": {
+        "zh-CN": "【{header}】",
+        "en-US": "[{header}]",
+    },
     "web_settings_title": {
         "zh-CN": "设置",
         "en-US": "Settings",
