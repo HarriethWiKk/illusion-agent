@@ -175,7 +175,7 @@ All channel sessions run in **auto mode** by default — tool calls are automati
 
 The auto mode applies to all tools (bash, file write, edit, etc.) in channel sessions. No manual approval is needed.
 
-> **Note**: `ask_user` questions and plan approvals still require user input — these are interactive prompts, not permission checks.
+> **Note**: `ask_user_question` questions and plan approvals still require user input — these are interactive prompts, not permission checks.
 
 ## Troubleshooting
 

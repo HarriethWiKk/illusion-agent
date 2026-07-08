@@ -177,7 +177,7 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 **Interactive Behavior**:
 
 - **Permission confirmation**: In `default` mode, tools prompt for `Y/N` confirmation in the terminal before execution (`y`/`yes` to allow, anything else or EOF to deny); `full_auto` mode executes directly; `plan` mode blocks all mutation tools.
-- **ask_user interaction**: When the LLM calls the ask_user tool, the terminal displays question options, and the user enters an option number or custom text.
+- **ask_user_question interaction**: When the LLM calls the ask_user_question tool, the terminal displays question options, and the user enters an option number or custom text.
 - **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.
 
 **Examples**:
