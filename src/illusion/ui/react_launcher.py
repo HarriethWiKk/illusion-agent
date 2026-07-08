@@ -124,21 +124,9 @@ def build_backend_command(
     cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     effort: str | None = None,
-    append_system_prompt: str | None = None,
     permission_mode: str | None = None,
-    settings_file: str | None = None,
-    verbose: bool = False,
-    debug: bool = False,
-    bare: bool = False,
     name: str | None = None,
-    mcp_config: list[str] | None = None,
-    allowed_tools: list[str] | None = None,
-    disallowed_tools: list[str] | None = None,
     continue_session: bool = False,
     resume: str | None = None,
 ) -> list[str]:
@@ -148,21 +136,9 @@ def build_backend_command(
         cwd: 工作目录
         model: 模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         effort: 推理强度级别
-        append_system_prompt: 追加的系统提示词
         permission_mode: 权限模式
-        settings_file: 设置文件路径
-        verbose: 详细输出
-        debug: 调试模式
-        bare: 纯净模式
         name: 会话名称
-        mcp_config: MCP 配置文件列表
-        allowed_tools: 允许的工具列表
-        disallowed_tools: 禁用的工具列表
         continue_session: 继续上一会话
         resume: 恢复指定会话
 
@@ -176,39 +152,12 @@ def build_backend_command(
         command.extend(["--model", model])
     if max_turns is not None:
         command.extend(["--max-turns", str(max_turns)])
-    if base_url:
-        command.extend(["--base-url", base_url])
-    if system_prompt:
-        command.extend(["--system-prompt", system_prompt])
-    if api_key:
-        command.extend(["--api-key", api_key])
-    if api_format:
-        command.extend(["--api-format", api_format])
     if effort:
         command.extend(["--effort", effort])
-    if append_system_prompt:
-        command.extend(["--append-system-prompt", append_system_prompt])
     if permission_mode:
         command.extend(["--permission-mode", permission_mode])
-    if settings_file:
-        command.extend(["--settings", settings_file])
-    if verbose:
-        command.append("--verbose")
-    if debug:
-        command.append("--debug")
-    if bare:
-        command.append("--bare")
     if name:
         command.extend(["--name", name])
-    if mcp_config:
-        for cfg in mcp_config:
-            command.extend(["--mcp-config", cfg])
-    if allowed_tools:
-        for tool in allowed_tools:
-            command.extend(["--allowed-tools", tool])
-    if disallowed_tools:
-        for tool in disallowed_tools:
-            command.extend(["--disallowed-tools", tool])
     if continue_session:
         command.append("--continue")
     if resume:
@@ -222,21 +171,9 @@ async def launch_react_tui(
     cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     effort: str | None = None,
-    append_system_prompt: str | None = None,
     permission_mode: str | None = None,
-    settings_file: str | None = None,
-    verbose: bool = False,
-    debug: bool = False,
-    bare: bool = False,
     name: str | None = None,
-    mcp_config: list[str] | None = None,
-    allowed_tools: list[str] | None = None,
-    disallowed_tools: list[str] | None = None,
     continue_session: bool = False,
     resume: str | None = None,
 ) -> int:
@@ -247,21 +184,9 @@ async def launch_react_tui(
         cwd: 工作目录
         model: 模型名称
         max_turns: 最大对话轮次
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         effort: 推理强度级别
-        append_system_prompt: 追加的系统提示词
         permission_mode: 权限模式
-        settings_file: 设置文件路径
-        verbose: 详细输出
-        debug: 调试模式
-        bare: 纯净模式
         name: 会话名称
-        mcp_config: MCP 配置文件列表
-        allowed_tools: 允许的工具列表
-        disallowed_tools: 禁用的工具列表
         continue_session: 继续上一会话
         resume: 恢复指定会话
 
@@ -281,21 +206,9 @@ async def launch_react_tui(
                 cwd=cwd or str(Path.cwd()),
                 model=model,
                 max_turns=max_turns,
-                base_url=base_url,
-                system_prompt=system_prompt,
-                api_key=api_key,
-                api_format=api_format,
                 effort=effort,
-                append_system_prompt=append_system_prompt,
                 permission_mode=permission_mode,
-                settings_file=settings_file,
-                verbose=verbose,
-                debug=debug,
-                bare=bare,
                 name=name,
-                mcp_config=mcp_config,
-                allowed_tools=allowed_tools,
-                disallowed_tools=disallowed_tools,
                 continue_session=continue_session,
                 resume=resume,
             ),
