@@ -25,7 +25,7 @@ import {StatusBar} from './components/StatusBar.js';
 import {SwarmPanel} from './components/SwarmPanel.js';
 import {TodoPanel} from './components/TodoPanel.js';
 import {useBackendSession} from './hooks/useBackendSession.js';
-import {normalizeLanguage, t} from './i18n.js';
+import {normalizeLanguage, t, UiLanguage} from './i18n.js';
 import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
 import {VERSION} from './version.js';
@@ -60,10 +60,10 @@ const scriptedSteps = (() => {
  * 定义了三种权限模式：默认模式、自动模式、计划模式
  * 用于权限模式选择对话框
  */
-const PERMISSION_MODES: SelectOption[] = [
-	{value: 'default', label: 'Default', description: 'Ask before write/execute operations'},
-	{value: 'full_auto', label: 'Auto', description: 'Allow all tools automatically'},
-	{value: 'plan', label: 'Plan Mode', description: 'Block all write operations'},
+const PERMISSION_MODES = (language: UiLanguage): SelectOption[] => [
+	{value: 'default', label: 'Default', description: t(language, 'permDefaultDesc')},
+	{value: 'full_auto', label: 'Auto', description: t(language, 'permAutoDesc')},
+	{value: 'plan', label: 'Plan Mode', description: t(language, 'permPlanDesc')},
 ];
 
 /**
@@ -260,14 +260,14 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// /permissions → 显示权限模式选择器
 		if (trimmed === '/permissions' || trimmed === '/permissions show') {
 			const currentMode = String(session.status.permission_mode ?? 'default');
-			const options = PERMISSION_MODES.map((opt) => ({
+			const options = PERMISSION_MODES(language).map((opt) => ({
 				...opt,
 				active: opt.value === currentMode,
 			}));
 			const initialIndex = options.findIndex((o) => o.active);
 			setSelectIndex(initialIndex >= 0 ? initialIndex : 0);
 			setSelectModal({
-				title: 'Permission Mode',
+				title: t(language, 'permissionMode'),
 				options,
 				onSelect: (value) => {
 					session.sendRequest({type: 'submit_line', line: `/permissions set ${value}`});
@@ -696,11 +696,16 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				<StatusBar status={session.status} tasks={session.tasks} />
 			) : null}
 
-			{/* 输入区域 — 后端就绪前显示加载指示器 */}
+			{/* 输入区域 — 后端就绪前显示加载指示器（后端退出后隐藏） */}
 			{!session.ready ? (
-				<Box>
-					<Text color={theme.colors.warning}>{t(language, 'connecting')}</Text>
-				</Box>
+				!session.exited ? (
+					<Box>
+						<Box width={2}>
+							<Text color={theme.colors.illusion}>{theme.icons.system}</Text>
+						</Box>
+						<Text color={theme.colors.illusion}>{t(language, 'connecting')}</Text>
+					</Box>
+				) : null
 			) : session.modal || selectModal || pendingPermissionAck ? null : session.busy ? (
 				<Box marginTop={1}>
 					<Spinner
