@@ -147,6 +147,88 @@ class BackgroundTaskManager:
         await self.write_to_task(record.id, prompt)
         return updated
 
+    def register_in_process_agent_task(
+        self,
+        *,
+        description: str,
+        cwd: str | Path,
+        prompt: str | None = None,
+        async_task: asyncio.Task[None] | None = None,
+    ) -> TaskRecord:
+        """注册进程内后台 agent 任务。
+
+        与 create_shell_task 不同，本方法不启动子进程，而是绑定一个已有的
+        asyncio.Task（由调用方创建并传入）。task_stop 通过 task.cancel() 终止，
+        task_output 读取 output_file（调用方通过 write_to_task_output 累积）。
+        对齐 Claude Code 的 LocalAgentTaskState + abortController 模式。
+        """
+        task_id = _task_id("in_process_agent")
+        output_path = get_tasks_dir() / f"{task_id}.log"
+        record = TaskRecord(
+            id=task_id,
+            type="in_process_agent",
+            status="running",
+            description=description,
+            cwd=str(Path(cwd).resolve()),
+            output_file=output_path,
+            prompt=prompt,
+            created_at=time.time(),
+            started_at=time.time(),
+            async_task=async_task,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("", encoding="utf-8")
+        self._tasks[task_id] = record
+        self._output_locks[task_id] = asyncio.Lock()
+        return record
+
+    async def write_to_task_output(self, task_id: str, data: str) -> None:
+        """向任务输出文件追加数据（用于进程内 agent 输出累积）。
+
+        与 write_to_task 不同，本方法不写入 stdin，而是把 data 追加到
+        output_file，供 task_output 读取。对齐 Claude Code 的 appendTaskOutput。
+        """
+        task = self._require_task(task_id)
+        async with self._output_locks[task_id]:
+            with task.output_file.open("ab") as handle:
+                handle.write(data.encode("utf-8"))
+
+    def set_task_result(self, task_id: str, result: str) -> None:
+        """设置进程内 agent 的最终结果文本。
+
+        任务完成后调用，task_output 会优先返回 result（对齐 Claude Code 的
+        local_agent 优先读取内存 result.content 的行为）。
+        """
+        task = self._require_task(task_id)
+        task.result = result
+
+    def complete_in_process_agent(
+        self,
+        task_id: str,
+        *,
+        success: bool,
+        result: str | None = None,
+    ) -> TaskRecord:
+        """标记进程内 agent 任务完成。
+
+        由 _run_background 协程在退出时调用，更新状态、记录 result、
+        触发 on_task_complete 回调。
+        """
+        task = self._require_task(task_id)
+        task.status = "completed" if success else "failed"
+        task.ended_at = time.time()
+        if result is not None:
+            task.result = result
+        task.async_task = None
+
+        # 通知 on_task_complete 回调（若已注册）
+        if self.on_task_complete is not None:
+            try:
+                self.on_task_complete(task_id, task)
+            except Exception:
+                logger.exception("[manager] on_task_complete callback failed for %s", task_id)
+        return task
+
     def get_task(self, task_id: str) -> TaskRecord | None:
         """返回一个任务记录。"""
         return self._tasks.get(task_id)
@@ -219,13 +301,47 @@ class BackgroundTaskManager:
         return task
 
     async def stop_task(self, task_id: str) -> TaskRecord:
-        """终止运行中的任务。"""
+        """终止运行中的任务。
+
+        支持两类任务：
+        - 子进程任务（local_bash / local_agent / remote_agent）：terminate -> kill
+        - 进程内异步任务（in_process_agent）：asyncio.Task.cancel()
+
+        对已自然结束的任务（completed/failed/killed）直接返回当前状态，
+        不抛异常，让调用方根据 task.status 区分"已停止"和"已结束"。
+        """
         task = self._require_task(task_id)
+
+        # 已结束的任务直接返回（保留原有状态，让工具提示"already finished"）
+        if task.status in {"completed", "failed", "killed"}:
+            return task
+
+        # 进程内异步任务：通过 asyncio.Task.cancel() 终止
+        if task.type == "in_process_agent":
+            async_task = task.async_task
+            if async_task is not None and not async_task.done():
+                async_task.cancel()
+                try:
+                    await asyncio.wait_for(async_task, timeout=3)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
+            task.async_task = None
+            task.status = "killed"
+            task.ended_at = time.time()
+            # 通知 on_task_complete 回调
+            if self.on_task_complete is not None:
+                try:
+                    self.on_task_complete(task_id, task)
+                except Exception:
+                    logger.exception("[manager] on_task_complete callback failed for %s", task_id)
+            return task
+
+        # 子进程任务：terminate -> kill
         process = self._processes.get(task_id)
         if process is None:
-            if task.status in {"completed", "failed", "killed"}:
-                return task
-            raise ValueError(f"Task {task_id} is not running")
+            # 进程已不在 _processes 中，可能已自然结束但 watcher 还没更新状态。
+            # 直接返回当前 task，让工具提示"already finished"而非报错。
+            return task
 
         process.terminate()
         try:
@@ -256,8 +372,18 @@ class BackgroundTaskManager:
                 await process.stdin.drain()
 
     def read_task_output(self, task_id: str, *, max_bytes: int = 12000) -> str:
-        """返回任务输出文件的尾部。"""
+        """返回任务输出。
+
+        对齐 Claude Code 的 getTaskOutputData：
+        - 进程内 agent（in_process_agent）：优先返回内存 result，无 result 时回退到 output_file
+        - 子进程任务（local_bash / local_agent / remote_agent）：返回 output_file 尾部
+        """
         task = self._require_task(task_id)
+
+        # 进程内 agent 优先返回内存 result（最终 assistant 文本）
+        if task.type == "in_process_agent" and task.result:
+            return task.result
+
         content = task.output_file.read_text(encoding="utf-8", errors="replace")
         if len(content) > max_bytes:
             return content[-max_bytes:]
@@ -378,11 +504,17 @@ def get_task_manager() -> BackgroundTaskManager:
 
 
 def _task_id(task_type: TaskType) -> str:
-    """生成任务 ID 前缀。"""
+    """生成任务 ID 前缀。
+    - local_bash -> b{8 hex}   (如 b3k9x2qf)
+    - local_agent / in_process_agent -> a{8 hex}  (如 ar7m1z0p)
+    - remote_agent -> r{8 hex}
+    - in_process_teammate -> t{8 hex}
+    """
     prefixes = {
         "local_bash": "b",
         "local_agent": "a",
         "remote_agent": "r",
         "in_process_teammate": "t",
+        "in_process_agent": "a", 
     }
     return f"{prefixes[task_type]}{uuid4().hex[:8]}"

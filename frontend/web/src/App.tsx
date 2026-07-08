@@ -21,7 +21,6 @@ import ChatArea from './components/ChatArea';
 import PromptInput from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
-import SettingsModal from './components/SettingsModal';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -50,8 +49,6 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
   const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
-  // 设置弹窗状态（onboarding/settings 两种模式）
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // 内联选项状态
   const [inlineOptions, setInlineOptions] = useState<SelectRequestPayload | null>(null);
@@ -106,16 +103,6 @@ export default function App() {
     session.setOnCommandResult((text, type) => showToast(text, type));
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
-
-  // 检测鉴权缺失：自动弹出 onboarding 设置弹窗；auth_status 变正常时自动关闭
-  useEffect(() => {
-    if (session.status?.auth_status === 'missing') {
-      setSettingsOpen(true);
-    } else if (session.status?.auth_status && session.status.auth_status !== 'missing') {
-      // auth_status 变为正常值（如 'configured'）时自动关闭弹窗
-      setSettingsOpen(false);
-    }
-  }, [session.status?.auth_status]);
 
   /**
    * 处理面板大小调整开始
@@ -397,7 +384,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar lang={lang} settingsReady={session.connected && session.status?.auth_status !== 'missing'} onOpenSettings={() => setSettingsOpen(true)} sessions={session.sessions}
+      <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
@@ -543,15 +530,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* 设置弹窗（onboarding/settings 两种模式） */}
-      <SettingsModal
-        open={settingsOpen}
-        mode={session.status?.auth_status === 'missing' ? 'onboarding' : 'settings'}
-        lang={lang}
-        onClose={() => setSettingsOpen(false)}
-        onSetUiLanguage={(backendLang: string) => session.sendRequest({ type: 'web_set_setting', setting_key: 'ui_language', setting_value: backendLang })}
-      />
     </div>
   );
 }

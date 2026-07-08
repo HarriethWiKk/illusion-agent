@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 
 # 任务类型
-TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate"]
+TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate", "in_process_agent"]
 # 任务状态
 TaskStatus = Literal["pending", "running", "completed", "failed", "killed"]
 # 对外显示状态
@@ -65,7 +65,13 @@ def to_task_internal_status(status: TaskUpdateStatus | TaskDisplayStatus | TaskS
 
 @dataclass
 class TaskRecord:
-    """后台任务的运行时表示。"""
+    """后台任务的运行时表示。
+
+    支持两类后台任务：
+    - 子进程任务（local_bash / local_agent / remote_agent）：通过 _processes 管理
+    - 进程内异步任务（in_process_agent）：通过 async_task 字段持有的 asyncio.Task 引用管理
+      该类型用于 agent_tool 的进程内后台模式，可被 task_stop 取消，输出累积到 output_file
+    """
 
     id: str
     type: TaskType
@@ -86,3 +92,8 @@ class TaskRecord:
     return_code: int | None = None
     metadata: dict[str, str] = field(default_factory=dict)
     comments: list[str] = field(default_factory=list)
+    # 进程内异步任务引用（仅 in_process_agent 类型使用）
+    # 持有 asyncio.Task 引用使 task_stop 可以通过 task.cancel() 终止后台 agent
+    async_task: Any | None = None
+    # 进程内 agent 的最终结果文本（任务完成后填充，供 task_output 读取）
+    result: str | None = None
