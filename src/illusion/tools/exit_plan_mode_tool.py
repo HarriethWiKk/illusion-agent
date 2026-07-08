@@ -103,6 +103,13 @@ Ensure your plan is complete and unambiguous:
         # 5. 将计划内容推入卡片展示，等待用户审批
         approved, feedback = await plan_approval_prompt(plan_content)  # pyright: ignore[reportGeneralTypeIssues]
 
+        # 检测 print 模式跨轮次审批标记
+        from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER
+        if feedback == PENDING_PLAN_APPROVAL_MARKER:
+            # print 模式：计划已持久化，等待下一轮审批
+            # 不重新进入计划模式（模式已在步骤 3 恢复）
+            return ToolResult(output=PENDING_PLAN_APPROVAL_MARKER)
+
         if approved:
             return ToolResult(
                 output=(
