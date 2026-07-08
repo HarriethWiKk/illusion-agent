@@ -17,9 +17,8 @@ The `illusion` main command supports the following options, grouped by function:
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--model <MODEL>` | `-m` | Model alias (e.g. `sonnet`, `opus`) or full model ID (e.g. `env_1.model_2`) |
-| `--effort <LEVEL>` | - | Effort level: `low` / `medium` / `high` / `max` |
-| `--verbose` | - | Override verbose mode setting from config, enable INFO-level logging |
-| `--max-turns <N>` | - | Maximum number of agentic turns (especially useful with `--print`) |
+| `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max`, persists to settings.json |
+| `--max-turns <N>` | `-t` | Maximum agentic turns, persists to settings.json |
 
 ### Output
 
@@ -34,27 +33,6 @@ The `illusion` main command supports the following options, grouped by function:
 |--------|-------------|
 | `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto` |
 | `--dangerously-skip-permissions` | Bypass all permission checks (equivalent to `--permission-mode full_auto`, only for sandboxed environments) |
-| `--allowed-tools <TOOLS...>` | Tool whitelist (space or comma separated), keep only the specified tools |
-| `--disallowed-tools <TOOLS...>` | Tool blacklist (space or comma separated), remove the specified tools |
-
-### System & Context
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--system-prompt <PROMPT>` | `-s` | Fully override the default system prompt |
-| `--append-system-prompt <TEXT>` | - | Append text to the default system prompt (does not override the original) |
-| `--settings <PATH_OR_JSON>` | - | Path to a JSON settings file or an inline JSON string |
-| `--base-url <URL>` | - | Anthropic-compatible API base URL |
-| `--api-key <KEY>` | `-k` | API key (overrides config and environment variables) |
-| `--bare` | - | Minimal mode: skip hooks, plugins, MCP auto-discovery |
-| `--api-format <FORMAT>` | - | API format: `anthropic` (default) or `openai` (DashScope, GitHub Models, etc.) |
-
-### Advanced
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--debug` | `-d` | Enable DEBUG-level logging |
-| `--mcp-config <CONFIG...>` | - | Load MCP servers from JSON files or strings (can be specified multiple times) |
 
 ### Global
 
@@ -73,8 +51,7 @@ The `illusion` main command supports the following options, grouped by function:
 illusion                            # Start interactive session
 illusion -m env_1.model_2           # Start with a specific model
 illusion --permission-mode full_auto  # Start with auto permission mode
-illusion --verbose                  # Start with verbose logging
-illusion --bare                     # Start in minimal mode (no plugins/MCP/hooks)
+illusion -e high                    # Start with high effort (persists to settings)
 ```
 
 #### 2. Non-Interactive Print Mode
@@ -82,71 +59,42 @@ illusion --bare                     # Start in minimal mode (no plugins/MCP/hook
 ```bash
 illusion -p "Analyze the project structure"
 illusion -p "say hi" --output-format json
-illusion -p "refactor this" --max-turns 10
+illusion -p "refactor this" -t 10
+illusion -e high -p "Analyze code"  # Persist effort and execute
 ```
 
 #### 3. Session Resume Mode
 
 ```bash
-illusion -c                         # Continue the most recent session
-illusion --resume                   # Open the session picker
-illusion --resume <session-id>      # Resume a specific session
-illusion -c --name "feature-work"   # Continue a session and name it
+illusion -c -p "Continue analysis"           # Continue the most recent session (requires -p)
+illusion -r <session-id> -p "Continue"       # Resume a specific session (requires -p)
+illusion -c -p "Continue" --name "feature-work"  # Continue and name the session
 ```
+
+Note: `-c`/`-r` now require `-p`; otherwise an error is raised. The `--resume` picker mode (no value) has been removed (non-backend-only path).
 
 ### Parameter Pass-Through
 
-All main command options are fully passed through to the React terminal frontend (`launch_react_tui` → `build_backend_command`) and the structured backend host (`run_backend_host` → `build_runtime`), ensuring they take effect in interactive mode, the `--backend-only` subprocess mode, and `-c`/`--resume` session resume mode.
+Core command options (model/effort/max_turns/permission_mode/name/continue/resume) are fully passed through to the React terminal frontend (`launch_react_tui` → `build_backend_command`) and the structured backend host (`run_backend_host` → `build_runtime`), ensuring they take effect in interactive mode, the `--backend-only` subprocess mode, and `-c`/`-r` session resume mode.
 
 ### Common Combinations
 
 ```bash
-# Model + permission mode + appended system prompt
-illusion -m env_1.model_2 --permission-mode plan --append-system-prompt "Always respond in Chinese"
+# Model + permission mode
+illusion -m env_1.model_2 --permission-mode plan
 
-# Minimal mode + extra MCP config
-illusion --bare --mcp-config '{"mcpServers": {"my-server": {"type": "stdio", "command": "node", "args": ["server.js"]}}}'
+# High effort + print mode (persists effort)
+illusion -e high -p "Analyze performance bottlenecks in this code"
 
-# Tool whitelist (only bash and file read)
-illusion --allowed-tools bash read_file
+# Limit turns + print mode (persists max_turns)
+illusion -t 5 -p "Quick syntax check"
 
-# Tool blacklist (disable bash and powershell)
-illusion --disallowed-tools bash powershell
-
-# Custom settings file + API format
-illusion --settings /path/to/custom.json --api-format openai
-
-# Debug mode + verbose logging
-illusion --debug --verbose
+# Continue session + print mode
+illusion -c -p "Continue the previous task"
 
 # Name a session
 illusion --name "debug-auth-issue"
 ```
-
-### `--mcp-config` Format
-
-`--mcp-config` accepts two input forms:
-
-**JSON string** (supports single-server or multi-server format):
-
-```bash
-# Multi-server format
-illusion --mcp-config '{"mcpServers": {"server1": {"type": "stdio", "command": "node", "args": ["s1.js"]}, "server2": {"type": "stdio", "command": "python", "args": ["s2.py"]}}}'
-
-# Single-server format
-illusion --mcp-config '{"type": "stdio", "command": "node", "args": ["server.js"]}'
-
-# snake_case key is also supported
-illusion --mcp-config '{"mcp_servers": {"my-server": {...}}}'
-```
-
-**JSON file path** (file is read automatically when the path exists):
-
-```bash
-illusion --mcp-config /path/to/mcp-servers.json
-```
-
-`--mcp-config` can be specified multiple times to load multiple config sources. Compatible with `--bare` mode: `--bare` skips auto-discovered MCP servers, but `--mcp-config` explicitly specified servers are still loaded.
 
 ## Subcommands
 
