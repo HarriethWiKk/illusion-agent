@@ -1,5 +1,5 @@
 ---
-name: print-mode
+name: illusion-print-mode
 description: Guide for using Illusion Code's non-interactive print mode (-p) for automation and agent control. Invoke when user asks about print mode, non-interactive usage, scripting illusion, or controlling illusion from another agent.
 ---
 
