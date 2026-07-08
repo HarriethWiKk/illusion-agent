@@ -1352,7 +1352,7 @@ def main(
 
     # 读取settings.json中的working_directory字段，切换工作目录
     from illusion.config import load_settings
-    settings = load_settings()
+    settings = load_settings(config_path=Path(settings_file) if settings_file else None)
     # 仅在用户未显式指定 --cwd 时，才使用 settings.working_directory
     if cwd is None and settings.working_directory:
         cwd = settings.working_directory

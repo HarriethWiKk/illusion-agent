@@ -192,6 +192,7 @@ class ReactBackendHost:
             effort=self._config.effort,
             channel_hint=self._config.channel_hint,
             channel_tools=self._config.channel_tools,
+            settings_file=self._config.settings_file,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)

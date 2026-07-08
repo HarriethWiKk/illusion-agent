@@ -28,3 +28,15 @@ def test_resume_flag_passed_to_backend_command():
     cmd = build_backend_command(cwd="/tmp", resume="abc123")
     assert "--resume" in cmd
     assert "abc123" in cmd
+
+
+def test_settings_file_passed_to_load_settings(tmp_path, monkeypatch):
+    """--settings 指定的文件应被 load_settings 加载。"""
+    import json
+    settings_file = tmp_path / "custom_settings.json"
+    settings_file.write_text(json.dumps({"model": "env_1.model_custom"}))
+
+    from illusion.config.settings import load_settings
+    # 验证 load_settings 接受 config_path 参数
+    settings = load_settings(config_path=settings_file)
+    assert settings.model == "env_1.model_custom"

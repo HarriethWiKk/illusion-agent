@@ -234,6 +234,7 @@ async def build_runtime(
     is_interactive: bool = True,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
+    settings_file: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -267,7 +268,9 @@ async def build_runtime(
         "api_format": api_format,
         "effort": effort,
     }
-    settings = load_settings().merge_cli_overrides(**settings_overrides)
+    settings = load_settings(
+        config_path=Path(settings_file) if settings_file else None
+    ).merge_cli_overrides(**settings_overrides)
     session_id = restore_session_id or uuid4().hex[:12]
     # 获取当前工作目录
     cwd = str(Path.cwd())
