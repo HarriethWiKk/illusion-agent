@@ -23,8 +23,9 @@ export interface TranscriptItem {
    * - 'tool': 工具调用
    * - 'tool_result': 工具执行结果
    * - 'log': 日志消息
+   * - 'plan': 计划内容
    */
-  role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log';
+  role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log' | 'plan';
   /** 消息文本内容 */
   text: string;
   /** 工具名称（仅在 role 为 'tool' 或 'tool_result' 时存在） */

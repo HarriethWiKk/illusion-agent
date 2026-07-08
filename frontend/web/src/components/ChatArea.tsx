@@ -45,7 +45,7 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
   // 流式阶段：所有 assistant 消息归入思考过程，不区分"最终回复"
   if (streaming) {
     for (const item of items) {
-      if (item.role === 'user') {
+      if (item.role === 'user' || item.role === 'plan') {
         userItems.push(item);
       } else {
         thinkingItems.push(item);
@@ -65,7 +65,7 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    if (item.role === 'user') {
+    if (item.role === 'user' || item.role === 'plan') {
       userItems.push(item);
     } else if (i === lastAssistantIdx) {
       finalAssistant = item;
