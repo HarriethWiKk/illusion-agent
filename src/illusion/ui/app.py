@@ -393,11 +393,8 @@ async def run_print_mode(
                 if output_format == "text":
                     marker = "❌" if event.is_error else "✅"
                     print(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}", file=sys.stderr)
-                    # 工具输出截断显示（避免过长输出刷屏）
-                    output_preview = event.output
-                    if len(output_preview) > 500:
-                        output_preview = output_preview[:500] + "..."
-                    print(output_preview, file=sys.stderr)
+                    # 完整输出工具结果（print 模式面向 agent，不截断）
+                    print(event.output, file=sys.stderr)
                 elif output_format == "stream-json":
                     obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
                     print(json.dumps(obj), flush=True)
