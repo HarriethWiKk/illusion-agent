@@ -1426,65 +1426,143 @@ def main(
 
     # 处理 --continue 和 --resume 标志
     if continue_session or resume is not None:
-        from illusion.services.session_storage import (  # 导入会话存储模块
-            list_session_snapshots,  # 列出会话快照
-            load_session_by_id,  # 按 ID 加载会话
-            load_session_snapshot,  # 加载会话快照
-        )
-
-        session_data = None  # 会话数据
-        assert cwd is not None
-        if continue_session:
-            session_data = load_session_snapshot(cwd)
-            if session_data is None:
-                print(_t("session_not_found_prev"), file=sys.stderr)
-                raise typer.Exit(1)
-            print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
-        elif resume == "" or resume is None:
-            sessions = list_session_snapshots(cwd, limit=10)
-            if not sessions:
-                print(_t("session_no_saved"), file=sys.stderr)
-                raise typer.Exit(1)
-            print(_t("session_saved_list"))
-            for i, s in enumerate(sessions, 1):
-                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
-            choice = typer.prompt(_t("session_enter_id"))
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(sessions):
-                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
-                else:
-                    print(_t("invalid_selection"), file=sys.stderr)
-                    raise typer.Exit(1)
-            except ValueError:
-                session_data = load_session_by_id(cwd, choice)
-            if session_data is None:
-                print(_t("session_not_found", id=choice), file=sys.stderr)
-                raise typer.Exit(1)
-        else:
-            session_data = load_session_by_id(cwd, resume)
-            if session_data is None:
-                print(_t("session_not_found", id=resume), file=sys.stderr)
-                raise typer.Exit(1)
-
-        # 将会话传递给 REPL
-        asyncio.run(
-            run_repl(
-                prompt=None,  # 无提示词，使用恢复的会话
-                cwd=cwd,  # 工作目录
-                model=session_data.get("model") or model,  # 模型
-                backend_only=backend_only,  # 仅后端模式
-                base_url=base_url,  # 基础 URL
-                system_prompt=session_data.get("system_prompt") or system_prompt,  # 系统提示词
-                api_key=api_key,  # API 密钥
-                restore_messages=session_data.get("messages"),  # 恢复的消息
-                restore_session_id=session_data.get("session_id"),
-                effort=effort,  # 推理强度级别
-                channel_hint=pc_channel_hint,
-                channel_tools=pc_channel_tools,
+        if backend_only:
+            # backend-only 模式：在当前进程加载会话（子进程路径）
+            from illusion.services.session_storage import (
+                list_session_snapshots,
+                load_session_by_id,
+                load_session_snapshot,
             )
-        )
-        return
+
+            session_data = None
+            assert cwd is not None
+            if continue_session:
+                session_data = load_session_snapshot(cwd)
+                if session_data is None:
+                    print(_t("session_not_found_prev"), file=sys.stderr)
+                    raise typer.Exit(1)
+                print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+            elif resume == "" or resume is None:
+                sessions = list_session_snapshots(cwd, limit=10)
+                if not sessions:
+                    print(_t("session_no_saved"), file=sys.stderr)
+                    raise typer.Exit(1)
+                print(_t("session_saved_list"))
+                for i, s in enumerate(sessions, 1):
+                    print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
+                choice = typer.prompt(_t("session_enter_id"))
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(sessions):
+                        session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+                    else:
+                        print(_t("invalid_selection"), file=sys.stderr)
+                        raise typer.Exit(1)
+                except ValueError:
+                    session_data = load_session_by_id(cwd, choice)
+                if session_data is None:
+                    print(_t("session_not_found", id=choice), file=sys.stderr)
+                    raise typer.Exit(1)
+            else:
+                session_data = load_session_by_id(cwd, resume)
+                if session_data is None:
+                    print(_t("session_not_found", id=resume), file=sys.stderr)
+                    raise typer.Exit(1)
+
+            # 会话数据直接传入 backend host
+            asyncio.run(
+                run_repl(
+                    prompt=None,
+                    cwd=cwd,
+                    model=session_data.get("model") or model,
+                    backend_only=True,
+                    base_url=base_url,
+                    system_prompt=session_data.get("system_prompt") or system_prompt,
+                    api_key=api_key,
+                    restore_messages=session_data.get("messages"),
+                    restore_session_id=session_data.get("session_id"),
+                    effort=effort,
+                    channel_hint=pc_channel_hint,
+                    channel_tools=pc_channel_tools,
+                    # 透传其他参数
+                    append_system_prompt=append_system_prompt,
+                    permission_mode=permission_mode,
+                    settings_file=settings_file,
+                    verbose=verbose,
+                    debug=debug,
+                    bare=bare,
+                    name=name,
+                    mcp_config=mcp_config,
+                    allowed_tools=allowed_tools,
+                    disallowed_tools=disallowed_tools,
+                )
+            )
+            return
+        else:
+            # 默认 REPL 模式：将 --continue/--resume 传递给子进程
+            # 子进程（--backend-only）会自己加载会话
+            # 如果是 --resume 且值为空（picker 模式），在父进程处理 picker
+            effective_resume = resume
+            if continue_session:
+                effective_resume = None  # --continue 不需要 resume 值
+            elif resume == "":
+                # picker 模式：在父进程列出会话供选择，然后传递选中的 ID
+                from illusion.services.session_storage import (
+                    list_session_snapshots,
+                    load_session_by_id,
+                )
+                assert cwd is not None
+                sessions = list_session_snapshots(cwd, limit=10)
+                if not sessions:
+                    print(_t("session_no_saved"), file=sys.stderr)
+                    raise typer.Exit(1)
+                print(_t("session_saved_list"))
+                for i, s in enumerate(sessions, 1):
+                    print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
+                choice = typer.prompt(_t("session_enter_id"))
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(sessions):
+                        effective_resume = sessions[idx]["session_id"]
+                    else:
+                        print(_t("invalid_selection"), file=sys.stderr)
+                        raise typer.Exit(1)
+                except ValueError:
+                    effective_resume = choice
+                # 验证会话存在
+                if load_session_by_id(cwd, effective_resume) is None:
+                    print(_t("session_not_found", id=effective_resume), file=sys.stderr)
+                    raise typer.Exit(1)
+
+            asyncio.run(
+                run_repl(
+                    prompt=None,
+                    cwd=cwd,
+                    model=model,
+                    max_turns=max_turns,
+                    backend_only=False,
+                    base_url=base_url,
+                    system_prompt=system_prompt,
+                    api_key=api_key,
+                    api_format=api_format,
+                    effort=effort,
+                    channel_hint=pc_channel_hint,
+                    channel_tools=pc_channel_tools,
+                    append_system_prompt=append_system_prompt,
+                    permission_mode=permission_mode,
+                    settings_file=settings_file,
+                    verbose=verbose,
+                    debug=debug,
+                    bare=bare,
+                    name=name,
+                    mcp_config=mcp_config,
+                    allowed_tools=allowed_tools,
+                    disallowed_tools=disallowed_tools,
+                    continue_session=continue_session,
+                    resume=effective_resume,
+                )
+            )
+            return
 
     # 打印模式处理
     if print_mode is not None:
