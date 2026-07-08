@@ -178,7 +178,7 @@ illusion update --deps           # 同时更新项目依赖
 
 **交互行为**：
 
-- **权限确认**：`default` 模式下，工具执行前会在终端提示 `Y/N` 确认（输入 `y`/`yes` 允许，其他或 EOF 拒绝）；`full_auto` 模式直接执行；`plan` 模式阻止所有变更工具。
+- **权限确认**：print 模式完全非交互——`default` 模式下，需要权限的工具**直接拒绝**（无 Y/N 提示，拒绝消息输出到 stderr）；如需允许工具执行，请使用 `--permission-mode full_auto`；`plan` 模式阻止所有变更工具。
 - **ask_user_question 交互**：当 LLM 调用 ask_user_question 工具时，print 模式采用**跨轮次非交互**模式：
   1. **第 1 轮**：`illusion -p "做某事"` → agent 执行中调用 ask_user_question → 工具持久化问题到 `pending-question-<session_id>.json`，返回特殊标记作为 tool_result → agent 结束当前轮次 → 程序以**退出码 2** 退出（表示等待用户回答）
   2. **第 2 轮**：`illusion -c -p "<答案>"` → 检测到 pending question → 把答案注入为 tool_result（替换标记）→ 调用 `continue_pending` 继续执行 agent

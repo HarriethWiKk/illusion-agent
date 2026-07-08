@@ -22,7 +22,7 @@ class StaticApiClient:
 
 @pytest.mark.asyncio
 async def test_print_mode_uses_terminal_callbacks(tmp_path, monkeypatch):
-    """print 模式应使用 terminal_permission/terminal_ask_user 而非 noop。"""
+    """print 模式应使用 print_mode_permission/make_print_mode_ask_user（非交互回调）。"""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))

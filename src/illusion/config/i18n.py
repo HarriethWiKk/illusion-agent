@@ -305,6 +305,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "✅ 检测到待回答问题，正在注入答案并继续执行...",
         "en-US": "✅ Pending question detected, injecting answer and continuing...",
     },
+    "print_mode_permission_denied": {
+        "zh-CN": "⏸️ 权限拒绝: {tool_name} ({reason})。print 模式不支持交互式权限确认，如需允许请使用 --permission-mode full_auto",
+        "en-US": "⏸️ Permission denied: {tool_name} ({reason}). Print mode does not support interactive permission confirmation, use --permission-mode full_auto to allow",
+    },
     "web_settings_title": {
         "zh-CN": "设置",
         "en-US": "Settings",

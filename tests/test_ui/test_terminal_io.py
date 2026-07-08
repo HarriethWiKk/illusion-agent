@@ -155,3 +155,38 @@ async def test_terminal_ask_user_with_questions_includes_options(monkeypatch, ca
     assert "【Model】" in captured.out
     assert "• sonnet — 快速" in captured.out
     assert "• opus — 强力" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_print_mode_permission_always_returns_false():
+    """print_mode_permission 始终返回 False（非交互，直接拒绝）。"""
+    from illusion.ui.terminal_io import print_mode_permission
+
+    result = await print_mode_permission("bash", "危险操作")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_print_mode_permission_does_not_call_input(monkeypatch):
+    """print_mode_permission 不调用 input()（完全无交互）。"""
+    from illusion.ui.terminal_io import print_mode_permission
+
+    input_called: list[int] = []
+    monkeypatch.setattr("builtins.input", lambda *a: input_called.append(1) or "y")
+    await print_mode_permission("bash", "test")
+    assert input_called == []  # input 不应被调用
+
+
+@pytest.mark.asyncio
+async def test_print_mode_permission_outputs_to_stderr(capsys):
+    """print_mode_permission 输出拒绝消息到 stderr（不影响 stdout 数据流）。"""
+    from illusion.ui.terminal_io import print_mode_permission
+
+    await print_mode_permission("bash", "危险操作")
+    captured = capsys.readouterr()
+    # stdout 不应有输出（避免污染 print 模式的数据流）
+    assert captured.out == ""
+    # stderr 应包含 i18n 拒绝消息
+    from illusion.config.i18n import t
+
+    assert t("print_mode_permission_denied").format(tool_name="bash", reason="危险操作") in captured.err

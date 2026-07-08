@@ -4,15 +4,17 @@
 
 为 print 模式提供终端文字交互能力：
     - format_question_options: 将结构化选项格式化为终端文本
-    - terminal_permission: 终端 Y/N 权限确认
-    - terminal_ask_user: 终端用户问答
+    - terminal_permission: 终端 Y/N 权限确认（仅用于 TUI 后端）
+    - terminal_ask_user: 终端用户问答（仅用于 TUI 后端）
     - make_print_mode_ask_user: print 模式非交互问答回调工厂
+    - print_mode_permission: print 模式非交互权限回调（直接拒绝）
 
 参考 channels 的 _format_question_options 实现，提取为共享函数。
 """
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from illusion.config.i18n import t
@@ -64,10 +66,13 @@ def format_question_options(questions: object) -> str:
 
 
 async def terminal_permission(tool_name: str, reason: str) -> bool:
-    """终端权限确认回调
+    """终端权限确认回调（仅用于 TUI 后端）
 
     在终端显示 Y/N 提示，用户输入 Y=允许，其他=拒绝。
     EOF（如管道输入）时返回 False，避免卡住。
+
+    警告：此函数调用 input() 是交互式的，不得用于 print 模式。
+    print 模式应使用 print_mode_permission。
 
     Args:
         tool_name: 工具名称
@@ -85,11 +90,32 @@ async def terminal_permission(tool_name: str, reason: str) -> bool:
     return answer in ("y", "yes")
 
 
+async def print_mode_permission(tool_name: str, reason: str) -> bool:
+    """print 模式非交互权限回调：直接拒绝
+
+    print 模式不能有任何交互操作。当 default 权限模式下工具需要确认时，
+    直接拒绝并输出原因到 stderr。用户如需允许工具执行，应使用
+    --permission-mode full_auto。
+
+    Args:
+        tool_name: 工具名称
+        reason: 权限请求原因
+
+    Returns:
+        bool: 始终返回 False（拒绝）
+    """
+    print(t("print_mode_permission_denied").format(tool_name=tool_name, reason=reason), file=sys.stderr)
+    return False
+
+
 async def terminal_ask_user(question: str, questions: object = None) -> str:
-    """终端用户问答回调
+    """终端用户问答回调（仅用于 TUI 后端）
 
     显示问题和选项，用户输入对应 label=选择该选项，
     其他输入=当作"其他"回传。EOF 返回空字符串。
+
+    警告：此函数调用 input() 是交互式的，不得用于 print 模式。
+    print 模式应使用 make_print_mode_ask_user。
 
     Args:
         question: 问题文本
@@ -156,7 +182,6 @@ def make_print_mode_ask_user(
         # 通知 run_print_mode
         state["pending_question_raised"] = True
         # 输出问题到 stderr（text 模式）供调用方查看
-        import sys
         print(t("print_mode_question_asked"), file=sys.stderr)
         print(question, file=sys.stderr)
         if questions:

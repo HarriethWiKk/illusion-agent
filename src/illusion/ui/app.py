@@ -196,7 +196,7 @@ async def run_print_mode(
         ToolExecutionStarted,
     )
     from illusion.config.i18n import t as _t
-    from illusion.ui.terminal_io import terminal_permission, make_print_mode_ask_user
+    from illusion.ui.terminal_io import print_mode_permission, make_print_mode_ask_user
     from illusion.services.session_storage import (
         delete_pending_question,
         load_pending_question,
@@ -255,7 +255,7 @@ async def run_print_mode(
         model=model,
         max_turns=max_turns,
         api_client=api_client,
-        permission_prompt=terminal_permission,
+        permission_prompt=print_mode_permission,
         ask_user_prompt=make_print_mode_ask_user(
             cwd=effective_cwd,
             session_id=effective_session_id,
