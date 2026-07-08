@@ -268,6 +268,9 @@ async def build_runtime(
     settings_file: str | None = None,
     permission_mode: str | None = None,
     append_system_prompt: str | None = None,
+    verbose: bool = False,
+    debug: bool = False,
+    bare: bool = False,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -287,10 +290,19 @@ async def build_runtime(
         restore_messages: 恢复的会话消息列表
         effort: 推理强度级别（low/medium/high/xhigh/max）
         is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
+        verbose: 启用 INFO 级别日志（CLI --verbose）
+        debug: 启用 DEBUG 级别日志（CLI --debug）
+        bare: 纯净模式，跳过 plugins/MCP auto-discovery（CLI --bare）
 
     Returns:
         RuntimeBundle: 运行时数据 bundle
     """
+    # 配置日志级别（CLI --verbose / --debug）
+    import logging
+    if debug:
+        logging.getLogger("illusion").setLevel(logging.DEBUG)
+    elif verbose:
+        logging.getLogger("illusion").setLevel(logging.INFO)
     # 构建设置覆盖字典
     settings_overrides: dict[str, Any] = {
         "model": model,
@@ -321,8 +333,11 @@ async def build_runtime(
     session_id = restore_session_id or uuid4().hex[:12]
     # 获取当前工作目录
     cwd = str(Path.cwd())
-    # 加载插件
-    plugins = load_plugins(settings, cwd)
+    # 加载插件（--bare 模式跳过）
+    if not bare:
+        plugins = load_plugins(settings, cwd)
+    else:
+        plugins = []
     # 解析 API 客户端
     resolved_api_client: SupportsStreamingMessages
     _web_auth_missing = False
@@ -378,9 +393,14 @@ async def build_runtime(
             click.echo(str(exc), err=True)
             click.echo(_t("terminal_auth_hint"), err=True)
             sys.exit(1)
-    # 创建 MCP 客户端管理器
-    mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
-    await mcp_manager.connect_all()
+    # 创建 MCP 客户端管理器（--bare 模式跳过自动发现，仅创建空管理器）
+    if not bare:
+        mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins, cwd))
+        await mcp_manager.connect_all()
+    else:
+        # --bare 模式：空 MCP 管理器，不连接任何服务器
+        # 注意：仍允许 --mcp-config 显式指定的服务器加载（见 Task 11）
+        mcp_manager = McpClientManager({})
     # 创建工具注册器
     tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
     # 获取桥接管理器

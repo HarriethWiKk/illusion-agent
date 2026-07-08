@@ -1350,6 +1350,13 @@ def main(
     if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
         return
 
+    # 早期日志配置（CLI --verbose / --debug）
+    import logging
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif verbose:
+        logging.basicConfig(level=logging.INFO)
+
     # 读取settings.json中的working_directory字段，切换工作目录
     from illusion.config import load_settings
     settings = load_settings(config_path=Path(settings_file) if settings_file else None)

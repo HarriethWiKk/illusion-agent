@@ -195,6 +195,9 @@ class ReactBackendHost:
             settings_file=self._config.settings_file,
             permission_mode=self._config.permission_mode,
             append_system_prompt=self._config.append_system_prompt,
+            verbose=self._config.verbose,
+            debug=self._config.debug,
+            bare=self._config.bare,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)
