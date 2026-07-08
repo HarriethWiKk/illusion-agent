@@ -1,11 +1,11 @@
 ---
 name: update-config
-description: Configure Illusion Code via settings.json. Use for permissions, hooks, env vars, MCP servers, sandbox, and other settings. Examples: "allow npm commands", "set DEBUG=true", "add a hook to format code after writes".
+description: Configure Illusion Code via settings.json, permissions.json, project-level directories, and instruction files. Use for permissions, hooks, env vars, MCP servers, skills, plugins, sandbox, and other settings. Examples: "allow npm commands", "set DEBUG=true", "add a hook to format code after writes", "disable a skill for this project".
 ---
 
 # Update Config Skill
 
-Modify Illusion Code configuration by updating `~/.illusion/settings.json`.
+Modify Illusion Code configuration across three layers: global `settings.json`, project-level `.illusion/` directory, and AI instruction files.
 
 ## CRITICAL: Read Before Write
 
@@ -14,25 +14,47 @@ Modify Illusion Code configuration by updating `~/.illusion/settings.json`.
 ## CRITICAL: Use `ask_user_question` for Ambiguity
 
 When the user's request is ambiguous, use `ask_user_question` to clarify:
+- Which layer to modify (global / project / instruction file)
 - Specific values when multiple options exist
 - Whether to add to existing arrays or replace them
 
-## Settings File Location
+## Configuration Layers (Priority: Project > Global > Defaults)
 
-| File | Scope | Path |
-|------|-------|------|
-| `settings.json` | Global (all projects) | `~/.illusion/settings.json` |
-| `credentials.json` | Global (API keys) | `~/.illusion/credentials.json` |
-
-> **Note:** Configuration is global only (`~/.illusion/settings.json`). There is no project-level `settings.json` merge. Use `CLAUDE.md` / `ILLUSION.md` / `AGENTS.md` files in the project root for project-specific instructions (not config).
+| Layer | File / Directory | Scope | Purpose |
+|-------|------------------|-------|---------|
+| **Global config** | `~/.illusion/settings.json` | All projects | API config, permissions, hooks, memory, sandbox, MCP, plugins |
+| **Global credentials** | `~/.illusion/credentials.json` | All projects | API keys (managed by `illusion auth login`) |
+| **Project permissions** | `<project>/.illusion/permissions.json` | Current project | Deny-list for skills/hooks/plugins/MCP/memory/rules/tools |
+| **Project MCP** | `<project>/.illusion/mcp/*.json` | Current project | Project-specific MCP servers |
+| **Project skills** | `<project>/.illusion/skills/` | Current project | Project-specific skills (override global) |
+| **Project plugins** | `<project>/.illusion/plugins/` | Current project | Project-specific plugins |
+| **Project rules** | `<project>/.illusion/rules/*.md` | Current project | Project-specific AI rules |
+| **Project memory** | `<project>/.illusion/memory/` | Current project | Project memory files (override global fallback) |
+| **Instruction files** | `<project>/CLAUDE.md` / `ILLUSION.md` / `AGENTS.md` | Current project | AI instructions (merged into system prompt) |
+| **Instruction files** | `<project>/.claude/CLAUDE.md` | Current project | AI instructions (alternate location) |
+| **Instruction files** | `<project>/.illusion/CLAUDE.md` / `ILLUSION.md` / `AGENTS.md` | Current project | AI instructions (alternate location) |
+| **Rules files** | `<project>/.claude/rules/*.md` | Current project | Additional AI rules (sorted by filename) |
 
 Environment variable overrides: `ILLUSION_CONFIG_DIR` replaces `~/.illusion/`, `ILLUSION_DATA_DIR` replaces `~/.illusion/data/`, `ILLUSION_LOGS_DIR` replaces `~/.illusion/logs/`.
 
-Configuration priority: CLI arguments > settings.json > built-in defaults.
+Configuration priority: CLI arguments > project-level > global settings.json > built-in defaults.
+
+## When to Use Which Layer
+
+| Request | Layer |
+|---------|-------|
+| "Allow npm commands globally" | Global `settings.json` → `permission.allowed_tools` |
+| "Disable a skill for this project" | Project `.illusion/permissions.json` → `denied_skills` |
+| "Add an MCP server for this project" | Project `.illusion/mcp/<name>.json` |
+| "Add project-specific instructions" | `<project>/CLAUDE.md` |
+| "Add a rule for Python style" | `<project>/.illusion/rules/python-style.md` |
+| "Add a project-specific skill" | `<project>/.illusion/skills/<name>/SKILL.md` |
+| "Set API key" | `illusion auth login` (writes `credentials.json`) |
+| "Configure hooks globally" | Global `settings.json` → `hooks` |
 
 ## When Hooks Are Required
 
-If the user wants something to happen automatically in response to an EVENT, they need a **hook** configured in settings.json.
+If the user wants something to happen automatically in response to an EVENT, they need a **hook**.
 
 **These require hooks:**
 - "After writing files, run prettier" → `post_tool_use` hook with matcher `write_file|edit_file`
@@ -45,7 +67,11 @@ If the user wants something to happen automatically in response to an EVENT, the
 - `pre_tool_use` — Before tool execution (can block)
 - `post_tool_use` — After tool execution
 
-## Settings Schema Reference
+---
+
+## Layer 1: Global Configuration (settings.json)
+
+Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
 
 ### Complete Configuration Structure
 
@@ -169,7 +195,7 @@ Each `env_N` is an independent API provider config. Models are referenced as `en
 
 **API key storage priority:** `env_N.api_key` (in settings.json) > `credentials.json` (managed by `illusion auth login`).
 
-### Permissions
+### Permissions (Global)
 
 ```json
 {
@@ -208,7 +234,7 @@ Each `env_N` is an independent API provider config. Models are referenced as `en
 - Prefix wildcard: `"bash(git:*)"` - matches `git status`, `git commit`, etc.
 - Tool only: `"read_file"` - allows all read_file operations
 
-### Hooks
+### Hooks (Global)
 
 ```json
 {
@@ -324,7 +350,7 @@ Command hooks can output JSON to control behavior:
 - `reason` — Message shown when blocking
 - `output` — Output text (displayed to user or injected as context)
 
-### Memory
+### Memory (Global)
 
 ```json
 {
@@ -342,7 +368,7 @@ Command hooks can output JSON to control behavior:
 | `max_files` | 5 | Maximum number of memory files |
 | `max_entrypoint_lines` | 200 | Maximum lines for MEMORY.md entry file |
 
-### Sandbox
+### Sandbox (Global)
 
 The sandbox provides OS-level isolation for shell commands. Supports Linux (bubblewrap), macOS (seatbelt), and Windows (Job Objects).
 
@@ -414,15 +440,17 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### MCP Servers
+### MCP Servers (Global)
 
 ```json
 {
   "mcp_servers": {
     "server-name": {
+      "type": "stdio",
       "command": "node",
       "args": ["server.js"],
-      "env": {}
+      "env": {},
+      "enabled": true
     }
   }
 }
@@ -430,9 +458,153 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 
 > `mcpServers` (camelCase) is also accepted for backward compatibility and auto-mapped to `mcp_servers`.
 
+MCP server types: `stdio` (command, args, env, cwd), `http` (url, headers), `ws` (url, headers). All support `enabled` field (default `true`).
+
+### Plugins (Global enable/disable)
+
+```json
+{
+  "enabled_plugins": {
+    "my-plugin": true,
+    "disabled-plugin": false
+  }
+}
+```
+
+---
+
+## Layer 2: Project-Level Configuration
+
+Project-level config lives in `<project>/.illusion/`. It overrides or supplements global config for the current project only.
+
+### Project Permissions (`.illusion/permissions.json`)
+
+Controls deny-lists for the current project. **Highest priority** — overrides global settings.
+
+```json
+{
+  "always_allow_tools": ["read_file", "grep"],
+  "denied_tools": ["bash"],
+  "denied_skills": ["dangerous-skill"],
+  "denied_hooks": ["pre_tool_use"],
+  "denied_plugins": ["unwanted-plugin"],
+  "denied_mcp_servers": ["external-server"],
+  "denied_memory": false,
+  "denied_rules": ["rule-name"]
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `always_allow_tools` | list | `[]` | Tools always allowed (overrides mode) |
+| `denied_tools` | list | `[]` | Tools always denied |
+| `denied_skills` | list | `[]` | Disabled skill names, `["*"]` = all |
+| `denied_hooks` | list | `[]` | Disabled hook events, `["*"]` = all |
+| `denied_plugins` | list | `[]` | Disabled plugin names, `["*"]` = all |
+| `denied_mcp_servers` | list | `[]` | Disabled MCP server names, `["*"]` = all |
+| `denied_memory` | bool | false | Disable memory function |
+| `denied_rules` | list | `[]` | Disabled rule names, `["*"]` = all |
+
+**Priority:** Project `permissions.json` > Global `settings.json` > Defaults
+
+### Project MCP Servers (`.illusion/mcp/*.json`)
+
+Scan all `*.json` files in `.illusion/mcp/`. Two formats supported:
+
+**Single server** (filename = server name, e.g. `filesystem.json`):
+```json
+{
+  "type": "stdio",
+  "command": "python",
+  "args": ["server.py"],
+  "enabled": true
+}
+```
+
+**Multiple servers** (any filename, use `mcpServers` key):
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"]
+    },
+    "remote-api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "headers": {"Authorization": "Bearer token"}
+    }
+  }
+}
+```
+
+### Project Skills (`.illusion/skills/`)
+
+Two formats:
+- **Directory format** (preferred): `.illusion/skills/<skill-name>/SKILL.md`
+- **File format**: `.illusion/skills/<skill-name>.md`
+
+Project skills override global skills with the same name.
+
+### Project Rules (`.illusion/rules/*.md`)
+
+Each `.md` file is an independent rule, sorted by filename. Also scanned: `.claude/rules/*.md`.
+
+`/init` command generates default rules: `python-style.md`, `testing.md`, `project-structure.md`.
+
+### Project Plugins (`.illusion/plugins/`)
+
+Each subdirectory must contain `plugin.json` or `.claude-plugin/plugin.json`.
+
+### Project Memory (`.illusion/memory/`)
+
+Project-level memory files. Takes priority over global fallback (`~/.illusion/data/memory/{project-hash}/`).
+
+---
+
+## Layer 3: AI Instruction Files
+
+Instruction files provide project-specific context to the AI. They are merged into the system prompt as `# Project Instructions`. Each file is limited to 12,000 characters (truncated if exceeded).
+
+### Discovery Locations (current working directory only, NOT in `~/.illusion/`)
+
+1. **Project root**: `{cwd}/CLAUDE.md`, `{cwd}/AGENTS.md`, `{cwd}/ILLUSION.md`
+2. **`.claude/` directory**: `{cwd}/.claude/CLAUDE.md`
+3. **`.illusion/` directory**: `{cwd}/.illusion/CLAUDE.md`, `{cwd}/.illusion/AGENTS.md`, `{cwd}/.illusion/ILLUSION.md`
+
+All three names (`CLAUDE.md`, `ILLUSION.md`, `AGENTS.md`) are **equivalent** — IllusionCode recognizes them interchangeably.
+
+### Usage
+
+```markdown
+# Project Description
+
+This is a Python Web project using the FastAPI framework.
+
+## Code Standards
+
+- Use Python 3.10+ features
+- Follow PEP 8 code style
+- Use type hints
+
+## Notes
+
+- Do not modify files in the tests/ directory
+- Run pytest before committing
+```
+
+### Rules Files (additional)
+
+Also scanned (sorted by filename, each file is an independent rule):
+- `{cwd}/.claude/rules/*.md`
+- `{cwd}/.illusion/rules/*.md`
+
+---
+
 ## Common Patterns
 
-### Auto-format after writes
+### Auto-format after writes (global hook)
 ```json
 {
   "hooks": {
@@ -446,7 +618,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### Log all bash commands
+### Log all bash commands (global hook)
 ```json
 {
   "hooks": {
@@ -459,7 +631,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### Block dangerous commands
+### Block dangerous commands (global hook)
 ```json
 {
   "hooks": {
@@ -473,7 +645,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### Allow specific bash commands
+### Allow specific bash commands (global permission)
 ```json
 {
   "permission": {
@@ -482,7 +654,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### Deny destructive commands
+### Deny destructive commands (global permission)
 ```json
 {
   "permission": {
@@ -492,7 +664,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
-### Protect sensitive files
+### Protect sensitive files (global permission)
 ```json
 {
   "permission": {
@@ -505,14 +677,53 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 }
 ```
 
+### Disable a skill for this project (project permissions)
+```json
+{
+  "denied_skills": ["dangerous-skill"]
+}
+```
+Save to `<project>/.illusion/permissions.json`.
+
+### Disable all MCP servers for this project (project permissions)
+```json
+{
+  "denied_mcp_servers": ["*"]
+}
+```
+Save to `<project>/.illusion/permissions.json`.
+
+### Add a project-specific MCP server
+Save to `<project>/.illusion/mcp/my-server.json`:
+```json
+{
+  "type": "stdio",
+  "command": "python",
+  "args": ["server.py"],
+  "enabled": true
+}
+```
+
+### Add project instructions
+Create `<project>/CLAUDE.md`:
+```markdown
+# Project Instructions
+
+This project uses Python 3.10+ with FastAPI.
+Run tests with: pytest tests/
+Do not modify files in src/generated/.
+```
+
+---
+
 ## Workflow
 
-1. **Clarify intent** — Ask if the request is ambiguous
-2. **Read existing file** — Use Read tool on `~/.illusion/settings.json`
+1. **Clarify intent** — Ask which layer to modify if ambiguous
+2. **Read existing file** — Use Read tool on the target config file
 3. **Merge carefully** — Preserve existing settings, especially arrays
 4. **Edit file** — Use Edit tool (if file doesn't exist, create it first)
 5. **Validate** — Check JSON syntax
-6. **Confirm** — Tell user what was changed
+6. **Confirm** — Tell user what was changed and which layer
 
 ## Merging Arrays (Important!)
 
@@ -545,8 +756,16 @@ If a hook isn't running:
 4. Check hook type is one of: `command`, `prompt`, `http`, `agent`
 5. Test the command manually
 6. Check `timeout_seconds` isn't too low
+7. Check project `.illusion/permissions.json` hasn't denied the hook event
 
 If permissions aren't working:
 1. Verify mode is one of: `default`, `plan`, `full_auto` (no other modes exist)
 2. Check tool names are lowercase: `bash`, `read_file`, `edit_file`, `write_file`, `grep`, `glob`
 3. Check rule syntax: `bash(command:*)` for prefix match, `bash(exact command)` for exact match
+4. Check project `.illusion/permissions.json` hasn't denied the tool
+
+If a skill/plugin/MCP isn't loading:
+1. Check project `.illusion/permissions.json` hasn't denied it
+2. For MCP: check `.illusion/mcp/*.json` file format
+3. For skills: check `.illusion/skills/<name>/SKILL.md` or `.illusion/skills/<name>.md`
+4. For plugins: check `.illusion/plugins/<name>/plugin.json`
