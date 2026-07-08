@@ -170,6 +170,51 @@ class RuntimeBundle:
         return "\n".join(lines)
 
 
+def _on_task_complete(
+    task_id: str,
+    task: "TaskRecord",
+    tracker: "BackgroundAgentTracker",
+) -> None:
+    """后台任务完成后，通过 bg_agent_tracker 注入通知 XML。
+
+    支持 agent 类任务（local_agent/remote_agent/in_process_teammate）
+    和 bash/powershell 后台命令（local_bash）。其他类型忽略。
+
+    Args:
+        task_id: 任务 ID
+        task: 任务记录
+        tracker: 后台代理追踪器，用于注入 <task-notification> XML
+    """
+    from illusion.swarm.agent_executor import TaskNotification, format_task_notification
+
+    if task.type in {"local_agent", "remote_agent", "in_process_teammate"}:
+        agent_id = task.metadata.get("agent_id", task_id)
+        # 构建通知 XML（子进程不返回 AgentResult，使用 task 描述作为 summary）
+        notification = TaskNotification(
+            task_id=agent_id,
+            status=task.status,
+            summary=task.description or f"Agent {agent_id} {task.status}",
+            result=None,
+            usage=None,
+        )
+        notification_xml = format_task_notification(notification)
+        tracker.notify_completed(agent_id, notification_xml)
+    elif task.type == "local_bash":
+        # 后台 Bash/PowerShell 命令完成后通知 LLM，与工具提示词承诺一致
+        summary = f'Background command "{task.description}" {task.status}'
+        if task.return_code is not None:
+            summary += f" (exit code {task.return_code})"
+        notification = TaskNotification(
+            task_id=task_id,
+            status=task.status,
+            summary=summary,
+            result=None,
+            usage=None,
+        )
+        notification_xml = format_task_notification(notification)
+        tracker.notify_completed(task_id, notification_xml)
+
+
 async def build_runtime(
     *,
     prompt: str | None = None,
@@ -361,26 +406,13 @@ async def build_runtime(
     # 将后台代理追踪器添加到工具元数据中，供 AgentTool 使用
     engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
 
-    # 注册 on_task_complete 回调：子进程代理完成后通知 bg_agent_tracker
-    def _on_task_complete(task_id: str, task: "TaskRecord") -> None:
-        """子进程代理完成后，通过 bg_agent_tracker 注入通知 XML。"""
-        if task.type not in {"local_agent", "remote_agent", "in_process_teammate"}:
-            return
-        agent_id = task.metadata.get("agent_id", task_id)
-        # 构建通知 XML（子进程不返回 AgentResult，使用 task 描述作为 summary）
-        from illusion.swarm.agent_executor import TaskNotification, format_task_notification
-        notification = TaskNotification(
-            task_id=agent_id,
-            status=task.status,
-            summary=task.description or f"Agent {agent_id} {task.status}",
-            result=None,
-            usage=None,
-        )
-        notification_xml = format_task_notification(notification)
-        engine._bg_agent_tracker.notify_completed(agent_id, notification_xml)
+    # 注册 on_task_complete 回调：后台任务完成后通知 bg_agent_tracker
+    # 闭包仅捕获 engine._bg_agent_tracker，实际逻辑委托给模块级 _on_task_complete
+    def _on_task_complete_callback(task_id: str, task: "TaskRecord") -> None:
+        _on_task_complete(task_id, task, engine._bg_agent_tracker)
 
     from illusion.tasks.manager import get_task_manager
-    get_task_manager().on_task_complete = _on_task_complete
+    get_task_manager().on_task_complete = _on_task_complete_callback
     # 从保存的会话恢复消息（如果提供）
     if restore_messages:
         restored = [
