@@ -51,7 +51,7 @@ Provides 34 core tools, covering:
 
 - **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **Command Execution**: `bash`, `powershell`, `repl`
-- **Search**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
+- **Search**: `glob`, `grep`, `web_fetch`, `web_search`
 - **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
 - **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`

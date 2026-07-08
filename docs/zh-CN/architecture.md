@@ -53,7 +53,7 @@ illusion-code/
 
 - **文件操作**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **命令执行**: `bash`, `powershell`, `repl`
-- **搜索**: `glob`, `grep`, `web_fetch`, `web_search`, `tool_search`
+- **搜索**: `glob`, `grep`, `web_fetch`, `web_search`
 - **任务管理**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
 - **Agent 协作**: `agent`, `send_message`, `team_create`, `team_delete`
 - **模式切换**: `enter_plan_mode`, `exit_plan_mode`

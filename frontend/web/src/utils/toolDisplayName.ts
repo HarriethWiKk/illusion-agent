@@ -64,10 +64,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   enter_worktree: 'EnterWorktree',
   exit_worktree: 'ExitWorktree',
 
-  // Cron / Config / ToolSearch
+  // Cron / Config
   cron: 'Cron',
   config: 'Config',
-  tool_search: 'ToolSearch',
 
   // MCP
   mcp: 'MCP',

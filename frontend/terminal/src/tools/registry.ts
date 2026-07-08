@@ -160,20 +160,6 @@ function ensureInitialized(): void {
 		},
 		renderToolResultMessage: () => 'Done',
 	});
-	register({
-		name: 'tool_search',
-		displayName: () => 'ToolSearch',
-		renderToolUseMessage: (input?: Record<string, unknown>) => {
-			if (!input?.query) return '';
-			return String(input.query).slice(0, 40);
-		},
-		renderToolResultMessage: (result: string) => {
-			if (!result || result.trim() === '') return 'Done';
-			const lines = result.split('\n').filter((l) => l.trim() !== '');
-			if (lines.length <= 3) return lines.join('\n');
-			return [...lines.slice(0, 3), `… +${lines.length - 3} lines`].join('\n');
-		},
-	});
 }
 
 /**
