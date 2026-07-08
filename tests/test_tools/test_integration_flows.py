@@ -57,15 +57,10 @@ async def test_task_and_todo_flow_across_registry(tmp_path: Path, monkeypatch):
     cache = FileStateCache()
     context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry, "file_state_cache": cache})
 
-    tool_search = registry.get("tool_search")
     todo_write = registry.get("todo_write")
     task_output = registry.get("task_output")
 
     # task_create/task_get/task_update 工具已删除，仅保留 task_output
-    search_result = await tool_search.execute(tool_search.input_model(query="select:task_output,todo_write"), context)
-    assert "task_output" in search_result.output
-    assert "todo_write" in search_result.output
-
     await todo_write.execute(todo_write.input_model(todos=[{"content": "integration flow item", "status": "pending", "activeForm": "integrating flow item"}]), context)
 
     # 通过 task manager 直接创建后台任务（TaskCreateTool 已删除）

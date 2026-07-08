@@ -21,7 +21,6 @@ from illusion.tools.lsp_tool import LspTool, LspToolInput
 from illusion.tools.notebook_edit_tool import NotebookEditTool, NotebookEditToolInput
 from illusion.tools.skill_tool import SkillTool, SkillToolInput
 from illusion.tools.todo_write_tool import TodoWriteTool, TodoWriteToolInput
-from illusion.tools.tool_search_tool import ToolSearchTool, ToolSearchToolInput
 from illusion.tools import create_default_tool_registry
 from illusion.platforms import get_platform
 from illusion.utils.file_state_cache import FileStateCache
@@ -115,18 +114,6 @@ async def test_bash_tool_returns_clear_error_when_bash_missing_on_windows(tmp_pa
         "Bash is not available on this Windows machine" in result.output
         or result.is_error is False
     )
-
-
-@pytest.mark.asyncio
-async def test_tool_search_tools(tmp_path: Path):
-    registry = create_default_tool_registry()
-    context = ToolExecutionContext(cwd=tmp_path, metadata={"tool_registry": registry})
-
-    search_result = await ToolSearchTool().execute(
-        ToolSearchToolInput(query="file"),
-        context,
-    )
-    assert "read_file" in search_result.output
 
 
 @pytest.mark.asyncio

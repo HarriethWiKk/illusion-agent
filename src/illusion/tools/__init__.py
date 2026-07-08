@@ -50,7 +50,6 @@ from illusion.tools.team_delete_tool import TeamDeleteTool
 from illusion.tools.task_output_tool import TaskOutputTool
 from illusion.tools.task_stop_tool import TaskStopTool
 from illusion.tools.todo_write_tool import TodoWriteTool
-from illusion.tools.tool_search_tool import ToolSearchTool
 from illusion.tools.web_fetch_tool import WebFetchTool
 from illusion.tools.web_search_tool import WebSearchTool
 
@@ -85,7 +84,6 @@ def create_default_tool_registry(
         GlobTool(),
         GrepTool(),
         SkillTool(),
-        ToolSearchTool(),
         WebFetchTool(),
         WebSearchTool(),
         ConfigTool(),
