@@ -1185,14 +1185,14 @@ def main(
     ),
     effort: str | None = typer.Option(
         None,
-        "--effort",
-        help="Effort level for the session (low, medium, high, max)",
+        "-e", "--effort",
+        help="Effort level (low, medium, high, max). Persists to settings.",
         rich_help_panel="Model & Effort",
     ),
     max_turns: int | None = typer.Option(
         None,
-        "--max-turns",
-        help="Maximum number of agentic turns (useful with --print)",
+        "-t", "--max-turns",
+        help="Maximum agentic turns. Persists to settings.",
         rich_help_panel="Model & Effort",
     ),
     # --- Output ---
@@ -1336,6 +1336,11 @@ def main(
 
     from illusion.ui.app import run_print_mode, run_repl  # 导入 UI 模块
 
+    # -c/-s 不带 -p 且非 --backend-only 时报错
+    if (continue_session or resume is not None) and print_mode is None and not backend_only:
+        print(_t("continue_requires_print"), file=sys.stderr)
+        raise typer.Exit(1)
+
     # 处理 --continue 和 --resume 标志
     if continue_session or resume is not None:
         if backend_only:
@@ -1399,65 +1404,27 @@ def main(
                 )
             )
             return
-        else:
-            # 默认 REPL 模式：将 --continue/--resume 传递给子进程
-            # 子进程（--backend-only）会自己加载会话
-            # 如果是 --resume 且值为空（picker 模式），在父进程处理 picker
-            effective_resume = resume
-            if continue_session:
-                effective_resume = None  # --continue 不需要 resume 值
-            elif resume == "":
-                # picker 模式：在父进程列出会话供选择，然后传递选中的 ID
-                from illusion.services.session_storage import (
-                    list_session_snapshots,
-                    load_session_by_id,
-                )
-                assert cwd is not None
-                sessions = list_session_snapshots(cwd, limit=10)
-                if not sessions:
-                    print(_t("session_no_saved"), file=sys.stderr)
-                    raise typer.Exit(1)
-                print(_t("session_saved_list"))
-                for i, s in enumerate(sessions, 1):
-                    print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
-                choice = typer.prompt(_t("session_enter_id"))
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(sessions):
-                        effective_resume = sessions[idx]["session_id"]
-                    else:
-                        print(_t("invalid_selection"), file=sys.stderr)
-                        raise typer.Exit(1)
-                except ValueError:
-                    effective_resume = choice
-                # 验证会话存在
-                if load_session_by_id(cwd, effective_resume) is None:
-                    print(_t("session_not_found", id=effective_resume), file=sys.stderr)
-                    raise typer.Exit(1)
-
-            asyncio.run(
-                run_repl(
-                    prompt=None,
-                    cwd=cwd,
-                    model=model,
-                    max_turns=max_turns,
-                    backend_only=False,
-                    effort=effort,
-                    channel_hint=pc_channel_hint,
-                    channel_tools=pc_channel_tools,
-                    permission_mode=permission_mode,
-                    name=name,
-                    continue_session=continue_session,
-                    resume=effective_resume,
-                )
-            )
-            return
+        # 非 backend_only 时 fall through 到 print_mode 分支
+        # （Step 2 已拦截 -c/-s 不带 -p 的情况）
 
     # 打印模式处理
     if print_mode is not None:
         prompt = print_mode.strip()
         if not prompt:
             print(_t("print_requires_prompt"), file=sys.stderr)
+            raise typer.Exit(1)
+        # 持久化 effort/max_turns 到 settings.json
+        if effort is not None or max_turns is not None:
+            from illusion.config import load_settings, save_settings
+            _settings = load_settings()
+            if effort is not None:
+                _settings.effort = effort
+            if max_turns is not None:
+                _settings.max_turns = max_turns
+            save_settings(_settings)
+        # resume="" 在 print 模式下报错
+        if resume == "":
+            print(_t("session_resume_requires_id"), file=sys.stderr)
             raise typer.Exit(1)
         # 运行打印模式
         asyncio.run(
@@ -1469,6 +1436,9 @@ def main(
                 permission_mode=permission_mode,  # 权限模式
                 max_turns=max_turns,  # 最大轮次
                 effort=effort,  # 推理强度级别
+                continue_session=continue_session,
+                resume=resume,
+                name=name,
             )
         )
         return
@@ -1492,6 +1462,8 @@ def main(
                 # 透传其他 CLI 参数
                 permission_mode=permission_mode,
                 name=name,
+                continue_session=continue_session,
+                resume=resume,
             )
         )
     except KeyboardInterrupt:

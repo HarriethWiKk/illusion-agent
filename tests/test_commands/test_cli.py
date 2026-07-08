@@ -40,3 +40,48 @@ def test_settings_file_passed_to_load_settings(tmp_path, monkeypatch):
     # 验证 load_settings 接受 config_path 参数
     settings = load_settings(config_path=settings_file)
     assert settings.model == "env_1.model_custom"
+
+
+def test_continue_without_print_mode_errors():
+    """-c 不带 -p 应报错退出。"""
+    runner = CliRunner()
+    result = runner.invoke(app, ["-c"])
+    assert result.exit_code == 1
+    assert "--continue/--resume 需要配合 -p" in result.output or "需要配合" in result.output
+
+
+def test_resume_without_print_mode_errors():
+    """-r 不带 -p 应报错退出。"""
+    runner = CliRunner()
+    result = runner.invoke(app, ["-r", "some-session-id"])
+    assert result.exit_code == 1
+
+
+def test_effort_short_flag_persists(tmp_path, monkeypatch):
+    """-e 简写应持久化 effort 到 settings。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+
+    from illusion.config import load_settings
+
+    runner = CliRunner()
+    # 使用 -p 模式避免启动 TUI；-p 执行可能因无 API key 失败，但持久化应先执行
+    runner.invoke(app, ["-e", "high", "-p", "test"])
+    # effort 应已持久化（即使 -p 执行失败，持久化应先执行）
+    settings = load_settings()
+    assert settings.effort == "high"
+
+
+def test_max_turns_short_flag_persists(tmp_path, monkeypatch):
+    """-t 简写应持久化 max_turns 到 settings。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+
+    from illusion.config import load_settings
+
+    runner = CliRunner()
+    runner.invoke(app, ["-t", "5", "-p", "test"])
+    settings = load_settings()
+    assert settings.max_turns == 5

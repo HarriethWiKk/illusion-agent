@@ -130,6 +130,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "session_enter_id": {"zh-CN": "输入会话序号或 ID", "en-US": "Enter session number or ID"},
     "session_not_found": {"zh-CN": "未找到会话: {id}", "en-US": "Session not found: {id}"},
     "print_requires_prompt": {"zh-CN": "错误: -p/--print 需要提供提示词，例如 -p '你的提示词'", "en-US": "Error: -p/--print requires a prompt, e.g. -p 'your prompt'"},
+    "continue_requires_print": {"zh-CN": "--continue/--resume 需要配合 -p 使用", "en-US": "--continue/--resume requires -p"},
     # --- settings ---
     "cwd_invalid": {"zh-CN": "settings.json中配置的working_directory不存在或不是目录: {path}", "en-US": "working_directory in settings.json does not exist or is not a directory: {path}"},
     "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置", "en-US": "No API key found. Run 'illusion auth login' to configure"},
