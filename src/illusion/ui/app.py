@@ -322,6 +322,8 @@ async def run_print_mode(
     # 工具事件后重置，使下一轮思考/回复获得新前缀
     _reasoning_prefix_printed = False
     _assistant_prefix_printed = False
+    # 是否已输出过至少一个段落（用于在段落间插入空行分隔）
+    _any_section_printed = False
 
     try:
         # 系统消息打印回调
@@ -334,9 +336,21 @@ async def run_print_mode(
                 print(json.dumps(obj), flush=True)
                 events_list.append(obj)
 
+        def _print_section_header(header: str) -> None:
+            """输出段落前缀，非首个段落前加空行分隔
+
+            若上一段内容未以换行结尾（如 reasoning 通过 write 输出），
+            先补一个换行再输出空行，确保段落视觉分隔清晰。
+            """
+            nonlocal _any_section_printed
+            if _any_section_printed:
+                print(file=sys.stderr)  # 空行分隔
+            print(header, file=sys.stderr)
+            _any_section_printed = True
+
         # 流式事件渲染回调
         async def _render_event(event: StreamEvent) -> None:
-            nonlocal collected_text, _reasoning_prefix_printed, _assistant_prefix_printed
+            nonlocal collected_text, _reasoning_prefix_printed, _assistant_prefix_printed, _any_section_printed
             obj: dict[str, Any]
             # 助手文本/思考增量（同一事件可能携带 text 和/或 reasoning）
             if isinstance(event, AssistantTextDelta):
@@ -344,7 +358,7 @@ async def run_print_mode(
                 if event.reasoning:
                     if output_format == "text":
                         if not _reasoning_prefix_printed:
-                            print(_t("print_mode_prefix_reasoning"), file=sys.stderr)
+                            _print_section_header(_t("print_mode_prefix_reasoning"))
                             _reasoning_prefix_printed = True
                         sys.stderr.write(event.reasoning)
                         sys.stderr.flush()
@@ -357,7 +371,11 @@ async def run_print_mode(
                     collected_text += event.text
                     if output_format == "text":
                         if not _assistant_prefix_printed:
-                            print(_t("print_mode_prefix_assistant"), file=sys.stderr)
+                            # 思考段后补换行，使下一前缀从新行开始
+                            if _reasoning_prefix_printed:
+                                sys.stderr.write("\n")
+                                sys.stderr.flush()
+                            _print_section_header(_t("print_mode_prefix_assistant"))
                             _assistant_prefix_printed = True
                         sys.stdout.write(event.text)
                         sys.stdout.flush()
@@ -383,7 +401,7 @@ async def run_print_mode(
                 _reasoning_prefix_printed = False
                 _assistant_prefix_printed = False
                 if output_format == "text":
-                    print(_t("print_mode_prefix_tool_call") + " " + event.tool_name, file=sys.stderr)
+                    _print_section_header(_t("print_mode_prefix_tool_call") + " " + event.tool_name)
                 elif output_format == "stream-json":
                     obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input}
                     print(json.dumps(obj), flush=True)
@@ -392,7 +410,7 @@ async def run_print_mode(
             elif isinstance(event, ToolExecutionCompleted):
                 if output_format == "text":
                     marker = "❌" if event.is_error else "✅"
-                    print(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}", file=sys.stderr)
+                    _print_section_header(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}")
                     # 完整输出工具结果（print 模式面向 agent，不截断）
                     print(event.output, file=sys.stderr)
                 elif output_format == "stream-json":
