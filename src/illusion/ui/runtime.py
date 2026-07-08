@@ -215,6 +215,37 @@ def _on_task_complete(
         tracker.notify_completed(task_id, notification_xml)
 
 
+def _build_system_prompt_with_append(
+    settings: Any,
+    *,
+    cwd: str,
+    latest_user_prompt: str | None,
+    channel_hint: str | None,
+    append_system_prompt: str | None,
+) -> str:
+    """构建系统提示词，并可选追加用户指定内容。
+
+    Args:
+        settings: 配置实例
+        cwd: 工作目录
+        latest_user_prompt: 最新的用户提示词
+        channel_hint: 渠道感知提示词
+        append_system_prompt: 追加到系统提示词末尾的内容
+
+    Returns:
+        str: 完整的系统提示词
+    """
+    _base_prompt = build_runtime_system_prompt(
+        settings,
+        cwd=cwd,
+        latest_user_prompt=latest_user_prompt,
+        channel_hint=channel_hint,
+    )
+    if append_system_prompt:
+        _base_prompt = _base_prompt + "\n\n" + append_system_prompt
+    return _base_prompt
+
+
 async def build_runtime(
     *,
     prompt: str | None = None,
@@ -236,6 +267,7 @@ async def build_runtime(
     channel_tools: list[Any] | None = None,
     settings_file: str | None = None,
     permission_mode: str | None = None,
+    append_system_prompt: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionCode 会话的共享运行时。
 
@@ -397,11 +429,12 @@ async def build_runtime(
         permission_checker=permission_checker,
         cwd=cwd,
         model=settings.active_model_name,
-        system_prompt=build_runtime_system_prompt(
+        system_prompt=_build_system_prompt_with_append(
             settings,
             cwd=cwd,
             latest_user_prompt=prompt,
             channel_hint=channel_hint,
+            append_system_prompt=append_system_prompt,
         ),
         max_tokens=settings.max_tokens,
         max_turns=settings.max_turns,

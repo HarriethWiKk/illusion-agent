@@ -194,6 +194,7 @@ class ReactBackendHost:
             channel_tools=self._config.channel_tools,
             settings_file=self._config.settings_file,
             permission_mode=self._config.permission_mode,
+            append_system_prompt=self._config.append_system_prompt,
         )
         assert self._bundle is not None
         await start_runtime(self._bundle)
