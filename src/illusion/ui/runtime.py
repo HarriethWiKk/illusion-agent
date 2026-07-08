@@ -74,6 +74,7 @@ from illusion.prompts import build_runtime_system_prompt
 from illusion.state import AppState, AppStateStore
 from illusion.services.session_storage import save_session_snapshot
 from illusion.tools import ToolRegistry, create_default_tool_registry
+from illusion.tasks.types import TaskRecord
 
 # 类型别名定义
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]  # 权限确认回调

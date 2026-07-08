@@ -9,9 +9,9 @@ def test_build_runtime_exits_gracefully_on_missing_api_key(tmp_path, monkeypatch
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     # 确保无 credentials 和无 env 配置
     from illusion.config.settings import load_settings
-    settings = load_settings()
+    load_settings()
     # 模拟无 api_key 的 anthropic env
-    from illusion.config.settings import Settings, EnvConfig
+    from illusion.config.settings import Settings
     extras = {"env_1": {"api_format": "anthropic", "base_url": "", "api_key": "", "model_1": "claude-sonnet-4-6"}}
     new_settings = Settings.model_validate({"model": "env_1.model_1", **extras})
     from illusion.config import save_settings
@@ -30,7 +30,7 @@ def test_build_runtime_exits_gracefully_on_missing_api_key(tmp_path, monkeypatch
 def test_rebuild_api_client_sets_auth_status_missing_on_failure(tmp_path, monkeypatch):
     """_rebuild_api_client 在 API key 缺失时应设置 auth_status=missing 而非崩溃。"""
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
-    from illusion.config.settings import Settings, EnvConfig
+    from illusion.config.settings import Settings
     extras = {"env_1": {"api_format": "anthropic", "base_url": "", "api_key": "", "model_1": "claude-sonnet-4-6"}}
     settings = Settings.model_validate({"model": "env_1.model_1", **extras})
 

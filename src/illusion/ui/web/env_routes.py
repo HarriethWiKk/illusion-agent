@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from illusion.auth.manager import AuthManager
 from illusion.config.i18n import t as _t
-from illusion.config.settings import Settings, load_settings, save_settings
+from illusion.config.settings import load_settings, save_settings
 
 
 class CreateEnvRequest(BaseModel):
@@ -177,7 +177,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             return await asyncio.to_thread(auth.start_device_flow)
         elif provider == "codex":
             from illusion.auth.codex_oauth import CodexOAuth
-            auth = CodexOAuth()
+            auth = CodexOAuth()  # type: ignore[assignment]
             return await asyncio.to_thread(auth.start_device_flow)
         else:
             raise HTTPException(status_code=400, detail=_t("unknown_oauth_provider", provider=provider))
@@ -195,7 +195,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
                 return {"success": False, "error": str(e)}
         elif provider == "codex":
             from illusion.auth.codex_oauth import CodexOAuth
-            auth = CodexOAuth()
+            auth = CodexOAuth()  # type: ignore[assignment]
             try:
                 success = await asyncio.to_thread(auth.poll_for_token, req.device_code)
                 return {"success": success}

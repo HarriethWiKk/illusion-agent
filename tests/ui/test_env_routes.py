@@ -105,7 +105,7 @@ def test_activate_env(client):
         "api_key": "sk-test1",
         "model_1": "claude-sonnet-4-6",
     })
-    env_key1 = create_resp1.json()["env_key"]
+    create_resp1.json()["env_key"]
     create_resp2 = client.post("/api/envs", json={
         "api_format": "openai",
         "api_key": "sk-test2",
