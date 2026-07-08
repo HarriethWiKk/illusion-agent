@@ -107,6 +107,7 @@ def test_count_turns() -> None:
 
 def test_save_load_delete_pending_plan_approval(tmp_path, monkeypatch):
     """测试 pending plan approval 的保存、加载、删除"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     from illusion.services.session_storage import (
         save_pending_plan_approval,
         load_pending_plan_approval,

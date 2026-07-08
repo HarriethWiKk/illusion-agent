@@ -221,3 +221,58 @@ def test_format_multi_answer_empty_questions_returns_as_is():
 
     assert _format_multi_answer("答案", None) == "答案"
     assert _format_multi_answer("答案", []) == "答案"
+
+
+@pytest.mark.asyncio
+async def test_make_print_mode_plan_approval_persists_and_returns_marker(tmp_path, monkeypatch):
+    """make_print_mode_plan_approval 应持久化计划并返回 pending 标记。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
+    from illusion.services.session_storage import load_pending_plan_approval
+
+    state: dict = {}
+    callback = make_print_mode_plan_approval(
+        cwd=str(tmp_path),
+        session_id="test-session",
+        state=state,
+    )
+
+    approved, feedback = await callback("# My Plan\nStep 1")
+
+    # 返回 (False, PENDING_PLAN_APPROVAL_MARKER)
+    assert approved is False
+    assert feedback == PENDING_PLAN_APPROVAL_MARKER
+    # 设置了状态标志
+    assert state.get("pending_plan_approval_raised") is True
+    # 持久化了计划内容
+    loaded = load_pending_plan_approval(str(tmp_path), "test-session")
+    assert loaded is not None
+    assert loaded["plan"] == "# My Plan\nStep 1"
+    assert loaded["session_id"] == "test-session"
+
+
+@pytest.mark.asyncio
+async def test_make_print_mode_plan_approval_no_session_id_skips_persist(tmp_path, monkeypatch):
+    """session_id=None 时回调仍返回标记但不持久化。"""
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
+    from illusion.services.session_storage import load_pending_plan_approval
+
+    state: dict = {}
+    callback = make_print_mode_plan_approval(
+        cwd=str(tmp_path),
+        session_id=None,
+        state=state,
+    )
+
+    approved, feedback = await callback("# My Plan\nStep 1")
+
+    assert approved is False
+    assert feedback == PENDING_PLAN_APPROVAL_MARKER
+    assert state.get("pending_plan_approval_raised") is True
+    # 未持久化
+    assert load_pending_plan_approval(str(tmp_path), "test-session") is None
