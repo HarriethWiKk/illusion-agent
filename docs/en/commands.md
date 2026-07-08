@@ -156,3 +156,51 @@ In interactive sessions, you can use the following commands:
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
 | Multi-Agent | `/continue` | Agent collaboration |
 | Self-Update | `/update` | Check for and install IllusionCode updates |
+
+### Non-Interactive Mode (Print Mode) Available Parameters
+
+Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single prompt and exit, suitable for scripts and automation. The following parameters can be used with `-p`:
+
+| Parameter | Short | Description | Persists |
+|-----------|-------|-------------|----------|
+| `--print <PROMPT>` | `-p` | Enter print mode, PROMPT is the prompt text | No |
+| `--output-format <FORMAT>` | - | Output format: `text` (default) / `json` / `stream-json` | No |
+| `--model <MODEL>` | `-m` | Model alias or full model ID | Yes (writes `settings.model`) |
+| `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max` | Yes (writes `settings.effort`) |
+| `--max-turns <N>` | `-t` | Maximum agentic turns | Yes (writes `settings.max_turns`) |
+| `--permission-mode <MODE>` | - | Permission mode: `default` / `plan` / `full_auto` | Yes (writes `settings.permission.mode`) |
+| `--continue` | `-c` | Continue the most recent session in the current directory (requires `-p`) | No |
+| `--resume <SESSION_ID>` | `-r` | Resume a specific session by ID (requires `-p`) | No |
+| `--name <NAME>` | `-n` | Set a display name for this session | No |
+| `--dangerously-skip-permissions` | - | Bypass all permission checks (equivalent to `--permission-mode full_auto`) | No |
+
+**Interactive Behavior**:
+
+- **Permission confirmation**: In `default` mode, tools prompt for `Y/N` confirmation in the terminal before execution (`y`/`yes` to allow, anything else or EOF to deny); `full_auto` mode executes directly; `plan` mode blocks all mutation tools.
+- **ask_user interaction**: When the LLM calls the ask_user tool, the terminal displays question options, and the user enters an option number or custom text.
+- **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.
+
+**Examples**:
+
+```bash
+# Basic usage
+illusion -p "Analyze the project structure"
+
+# Specify model + JSON output
+illusion -m sonnet -p "List TODO comments" --output-format json
+
+# High effort + limit turns (both persist)
+illusion -e high -t 10 -p "Refactor this function"
+
+# Full auto permissions + persist
+illusion --permission-mode full_auto -p "Run tests"
+
+# Continue previous session
+illusion -c -p "Continue the previous task"
+
+# Resume a specific session
+illusion -r <session-id> -p "Continue"
+
+# Combined: model + permission + effort + turns + session resume
+illusion -m opus -e max -t 20 --permission-mode full_auto -c -p "Complete this feature"
+```

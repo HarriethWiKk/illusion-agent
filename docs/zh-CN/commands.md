@@ -158,3 +158,51 @@ illusion update --deps           # 同时更新项目依赖
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
 | 多智能体 | `/continue` | Agent 协作 |
 | 自更新 | `/update` | 检查并安装 IllusionCode 更新 |
+
+### 非交互模式（打印模式）可用参数
+
+使用 `-p` / `--print <PROMPT>` 进入非交互模式：执行单次提示词后退出，适合脚本和自动化场景。以下参数可与 `-p` 配合使用：
+
+| 参数 | 简写 | 说明 | 持久化 |
+|------|------|------|--------|
+| `--print <PROMPT>` | `-p` | 进入打印模式，PROMPT 为提示词 | 否 |
+| `--output-format <FORMAT>` | - | 输出格式：`text`（默认）/ `json` / `stream-json` | 否 |
+| `--model <MODEL>` | `-m` | 指定模型别名或完整模型 ID | 是（写入 `settings.model`） |
+| `--effort <LEVEL>` | `-e` | 推理强度：`low` / `medium` / `high` / `max` | 是（写入 `settings.effort`） |
+| `--max-turns <N>` | `-t` | 最大代理轮次数 | 是（写入 `settings.max_turns`） |
+| `--permission-mode <MODE>` | - | 权限模式：`default` / `plan` / `full_auto` | 是（写入 `settings.permission.mode`） |
+| `--continue` | `-c` | 继续当前目录的最近会话（必须配合 `-p`） | 否 |
+| `--resume <SESSION_ID>` | `-r` | 恢复指定会话 ID（必须配合 `-p`） | 否 |
+| `--name <NAME>` | `-n` | 为本次会话设置显示名称 | 否 |
+| `--dangerously-skip-permissions` | - | 跳过所有权限检查（等价于 `--permission-mode full_auto`） | 否 |
+
+**交互行为**：
+
+- **权限确认**：`default` 模式下，工具执行前会在终端提示 `Y/N` 确认（输入 `y`/`yes` 允许，其他或 EOF 拒绝）；`full_auto` 模式直接执行；`plan` 模式阻止所有变更工具。
+- **ask_user 交互**：当 LLM 调用 ask_user 工具时，终端会显示问题选项，用户输入选项编号或自定义文本。
+- **持久化时机**：标记"持久化"的参数会在执行提示词之前写入 `settings.json`，即使后续执行失败，持久化仍生效。
+
+**示例**：
+
+```bash
+# 基本用法
+illusion -p "分析这个项目的结构"
+
+# 指定模型 + 输出 JSON
+illusion -m sonnet -p "列出 TODO 注释" --output-format json
+
+# 高推理强度 + 限制轮次（均持久化）
+illusion -e high -t 10 -p "重构这个函数"
+
+# 完全自动权限 + 持久化
+illusion --permission-mode full_auto -p "运行测试"
+
+# 继续上次会话
+illusion -c -p "继续上次的任务"
+
+# 恢复指定会话
+illusion -r <session-id> -p "继续"
+
+# 组合：模型 + 权限 + effort + 轮次 + 会话恢复
+illusion -m opus -e max -t 20 --permission-mode full_auto -c -p "完成这个功能"
+```
