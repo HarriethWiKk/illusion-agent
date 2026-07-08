@@ -141,7 +141,7 @@ def test_inject_answer_no_marker_returns_unchanged():
 
 
 def test_inject_answer_finds_last_marker():
-    """多个 marker 时应替换最后一个。"""
+    """多个 markers 时应替换最后一个。"""
     from illusion.ui.app import _inject_answer_to_pending_tool_result
     from illusion.ui.terminal_io import PENDING_ANSWER_MARKER
 
@@ -155,3 +155,69 @@ def test_inject_answer_finds_last_marker():
     assert result[0]["content"][0]["content"] == PENDING_ANSWER_MARKER
     # 最后一个被替换
     assert result[1]["content"][0]["content"] == "答案"
+
+
+def test_format_multi_answer_single_question_returns_as_is():
+    """单问题时原样返回（不需要 JSON）。"""
+    from illusion.ui.app import _format_multi_answer
+
+    questions = [{"header": "Model", "question": "哪个?"}]
+    result = _format_multi_answer("sonnet", questions)
+    assert result == "sonnet"
+
+
+def test_format_multi_answer_json_parsed_to_header_value_lines():
+    """多问题 JSON 答案解析为 header: value 行。"""
+    from illusion.ui.app import _format_multi_answer
+
+    questions = [
+        {"header": "水果", "question": "?"},
+        {"header": "OS", "question": "?"},
+        {"header": "Emoji", "question": "?"},
+    ]
+    prompt = '{"水果": "草莓", "OS": "Windows", "Emoji": "少用点"}'
+    result = _format_multi_answer(prompt, questions)
+    assert "水果: 草莓" in result
+    assert "OS: Windows" in result
+    assert "Emoji: 少用点" in result
+
+
+def test_format_multi_answer_multiselect_list_expanded():
+    """multiSelect 的 list 值展开为多行 header: item。"""
+    from illusion.ui.app import _format_multi_answer
+
+    questions = [
+        {"header": "水果", "question": "?", "multiSelect": True},
+        {"header": "OS", "question": "?"},
+    ]
+    prompt = '{"水果": ["草莓", "芒果"], "OS": "Linux"}'
+    result = _format_multi_answer(prompt, questions)
+    assert "水果: 草莓" in result
+    assert "水果: 芒果" in result
+    assert "OS: Linux" in result
+
+
+def test_format_multi_answer_non_json_returns_as_is():
+    """非 JSON 输入原样返回（向后兼容）。"""
+    from illusion.ui.app import _format_multi_answer
+
+    questions = [{"header": "A", "question": "?"}, {"header": "B", "question": "?"}]
+    result = _format_multi_answer("随便写的答案", questions)
+    assert result == "随便写的答案"
+
+
+def test_format_multi_answer_invalid_json_returns_as_is():
+    """JSON 解析失败时原样返回。"""
+    from illusion.ui.app import _format_multi_answer
+
+    questions = [{"header": "A", "question": "?"}, {"header": "B", "question": "?"}]
+    result = _format_multi_answer("{invalid json", questions)
+    assert result == "{invalid json"
+
+
+def test_format_multi_answer_empty_questions_returns_as_is():
+    """questions 为空时原样返回。"""
+    from illusion.ui.app import _format_multi_answer
+
+    assert _format_multi_answer("答案", None) == "答案"
+    assert _format_multi_answer("答案", []) == "答案"

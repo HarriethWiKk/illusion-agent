@@ -182,11 +182,19 @@ illusion update --deps           # 同时更新项目依赖
 - **ask_user_question 交互**：当 LLM 调用 ask_user_question 工具时，print 模式采用**跨轮次非交互**模式：
   1. **第 1 轮**：`illusion -p "做某事"` → agent 执行中调用 ask_user_question → 工具持久化问题到 `pending-question-<session_id>.json`，返回特殊标记作为 tool_result → agent 结束当前轮次 → 程序以**退出码 2** 退出（表示等待用户回答）
   2. **第 2 轮**：`illusion -c -p "<答案>"` → 检测到 pending question → 把答案注入为 tool_result（替换标记）→ 调用 `continue_pending` 继续执行 agent
-  
+
   这样设计的目的是让 illusion code 可被其他 agent 操控：每次 `-p` 调用是原子的请求-响应，不在同一轮内等待交互输入。退出码语义：
   - `0`：正常完成
   - `1`：错误
   - `2`：等待用户回答（下次用 `-c -p` 回答）
+
+  **多问题回答格式**（agent 友好）：
+  - **单问题**：直接输入答案文本。`multiSelect` 时用逗号分隔，如 `选项A,选项B`
+  - **多问题**：使用 JSON 格式，key 为问题展示时方括号内的 header：
+    ```bash
+    illusion -c -p "{\"水果\": \"草莓\", \"操作系统\": \"Windows\", \"Emoji\": \"少用点\"}"
+    ```
+    `multiSelect` 的值用数组：`{"水果": ["草莓", "芒果"]}`。非 JSON 输入会原样传递给 LLM（向后兼容）
 - **持久化时机**：标记"持久化"的参数会在执行提示词之前写入 `settings.json`，即使后续执行失败，持久化仍生效。
 
 **示例**：

@@ -84,6 +84,48 @@ def _inject_answer_to_pending_tool_result(
     return result
 
 
+def _format_multi_answer(prompt: str, questions: list[Any] | None) -> str:
+    """把用户的多问题答案解析并格式化为 header: value 行
+
+    支持 JSON 格式：{"header1": "value1", "header2": "value2"}
+    multiSelect 用数组：{"header": ["v1", "v2"]}
+
+    格式化逻辑与 ask_user_question 工具的 dict 返回一致：
+    - str 值 → "header: value"
+    - list 值 → 每个元素一行 "header: item"
+
+    单问题或解析失败时原样返回 prompt（向后兼容）。
+
+    Args:
+        prompt: 用户输入的答案文本
+        questions: 持久化的问题列表（含 header 字段）
+
+    Returns:
+        str: 格式化后的答案字符串
+    """
+    if not questions or len(questions) <= 1:
+        return prompt
+    import json as _json
+    text = prompt.strip()
+    if not text.startswith("{"):
+        return prompt  # 非 JSON，原样返回
+    try:
+        answers = _json.loads(text)
+    except (ValueError, TypeError):
+        return prompt  # 解析失败，原样返回
+    if not isinstance(answers, dict):
+        return prompt
+    # 格式化为 header: value 行（与 ask_user_question 工具的 dict 格式化逻辑一致）
+    lines: list[str] = []
+    for k, v in answers.items():
+        if isinstance(v, list):
+            for item in v:
+                lines.append(f"{k}: {item}")
+        else:
+            lines.append(f"{k}: {v}")
+    return "\n".join(lines) if lines else prompt
+
+
 async def run_repl(
     *,
     prompt: str | None = None,
@@ -236,8 +278,11 @@ async def run_print_mode(
         if pending_question:
             # 把用户的 prompt 作为答案注入到消息历史中的 PENDING_ANSWER_MARKER tool_result
             if restore_messages:
+                # 多问题时，把 JSON 格式答案解析为 header: value 行（与工具 dict 返回一致）
+                questions_data = pending_question.get("questions") or []
+                formatted_answer = _format_multi_answer(prompt, questions_data)
                 restore_messages = _inject_answer_to_pending_tool_result(
-                    restore_messages, prompt
+                    restore_messages, formatted_answer
                 )
             delete_pending_question(effective_cwd, restore_session_id)
             print(_t("print_mode_resuming_answer"), file=sys.stderr)
@@ -345,7 +390,7 @@ async def run_print_mode(
         # 否则用 handle_line 正常提交新 prompt
         if pending_question:
             # 答案已注入到 restore_messages 中，直接继续执行
-            from illusion.engine.query_engine import MaxTurnsExceeded
+            from illusion.engine.query import MaxTurnsExceeded
             try:
                 async for event in bundle.engine.continue_pending(
                     max_turns=bundle.engine.max_turns

@@ -309,6 +309,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "⏸️ 权限拒绝: {tool_name} ({reason})。print 模式不支持交互式权限确认，如需允许请使用 --permission-mode full_auto",
         "en-US": "⏸️ Permission denied: {tool_name} ({reason}). Print mode does not support interactive permission confirmation, use --permission-mode full_auto to allow",
     },
+    "print_mode_multi_question_format": {
+        "zh-CN": "📋 多问题请用 JSON 格式回答（key 为方括号内的 header）：\n{example}\n（multiSelect 用数组，如 {{\"header\": [\"选项A\", \"选项B\"]}}）",
+        "en-US": "📋 For multiple questions, answer in JSON format (key = header in brackets):\n{example}\n(multiSelect uses array, e.g. {{\"header\": [\"optionA\", \"optionB\"]}})",
+    },
     "web_settings_title": {
         "zh-CN": "设置",
         "en-US": "Settings",

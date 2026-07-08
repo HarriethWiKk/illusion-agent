@@ -188,6 +188,16 @@ def make_print_mode_ask_user(
             opts_text = format_question_options(questions)
             if opts_text:
                 print(opts_text, file=sys.stderr)
+            # 多问题时，提示 JSON 回答格式
+            if isinstance(questions, (list, tuple)) and len(questions) > 1:
+                headers = [
+                    str(q.get("header", "")) for q in questions
+                    if isinstance(q, dict) and q.get("header")
+                ]
+                if headers:
+                    example_pairs = [f'"{h}": "<选择>"' for h in headers]
+                    example = "{" + ", ".join(example_pairs) + "}"
+                    print(t("print_mode_multi_question_format").format(example=example), file=sys.stderr)
         # 返回特殊标记，作为 tool_result 存储
         return PENDING_ANSWER_MARKER
 
