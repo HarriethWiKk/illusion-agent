@@ -1189,12 +1189,6 @@ def main(
         help="Effort level for the session (low, medium, high, max)",
         rich_help_panel="Model & Effort",
     ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        help="Override verbose mode setting from config",
-        rich_help_panel="Model & Effort",
-    ),
     max_turns: int | None = typer.Option(
         None,
         "--max-turns",
@@ -1228,77 +1222,7 @@ def main(
         help="Bypass all permission checks (only for sandboxed environments)",
         rich_help_panel="Permissions",
     ),
-    allowed_tools: Optional[list[str]] = typer.Option(
-        None,
-        "--allowed-tools",
-        help="Comma or space-separated list of tool names to allow",
-        rich_help_panel="Permissions",
-    ),
-    disallowed_tools: Optional[list[str]] = typer.Option(
-        None,
-        "--disallowed-tools",
-        help="Comma or space-separated list of tool names to deny",
-        rich_help_panel="Permissions",
-    ),
-    # --- System & Context ---
-    system_prompt: str | None = typer.Option(
-        None,
-        "--system-prompt",
-        "-s",
-        help="Override the default system prompt",
-        rich_help_panel="System & Context",
-    ),
-    append_system_prompt: str | None = typer.Option(
-        None,
-        "--append-system-prompt",
-        help="Append text to the default system prompt",
-        rich_help_panel="System & Context",
-    ),
-    settings_file: str | None = typer.Option(
-        None,
-        "--settings",
-        help="Path to a JSON settings file or inline JSON string",
-        rich_help_panel="System & Context",
-    ),
-    base_url: str | None = typer.Option(
-        None,
-        "--base-url",
-        help="Anthropic-compatible API base URL",
-        rich_help_panel="System & Context",
-    ),
-    api_key: str | None = typer.Option(
-        None,
-        "--api-key",
-        "-k",
-        help="API key (overrides config and environment)",
-        rich_help_panel="System & Context",
-    ),
-    bare: bool = typer.Option(
-        False,
-        "--bare",
-        help="Minimal mode: skip hooks, plugins, MCP, and auto-discovery",
-        rich_help_panel="System & Context",
-    ),
-    api_format: str | None = typer.Option(
-        None,
-        "--api-format",
-        help="API format: 'anthropic' (default) or 'openai' (DashScope, GitHub Models, etc.)",
-        rich_help_panel="System & Context",
-    ),
     # --- Advanced ---
-    debug: bool = typer.Option(
-        False,
-        "--debug",
-        "-d",
-        help="Enable debug logging",
-        rich_help_panel="Advanced",
-    ),
-    mcp_config: Optional[list[str]] = typer.Option(
-        None,
-        "--mcp-config",
-        help="Load MCP servers from JSON files or strings",
-        rich_help_panel="Advanced",
-    ),
     cwd: Optional[str] = typer.Option(
         None,
         "--cwd",
@@ -1327,39 +1251,20 @@ def main(
         name: 会话显示名称
         model: 模型别名或完整模型 ID
         effort: 会话努力级别
-        verbose: 覆盖详细输出模式设置
         max_turns: 最大代理轮次数
         print_mode: 打印模式提示词
         output_format: 输出格式
         permission_mode: 权限模式
         dangerously_skip_permissions: 跳过权限检查
-        allowed_tools: 允许的工具列表
-        disallowed_tools: 禁止的工具列表
-        system_prompt: 覆盖默认系统提示词
-        append_system_prompt: 追加到默认系统提示词
-        settings_file: 设置文件路径
-        base_url: Anthropic 兼容 API 基础 URL
-        api_key: API 密钥
-        bare: 最小模式
-        api_format: API 格式
-        debug: 启用调试日志
-        mcp_config: 从 JSON 文件或字符串加载 MCP 服务器
         cwd: 会话工作目录
         backend_only: 运行结构化后端主机
     """
     if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
         return
 
-    # 早期日志配置（CLI --verbose / --debug）
-    import logging
-    if debug:
-        logging.basicConfig(level=logging.DEBUG)
-    elif verbose:
-        logging.basicConfig(level=logging.INFO)
-
     # 读取settings.json中的working_directory字段，切换工作目录
     from illusion.config import load_settings
-    settings = load_settings(config_path=Path(settings_file) if settings_file else None)
+    settings = load_settings()
     # 仅在用户未显式指定 --cwd 时，才使用 settings.working_directory
     if cwd is None and settings.working_directory:
         cwd = settings.working_directory
@@ -1483,25 +1388,14 @@ def main(
                     cwd=cwd,
                     model=session_data.get("model") or model,
                     backend_only=True,
-                    base_url=base_url,
-                    system_prompt=session_data.get("system_prompt") or system_prompt,
-                    api_key=api_key,
                     restore_messages=session_data.get("messages"),
                     restore_session_id=session_data.get("session_id"),
                     effort=effort,
                     channel_hint=pc_channel_hint,
                     channel_tools=pc_channel_tools,
                     # 透传其他参数
-                    append_system_prompt=append_system_prompt,
                     permission_mode=permission_mode,
-                    settings_file=settings_file,
-                    verbose=verbose,
-                    debug=debug,
-                    bare=bare,
                     name=name,
-                    mcp_config=mcp_config,
-                    allowed_tools=allowed_tools,
-                    disallowed_tools=disallowed_tools,
                 )
             )
             return
@@ -1548,23 +1442,11 @@ def main(
                     model=model,
                     max_turns=max_turns,
                     backend_only=False,
-                    base_url=base_url,
-                    system_prompt=system_prompt,
-                    api_key=api_key,
-                    api_format=api_format,
                     effort=effort,
                     channel_hint=pc_channel_hint,
                     channel_tools=pc_channel_tools,
-                    append_system_prompt=append_system_prompt,
                     permission_mode=permission_mode,
-                    settings_file=settings_file,
-                    verbose=verbose,
-                    debug=debug,
-                    bare=bare,
                     name=name,
-                    mcp_config=mcp_config,
-                    allowed_tools=allowed_tools,
-                    disallowed_tools=disallowed_tools,
                     continue_session=continue_session,
                     resume=effective_resume,
                 )
@@ -1584,11 +1466,6 @@ def main(
                 output_format=output_format or "text",  # 输出格式
                 cwd=cwd,  # 工作目录
                 model=model,  # 模型
-                base_url=base_url,  # 基础 URL
-                system_prompt=system_prompt,  # 系统提示词
-                append_system_prompt=append_system_prompt,  # 追加系统提示词
-                api_key=api_key,  # API 密钥
-                api_format=api_format,  # API 格式
                 permission_mode=permission_mode,  # 权限模式
                 max_turns=max_turns,  # 最大轮次
                 effort=effort,  # 推理强度级别
@@ -1609,24 +1486,12 @@ def main(
                 model=model,  # 模型
                 max_turns=max_turns,  # 最大轮次
                 backend_only=backend_only,  # 仅后端模式
-                base_url=base_url,  # 基础 URL
-                system_prompt=system_prompt,  # 系统提示词
-                api_key=api_key,  # API 密钥
-                api_format=api_format,  # API 格式
                 effort=effort,  # 推理强度级别
                 channel_hint=pc_channel_hint,
                 channel_tools=pc_channel_tools,
-                # 透传其他 CLI 参数（Task 5-11）
-                append_system_prompt=append_system_prompt,
+                # 透传其他 CLI 参数
                 permission_mode=permission_mode,
-                settings_file=settings_file,
-                verbose=verbose,
-                debug=debug,
-                bare=bare,
                 name=name,
-                mcp_config=mcp_config,
-                allowed_tools=allowed_tools,
-                disallowed_tools=disallowed_tools,
             )
         )
     except KeyboardInterrupt:
