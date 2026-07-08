@@ -73,10 +73,13 @@ def _get_background_usage_note() -> str | None:
     if os.environ.get("ILLUSION_DISABLE_BACKGROUND_TASKS", "").lower() in ("1", "true"):
         return None
     return (
-        "  - You can use the `run_in_background` parameter to run the command in the background. "
+        "You can use the `run_in_background` parameter to run the command in the background. "
         "Only use this if you don't need the result immediately and are OK being notified when "
         "the command completes later. You do not need to check the output right away - you'll be "
         "notified when it finishes."
+        "using this parameter. "
+        "IMPORTANT: Background commands will NOT return their output directly. "
+        "If you need to see the command's output or result, use the `task_output` tool with the task_id."
     )
 
 
@@ -376,9 +379,6 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             return ToolResult(
                 output=(
                     f"Command launched in background (task_id={task_id}).\n"
-                    "You will be automatically notified when it completes — do NOT sleep, poll, "
-                    "or call task_output to check its progress. Continue with other work or "
-                    "respond to the user instead."
                 ),
                 is_error=False,
             )
