@@ -122,6 +122,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     # --- session ---
     "session_not_found_prev": {"zh-CN": "未找到之前的会话", "en-US": "No previous session found"},
     "session_continuing": {"zh-CN": "继续会话: {summary}", "en-US": "Continuing session: {summary}"},
+    "session_resume_requires_id": {"zh-CN": "--resume 需要指定会话 ID", "en-US": "--resume requires a session ID"},
+    "session_not_found_id": {"zh-CN": "未找到会话: {session_id}", "en-US": "Session not found: {session_id}"},
     "session_no_saved": {"zh-CN": "未找到保存的会话", "en-US": "No saved sessions found"},
     "session_saved_list": {"zh-CN": "已保存的会话:", "en-US": "Saved sessions:"},
     "session_msg_count": {"zh-CN": "{n} 条消息", "en-US": "{n} msgs"},

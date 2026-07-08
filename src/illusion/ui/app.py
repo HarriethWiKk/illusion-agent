@@ -117,15 +117,13 @@ async def run_print_mode(
     output_format: str = "text",
     cwd: str | None = None,
     model: str | None = None,
-    base_url: str | None = None,
-    system_prompt: str | None = None,
-    append_system_prompt: str | None = None,
-    api_key: str | None = None,
-    api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     permission_mode: str | None = None,
     max_turns: int | None = None,
     effort: str | None = None,
+    continue_session: bool = False,
+    resume: str | None = None,
+    name: str | None = None,
 ) -> None:
     """非交互式模式：提交提示词，流式输出，然后退出。
 
@@ -134,15 +132,13 @@ async def run_print_mode(
         output_format: 输出格式（text/json/stream-json）
         cwd: 工作目录
         model: 使用的模型名称
-        base_url: API 基础 URL
-        system_prompt: 系统提示词
-        append_system_prompt: 追加的系统提示词
-        api_key: API 密钥
-        api_format: API 格式
         api_client: 流式 API 客户端实例
         permission_mode: 权限模式
         max_turns: 最大对话轮次
         effort: 推理强度级别
+        continue_session: 继续上一会话
+        resume: 恢复指定会话 ID（空字符串则报错）
+        name: 会话名称
     """
     from illusion.engine.stream_events import (
         AssistantTextDelta,
@@ -152,29 +148,52 @@ async def run_print_mode(
         ToolExecutionCompleted,
         ToolExecutionStarted,
     )
+    from illusion.config.i18n import t as _t
+    from illusion.ui.terminal_io import terminal_permission, terminal_ask_user
+    from illusion.services.session_storage import (
+        load_session_by_id,
+        load_session_snapshot,
+    )
+    from pathlib import Path
 
-    # 空权限回调 - 自动允许所有操作
-    async def _noop_permission(tool_name: str, reason: str) -> bool:
-        return True
-
-    # 空问答回调 - 返回空字符串
-    async def _noop_ask(question: str, questions: object = None) -> str:
-        return ""
+    # 会话恢复
+    restore_messages: list[dict[str, Any]] | None = None
+    restore_session_id: str | None = None
+    effective_cwd = cwd or str(Path.cwd())
+    if continue_session:
+        session_data = load_session_snapshot(effective_cwd)
+        if session_data is None:
+            print(_t("session_not_found_prev"), file=sys.stderr)
+            raise SystemExit(1)
+        restore_messages = session_data.get("messages", [])
+        restore_session_id = session_data.get("session_id")
+        print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+    elif resume is not None:
+        if resume == "":
+            print(_t("session_resume_requires_id"), file=sys.stderr)
+            raise SystemExit(1)
+        session_data = load_session_by_id(effective_cwd, resume)
+        if session_data is None:
+            print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
+            raise SystemExit(1)
+        restore_messages = session_data.get("messages", [])
+        restore_session_id = resume
+        print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
 
     # 构建运行时
     bundle = await build_runtime(
         prompt=prompt,
         model=model,
         max_turns=max_turns,
-        base_url=base_url,
-        system_prompt=system_prompt,
-        api_key=api_key,
-        api_format=api_format,
         api_client=api_client,
-        permission_prompt=_noop_permission,
-        ask_user_prompt=_noop_ask,
+        permission_prompt=terminal_permission,
+        ask_user_prompt=terminal_ask_user,
         effort=effort,
         is_interactive=False,
+        permission_mode=permission_mode,
+        name=name,
+        restore_messages=restore_messages,
+        restore_session_id=restore_session_id,
     )
     await start_runtime(bundle)
 
