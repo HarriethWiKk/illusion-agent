@@ -1616,6 +1616,17 @@ def main(
                 effort=effort,  # 推理强度级别
                 channel_hint=pc_channel_hint,
                 channel_tools=pc_channel_tools,
+                # 透传其他 CLI 参数（Task 5-11）
+                append_system_prompt=append_system_prompt,
+                permission_mode=permission_mode,
+                settings_file=settings_file,
+                verbose=verbose,
+                debug=debug,
+                bare=bare,
+                name=name,
+                mcp_config=mcp_config,
+                allowed_tools=allowed_tools,
+                disallowed_tools=disallowed_tools,
             )
         )
     except KeyboardInterrupt:
