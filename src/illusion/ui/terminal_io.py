@@ -261,6 +261,7 @@ def make_print_mode_plan_approval(
                 plan_path=plan_path,
             )
         # 通知 run_print_mode
+        state["pending_plan_path"] = plan_path
         state["pending_plan_approval_raised"] = True
         # 返回 pending 标记，exit_plan_mode 会返回包含标记的 ToolResult
         return (False, PENDING_PLAN_APPROVAL_MARKER)
@@ -311,6 +312,7 @@ def make_print_mode_permission(
             save_pending_permission(
                 cwd=cwd, session_id=session_id, tool_name=tool_name, reason=reason
             )
+        state["pending_permission_tool"] = tool_name
         state["pending_permission_raised"] = True
         return False
 

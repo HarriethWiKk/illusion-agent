@@ -623,9 +623,15 @@ async def run_print_mode(
             elif isinstance(event, ToolExecutionCompleted):
                 if output_format == "text":
                     marker = "❌" if event.is_error else "✅"
+                    # 检测 pending marker，替换为友好提示
+                    output = event.output
+                    if output == PENDING_ANSWER_MARKER:
+                        output = _t("print_mode_pending_answer_hint")
+                    elif output == PENDING_PLAN_APPROVAL_MARKER:
+                        output = _t("print_mode_pending_plan_hint")
                     _print_section_header(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}")
                     # 完整输出工具结果（print 模式面向 agent，不截断）
-                    print(event.output, file=sys.stderr)
+                    print(output, file=sys.stderr)
                 elif output_format == "stream-json":
                     obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
                     print(json.dumps(obj), flush=True)
@@ -683,6 +689,15 @@ async def run_print_mode(
             or print_state.get("pending_plan_approval_raised")
             or print_state.get("pending_permission_raised")
         ):
+            # 打印 pending 状态指引（含文件路径和审批命令）
+            if print_state.get("pending_question_raised"):
+                print(_t("print_mode_pending_question_exit"), file=sys.stderr)
+            if print_state.get("pending_plan_approval_raised"):
+                plan_path = print_state.get("pending_plan_path", "")
+                print(_t("print_mode_pending_plan_exit", path=plan_path), file=sys.stderr)
+            if print_state.get("pending_permission_raised"):
+                tool_name = print_state.get("pending_permission_tool", "")
+                print(_t("print_mode_pending_permission_exit", tool=tool_name), file=sys.stderr)
             raise SystemExit(2)
     finally:
         # 关闭运行时
