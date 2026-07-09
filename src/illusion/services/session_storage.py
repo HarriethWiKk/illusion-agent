@@ -414,3 +414,82 @@ def delete_pending_plan_approval(cwd: str | Path, session_id: str) -> bool:
         path.unlink()
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Pending Permission 持久化
+# ---------------------------------------------------------------------------
+
+def _pending_permission_path(cwd: str | Path, session_id: str) -> Path:
+    """获取 pending-permission 文件路径
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+
+    Returns:
+        Path: pending-permission 文件路径
+    """
+    session_dir = get_project_session_dir(cwd)
+    return session_dir / f"pending-permission-{session_id}.json"
+
+
+def save_pending_permission(
+    *,
+    cwd: str | Path,
+    session_id: str,
+    tool_name: str,
+    reason: str,
+) -> Path:
+    """保存 pending-permission 到会话目录
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+        tool_name: 被请求权限的工具名称
+        reason: 权限请求原因
+
+    Returns:
+        Path: 保存的文件路径
+    """
+    payload = {
+        "session_id": session_id,
+        "tool_name": tool_name,
+        "reason": reason,
+        "approved": False,
+        "created_at": time.time(),
+    }
+    path = _pending_permission_path(cwd, session_id)
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return path
+
+
+def load_pending_permission(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
+    """加载 pending-permission
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+
+    Returns:
+        dict | None: pending-permission 数据，不存在返回 None
+    """
+    path = _pending_permission_path(cwd, session_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def delete_pending_permission(cwd: str | Path, session_id: str) -> None:
+    """删除 pending-permission
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+    """
+    path = _pending_permission_path(cwd, session_id)
+    if path.exists():
+        path.unlink()

@@ -135,3 +135,36 @@ def test_save_load_delete_pending_plan_approval(tmp_path, monkeypatch):
 
     loaded_after = load_pending_plan_approval(tmp_path, "abc123")
     assert loaded_after is None
+
+
+def test_save_load_delete_pending_permission(tmp_path, monkeypatch):
+    """测试 pending-permission 持久化函数"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.services.session_storage import (
+        save_pending_permission,
+        load_pending_permission,
+        delete_pending_permission,
+    )
+    cwd = str(tmp_path / "project")
+    session_id = "test-session-001"
+
+    # 保存
+    path = save_pending_permission(
+        cwd=cwd,
+        session_id=session_id,
+        tool_name="write_file",
+        reason="Mutating tools require user confirmation",
+    )
+    assert path.exists()
+
+    # 加载
+    data = load_pending_permission(cwd, session_id)
+    assert data is not None
+    assert data["tool_name"] == "write_file"
+    assert data["reason"] == "Mutating tools require user confirmation"
+    assert data["approved"] is False
+    assert data["session_id"] == session_id
+
+    # 删除
+    delete_pending_permission(cwd, session_id)
+    assert load_pending_permission(cwd, session_id) is None
