@@ -276,3 +276,71 @@ async def test_make_print_mode_plan_approval_no_session_id_skips_persist(tmp_pat
     assert state.get("pending_plan_approval_raised") is True
     # 未持久化
     assert load_pending_plan_approval(str(tmp_path), "test-session") is None
+
+
+@pytest.mark.asyncio
+async def test_make_print_mode_permission_persists_and_returns_false(tmp_path, monkeypatch):
+    """测试 make_print_mode_permission：未授权工具应持久化并返回 False"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.ui.terminal_io import make_print_mode_permission
+    from illusion.services.session_storage import load_pending_permission
+
+    cwd = str(tmp_path / "project")
+    session_id = "test-perm-001"
+    state: dict = {}
+
+    callback = make_print_mode_permission(cwd=cwd, session_id=session_id, state=state)
+
+    # 未在 always_allowed 中的工具
+    result = await callback("write_file", "Mutating tools require confirmation")
+    assert result is False
+    assert state.get("pending_permission_raised") is True
+
+    # 验证已持久化
+    pending = load_pending_permission(cwd, session_id)
+    assert pending is not None
+    assert pending["tool_name"] == "write_file"
+    assert pending["approved"] is False
+
+
+@pytest.mark.asyncio
+async def test_make_print_mode_permission_approved_pending_returns_true(tmp_path, monkeypatch):
+    """测试 make_print_mode_permission：pending 文件 approved=true 时应放行并删除"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.ui.terminal_io import make_print_mode_permission
+    from illusion.services.session_storage import save_pending_permission, load_pending_permission
+
+    cwd = str(tmp_path / "project")
+    session_id = "test-perm-002"
+    state: dict = {}
+
+    # 预置一个 approved=true 的 pending 文件（模拟 Turn 2 resume 场景）
+    save_pending_permission(cwd=cwd, session_id=session_id, tool_name="write_file", reason="test")
+    # 手动更新 approved 为 true（模拟 app.py 解析 Y 后的更新）
+    from illusion.services.session_storage import _pending_permission_path
+    import json
+    path = _pending_permission_path(cwd, session_id)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["approved"] = True
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    callback = make_print_mode_permission(cwd=cwd, session_id=session_id, state=state)
+    result = await callback("write_file", "Mutating tools require confirmation")
+    assert result is True
+    # 一次性，用完即删
+    assert load_pending_permission(cwd, session_id) is None
+
+
+@pytest.mark.asyncio
+async def test_make_print_mode_permission_no_session_id_skips_persist(tmp_path, monkeypatch):
+    """测试 make_print_mode_permission：无 session_id 时不持久化（与 ask_user 一致）"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.ui.terminal_io import make_print_mode_permission
+
+    cwd = str(tmp_path / "project")
+    state: dict = {}
+
+    callback = make_print_mode_permission(cwd=cwd, session_id=None, state=state)
+    result = await callback("write_file", "test")
+    assert result is False
+    assert state.get("pending_permission_raised") is True

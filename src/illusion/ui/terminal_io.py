@@ -27,6 +27,9 @@ PENDING_ANSWER_MARKER = "__PENDING_ANSWER__"
 # 作为 tool_result 存储在消息历史中，恢复时用于定位待审批的计划
 PENDING_PLAN_APPROVAL_MARKER = "__PENDING_PLAN_APPROVAL__"
 
+# print 模式权限请求标记（state flag 用，非 tool_result）
+PENDING_PERMISSION_MARKER = "__PENDING_PERMISSION__"
+
 
 def format_question_options(questions: object) -> str:
     """将结构化问题选项格式化为终端可显示的文本
@@ -263,3 +266,52 @@ def make_print_mode_plan_approval(
         return (False, PENDING_PLAN_APPROVAL_MARKER)
 
     return _approve
+
+
+def make_print_mode_permission(
+    *,
+    cwd: str,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> Any:
+    """print 模式跨轮次权限确认回调工厂
+
+    检查顺序：
+    1. always_allow_tools（永久允许，复用现有 .illusion/permissions.json）
+    2. pending-permission 文件 approved=true（Y 一次性允许，用完即删）
+    3. 未命中：持久化请求 + 设置 state flag + 返回 False
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID（None 时不持久化）
+        state: print 模式状态字典（设置 pending_permission_raised flag）
+
+    Returns:
+        权限回调函数 (tool_name, reason) -> bool
+    """
+    from illusion.ui.permission_store import load_always_allowed_tools
+    from illusion.services.session_storage import (
+        load_pending_permission,
+        delete_pending_permission,
+        save_pending_permission,
+    )
+    always_allowed = load_always_allowed_tools(cwd)
+
+    async def _prompt(tool_name: str, reason: str) -> bool:
+        # 1. 永久允许
+        if tool_name in always_allowed:
+            return True
+        # 2. 一次性允许（pending 文件 approved=true）
+        if session_id:
+            pending = load_pending_permission(cwd, session_id)
+            if pending and pending.get("tool_name") == tool_name and pending.get("approved"):
+                delete_pending_permission(cwd, session_id)  # 一次性，用完即删
+                return True
+            # 3. 未命中：持久化请求
+            save_pending_permission(
+                cwd=cwd, session_id=session_id, tool_name=tool_name, reason=reason
+            )
+        state["pending_permission_raised"] = True
+        return False
+
+    return _prompt
