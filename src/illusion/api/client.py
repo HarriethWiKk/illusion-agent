@@ -86,6 +86,7 @@ class ApiMessageRequest:
     max_tokens: int = 4096
     tools: list[dict[str, Any]] = field(default_factory=list[Any])
     effort: EffortLevel | None = None
+    extra_body: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -325,6 +326,7 @@ class AnthropicApiClient:
                         tools=request.tools,
                         max_tokens=request.max_tokens,
                         effort=request.effort,
+                        extra_body=request.extra_body,
                     )
                     media_stripped = True
                     continue
@@ -348,6 +350,7 @@ class AnthropicApiClient:
                         tools=request.tools,
                         max_tokens=request.max_tokens,
                         effort=request.effort,
+                        extra_body=request.extra_body,
                     )
                     media_stripped = True
                     continue
@@ -400,7 +403,13 @@ class AnthropicApiClient:
         # 添加工具定义
         if request.tools:
             params["tools"] = request.tools
-        # Anthropic API 不支持 reasoning_effort 参数，effort 通过系统提示词传递
+        # Anthropic thinking 参数映射
+        if request.effort is not None:
+            effort_val = request.effort.value
+            # 启用思考模式
+            params["thinking"] = {"type": "enabled"}
+            # 通过 output_config.effort 控制推理深度（兼容 Claude、DeepSeek、StepFun 等）
+            params["output_config"] = {"effort": effort_val}
 
         try:
             async with self._client.messages.stream(**params) as stream:

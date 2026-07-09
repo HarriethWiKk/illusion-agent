@@ -258,7 +258,15 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
         if plain_text:
             content.append(TextBlock(text=plain_text))
 
+    # 思考内容字段 fallback：reasoning_content > reasoning > reasoning_details（MiniMax）
     reasoning_content = getattr(message, "reasoning_content", None)
+    if not reasoning_content:
+        reasoning_content = getattr(message, "reasoning", None)
+    if not reasoning_content:
+        details = getattr(message, "reasoning_details", None)
+        if details and isinstance(details, list) and len(details) > 0:
+            first = details[0]
+            reasoning_content = first.get("text", "") if isinstance(first, dict) else None
     if isinstance(reasoning_content, str) and reasoning_content.strip():
         merged = merge_reasoning_text(
             *(b.thinking for b in content if isinstance(b, ThinkingBlock)),
@@ -334,6 +342,7 @@ class OpenAICompatibleClient:
                         system_prompt=request.system_prompt,
                         tools=request.tools,
                         max_tokens=request.max_tokens,
+                        extra_body=request.extra_body,
                     )
                     media_stripped = True
                     continue
@@ -355,6 +364,7 @@ class OpenAICompatibleClient:
                         system_prompt=request.system_prompt,
                         tools=request.tools,
                         max_tokens=request.max_tokens,
+                        extra_body=request.extra_body,
                     )
                     media_stripped = True
                     continue
@@ -406,9 +416,24 @@ class OpenAICompatibleClient:
             # 该模式要求每个 assistant 消息都有 reasoning_content
             params.pop("stream_options", None)
 
-        # 添加 effort 字段
+        # 自动注入供应商思考配置
+        auto_thinking = self._detect_thinking_config(request.model)
+        user_extra_body = request.extra_body or {}
+
+        # effort 字段处理（供应商差异适配）
         if request.effort is not None:
-            params["reasoning_effort"] = request.effort.value
+            model_lower = request.model.lower()
+            effort_val = request.effort.value
+
+            # Gemini：不传 reasoning_effort（与 thinking_config 互斥，已通过 extra_body 注入）
+            # Qwen：不支持 reasoning_effort（用 thinking_budget），跳过
+            if not model_lower.startswith(("gemini", "qwen")):
+                params["reasoning_effort"] = effort_val
+
+        # extra_body 合并（用户显式配置优先覆盖自动检测）
+        merged_extra_body = {**(auto_thinking or {}), **user_extra_body}
+        if merged_extra_body:
+            params["extra_body"] = merged_extra_body
 
         # 流式文本增量时收集完整响应
         collected_content = ""
@@ -443,8 +468,17 @@ class OpenAICompatibleClient:
             if chunk_finish:
                 finish_reason = chunk_finish
 
-            # 收集思维模型的 reasoning_content（不向用户显示）
-            reasoning_piece = getattr(delta, "reasoning_content", None) or ""
+            # 收集思维模型的思考内容（兼容 GLM、Gemini、DeepSeek、MiniMax 等）
+            reasoning_piece = getattr(delta, "reasoning_content", None)
+            if not reasoning_piece:
+                reasoning_piece = getattr(delta, "reasoning", None)
+            if not reasoning_piece:
+                # MiniMax 通过 reasoning_details 返回思考内容
+                details = getattr(delta, "reasoning_details", None)
+                if details and isinstance(details, list) and len(details) > 0:
+                    first = details[0]
+                    reasoning_piece = first.get("text", "") if isinstance(first, dict) else ""
+            reasoning_piece = reasoning_piece or ""
             if reasoning_piece:
                 collected_reasoning += reasoning_piece
                 yield ApiTextDeltaEvent(text="", reasoning=reasoning_piece)
@@ -534,6 +568,51 @@ class OpenAICompatibleClient:
             bool: 是否使用 Responses API
         """
         return "codex" in model.lower()
+
+    @staticmethod
+    def _detect_thinking_config(model: str) -> dict[str, Any] | None:
+        """根据模型名自动检测供应商并构建思考配置 extra_body
+
+        部分供应商（如 GLM、Gemini、Qwen）需要通过 extra_body 显式启用
+        思考模式才会返回 reasoning_content。此方法自动检测模型名并构建
+        对应的 extra_body 配置。
+
+        Args:
+            model: 模型名称
+
+        Returns:
+            extra_body 字典，或 None（不需要特殊配置）
+        """
+        model_lower = model.lower()
+
+        # DeepSeek — 默认开启思考，显式传更可靠
+        if "deepseek" in model_lower:
+            return {"thinking": {"type": "enabled"}}
+
+        # Doubao（豆包）— 默认关闭，需显式启用，结构同 DeepSeek
+        if model_lower.startswith("doubao"):
+            return {"thinking": {"type": "enabled"}}
+
+        # GLM（智谱）— 动态思考但不返回内容，需显式启用 + 保留式思考
+        if model_lower.startswith("glm"):
+            return {"thinking": {"type": "enabled", "clear_thinking": False}}
+
+        # Gemini — 需要 include_thoughts 才返回思考内容
+        # 注意：Gemini OpenAI 兼容端点要求 google 字段嵌套在 extra_body 内
+        # 已知限制：include_thoughts 会把思考混入 content，无法自动分离
+        if model_lower.startswith("gemini") and not model_lower.startswith("gemma"):
+            return {"extra_body": {"google": {"thinking_config": {"include_thoughts": True}}}}
+
+        # Qwen — 混合模式，显式启用
+        if model_lower.startswith("qwen"):
+            return {"enable_thinking": True}
+
+        # StepFun — 默认关闭，需显式启用，结构同 Qwen
+        if model_lower.startswith("step"):
+            return {"enable_thinking": True}
+
+        # MiMo / Kimi / Mistral / xAI / MiniMax — 不需要 extra_body
+        return None
 
     @staticmethod
     def _is_media_related_error(exc: Exception) -> bool:

@@ -18,9 +18,9 @@ import json
 import re
 from typing import Any
 
-_THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>([\s\S]*?)</think\b[^>]*>", re.IGNORECASE)
-_THINK_OPEN_TAG_RE = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
-_THINK_CLOSE_TAG_RE = re.compile(r"</think\b[^>]*>", re.IGNORECASE)
+_THINK_BLOCK_RE = re.compile(r"<(?:think|thought)\b[^>]*>([\s\S]*?)</(?:think|thought)\b[^>]*>", re.IGNORECASE)
+_THINK_OPEN_TAG_RE = re.compile(r"<(?:think|thought)\b[^>]*>", re.IGNORECASE)
+_THINK_CLOSE_TAG_RE = re.compile(r"</(?:think|thought)\b[^>]*>", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 _DSML_TOOL_CALL_PREFIX_RE = re.compile(
     r"<\s*[|｜]\s*DSML\s*[|｜]\s*tool_calls[^\n>]*>?",
