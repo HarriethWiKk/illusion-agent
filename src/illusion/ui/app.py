@@ -35,7 +35,7 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.ui.backend_host import run_backend_host
 from illusion.ui.react_launcher import launch_react_tui
 from illusion.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
-from illusion.ui.terminal_io import PENDING_ANSWER_MARKER
+from illusion.ui.terminal_io import PENDING_ANSWER_MARKER, PENDING_PLAN_APPROVAL_MARKER
 
 
 def _inject_answer_to_pending_tool_result(
@@ -124,6 +124,140 @@ def _format_multi_answer(prompt: str, questions: list[Any] | None) -> str:
         else:
             lines.append(f"{k}: {v}")
     return "\n".join(lines) if lines else prompt
+
+
+def _parse_plan_approval(prompt: str) -> dict[str, Any]:
+    """解析用户对计划审批的回复
+
+    支持的输入：
+        - "批准" / "approve" / "yes" / "y" (case-insensitive) → 批准
+        - 其他任何输入 → 视为拒绝，输入原文作为反馈
+
+    Args:
+        prompt: 用户输入的审批回复
+
+    Returns:
+        dict: {"approved": bool, "feedback": str}
+    """
+    text = prompt.strip().lower()
+    approve_keywords = ("批准", "approve", "yes", "y")
+    if text in approve_keywords:
+        return {"approved": True, "feedback": ""}
+    return {"approved": False, "feedback": prompt.strip() or "User rejected the plan."}
+
+
+def _inject_plan_approval_to_tool_result(
+    messages: list[dict[str, Any]],
+    approval: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """把审批结果注入到消息历史中 PENDING_PLAN_APPROVAL_MARKER 的 tool_result
+
+    扫描 messages（反向），找到最后一个 content 包含 PENDING_PLAN_APPROVAL_MARKER
+    的 tool_result block，替换为审批结果文本。
+
+    Args:
+        messages: 序列化的会话消息列表
+        approval: 审批结果 {"approved": bool, "feedback": str}
+
+    Returns:
+        list[dict]: 修改后的消息列表（深拷贝）
+    """
+    import copy
+    result = copy.deepcopy(messages)
+    if approval["approved"]:
+        replacement = "Plan approved. Starting implementation."
+    else:
+        replacement = f"Plan rejected. Feedback: {approval['feedback']}"
+    # 反向扫描，找最后一个 PENDING_PLAN_APPROVAL_MARKER 的 tool_result
+    for msg in reversed(result):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            block_content = block.get("content")
+            if isinstance(block_content, str) and PENDING_PLAN_APPROVAL_MARKER in block_content:
+                block["content"] = replacement
+                block["is_error"] = not approval["approved"]
+                return result
+            if isinstance(block_content, list):
+                for sub in block_content:
+                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                        if PENDING_PLAN_APPROVAL_MARKER in sub["text"]:
+                            sub["text"] = replacement
+                            block["is_error"] = not approval["approved"]
+                            return result
+    return result
+
+
+def _parse_permission_response(prompt: str) -> dict[str, Any]:
+    """解析用户权限审批输入
+
+    支持的输入（不区分大小写）：
+    - "y"/"yes"/"批准" → allow（一次性允许）
+    - "f"/"always"/"始终" → always_allow（永久允许）
+    - 其他 → deny（拒绝）
+
+    Args:
+        prompt: 用户输入文本
+
+    Returns:
+        dict: {"decision": "allow"|"always_allow"|"deny"}
+    """
+    text = prompt.strip().lower()
+    if text in ("y", "yes", "批准"):
+        return {"decision": "allow"}
+    if text in ("f", "always", "始终"):
+        return {"decision": "always_allow"}
+    return {"decision": "deny"}
+
+
+def _inject_permission_to_tool_result(
+    messages: list[dict[str, Any]],
+    tool_name: str,
+    decision: str,
+) -> list[dict[str, Any]]:
+    """把权限审批结果注入到消息历史中的合成 tool_result
+
+    反向扫描 messages，找到包含 "Permission denied for {tool_name}" 的
+    error tool_result，替换为审批结果文本。
+
+    Args:
+        messages: 消息历史列表
+        tool_name: 被请求权限的工具名称
+        decision: 审批决策 ("allow"|"always_allow"|"deny")
+
+    Returns:
+        list: 修改后的消息历史
+    """
+    if decision == "allow":
+        new_content = "Permission approved by user. Please retry the tool call."
+    elif decision == "always_allow":
+        new_content = "Permission approved (always) by user. Please retry the tool call."
+    else:
+        new_content = "Permission denied by user."
+    target = f"Permission denied for {tool_name}"
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    block_content = block.get("content", "")
+                    if isinstance(block_content, str) and target in block_content:
+                        block["content"] = new_content
+                        block["is_error"] = decision == "deny"
+                        return messages
+        elif isinstance(content, str) and target in content:
+            msg["content"] = new_content
+            return messages
+    return messages
 
 
 async def run_repl(
@@ -238,13 +372,25 @@ async def run_print_mode(
         ToolExecutionStarted,
     )
     from illusion.config.i18n import t as _t
-    from illusion.ui.terminal_io import print_mode_permission, make_print_mode_ask_user
+    from illusion.ui.terminal_io import (
+        PENDING_ANSWER_MARKER,
+        PENDING_PLAN_APPROVAL_MARKER,
+        make_print_mode_ask_user,
+        make_print_mode_permission,
+        make_print_mode_plan_approval,
+    )
     from illusion.services.session_storage import (
+        delete_pending_permission,
+        delete_pending_plan_approval,
         delete_pending_question,
+        load_pending_permission,
+        load_pending_plan_approval,
         load_pending_question,
         load_session_by_id,
         load_session_snapshot,
     )
+    from illusion.ui.permission_store import add_always_allowed_tool
+    import time
     from pathlib import Path
 
     # 会话恢复
@@ -287,6 +433,64 @@ async def run_print_mode(
             delete_pending_question(effective_cwd, restore_session_id)
             print(_t("print_mode_resuming_answer"), file=sys.stderr)
 
+    # 检测 pending plan approval（上次 print 模式退出时遗留的待审批计划）
+    pending_plan_approval: dict[str, Any] | None = None
+    if restore_session_id:
+        pending_plan_approval = load_pending_plan_approval(effective_cwd, restore_session_id)
+        if pending_plan_approval:
+            # 将用户输入解析为审批结果，注入到 exit_plan_mode 的 tool_result
+            approval_result = _parse_plan_approval(prompt)
+            if restore_messages:
+                restore_messages = _inject_plan_approval_to_tool_result(
+                    restore_messages, approval_result
+                )
+            delete_pending_plan_approval(effective_cwd, restore_session_id)
+            if approval_result["approved"]:
+                print(_t("print_mode_plan_approved"), file=sys.stderr)
+            else:
+                print(_t("print_mode_plan_rejected"), file=sys.stderr)
+            print(_t("print_mode_plan_resuming_approval"), file=sys.stderr)
+
+    # 检测 pending permission（上次 print 模式退出时遗留的待审批权限）
+    pending_permission: dict[str, Any] | None = None
+    if restore_session_id:
+        pending_permission = load_pending_permission(effective_cwd, restore_session_id)
+        if pending_permission:
+            # 将用户输入解析为权限决策
+            perm_decision = _parse_permission_response(prompt)
+            tool_name = pending_permission.get("tool_name", "")
+            if perm_decision["decision"] == "allow":
+                # Y：更新 pending 文件 approved=true，callback 读取后放行并删除
+                # 直接原子写覆盖（approved=true）
+                from illusion.utils.atomic_write import atomic_write_text
+                import json as _json
+                _perm_payload = {
+                    "session_id": restore_session_id,
+                    "tool_name": tool_name,
+                    "reason": pending_permission.get("reason", ""),
+                    "approved": True,
+                    "created_at": pending_permission.get("created_at", time.time()),
+                }
+                from illusion.services.session_storage import _pending_permission_path
+                _perm_path = _pending_permission_path(effective_cwd, restore_session_id)
+                atomic_write_text(_perm_path, _json.dumps(_perm_payload, indent=2, ensure_ascii=False) + "\n")
+                print(_t("print_mode_permission_approved"), file=sys.stderr)
+            elif perm_decision["decision"] == "always_allow":
+                # F：添加到 always_allow_tools，删除 pending 文件
+                add_always_allowed_tool(effective_cwd, tool_name)
+                delete_pending_permission(effective_cwd, restore_session_id)
+                print(_t("print_mode_permission_always_approved"), file=sys.stderr)
+            else:
+                # N：删除 pending 文件
+                delete_pending_permission(effective_cwd, restore_session_id)
+                print(_t("print_mode_permission_denied_resuming"), file=sys.stderr)
+            # 修改消息历史中的合成 tool_result
+            if restore_messages:
+                restore_messages = _inject_permission_to_tool_result(
+                    restore_messages, tool_name, perm_decision["decision"]
+                )
+            print(_t("print_mode_permission_resuming"), file=sys.stderr)
+
     # 预生成 session_id（确保 make_print_mode_ask_user 和 build_runtime 一致）
     from uuid import uuid4
     effective_session_id = restore_session_id or uuid4().hex[:12]
@@ -300,8 +504,17 @@ async def run_print_mode(
         model=model,
         max_turns=max_turns,
         api_client=api_client,
-        permission_prompt=print_mode_permission,
+        permission_prompt=make_print_mode_permission(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
         ask_user_prompt=make_print_mode_ask_user(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
+        plan_approval_prompt=make_print_mode_plan_approval(
             cwd=effective_cwd,
             session_id=effective_session_id,
             state=print_state,
@@ -410,9 +623,15 @@ async def run_print_mode(
             elif isinstance(event, ToolExecutionCompleted):
                 if output_format == "text":
                     marker = "❌" if event.is_error else "✅"
+                    # 检测 pending marker，替换为友好提示
+                    output = event.output
+                    if output == PENDING_ANSWER_MARKER:
+                        output = _t("print_mode_pending_answer_hint")
+                    elif output == PENDING_PLAN_APPROVAL_MARKER:
+                        output = _t("print_mode_pending_plan_hint")
                     _print_section_header(f"{_t('print_mode_prefix_tool_result')} {marker} {event.tool_name}")
                     # 完整输出工具结果（print 模式面向 agent，不截断）
-                    print(event.output, file=sys.stderr)
+                    print(output, file=sys.stderr)
                 elif output_format == "stream-json":
                     obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
                     print(json.dumps(obj), flush=True)
@@ -464,8 +683,21 @@ async def run_print_mode(
             result = {"type": "result", "text": collected_text.strip()}
             print(json.dumps(result))
 
-        # 如果 ask_user_question 触发了 pending question，以退出码 2 退出
-        if print_state.get("pending_question_raised"):
+        # 如果 ask_user_question 或 exit_plan_mode 触发了 pending 状态，以退出码 2 退出
+        if (
+            print_state.get("pending_question_raised")
+            or print_state.get("pending_plan_approval_raised")
+            or print_state.get("pending_permission_raised")
+        ):
+            # 打印 pending 状态指引（含文件路径和审批命令）
+            if print_state.get("pending_question_raised"):
+                print(_t("print_mode_pending_question_exit"), file=sys.stderr)
+            if print_state.get("pending_plan_approval_raised"):
+                plan_path = print_state.get("pending_plan_path", "")
+                print(_t("print_mode_pending_plan_exit", path=plan_path), file=sys.stderr)
+            if print_state.get("pending_permission_raised"):
+                tool_name = print_state.get("pending_permission_tool", "")
+                print(_t("print_mode_pending_permission_exit", tool=tool_name), file=sys.stderr)
             raise SystemExit(2)
     finally:
         # 关闭运行时

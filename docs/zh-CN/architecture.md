@@ -57,6 +57,7 @@ illusion-code/
 - **任务管理**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
 - **Agent 协作**: `agent`, `send_message`, `team_create`, `team_delete`
 - **模式切换**: `enter_plan_mode`, `exit_plan_mode`
+  - `exit_plan_mode` 会触发计划审批：终端/Web 弹出审批卡片，print 模式跨轮次审批（退出码 2），渠道端发送计划内容并等待回复
 - **会话控制**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
 - **配置与调试**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
 - **交互**: `ask_user_question`

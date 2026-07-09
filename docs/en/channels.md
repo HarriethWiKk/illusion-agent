@@ -196,6 +196,18 @@ User → Channel: dark
 (Tool returns {Model: A, Effort: high, Theme: dark} to LLM)
 ```
 
+## Plan Mode Approval
+
+When the agent calls `exit_plan_mode` in a channel session, the plan content is sent as a message to the channel:
+
+1. The agent calls `enter_plan_mode` to enter plan mode, explores code, and writes a plan file
+2. The agent calls `exit_plan_mode` to submit the plan for approval
+3. The channel automatically sends the plan content to the current session
+4. The user replies "approve" or types revision feedback (treated as reject + feedback)
+5. After approval, the agent starts executing; after rejection, the agent revises the plan based on the feedback
+
+**Keywords**: Reply "approve"/"yes"/"y" (case-insensitive) to approve; any other input is treated as rejection with the input as feedback.
+
 ## Troubleshooting
 
 | Problem | Solution |

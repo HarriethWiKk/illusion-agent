@@ -195,6 +195,13 @@ illusion update --deps           # 同时更新项目依赖
     illusion -c -p "{\"水果\": \"草莓\", \"操作系统\": \"Windows\", \"Emoji\": \"少用点\"}"
     ```
     `multiSelect` 的值用数组：`{"水果": ["草莓", "芒果"]}`。非 JSON 输入会原样传递给 LLM（向后兼容）
+- **计划审批交互**：当 LLM 在 print 模式下调用 `exit_plan_mode` 时，采用与 ask_user_question 相同的跨轮次模式：
+  1. **第 1 轮**：`illusion -p "实现功能X"` → 代理进入计划模式、编写计划文件、调用 `exit_plan_mode` → 计划持久化到 `pending-plan-approval-<session_id>.json` → 退出码 **2**
+  2. **第 2 轮**：`illusion -c -p "批准"` → 检测到 pending plan approval → 注入审批结果 → 继续执行
+
+  退出码语义：0=正常完成，1=错误，2=等待用户输入（ask_user_question 或计划审批）。
+
+  **审批输入格式**：输入"批准"/"approve"/"yes"/"y"（不区分大小写）表示批准；其他任何输入视为拒绝并作为反馈意见。例如 `illusion -c -p "需要增加测试用例"` 会被解析为拒绝+反馈。
 - **持久化时机**：标记"持久化"的参数会在执行提示词之前写入 `settings.json`，即使后续执行失败，持久化仍生效。
 
 **示例**：

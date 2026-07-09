@@ -29,6 +29,9 @@ export default {
           DEFAULT: '#d45b5b',   /* 柔和红 */
           hover: '#c34a4a',
         },
+        info: {
+          DEFAULT: 'var(--info-color)',    /* 蓝色 - 信息提示 */
+        },
         surface: {
           main: 'var(--bg-main)',      /* 纯白背景（深色模式由 :root.dark 覆盖） */
           card: 'var(--bg-card)',

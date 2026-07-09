@@ -9,6 +9,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkSuperscript from '../remarkSuperscript';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
 
@@ -326,6 +331,21 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         isMultiSelect && !isMultiQuestion ? 'outline-none' : ''
       }`}
     >
+      {typeof modal.plan === 'string' && modal.plan && (
+        <div className="px-4 pt-3">
+          <div className="border border-info/40 rounded-lg px-3 py-2.5 bg-info/5 max-h-80 overflow-y-auto">
+            <div className="text-info font-semibold text-sm mb-2 flex items-center gap-1.5">
+              <span>📝</span>
+              <span>{t(lang, 'planReview')}</span>
+            </div>
+            <div className="text-sm prose prose-sm max-w-none text-content-primary select-text">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+                {modal.plan}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="px-4 py-3">
         {/* Tab 导航栏 — 仅多问题时显示 */}
         {isMultiQuestion && (

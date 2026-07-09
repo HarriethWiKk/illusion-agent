@@ -31,6 +31,8 @@ Print mode never prompts for permission. Choose explicitly:
 | `full_auto` | All tools execute | Writing files, running commands |
 | `plan` | All mutation tools blocked | Planning only |
 
+> **Note**: In print mode, `plan` mode uses cross-turn approval. When the agent calls `exit_plan_mode`, the plan is persisted and the process exits with code 2. Resume with `illusion -c -p "approve"` (or any feedback text to reject).
+
 ```bash
 # Read-only — safe, no side effects
 illusion -p "Analyze the project structure"
@@ -67,13 +69,24 @@ illusion -c -p "strawberry"
 illusion -c -p "{\"Fruit\": \"strawberry\", \"OS\": \"Windows\"}"
 ```
 
+## Plan Approval: Cross-Turn Pattern
+
+Identical to ask_user_question's cross-turn mechanism:
+
+1. **Turn 1**: `illusion -p "implement X"` → agent enters plan mode → writes plan file → calls `exit_plan_mode` → plan persisted to `pending-plan-approval-<sid>.json` → exit code **2**
+2. **Turn 2**: `illusion -c -p "approve"` → detects pending plan approval → injects approval result → resumes execution
+
+**Approval input**: "approve"/"yes"/"y" (case-insensitive) → approved. Any other input → rejected with input as feedback.
+
+**Note**: Plan content is NOT output to stderr. The agent receives the plan file path in the ToolResult and can read it with the `read_file` tool.
+
 ## Exit Codes
 
 | Code | Meaning | Next Action |
 |------|---------|-------------|
 | 0 | Normal completion | Read stdout for result |
 | 1 | Error | Check stderr for details |
-| 2 | Waiting for user answer | Answer with `illusion -c -p "<answer>"` |
+| 2 | Waiting for user answer (ask_user_question or plan approval) | Answer with `illusion -c -p "<answer>"` (or `"approve"` for plan approval) |
 
 ## Session Resume
 
@@ -161,3 +174,4 @@ illusion -m env_1.model_2 -e high -t 20 --permission-mode full_auto -c -p "Compl
 - **Don't** forget `--permission-mode full_auto` when writes are needed
 - **Don't** ignore exit code 2 — it means a question needs answering
 - **Don't** use `--dangerously-skip-permissions` — prefer `--permission-mode full_auto` (explicit intent)
+- **Don't expect plan approvals to be automatic** in `default` print mode. If you want auto-approval, use `--permission-mode full_auto`.

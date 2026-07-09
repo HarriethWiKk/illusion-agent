@@ -103,3 +103,68 @@ def test_count_turns() -> None:
         {"role": "assistant", "content": [{"type": "text", "text": "Hi"}]},
     ]
     assert count_turns(messages) == 1
+
+
+def test_save_load_delete_pending_plan_approval(tmp_path, monkeypatch):
+    """测试 pending plan approval 的保存、加载、删除"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.services.session_storage import (
+        save_pending_plan_approval,
+        load_pending_plan_approval,
+        delete_pending_plan_approval,
+    )
+
+    plan = "# My Plan\n\nStep 1: Do X\nStep 2: Do Y"
+    plan_path = "/home/user/.illusion/plans/my-plan.md"
+
+    save_pending_plan_approval(
+        cwd=tmp_path,
+        session_id="abc123",
+        plan=plan,
+        plan_path=plan_path,
+    )
+
+    loaded = load_pending_plan_approval(tmp_path, "abc123")
+    assert loaded is not None
+    assert loaded["plan"] == plan
+    assert loaded["plan_path"] == plan_path
+    assert loaded["session_id"] == "abc123"
+
+    deleted = delete_pending_plan_approval(tmp_path, "abc123")
+    assert deleted is True
+
+    loaded_after = load_pending_plan_approval(tmp_path, "abc123")
+    assert loaded_after is None
+
+
+def test_save_load_delete_pending_permission(tmp_path, monkeypatch):
+    """测试 pending-permission 持久化函数"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.services.session_storage import (
+        save_pending_permission,
+        load_pending_permission,
+        delete_pending_permission,
+    )
+    cwd = str(tmp_path / "project")
+    session_id = "test-session-001"
+
+    # 保存
+    path = save_pending_permission(
+        cwd=cwd,
+        session_id=session_id,
+        tool_name="write_file",
+        reason="Mutating tools require user confirmation",
+    )
+    assert path.exists()
+
+    # 加载
+    data = load_pending_permission(cwd, session_id)
+    assert data is not None
+    assert data["tool_name"] == "write_file"
+    assert data["reason"] == "Mutating tools require user confirmation"
+    assert data["approved"] is False
+    assert data["session_id"] == session_id
+
+    # 删除
+    delete_pending_permission(cwd, session_id)
+    assert load_pending_permission(cwd, session_id) is None

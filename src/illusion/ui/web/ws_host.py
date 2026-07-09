@@ -1335,6 +1335,7 @@ class WebBackendHost:
             "kind": "question",
             "request_id": request_id,
             "question": _t("plan_approval"),
+            "plan": plan,
             "questions": [
                 {
                     "question": _t("plan_approve_question"),

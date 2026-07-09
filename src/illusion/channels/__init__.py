@@ -622,6 +622,7 @@ class ChannelRunner:
                 is_interactive=False,
                 permission_prompt=self._make_permission_prompt(msg.chat_id),
                 ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
+                plan_approval_prompt=self._make_plan_approval_prompt(msg.chat_id),
                 channel_hint=channel_hint,
                 channel_tools=self._build_channel_tools(msg),
             )
@@ -805,6 +806,36 @@ class ChannelRunner:
                     answers[header] = reply
             return answers
         return _ask
+
+    def _make_plan_approval_prompt(self, chat_id: str) -> Any:
+        """构造计划审批回调（发送计划内容到渠道并等待回复）
+
+        签名与 backend_host 的 _ask_plan_approval 一致：
+        (plan: str) -> tuple[bool, str]
+
+        回调行为：
+            1. 发送计划内容到渠道
+            2. 发送审批问题
+            3. 等待用户回复
+            4. 解析回复：批准关键词 → (True, "")；其他输入 → (False, input)
+        """
+        from illusion.config.i18n import t as _t
+
+        async def _approve(plan: str) -> tuple[bool, str]:
+            # 1. 发送计划内容
+            await self.channel.send_text(chat_id, plan)
+            # 2. 发送审批问题
+            await self.channel.send_text(chat_id, _t("channel_plan_approval_question"))
+            # 3. 等待回复
+            reply = await self._wait_reply(chat_id, timeout=300)
+            # 4. 解析回复
+            text = reply.strip().lower()
+            approve_keywords = ("批准", "approve", "yes", "y")
+            if text in approve_keywords:
+                return (True, "")
+            return (False, reply.strip() or "User rejected the plan.")
+
+        return _approve
 
     def _is_zh(self) -> bool:
         """判断当前语言是否为中文（用于多选提示文案）"""

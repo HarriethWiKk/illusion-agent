@@ -55,6 +55,7 @@ Provides 34 core tools, covering:
 - **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
 - **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
+  - `exit_plan_mode` triggers plan approval: terminal/Web shows an approval card, print mode uses cross-turn approval (exit code 2), channel sends plan content and waits for reply
 - **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
 - **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
 - **Interaction**: `ask_user_question`

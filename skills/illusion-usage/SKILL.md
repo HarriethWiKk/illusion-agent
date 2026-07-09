@@ -112,6 +112,11 @@ Print mode never prompts. Choose explicitly:
 | `full_auto` | All tools execute | Autonomous coding, writes, commands |
 | `plan` | All mutation tools blocked | Planning only |
 
+> **Plan Approval Flow**:
+> - **Terminal/Web**: Approval card UI shown inline
+> - **Print mode**: Cross-turn (exit code 2, resume with `illusion -c -p "approve"`)
+> - **Channel**: Plan content sent as message, user replies to approve/reject
+
 ```bash
 # Read-only
 illusion -p "Analyze the project structure"

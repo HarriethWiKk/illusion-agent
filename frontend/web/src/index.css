@@ -18,6 +18,8 @@
   --success: #4caf7d;
   --warning: #e8a84c;
   --error: #d45b5b;
+  /* 信息色 - 蓝色 */
+  --info-color: #3b82f6;
 
   /* 背景色 - 清新白 */
   --bg-main: #ffffff;
@@ -72,6 +74,7 @@
   --success: #5ec48f;
   --warning: #f0b85c;
   --error: #e87474;
+  --info-color: #60a5fa;
 
   /* 背景色 - 深色基底 */
   --bg-main: #1a1d24;

@@ -465,6 +465,19 @@ async def run_query(
                     ), None
         except PermissionDenied as exc:
             from illusion.config.i18n import t
+            # 为所有未完成的工具添加合成 tool_result，确保消息历史一致
+            # （assistant 的 tool_use 必须有对应的 tool_result，否则 API 下一轮报错）
+            # 单工具路径未预分配 tool_results_list，补齐至 tool_calls 长度
+            tool_results_list.extend([None] * (len(tool_calls) - len(tool_results_list)))
+            for i, tc in enumerate(tool_calls):
+                if tool_results_list[i] is None:
+                    tool_results_list[i] = ToolResultBlock(
+                        tool_use_id=tc.id,
+                        content=f"Permission denied for {tc.name}" if tc.name == exc.tool_name else f"Tool {tc.name} interrupted",
+                        is_error=True,
+                    )
+            filtered_results = [r for r in tool_results_list if r is not None]
+            messages.append(ConversationMessage(role="user", content=filtered_results))
             yield ErrorEvent(message=t("permission_denied_stopped", tool=exc.tool_name)), None
             return
 
