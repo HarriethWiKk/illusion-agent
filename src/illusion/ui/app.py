@@ -388,7 +388,6 @@ async def run_print_mode(
         load_pending_question,
         load_session_by_id,
         load_session_snapshot,
-        save_pending_permission,
     )
     from illusion.ui.permission_store import add_always_allowed_tool
     import time
@@ -484,7 +483,7 @@ async def run_print_mode(
             else:
                 # N：删除 pending 文件
                 delete_pending_permission(effective_cwd, restore_session_id)
-                print(_t("print_mode_permission_denied"), file=sys.stderr)
+                print(_t("print_mode_permission_denied_resuming"), file=sys.stderr)
             # 修改消息历史中的合成 tool_result
             if restore_messages:
                 restore_messages = _inject_permission_to_tool_result(

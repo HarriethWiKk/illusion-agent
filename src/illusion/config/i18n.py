@@ -190,7 +190,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "print_mode_plan_rejected": {"zh-CN": "[计划已拒绝] 返回计划模式", "en-US": "[Plan rejected] Returning to plan mode"},
     "print_mode_permission_approved": {"zh-CN": "权限已批准，正在恢复...", "en-US": "Permission approved, resuming..."},
     "print_mode_permission_always_approved": {"zh-CN": "权限已永久批准，正在恢复...", "en-US": "Permission approved (always), resuming..."},
-    "print_mode_permission_denied": {"zh-CN": "权限已拒绝，正在恢复...", "en-US": "Permission denied, resuming..."},
+    "print_mode_permission_denied_resuming": {"zh-CN": "权限已拒绝，正在恢复...", "en-US": "Permission denied, resuming..."},
     "print_mode_permission_resuming": {"zh-CN": "正在恢复权限审批后的操作...", "en-US": "Resuming after permission approval..."},
     "channel_plan_entered": {"zh-CN": "📋 已进入计划模式，代理正在规划方案", "en-US": "📋 Entered plan mode, agent is planning"},
     "channel_plan_approval_title": {"zh-CN": "📝 计划审批", "en-US": "📝 Plan Approval"},
