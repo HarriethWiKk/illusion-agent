@@ -476,7 +476,7 @@ async def run_query(
                         content=f"Permission denied for {tc.name}" if tc.name == exc.tool_name else f"Tool {tc.name} interrupted",
                         is_error=True,
                     )
-            filtered_results = [r for r in tool_results_list if r is not None]
+            filtered_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
             messages.append(ConversationMessage(role="user", content=filtered_results))
             yield ErrorEvent(message=t("permission_denied_stopped", tool=exc.tool_name)), None
             return
@@ -491,8 +491,8 @@ async def run_query(
         ), None
 
         # 将工具结果作为用户消息添加到历史记录
-        filtered_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
-        messages.append(ConversationMessage(role="user", content=filtered_results))
+        all_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
+        messages.append(ConversationMessage(role="user", content=all_results))
 
     # 超出最大轮次限制
     if context.max_turns is not None:

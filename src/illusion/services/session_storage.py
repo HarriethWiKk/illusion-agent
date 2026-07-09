@@ -478,7 +478,8 @@ def load_pending_permission(cwd: str | Path, session_id: str) -> dict[str, Any] 
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, OSError):
         return None
 
