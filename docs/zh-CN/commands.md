@@ -178,7 +178,16 @@ illusion update --deps           # 同时更新项目依赖
 
 **交互行为**：
 
-- **权限确认**：print 模式完全非交互——`default` 模式下，需要权限的工具**直接拒绝**（无 Y/N 提示，拒绝消息输出到 stderr）；如需允许工具执行，请使用 `--permission-mode full_auto`；`plan` 模式阻止所有变更工具。
+- **权限确认**：print 模式采用跨轮次 Y/F/N 回调——`default` 模式下，需要权限的工具不会直接执行，而是持久化权限请求并以退出码 2 退出，stderr 提示 `权限请求: {tool}，请使用 illusion -c -p "Y" 允许一次 / "F" 始终允许 / "N" 拒绝`：
+  1. **第 1 轮**：`illusion -p "写文件"` → 工具需要权限 → 持久化到 `pending-permission-<session_id>.json` → 退出码 **2**
+  2. **第 2 轮**：`illusion -c -p "Y"` → 检测 pending permission → 注入审批结果 → 继续执行
+
+  **审批输入格式**（不区分大小写）：
+  - **Y** / **yes** / **批准**：允许一次（不持久化，仅当前工具调用有效）
+  - **F** / **always** / **始终**：始终允许（写入 `.illusion/permissions.json` 的 `always_allow_tools`，永久生效）
+  - **N** / 其他任何输入：拒绝（LLM 收到拒绝消息，可选择其他方案）
+
+  如需完全跳过权限确认，请使用 `--permission-mode full_auto`；`plan` 模式阻止所有变更工具。
 - **ask_user_question 交互**：当 LLM 调用 ask_user_question 工具时，print 模式采用**跨轮次非交互**模式：
   1. **第 1 轮**：`illusion -p "做某事"` → agent 执行中调用 ask_user_question → 工具持久化问题到 `pending-question-<session_id>.json`，返回特殊标记作为 tool_result → agent 结束当前轮次 → 程序以**退出码 2** 退出（表示等待用户回答）
   2. **第 2 轮**：`illusion -c -p "<答案>"` → 检测到 pending question → 把答案注入为 tool_result（替换标记）→ 调用 `continue_pending` 继续执行 agent
@@ -199,7 +208,7 @@ illusion update --deps           # 同时更新项目依赖
   1. **第 1 轮**：`illusion -p "实现功能X"` → 代理进入计划模式、编写计划文件、调用 `exit_plan_mode` → 计划持久化到 `pending-plan-approval-<session_id>.json` → 退出码 **2**
   2. **第 2 轮**：`illusion -c -p "批准"` → 检测到 pending plan approval → 注入审批结果 → 继续执行
 
-  退出码语义：0=正常完成，1=错误，2=等待用户输入（ask_user_question 或计划审批）。
+  退出码语义：0=正常完成，1=错误，2=等待用户输入（ask_user_question、计划审批或权限确认）。
 
   **审批输入格式**：输入"批准"/"approve"/"yes"/"y"（不区分大小写）表示批准；其他任何输入视为拒绝并作为反馈意见。例如 `illusion -c -p "需要增加测试用例"` 会被解析为拒绝+反馈。
 - **持久化时机**：标记"持久化"的参数会在执行提示词之前写入 `settings.json`，即使后续执行失败，持久化仍生效。

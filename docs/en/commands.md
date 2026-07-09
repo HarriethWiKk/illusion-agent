@@ -176,7 +176,16 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 
 **Interactive Behavior**:
 
-- **Permission confirmation**: Print mode is fully non-interactive — in `default` mode, tools requiring permission are **directly denied** (no Y/N prompt, denial message printed to stderr); use `--permission-mode full_auto` to allow tools to execute; `plan` mode blocks all mutation tools.
+- **Permission confirmation**: Print mode uses a cross-turn Y/F/N callback — in `default` mode, tools requiring permission do not execute directly; instead the permission request is persisted and the program exits with code 2, stderr shows `Permission request: {tool}. Use illusion -c -p "Y" to allow once / "F" to always allow / "N" to deny`:
+  1. **Turn 1**: `illusion -p "write a file"` → tool requires permission → persisted to `pending-permission-<session_id>.json` → exit code **2**
+  2. **Turn 2**: `illusion -c -p "Y"` → detects pending permission → injects approval result → resumes execution
+
+  **Approval input format** (case-insensitive):
+  - **Y** / **yes** / **approve**: Allow once (not persisted, effective only for the current tool call)
+  - **F** / **always**: Always allow (writes to `.illusion/permissions.json`'s `always_allow_tools`, permanently effective)
+  - **N** / any other input: Deny (LLM receives denial message, may try alternative approaches)
+
+  Use `--permission-mode full_auto` to skip permission confirmation entirely; `plan` mode blocks all mutation tools.
 - **ask_user_question interaction**: When the LLM calls the ask_user_question tool, print mode uses a **cross-turn non-interactive** pattern:
   1. **Turn 1**: `illusion -p "do something"` → agent calls ask_user_question during execution → tool persists the question to `pending-question-<session_id>.json`, returns a special marker as tool_result → agent ends the turn → program exits with **exit code 2** (indicating waiting for user answer)
   2. **Turn 2**: `illusion -c -p "<answer>"` → detects pending question → injects the answer as tool_result (replacing the marker) → calls `continue_pending` to resume agent execution
@@ -197,7 +206,7 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
   1. **Turn 1**: `illusion -p "implement feature X"` → agent enters plan mode, writes plan file, calls `exit_plan_mode` → plan persisted to `pending-plan-approval-<session_id>.json` → exit code **2**
   2. **Turn 2**: `illusion -c -p "approve"` → detects pending plan approval → injects approval result → resumes execution
 
-  Exit code semantics: 0=normal completion, 1=error, 2=waiting for user input (ask_user_question or plan approval).
+  Exit code semantics: 0=normal completion, 1=error, 2=waiting for user input (ask_user_question, plan approval, or permission confirmation).
 
   **Approval input format**: Input "approve"/"yes"/"y" (case-insensitive) means approved; any other input is treated as rejection with the input as feedback. For example, `illusion -c -p "need more test cases"` is parsed as reject + feedback.
 - **Persistence timing**: Parameters marked "Persists" are written to `settings.json` before executing the prompt, so persistence takes effect even if subsequent execution fails.

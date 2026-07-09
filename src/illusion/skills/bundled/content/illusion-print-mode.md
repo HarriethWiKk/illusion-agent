@@ -23,25 +23,45 @@ illusion -p "<prompt>"
 
 ## Permission Modes (Critical)
 
-Print mode never prompts for permission. Choose explicitly:
+Print mode uses cross-turn Y/F/N callback for permissions. Choose explicitly:
 
 | Mode | Behavior | Use When |
 |------|----------|----------|
-| `default` (omit) | Mutating tools **directly denied** | Read-only analysis, research |
-| `full_auto` | All tools execute | Writing files, running commands |
+| `default` (omit) | Mutating tools trigger **cross-turn Y/F/N approval** | Interactive-ish workflows, selective approval |
+| `full_auto` | All tools execute | Fully autonomous, writing files, running commands |
 | `plan` | All mutation tools blocked | Planning only |
 
 > **Note**: In print mode, `plan` mode uses cross-turn approval. When the agent calls `exit_plan_mode`, the plan is persisted and the process exits with code 2. Resume with `illusion -c -p "approve"` (or any feedback text to reject).
 
+### `default` mode: Cross-Turn Permission Approval (Y/F/N)
+
+In `default` mode, when a tool requires permission, print mode does NOT block or directly deny. Instead:
+
+1. **Turn 1**: `illusion -p "write a file"` → tool needs permission → persisted to `pending-permission-<session_id>.json` → exit code **2**, stderr shows guidance with tool name and Y/F/N commands
+2. **Turn 2**: `illusion -c -p "Y"` → detects pending permission → injects approval → resumes execution
+
+**Approval input** (case-insensitive):
+
+| Input | Meaning | Persistence |
+|-------|---------|-------------|
+| `Y` / `yes` / `approve` | Allow once | None — only this tool call |
+| `F` / `always` | Always allow | `.illusion/permissions.json` `always_allow_tools` (permanent) |
+| `N` / other | Deny | None — LLM receives denial, may try alternatives |
+
 ```bash
-# Read-only — safe, no side effects
+# Read-only — safe, no side effects (no permission needed)
 illusion -p "Analyze the project structure"
 
 # Allow writes/commands — must be explicit
 illusion --permission-mode full_auto -p "Fix the failing tests"
-```
 
-If a tool is denied, stderr shows: `⏸️ Permission denied: <tool> (<reason>). ... use --permission-mode full_auto to allow`
+# default mode with Y/F/N approval
+illusion -p "Write a test file"
+# → exit 2, stderr: "Permission request: write_file. Use Y/F/N..."
+illusion -c -p "Y"   # allow once
+illusion -c -p "F"   # always allow (persists)
+illusion -c -p "N"   # deny
+```
 
 ## ask_user_question: Cross-Turn Non-Interactive Pattern
 
@@ -86,7 +106,7 @@ Identical to ask_user_question's cross-turn mechanism:
 |------|---------|-------------|
 | 0 | Normal completion | Read stdout for result |
 | 1 | Error | Check stderr for details |
-| 2 | Waiting for user answer (ask_user_question or plan approval) | Answer with `illusion -c -p "<answer>"` (or `"approve"` for plan approval) |
+| 2 | Waiting for user input (ask_user_question, plan approval, or permission approval) | Answer with `illusion -c -p "<answer>"` (answer for question, `"approve"` for plan, `"Y"`/`"F"`/`"N"` for permission) |
 
 ## Session Resume
 
@@ -171,7 +191,8 @@ illusion -m env_1.model_2 -e high -t 20 --permission-mode full_auto -c -p "Compl
 
 - **Don't** expect interactive prompts — print mode never waits
 - **Don't** put `-p` value before other flags — it must be last
-- **Don't** forget `--permission-mode full_auto` when writes are needed
-- **Don't** ignore exit code 2 — it means a question needs answering
+- **Don't** forget `--permission-mode full_auto` when writes are needed and you want to skip Y/F/N approval
+- **Don't** ignore exit code 2 — it means a question, plan approval, or permission approval needs answering
 - **Don't** use `--dangerously-skip-permissions` — prefer `--permission-mode full_auto` (explicit intent)
 - **Don't expect plan approvals to be automatic** in `default` print mode. If you want auto-approval, use `--permission-mode full_auto`.
+- **Don't** assume `default` mode denies all tools — it now uses cross-turn Y/F/N approval; respond with `Y`/`F`/`N` on exit code 2.
