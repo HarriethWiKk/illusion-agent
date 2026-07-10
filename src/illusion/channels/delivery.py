@@ -331,9 +331,17 @@ async def _deliver_weixin(
         async with aiohttp.ClientSession(trust_env=True, connector=connector) as session:
             # 尝试从持久化文件加载 context_token
             context_token = _load_weixin_context_token(chat_id)
+            if not context_token:
+                logger.error(
+                    "微信文本投递缺少 context_token (chat_id=%s)，"
+                    "iLink API 会静默不投递。"
+                    "context_token 会在 24 小时后过期，请让用户重新发送一条消息给机器人以建立会话。",
+                    chat_id,
+                )
+                return False
             logger.info(
-                "微信投递开始: chat_id=%s text_len=%d has_ctx=%s",
-                chat_id, len(text), bool(context_token),
+                "微信投递开始: chat_id=%s text_len=%d has_ctx=True",
+                chat_id, len(text),
             )
 
             # 分片投递：微信 _split_text 段落边界，max_len=2000
@@ -704,17 +712,17 @@ async def _deliver_file_weixin(
         async with aiohttp.ClientSession(trust_env=True, connector=connector) as session:
             context_token = _load_weixin_context_token(chat_id)
             if not context_token:
-                logger.warning(
+                logger.error(
                     "微信文件投递缺少 context_token (chat_id=%s)，"
-                    "iLink API 可能返回 errcode==0 但静默不投递。"
-                    "请确认微信 daemon 已收到过该用户的消息。",
+                    "iLink API 会静默不投递。"
+                    "context_token 会在 24 小时后过期，请让用户重新发送一条消息给机器人以建立会话。",
                     chat_id,
                 )
-            else:
-                logger.info(
-                    "微信文件投递: chat_id=%s has_context_token=True",
-                    chat_id,
-                )
+                return False
+            logger.info(
+                "微信文件投递: chat_id=%s has_context_token=True",
+                chat_id,
+            )
 
             # 获取上传 URL
             upload_response = await get_upload_url(

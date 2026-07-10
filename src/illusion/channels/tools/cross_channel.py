@@ -303,8 +303,15 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
                     return ToolResult(
                         output=f"Sent {path.name} to {arguments.channel_name}:{arguments.chat_id}"
                     )
+                # 提供更详细的错误信息
+                error_hint = ""
+                if arguments.channel_name == "weixin":
+                    error_hint = (
+                        " WeChat context_token expires after 24 hours. "
+                        "Ask the user to send a message to the bot in WeChat to re-establish the session."
+                    )
                 return ToolResult(
-                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}",
+                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}.{error_hint}",
                     is_error=True,
                 )
             else:
@@ -322,8 +329,15 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
                     return ToolResult(
                         output=f"Sent text message to {arguments.channel_name}:{arguments.chat_id}"
                     )
+                # 提供更详细的错误信息
+                error_hint = ""
+                if arguments.channel_name == "weixin":
+                    error_hint = (
+                        " WeChat context_token expires after 24 hours. "
+                        "Ask the user to send a message to the bot in WeChat to re-establish the session."
+                    )
                 return ToolResult(
-                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}",
+                    output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}.{error_hint}",
                     is_error=True,
                 )
         except Exception as exc:  # noqa: BLE001

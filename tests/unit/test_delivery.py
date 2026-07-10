@@ -195,7 +195,7 @@ async def test_deliver_file_weixin_success(tmp_path: Path) -> None:
          patch("illusion.channels.weixin.ilink_api._api_post", new_callable=AsyncMock) as mock_post, \
          patch("illusion.channels.weixin.ilink_api._make_ssl_connector", return_value=None), \
          patch("illusion.channels.weixin.ilink_api.send_message", new_callable=AsyncMock) as mock_send, \
-         patch("illusion.channels.delivery._load_weixin_context_token", return_value=""):
+         patch("illusion.channels.delivery._load_weixin_context_token", return_value="valid_context_token"):
         mock_get_url.return_value = {"upload_full_url": "https://cdn.example.com/upload"}
         mock_upload.return_value = "encrypted_param"
         mock_post.return_value = {"errcode": 0}
