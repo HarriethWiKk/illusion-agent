@@ -1,6 +1,17 @@
 """引用计数工具测试"""
 from __future__ import annotations
 
+import warnings
+
+# 忽略 ref_count 的 DeprecationWarning（测试旧代码兼容性）
+# 注意：由于 ref_count.py 使用 stacklevel=2，warning 归属于调用方而非 ref_count 模块，
+# 因此用 message 匹配代替 module 匹配
+warnings.filterwarnings(
+    "ignore",
+    message=r".*已被 daemon_ipc 替代.*",
+    category=DeprecationWarning,
+)
+
 import asyncio
 import os
 from pathlib import Path

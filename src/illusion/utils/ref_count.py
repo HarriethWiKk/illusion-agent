@@ -1,30 +1,35 @@
-"""引用计数工具
-=============
+"""引用计数工具（已废弃）
+========================
 
-为 cron 守护进程和渠道守护进程提供引用计数管理。
+.. deprecated::
+    此模块已被 daemon_ipc.py 的 IPC 连接机制替代。
+    新代码应使用 DaemonServer/DaemonClient 管理守护进程生命周期。
+    保留此模块仅为向后兼容，不再用于生产环境。
 
-多个主程序（illusion / illusion web）共享一个守护进程时，
-通过 refs 文件记录所有引用方主程序的 PID。守护进程定期自监控，
-refs 为空时自动退出。
+原功能说明（仅参考）：
+    为 cron 守护进程和渠道守护进程提供引用计数管理。
+    多个主程序（illusion / illusion web）共享一个守护进程时，
+    通过 refs 文件记录所有引用方主程序的 PID。守护进程定期自监控，
+    refs 为空时自动退出。
 
-文件格式：每行一个 PID（纯文本，便于追加和人工检查）。
+    文件格式：每行一个 PID（纯文本，便于追加和人工检查）。
 
-主要函数：
-    - add_ref: 追加 PID 到引用文件（去重 + 原子写）
-    - remove_ref: 移除 PID（不存在时静默）
-    - alive_refs: 读取并清理死 PID，返回存活列表
-    - ref_monitor_loop: 异步自监控循环（守护进程使用）
-
-使用示例：
-    >>> from illusion.utils.ref_count import add_ref, remove_ref, alive_refs
-    >>> from pathlib import Path
-    >>> refs = Path("/tmp/test.refs")
-    >>> add_ref(refs, 12345)
-    >>> alive_refs(refs)
-    [12345]
-    >>> remove_ref(refs, 12345)
+    主要函数：
+        - add_ref: 追加 PID 到引用文件（去重 + 原子写）
+        - remove_ref: 移除 PID（不存在时静默）
+        - alive_refs: 读取并清理死 PID，返回存活列表
+        - ref_monitor_loop: 异步自监控循环（守护进程使用）
 """
 from __future__ import annotations
+
+import warnings
+
+# 模块加载时发出 DeprecationWarning
+warnings.warn(
+    "illusion.utils.ref_count 已被 daemon_ipc 替代，请使用 IPC 连接机制",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import logging
