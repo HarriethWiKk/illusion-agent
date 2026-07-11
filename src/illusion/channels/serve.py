@@ -13,6 +13,7 @@ import asyncio  # 异步
 import logging  # 日志
 import os  # 进程强制退出
 import signal  # 信号处理
+import time  # 时间戳（_EventWatchdog 用）
 from typing import TYPE_CHECKING, Any  # 类型
 
 from illusion.channels.config import ChannelsConfig, load_channels_config  # 配置
@@ -24,6 +25,21 @@ logger = logging.getLogger(__name__)  # 日志器
 
 # 渠道守护进程看门狗退避：runner 异常退出后自动重启的间隔
 SUPERVISOR_BACKOFF_SECONDS = (5.0, 10.0, 30.0)
+
+# 模块级变量，存储当前 runners 引用（用于 get_channel_status）
+_active_runners: list[Any] = []
+
+
+def get_channel_status() -> dict:
+    """获取渠道状态（用于 pong 响应）"""
+    status = {}
+    for runner in _active_runners:
+        channel = getattr(runner, "channel", None)
+        if channel is None:
+            continue
+        name = getattr(channel, "name", "unknown")
+        status[name] = {"healthy": True}
+    return status
 
 
 def _check_channel_dependencies(cfg: ChannelsConfig) -> bool:
@@ -55,100 +71,64 @@ def _check_channel_dependencies(cfg: ChannelsConfig) -> bool:
 
 
 def run_channel_serve() -> None:
-    """渠道守护进程主入口
+    """渠道守护进程主入口（IPC 版）
 
-    读取 channels.json，启动所有 enabled 渠道，监听消息直至收到中断信号。
-    缺少渠道 SDK 依赖时打印提示并返回（不崩溃）。
-
-    Windows 下 Ctrl+C 通过 KeyboardInterrupt 捕获，关闭后用 os._exit 确保退出
-    （WS executor 线程可能无法干净终止）。
+    读取 channels.json，启动 DaemonServer 和所有 enabled 渠道。
+    连接归零时自动退出。
     """
-    # 启动前检查：若已有守护进程在运行（PID 文件指向存活进程），则拒绝启动
-    # 防止 maybe_spawn_channel_daemon 竞态条件导致两个守护进程同时运行
-    # （两个进程同时 spawn 时，PID 文件写入有竞态，可能都写入成功导致孤儿）
     from illusion.config.paths import get_channels_data_dir
-    from illusion.channels.pid import PidFile, read_pid
     from illusion.config.i18n import t
-
-    data_dir = get_channels_data_dir()
-    pid_file = PidFile(data_dir / "daemon.pid")
-    if pid_file.is_running():
-        existing_pid = read_pid(pid_file.path) or 0
-        # 当前进程的 PID 与 PID 文件记录的不同 → 已有另一个守护进程在运行
-        if existing_pid and existing_pid != os.getpid():
-            print(t("channel_daemon_already_running",
-                    pid=existing_pid, pid_file=pid_file.path))
-            return
 
     cfg = load_channels_config()
     settings = _load_settings_safely()
 
     if not cfg.has_enabled_channels():
-        from illusion.config.i18n import t
         print(t("channel_none_configured"))
         return
 
-    # 检查渠道依赖（遍历 registry）
     if not _check_channel_dependencies(cfg):
         return
 
-    # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
-    # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
-    # 故额外用 RotatingFileHandler 直接写文件，确保日志可靠落盘 + 自动轮转
-    # 轮转策略：单文件最大 10MB，保留 5 个备份（总计约 60MB），避免无限增长
+    # 配置日志
     from logging.handlers import RotatingFileHandler
-
-    from illusion.config.paths import get_channels_data_dir
     log_path = get_channels_data_dir() / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
-    # 文件 handler（可靠写盘 + 大小轮转：10MB × 5 备份）
     file_handler = RotatingFileHandler(
-        log_path,
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5,
-        encoding="utf-8",
+        log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
-    # stdout handler（前台运行时可见；detached 时可能缓冲但不影响文件）
-    # 注：守护进程通过 PYTHONIOENCODING=utf-8 启动，避免 Windows GBK 编码问题
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
     logger.info("渠道守护进程启动，日志文件: %s", log_path)
 
-    # 写入当前进程 PID 到 PID 文件（覆盖 maybe_spawn_channel_daemon 写入的 PID）
-    # 确保后续 maybe_spawn_channel_daemon 检查时能正确识别当前守护进程
-    try:
-        pid_file.acquire(os.getpid())
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("写入 daemon.pid 失败: %s", exc)
+    # 清理旧文件
+    from illusion.channels import _cleanup_old_channel_files, _config_fingerprint
+    _cleanup_old_channel_files(get_channels_data_dir())
+
+    # 启动 IPC 服务端
+    from illusion.daemon_ipc import DaemonServer, DaemonType
+    fingerprint = _config_fingerprint(cfg)
+    server = DaemonServer(
+        daemon_type=DaemonType.CHANNEL,
+        daemon_pid=os.getpid(),
+        fingerprint=fingerprint,
+    )
 
     try:
-        asyncio.run(_serve_async(cfg, settings, pid_file))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.start())
+        loop.run_until_complete(_serve_async(cfg, settings, server))
     except KeyboardInterrupt:
-        stream_handler.flush()
-        file_handler.flush()
-        from illusion.config.i18n import t
-        print()
-        print(t("channel_interrupted_closing"))
-        # 关键：_force_shutdown 调用 os._exit(0) 会跳过 finally 块，
-        # 必须在此处先释放 PID 文件，避免 daemon.pid 残留导致重启时误判
-        try:
-            pid_file.release()
-        except Exception:  # noqa: BLE001
-            pass
-        # 关闭资源后强制退出（WS executor 线程可能阻塞 os.kill 无法终止）
-        _force_shutdown()
+        pass
     finally:
-        # 覆盖正常退出路径（ref_monitor_loop 触发 stop_event 后 asyncio.run 正常返回）
-        try:
-            pid_file.release()
-        except Exception:  # noqa: BLE001
-            pass
+        loop.run_until_complete(server.stop())
+        loop.close()
 
 
 def _load_settings_safely() -> Any:
@@ -226,13 +206,72 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
             backoff_idx = 0
 
 
-async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None) -> None:
-    """异步 serve 所有启用渠道
+class _EventWatchdog:
+    """事件超时看门狗
+
+    监控渠道最后事件时间，超时且 health_probe 失败时
+    退出看门狗，让 _supervise 检测到异常重启 runner。
+
+    Note: health_probe() 在 Task 4 中添加到 Channel 基类。
+    在此之前 health_probe 不存在会触发 AttributeError，
+    被 except 捕获后 healthy=False，看门狗会退出。
+    这在 Task 3 和 Task 4 之间的间隙是可接受的：
+    5分钟超时后看门狗退出，但守护进程继续运行。
+    """
+
+    def __init__(self, runner: Any, stop_event: asyncio.Event, timeout: float = 300.0) -> None:
+        self._runner = runner
+        self._stop_event = stop_event
+        self._timeout = timeout
+        self._last_event_time = time.monotonic()
+
+    def on_event(self) -> None:
+        """收到渠道事件时调用，重置计时器"""
+        self._last_event_time = time.monotonic()
+
+    async def run(self) -> None:
+        """看门狗主循环，每 30s 检查一次"""
+        channel = self._runner.channel
+        # 设置回调，让 runner 在收到消息时更新计时器
+        if hasattr(channel, "_event_watchdog"):
+            channel._event_watchdog = self
+
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=30.0)
+                return  # stop_event 触发
+            except asyncio.TimeoutError:
+                pass
+
+            # 检查事件超时
+            elapsed = time.monotonic() - self._last_event_time
+            if elapsed < self._timeout:
+                continue  # 未超时
+
+            # 超时，检查渠道健康
+            try:
+                healthy = await channel.health_probe()
+            except Exception:  # noqa: BLE001
+                healthy = False
+
+            if not healthy:
+                logger.warning(
+                    "渠道 %s 事件超时（%ds）且 health_probe 失败，判定僵死",
+                    channel.name, int(elapsed),
+                )
+                return  # 退出看门狗，_supervise 会检测到 runner 异常
+            else:
+                # health_probe 成功，可能只是无消息，重置计时器
+                self._last_event_time = time.monotonic()
+
+
+async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
+    """异步 serve 所有启用渠道（IPC 版）
 
     Args:
         cfg: 渠道配置
         settings: 主设置
-        pid_file: PID 文件管理对象，关闭完成后释放以避免重启时误判
+        server: DaemonServer 实例
     """
     from illusion.config.i18n import t
     from illusion.config.paths import get_channels_data_dir
@@ -240,7 +279,9 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None)
     from illusion.channels import ChannelRunner
     from illusion.channels.base import Channel
 
-    runners: list[Any] = []  # ChannelRunner 列表
+    global _active_runners
+
+    runners: list[Any] = []
     from illusion.channels.registry import ChannelRegistry
 
     for desc in ChannelRegistry.all_descriptors():
@@ -250,20 +291,15 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None)
         if settings is None:
             continue
 
-        # 启动文案：从 descriptor 读取 i18n key 和是否需要 {channel} 参数
         if desc.start_msg_needs_channel_name:
             print(t(desc.start_msg_key, channel=desc.name))
         else:
             print(t(desc.start_msg_key))
 
-        # 创建渠道适配器实例
         channel: Channel = desc.adapter_class(channel_cfg, settings)
-        # 确保渠道会话目录存在
         channel_data_dir = get_channels_data_dir() / desc.name / "sessions"
         channel_data_dir.mkdir(parents=True, exist_ok=True)
-        # 群组会话隔离：微信只私聊固定 False，其他渠道从配置读取
         group_sessions_per_user = getattr(channel_cfg, "group_sessions_per_user", False)
-        # 基础 runner_kwargs + 渠道特有额外参数（通过 descriptor 工厂注入）
         runner_kwargs: dict[str, Any] = {
             "channel": channel,
             "settings": settings,
@@ -279,7 +315,9 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None)
         print(t("channel_none_configured"))
         return
 
-    # 信号处理：Unix 下注册信号，Windows 下依赖 KeyboardInterrupt
+    # 更新模块级 runners 引用（供 get_channel_status 使用）
+    _active_runners = runners
+
     stop_event = asyncio.Event()
 
     def _on_signal(*_: Any) -> None:
@@ -290,37 +328,32 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None)
         loop.add_signal_handler(signal.SIGINT, _on_signal)
         loop.add_signal_handler(signal.SIGTERM, _on_signal)
     except (NotImplementedError, RuntimeError, AttributeError):
-        # Windows 不支持 add_signal_handler，Ctrl+C 会触发 KeyboardInterrupt
-        # 在 asyncio.run 层捕获
         pass
 
     print(t("channel_press_exit"))
 
-    # 启动所有 runner（通过 _supervise 看门狗监督，异常后自动重启）
+    # 启动 runner 看门狗
     tasks = [
         asyncio.create_task(_supervise(r, stop_event)) for r in runners
     ]
 
-    # 启动引用计数自监控（refs 为空时触发 stop_event）
-    from illusion.utils.ref_count import ref_monitor_loop
-    from illusion.config.paths import get_channels_data_dir
-    monitor_task = asyncio.create_task(
-        ref_monitor_loop(
-            stop_event,
-            get_channels_data_dir() / "daemon.refs",
-        ),
-        name="channel-ref-monitor",
-    )
-    tasks.append(monitor_task)
+    # 启动事件超时看门狗（飞书等渠道）
+    for r in runners:
+        watchdog = _EventWatchdog(r, stop_event)
+        tasks.append(asyncio.create_task(watchdog.run()))
+
+    # 启动连接监控（替代 ref_monitor_loop）
+    async def _monitor():
+        await server.wait_for_no_connections(grace_seconds=3.0)
+        stop_event.set()
+    tasks.append(asyncio.create_task(_monitor(), name="channel-connection-monitor"))
 
     try:
         await stop_event.wait()
     except KeyboardInterrupt:
         pass
 
-    # 优雅关闭：取消看门狗任务并关闭各 runner
-    # 注意：WS executor 线程（lark-oapi）可能阻塞 shutdown 无法返回，
-    # 用 wait_for 加超时避免 asyncio.run 永不完成导致 finally 块不执行
+    # 优雅关闭
     for task in tasks:
         task.cancel()
     try:
@@ -338,21 +371,10 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, pid_file: Any = None)
         except Exception as exc:  # noqa: BLE001
             logger.warning("关闭渠道异常: %s", exc)
 
-    # 关键：_serve_async 正常返回后，asyncio.run 会调用
-    # loop.shutdown_default_executor() 等待所有 executor 线程完成。
-    # 但飞书 WS 客户端通过 run_in_executor 在默认线程池中阻塞运行，
-    # 不会响应 cancel → shutdown_default_executor 挂起 → asyncio.run 永不返回
-    # → run_channel_serve 的 finally 块不执行 → daemon.pid 残留。
-    # 因此必须在协程内部完成 PID 释放并强制退出。
-    if pid_file is not None:
-        try:
-            pid_file.release()
-            logger.info("守护进程关闭完成，已释放 PID 文件")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("释放 PID 文件失败: %s", exc)
-    # 强制退出，跳过 asyncio.run 的 executor 清理（会挂起）
-    logger.info("守护进程强制退出")
-    # 刷新所有日志 handler 确保落盘
+    # 清空 runners 引用
+    _active_runners = []
+
+    # 强制退出（WS executor 线程可能阻塞 asyncio.run 的清理）
     for h in logging.getLogger().handlers:
         try:
             h.flush()
