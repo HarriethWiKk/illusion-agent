@@ -599,7 +599,6 @@ class OpenAICompatibleClient:
 
         # Gemini — 需要 include_thoughts 才返回思考内容
         # 注意：Gemini OpenAI 兼容端点要求 google 字段嵌套在 extra_body 内
-        # 已知限制：include_thoughts 会把思考混入 content，无法自动分离
         if model_lower.startswith("gemini") and not model_lower.startswith("gemma"):
             return {"extra_body": {"google": {"thinking_config": {"include_thoughts": True}}}}
 
