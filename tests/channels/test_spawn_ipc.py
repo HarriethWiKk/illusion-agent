@@ -57,18 +57,33 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.connect", _fake_connect)
 
     async def _fake_register(self):
-        return {"type": "restart_required"}
+        # 返回 daemon_pid 以触发杀旧进程路径
+        return {"type": "restart_required", "daemon_pid": 99999}
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
-    # 模拟杀旧进程（避免实际杀进程）
-    monkeypatch.setattr("os.kill", lambda *a: None)
+    # 跟踪杀旧进程调用（Unix 用 os.kill；Windows 用 ctypes OpenProcess，PID 不存在返回 0）
+    kill_called: list[bool] = []
+    if os.name != "nt":
+        def _track_kill(pid, sig):
+            kill_called.append(True)
+            raise ProcessLookupError(f"测试 mock: PID {pid} 不存在")
+        monkeypatch.setattr("os.kill", _track_kill)
 
-    # 模拟 subprocess.Popen
+    # 跟踪 subprocess.Popen 调用
+    spawn_calls: list[list[str]] = []
+
     class _FakeProc:
         pid = 99999
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: _FakeProc())
+
+    def _fake_popen(*args, **kwargs):
+        spawn_calls.append(args[0] if args else [])
+        return _FakeProc()
+    monkeypatch.setattr("subprocess.Popen", _fake_popen)
 
     proc, client = maybe_spawn_channel_daemon()
-    # restart_required 后会尝试 spawn 新进程
-    # 在测试环境中 spawn 会成功（mock），但后续轮询连接可能失败
-    # 不崩溃即算通过
+    # 验证 spawn 发生（指纹不匹配时应 spawn 新进程）
+    assert proc is not None, "指纹不匹配时应 spawn 新进程"
+    assert len(spawn_calls) >= 1, "应调用 subprocess.Popen 至少一次"
+    # 验证杀旧进程被尝试（Unix 下可跟踪 os.kill；Windows 下 ctypes 路径也会执行但不抛异常）
+    if os.name != "nt":
+        assert kill_called, "指纹不匹配时应尝试杀旧进程"

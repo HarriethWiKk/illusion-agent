@@ -130,13 +130,17 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
         # 连接失败：清理旧文件
         _cleanup_old_channel_files(data_dir)
 
-    # spawn 新守护进程
+    # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
     creation_flags = 0
     if os.name == "nt":
+        # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         creation_flags = 0x00000008 | 0x00000200
 
     log_path = data_dir / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # daemon 的 cwd：优先用主进程 cwd，失效时回退到 data_dir，避免
+    # build_runtime → load_plugins → get_project_plugins_dir 的 mkdir 因
+    # cwd 无效抛 WinError 267（如主进程从临时目录启动后被清理）。
     try:
         daemon_cwd = str(Path.cwd())
     except (OSError, FileNotFoundError):
@@ -144,6 +148,7 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
 
     try:
         log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
+        # 继承当前环境并强制 UTF-8 编码，避免 Windows GBK 遇到 emoji 崩溃
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "channel", "serve"],

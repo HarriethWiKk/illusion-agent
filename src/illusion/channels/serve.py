@@ -89,18 +89,24 @@ def run_channel_serve() -> None:
     if not _check_channel_dependencies(cfg):
         return
 
-    # 配置日志
+    # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
+    # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
+    # 故额外用 RotatingFileHandler 直接写文件，确保日志可靠落盘 + 自动轮转
+    # 轮转策略：单文件最大 10MB，保留 5 个备份（总计约 60MB），避免无限增长
     from logging.handlers import RotatingFileHandler
     log_path = get_channels_data_dir() / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s")
+    # 文件 handler（可靠写盘 + 大小轮转：10MB × 5 备份）
     file_handler = RotatingFileHandler(
         log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
+    # stdout handler（前台运行时可见；detached 时可能缓冲但不影响文件）
+    # 注：守护进程通过 PYTHONIOENCODING=utf-8 启动，避免 Windows GBK 编码问题
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
@@ -291,15 +297,20 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         if settings is None:
             continue
 
+        # 启动文案：从 descriptor 读取 i18n key 和是否需要 {channel} 参数
         if desc.start_msg_needs_channel_name:
             print(t(desc.start_msg_key, channel=desc.name))
         else:
             print(t(desc.start_msg_key))
 
+        # 创建渠道适配器实例
         channel: Channel = desc.adapter_class(channel_cfg, settings)
+        # 确保渠道会话目录存在
         channel_data_dir = get_channels_data_dir() / desc.name / "sessions"
         channel_data_dir.mkdir(parents=True, exist_ok=True)
+        # 群组会话隔离：微信只私聊固定 False，其他渠道从配置读取
         group_sessions_per_user = getattr(channel_cfg, "group_sessions_per_user", False)
+        # 基础 runner_kwargs + 渠道特有额外参数（通过 descriptor 工厂注入）
         runner_kwargs: dict[str, Any] = {
             "channel": channel,
             "settings": settings,
@@ -318,6 +329,7 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
     # 更新模块级 runners 引用（供 get_channel_status 使用）
     _active_runners = runners
 
+    # 信号处理：Unix 下注册信号，Windows 下依赖 KeyboardInterrupt
     stop_event = asyncio.Event()
 
     def _on_signal(*_: Any) -> None:
@@ -328,11 +340,13 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         loop.add_signal_handler(signal.SIGINT, _on_signal)
         loop.add_signal_handler(signal.SIGTERM, _on_signal)
     except (NotImplementedError, RuntimeError, AttributeError):
+        # Windows 不支持 add_signal_handler，Ctrl+C 会触发 KeyboardInterrupt
+        # 在 asyncio.run 层捕获
         pass
 
     print(t("channel_press_exit"))
 
-    # 启动 runner 看门狗
+    # 启动所有 runner（通过 _supervise 看门狗监督，异常后自动重启）
     tasks = [
         asyncio.create_task(_supervise(r, stop_event)) for r in runners
     ]
@@ -353,7 +367,9 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
     except KeyboardInterrupt:
         pass
 
-    # 优雅关闭
+    # 优雅关闭：取消看门狗任务并关闭各 runner
+    # 注意：WS executor 线程（lark-oapi）可能阻塞 shutdown 无法返回，
+    # 用 wait_for 加超时避免 asyncio.run 永不完成导致 finally 块不执行
     for task in tasks:
         task.cancel()
     try:
@@ -374,7 +390,12 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
     # 清空 runners 引用
     _active_runners = []
 
-    # 强制退出（WS executor 线程可能阻塞 asyncio.run 的清理）
+    # 关键：_serve_async 正常返回后，asyncio.run 会调用
+    # loop.shutdown_default_executor() 等待所有 executor 线程完成。
+    # 但飞书 WS 客户端通过 run_in_executor 在默认线程池中阻塞运行，
+    # 不会响应 cancel → shutdown_default_executor 挂起 → asyncio.run 永不返回。
+    # 因此必须在协程内部强制退出，跳过 executor 清理。
+    # 强制退出，跳过 asyncio.run 的 executor 清理（会挂起）
     for h in logging.getLogger().handlers:
         try:
             h.flush()
