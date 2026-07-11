@@ -58,16 +58,23 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClient | None"]:
-    """主程序启动时自动拉起渠道守护进程（IPC 版）
+def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+    """主程序启动时自动拉起渠道守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 连接 IPC。连接成功且指纹匹配则持有 client；
     指纹不匹配则杀旧进程 spawn 新的；连接失败则 spawn 新的。
+    spawn 后立即返回，后台线程轮询连接（不阻塞主程序启动）。
 
     Returns:
-        tuple: (Popen 实例或 None, DaemonClient 实例或 None)
+        tuple: (Popen 实例或 None, DaemonClientRef 实例或 None)
     """
-    from illusion.daemon_ipc import DaemonClient, DaemonType, connect_and_register, close_client
+    from illusion.daemon_ipc import (
+        DaemonClient,
+        DaemonType,
+        DaemonClientRef,
+        connect_and_register,
+        close_client,
+    )
     from illusion.config.paths import get_channels_data_dir
 
     cfg = load_channels_config()
@@ -76,17 +83,21 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
 
     data_dir = get_channels_data_dir()
     current_fp = _config_fingerprint(cfg)
+
+    # 尝试连接已运行的守护进程
     client = DaemonClient(
         daemon_type=DaemonType.CHANNEL,
         pid=os.getpid(),
         fingerprint=current_fp,
     )
-
     connected, resp = connect_and_register(client)
 
     if connected:
         if resp is not None and resp.get("type") == "ok":
-            return None, client  # 指纹匹配，持有连接
+            # 指纹匹配：包装到 ref 并返回
+            ref = DaemonClientRef()
+            ref.set(client)
+            return None, ref
 
         # 指纹不匹配：杀旧进程
         daemon_pid = client.daemon_pid
@@ -104,24 +115,18 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
                     os.kill(daemon_pid, signal.SIGTERM)
             except (OSError, ProcessLookupError):
                 pass
-        # 关闭旧连接
         close_client(client)
         # 继续向下 spawn 新进程
     else:
-        # 连接失败：清理旧文件
         _cleanup_old_channel_files(data_dir)
 
     # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
     creation_flags = 0
     if os.name == "nt":
-        # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         creation_flags = 0x00000008 | 0x00000200
 
     log_path = data_dir / "serve.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    # daemon 的 cwd：优先用主进程 cwd，失效时回退到 data_dir，避免
-    # build_runtime → load_plugins → get_project_plugins_dir 的 mkdir 因
-    # cwd 无效抛 WinError 267（如主进程从临时目录启动后被清理）。
     try:
         daemon_cwd = str(Path.cwd())
     except (OSError, FileNotFoundError):
@@ -129,7 +134,6 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
 
     try:
         log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
-        # 继承当前环境并强制 UTF-8 编码，避免 Windows GBK 遇到 emoji 崩溃
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "channel", "serve"],
@@ -145,26 +149,52 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
         logger.warning("启动渠道守护进程失败: %s", exc)
         return None, None
 
-    # 轮询连接（每次 connect+register 在独立事件循环中完成）
+    # 异步连接：后台线程轮询，不阻塞主程序启动
+    ref = DaemonClientRef()
+    _start_bg_connect(
+        daemon_type=DaemonType.CHANNEL,
+        fingerprint=current_fp,
+        ref=ref,
+        name="渠道守护进程",
+    )
+
+    return proc, ref
+
+
+def _start_bg_connect(
+    daemon_type: "DaemonType",
+    fingerprint: str | None,
+    ref: "DaemonClientRef",
+    name: str,
+) -> None:
+    """启动后台线程轮询连接守护进程（不阻塞主程序）
+
+    Args:
+        daemon_type: 守护进程类型
+        fingerprint: 配置指纹（channel 用，cron 为 None）
+        ref: DaemonClientRef 容器，连接成功后 set
+        name: 日志中显示的名称
+    """
+    import threading
     import time
-    connected = False
-    for _ in range(20):
-        client = DaemonClient(
-            daemon_type=DaemonType.CHANNEL,
-            pid=os.getpid(),
-            fingerprint=current_fp,
-        )
-        ok, _ = connect_and_register(client)
-        if ok:
-            connected = True
-            break
-        time.sleep(0.5)
+    from illusion.daemon_ipc import DaemonClient, connect_and_register
 
-    if not connected:
-        logger.warning("渠道守护进程 spawn 后 10s 内未能连接")
-        return proc, None
+    def _bg_connect() -> None:
+        for _ in range(20):  # 最多 10s
+            client = DaemonClient(
+                daemon_type=daemon_type,
+                pid=os.getpid(),
+                fingerprint=fingerprint,
+            )
+            ok, _ = connect_and_register(client)
+            if ok:
+                ref.set(client)
+                return
+            time.sleep(0.5)
+        logger.info("%s spawn 后 10s 内未能连接", name)
 
-    return proc, client
+    t = threading.Thread(target=_bg_connect, daemon=True)
+    t.start()
 
 
 def _cleanup_old_channel_files(data_dir: Path) -> None:

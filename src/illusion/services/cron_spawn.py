@@ -30,16 +30,22 @@ def _cleanup_old_pid_files(cron_dir: Path) -> None:
             pass
 
 
-def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClient | None"]:
-    """主程序启动时自动拉起 cron 守护进程
+def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+    """主程序启动时自动拉起 cron 守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 尝试连接 IPC。连接成功则持有 client 作为引用；
-    连接失败则 spawn 子进程，轮询连接成功后持有 client。
+    连接失败则 spawn 子进程，后台线程轮询连接。spawn 后立即返回，
+    不阻塞主程序启动。
 
     Returns:
-        tuple: (Popen 实例或 None, DaemonClient 实例或 None)
+        tuple: (Popen 实例或 None, DaemonClientRef 实例或 None)
     """
-    from illusion.daemon_ipc import DaemonClient, DaemonType, connect_and_register
+    from illusion.daemon_ipc import (
+        DaemonClient,
+        DaemonType,
+        DaemonClientRef,
+        connect_and_register,
+    )
 
     jobs = load_cron_jobs()
     enabled = [j for j in jobs if j.get("enabled")]
@@ -53,8 +59,10 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
     connected, _ = connect_and_register(client)
 
     if connected:
-        # 守护进程已在运行，持有连接作为引用
-        return None, client
+        # 守护进程已在运行，包装到 ref 并返回
+        ref = DaemonClientRef()
+        ref.set(client)
+        return None, ref
 
     # 连接失败：清理旧文件并 spawn 新守护进程
     _cleanup_old_pid_files(cron_dir)
@@ -89,22 +97,45 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
         logger.warning("启动 cron 守护进程失败: %s", exc)
         return None, None
 
-    # 轮询连接（每次 connect+register 在独立事件循环中完成，最多 10s，每 0.5s 重试）
+    # 异步连接：后台线程轮询，不阻塞主程序
+    ref = DaemonClientRef()
+    _start_bg_connect(
+        daemon_type=DaemonType.CRON,
+        fingerprint=None,
+        ref=ref,
+        name="cron 守护进程",
+    )
+
+    return proc, ref
+
+
+def _start_bg_connect(
+    daemon_type: "DaemonType",
+    fingerprint: str | None,
+    ref: "DaemonClientRef",
+    name: str,
+) -> None:
+    """启动后台线程轮询连接守护进程（不阻塞主程序）"""
+    import threading
     import time
-    connected = False
-    for _ in range(20):
-        client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
-        ok, _ = connect_and_register(client)
-        if ok:
-            connected = True
-            break
-        time.sleep(0.5)
+    from illusion.daemon_ipc import DaemonClient, connect_and_register
 
-    if not connected:
-        logger.warning("cron 守护进程 spawn 后 10s 内未能连接")
-        return proc, None
+    def _bg_connect() -> None:
+        for _ in range(20):  # 最多 10s
+            client = DaemonClient(
+                daemon_type=daemon_type,
+                pid=os.getpid(),
+                fingerprint=fingerprint,
+            )
+            ok, _ = connect_and_register(client)
+            if ok:
+                ref.set(client)
+                return
+            time.sleep(0.5)
+        logger.info("%s spawn 后 10s 内未能连接", name)
 
-    return proc, client
+    t = threading.Thread(target=_bg_connect, daemon=True)
+    t.start()
 
 
 def kill_cron_daemon_by_pid() -> bool:

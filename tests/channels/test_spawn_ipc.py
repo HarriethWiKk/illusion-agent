@@ -39,10 +39,12 @@ def test_daemon_running_connects_client(monkeypatch: pytest.MonkeyPatch):
         return {"type": "ok"}
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
-    proc, client = maybe_spawn_channel_daemon()
+    proc, ref = maybe_spawn_channel_daemon()
     assert proc is None
-    assert client is not None
-    assert client.is_connected
+    assert ref is not None
+    # ref 内部应持有已连接的 client
+    assert ref._client is not None
+    assert ref._client.is_connected
 
 
 def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):

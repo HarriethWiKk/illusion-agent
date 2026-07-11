@@ -40,6 +40,37 @@ class DaemonType(Enum):
     CHANNEL = "channel"
 
 
+class DaemonClientRef:
+    """线程安全的 DaemonClient 引用容器
+
+    用于异步连接场景：spawn 守护进程后立即返回，后台线程轮询连接。
+    连接成功后调用 set() 持有 client；主程序退出时调用 close() 关闭连接。
+
+    线程安全：内部用 threading.Lock 保护。
+    """
+
+    def __init__(self) -> None:
+        self._client: "DaemonClient | None" = None
+        import threading
+        self._lock = threading.Lock()
+
+    def set(self, client: "DaemonClient") -> None:
+        """设置 client（如果已有则关闭新的）"""
+        with self._lock:
+            if self._client is None:
+                self._client = client
+            else:
+                # 已有 client（可能主程序多次调用），关闭多余的
+                close_client(client)
+
+    def close(self) -> None:
+        """关闭 client（线程安全）"""
+        with self._lock:
+            if self._client is not None:
+                close_client(self._client)
+                self._client = None
+
+
 # 默认 pipe/socket 名称
 def _default_pipe_name(daemon_type: DaemonType) -> str:
     """获取默认的 pipe/socket 名称"""

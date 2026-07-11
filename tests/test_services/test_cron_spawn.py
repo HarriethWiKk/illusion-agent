@@ -77,14 +77,16 @@ def test_daemon_running_connects_client(monkeypatch: pytest.MonkeyPatch, tmp_pat
         return {"type": "ok"}
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
-    proc, client = maybe_spawn_cron_daemon()
+    proc, ref = maybe_spawn_cron_daemon()
     assert proc is None
-    assert client is not None
-    assert client.is_connected
+    assert ref is not None
+    # ref 内部应持有已连接的 client
+    assert ref._client is not None
+    assert ref._client.is_connected
 
 
 def test_no_daemon_running_spawns_and_connects(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    """守护进程未运行时：spawn 子进程，轮询连接成功"""
+    """守护进程未运行时：spawn 子进程，后台线程异步连接"""
     monkeypatch.setattr(
         "illusion.services.cron_spawn.load_cron_jobs",
         lambda: [{"name": "j1", "enabled": True}],
@@ -111,7 +113,14 @@ def test_no_daemon_running_spawns_and_connects(monkeypatch: pytest.MonkeyPatch, 
 
     monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: _FakeProc())
 
-    proc, client = maybe_spawn_cron_daemon()
+    proc, ref = maybe_spawn_cron_daemon()
     assert proc is not None
-    assert client is not None
-    assert client.is_connected
+    assert ref is not None
+    # 后台线程异步连接：等待最多 2s 让 ref._client 被设置
+    import time
+    for _ in range(40):
+        if ref._client is not None:
+            break
+        time.sleep(0.05)
+    assert ref._client is not None, "后台线程应在 2s 内完成连接"
+    assert ref._client.is_connected

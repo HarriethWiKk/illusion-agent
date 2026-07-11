@@ -230,7 +230,7 @@ def cron_start() -> None:
     """启动 cron 调度器"""
     from illusion.services.cron_spawn import maybe_spawn_cron_daemon
 
-    proc, client = maybe_spawn_cron_daemon()
+    proc, ref = maybe_spawn_cron_daemon()
     if proc is None:
         # 已有守护进程在运行，或无启用任务
         from illusion.services.cron_scheduler import is_scheduler_running
@@ -1022,10 +1022,9 @@ def web_start(
         pass  # IPC 连接关闭即触发守护进程退出
     finally:
         # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
-        from illusion.daemon_ipc import close_client
-        for client in (_cron_client, _daemon_client):
-            if client is not None:
-                close_client(client)
+        for ref in (_cron_client, _daemon_client):
+            if ref is not None:
+                ref.close()
 
 
 # ---- update 子命令 ----
@@ -1472,10 +1471,9 @@ def main(
         pass  # IPC 连接关闭即触发守护进程退出
     finally:
         # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
-        from illusion.daemon_ipc import close_client
-        for client in (_cron_client, _daemon_client):
-            if client is not None:
-                close_client(client)
+        for ref in (_cron_client, _daemon_client):
+            if ref is not None:
+                ref.close()
 
 
 # ---- channel 子命令 ----
