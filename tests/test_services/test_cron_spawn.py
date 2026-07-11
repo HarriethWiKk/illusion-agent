@@ -33,8 +33,9 @@ def test_no_enabled_jobs_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setattr(
         "illusion.services.cron_spawn.load_cron_jobs", lambda: []
     )
-    proc = maybe_spawn_cron_daemon()
+    proc, client = maybe_spawn_cron_daemon()
     assert proc is None
+    assert client is None
 
 
 def test_no_jobs_at_all_returns_none(monkeypatch: pytest.MonkeyPatch):
@@ -42,8 +43,9 @@ def test_no_jobs_at_all_returns_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "illusion.services.cron_spawn.load_cron_jobs", lambda: []
     )
-    proc = maybe_spawn_cron_daemon()
+    proc, client = maybe_spawn_cron_daemon()
     assert proc is None
+    assert client is None
 
 
 def test_disabled_jobs_return_none(monkeypatch: pytest.MonkeyPatch):
@@ -52,50 +54,64 @@ def test_disabled_jobs_return_none(monkeypatch: pytest.MonkeyPatch):
         "illusion.services.cron_spawn.load_cron_jobs",
         lambda: [{"name": "j1", "enabled": False}],
     )
-    proc = maybe_spawn_cron_daemon()
+    proc, client = maybe_spawn_cron_daemon()
     assert proc is None
+    assert client is None
 
 
-def test_pid_running_adds_ref(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    """守护进程已在运行时追加引用并返回 None"""
+def test_daemon_running_connects_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """守护进程已在运行时：连接成功，持有 DaemonClient，返回 None"""
     monkeypatch.setattr(
         "illusion.services.cron_spawn.load_cron_jobs",
         lambda: [{"name": "j1", "enabled": True}],
     )
 
-    # 模拟 PID 文件指向存活进程
-    current_pid = os.getpid()
-    pid_path = tmp_path / "data" / "cron" / "scheduler.pid"
-    pid_path.write_text(str(current_pid), encoding="utf-8")
-
-    # PidFile.is_running 返回 True
-    def _fake_is_running(self):
+    # 模拟 DaemonClient.connect 返回 True（同时设置 _conn 使 is_connected 为 True）
+    async def _fake_connect(self):
+        self._conn = object()  # 任何非 None 值即可让 is_connected 返回 True
         return True
-    monkeypatch.setattr(
-        "illusion.channels.pid.PidFile.is_running", _fake_is_running
-    )
+    monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.connect", _fake_connect)
 
-    # 追踪 add_ref 调用
-    add_ref_calls: list[int] = []
-    def _fake_add_ref(path, pid):
-        add_ref_calls.append(pid)
-    monkeypatch.setattr(
-        "illusion.services.cron_spawn.add_ref", _fake_add_ref
-    )
+    # 模拟 DaemonClient.register 返回 {"type": "ok"}（注意：必须返回 dict，不是 bool）
+    async def _fake_register(self):
+        return {"type": "ok"}
+    monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
-    proc = maybe_spawn_cron_daemon()
+    proc, client = maybe_spawn_cron_daemon()
     assert proc is None
-    assert current_pid in add_ref_calls
+    assert client is not None
+    assert client.is_connected
 
 
-def test_kill_no_pid_returns_false(monkeypatch: pytest.MonkeyPatch):
-    """kill_cron_daemon_by_pid 无 PID 文件时返回 False"""
-    # PidFile.is_running 返回 False
-    def _fake_is_running(self):
-        return False
+def test_no_daemon_running_spawns_and_connects(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """守护进程未运行时：spawn 子进程，轮询连接成功"""
     monkeypatch.setattr(
-        "illusion.channels.pid.PidFile.is_running", _fake_is_running
+        "illusion.services.cron_spawn.load_cron_jobs",
+        lambda: [{"name": "j1", "enabled": True}],
     )
 
-    result = kill_cron_daemon_by_pid()
-    assert result is False
+    # DaemonClient.connect 第一次返回 False（未启动），之后返回 True
+    call_count = {"n": 0}
+    async def _fake_connect(self):
+        call_count["n"] += 1
+        if call_count["n"] > 1:
+            self._conn = object()  # 模拟连接已建立
+            return True
+        return False
+
+    async def _fake_register(self):
+        return {"type": "ok"}
+
+    monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.connect", _fake_connect)
+    monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
+
+    # 模拟 subprocess.Popen
+    class _FakeProc:
+        pid = 99999
+
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: _FakeProc())
+
+    proc, client = maybe_spawn_cron_daemon()
+    assert proc is not None
+    assert client is not None
+    assert client.is_connected

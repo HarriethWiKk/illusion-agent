@@ -1,10 +1,11 @@
-"""cron 守护进程主入口测试"""
+# tests/test_services/test_cron_serve.py
+"""cron 守护进程主入口测试（IPC 版）"""
 from __future__ import annotations
 
 import asyncio
 import os
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 
@@ -27,59 +28,51 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
 
 
-def test_run_cron_serve_writes_pid(tmp_path: Path):
-    """run_cron_serve 启动时写入 PID 文件"""
-    cron_dir = tmp_path / "data" / "cron"
-    pid_path = cron_dir / "scheduler.pid"
+def test_run_cron_serve_starts_server_and_serve():
+    """run_cron_serve 启动 DaemonServer 并调用 _serve_async"""
+    from illusion.daemon_ipc import DaemonServer
 
-    # PidFile.is_running 返回 False（无已有守护进程）
-    def _fake_is_running(self):
-        return False
-    with patch("illusion.channels.pid.PidFile.is_running", _fake_is_running):
-        # 模拟 _serve_async 立即返回
-        async def _fake_serve():
-            pass
-        with patch("illusion.services.cron_serve._serve_async", _fake_serve):
-            with patch("illusion.services.cron_serve._setup_logging"):
-                run_cron_serve()
+    server_instances = []
 
-    # PID 文件应在运行时写入，退出时释放
-    # 由于 run_cron_serve 在 finally 中 release，退出后文件应不存在
-    assert not pid_path.exists() or pid_path.read_text().strip() == ""
+    # 捕获 DaemonServer 实例
+    original_init = DaemonServer.__init__
+    def _capture_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        server_instances.append(self)
+    # patch DaemonServer 在 cron_serve 模块中的引用
 
+    # 模拟 server.start 和 server.stop
+    async def _fake_start(self):
+        pass
+    async def _fake_stop(self):
+        pass
 
-def test_run_cron_serve_already_running_returns(tmp_path: Path):
-    """已有守护进程在运行时静默退出"""
-    current_pid = os.getpid()
-    cron_dir = tmp_path / "data" / "cron"
-    pid_path = cron_dir / "scheduler.pid"
-    pid_path.write_text(str(current_pid + 1000), encoding="utf-8")
+    # 模拟 _serve_async 立即返回
+    serve_called = {"n": 0}
+    async def _fake_serve(server):
+        serve_called["n"] += 1
 
-    # PidFile.is_running 返回 True
-    def _fake_is_running(self):
-        return True
-    with patch("illusion.channels.pid.PidFile.is_running", _fake_is_running):
-        # _serve_async 不应被调用
-        call_count = {"n": 0}
-        async def _fake_serve():
-            call_count["n"] += 1
-        with patch("illusion.services.cron_serve._serve_async", _fake_serve):
-            with patch("illusion.services.cron_serve._setup_logging"):
-                run_cron_serve()
+    with patch("illusion.daemon_ipc.DaemonServer.start", _fake_start):
+        with patch("illusion.daemon_ipc.DaemonServer.stop", _fake_stop):
+            with patch("illusion.services.cron_serve._serve_async", _fake_serve):
+                with patch("illusion.services.cron_serve._setup_logging"):
+                    with patch("illusion.services.cron_spawn._cleanup_old_pid_files"):
+                        run_cron_serve()
 
-    assert call_count["n"] == 0
+    assert serve_called["n"] == 1
 
 
 @pytest.mark.asyncio
-async def test_serve_async_starts_scheduler_and_monitor(tmp_path: Path):
-    """_serve_async 启动调度器和自监控任务"""
-    cron_dir = tmp_path / "data" / "cron"
-    refs_path = cron_dir / "scheduler.refs"
-    refs_path.parent.mkdir(parents=True, exist_ok=True)
-    # 写入当前进程 PID 作为引用
-    refs_path.write_text(str(os.getpid()), encoding="utf-8")
+async def test_serve_async_starts_scheduler_and_waits_for_connections():
+    """_serve_async 启动调度器并等待连接归零"""
+    # 创建 mock server
+    server = MagicMock()
+    server.wait_for_no_connections = AsyncMock()
 
-    stop_event = asyncio.Event()
+    # 让 wait_for_no_connections 在 0.1s 后返回
+    async def _wait_then_return(grace_seconds=3.0):
+        await asyncio.sleep(0.1)
+    server.wait_for_no_connections.side_effect = _wait_then_return
 
     # 模拟调度器
     mock_scheduler = AsyncMock()
@@ -87,23 +80,28 @@ async def test_serve_async_starts_scheduler_and_monitor(tmp_path: Path):
     mock_scheduler.start = AsyncMock()
     mock_scheduler.stop = AsyncMock()
 
-    # 让 stop_event 在 0.1s 后触发（模拟 refs 为空或外部信号）
-    async def _trigger_stop():
-        await asyncio.sleep(0.1)
-        stop_event.set()
+    with patch("illusion.services.cron_serve.get_scheduler", return_value=mock_scheduler):
+        await _serve_async(server)
+
+    mock_scheduler.start.assert_called_once()
+    mock_scheduler.stop.assert_called_once()
+    server.wait_for_no_connections.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_serve_async_stops_scheduler_on_exception():
+    """_serve_async 异常时仍停止调度器"""
+    server = MagicMock()
+    server.wait_for_no_connections = AsyncMock(side_effect=RuntimeError("test error"))
+
+    mock_scheduler = AsyncMock()
+    mock_scheduler.is_running = False
+    mock_scheduler.start = AsyncMock()
+    mock_scheduler.stop = AsyncMock()
 
     with patch("illusion.services.cron_serve.get_scheduler", return_value=mock_scheduler):
-        with patch("illusion.services.cron_serve.ref_monitor_loop", new_callable=AsyncMock) as mock_monitor:
-            # 让 monitor_loop 把 TEST 的 stop_event 传播到 SERVE 的 stop_event
-            # （_serve_async 内部创建自己的 stop_event 并传给 ref_monitor_loop；
-            # monitor 收到的是 SERVE 的，需要从 TEST 的转发过去）
-            async def _mock_monitor(event, path, **kwargs):
-                await stop_event.wait()  # 等 TEST 的触发
-                event.set()  # 传播到 SERVE 的 stop_event
-            mock_monitor.side_effect = _mock_monitor
-
-            asyncio.create_task(_trigger_stop())
-            await _serve_async()
+        with pytest.raises(RuntimeError):
+            await _serve_async(server)
 
     mock_scheduler.start.assert_called_once()
     mock_scheduler.stop.assert_called_once()

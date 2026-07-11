@@ -1,17 +1,7 @@
-"""cron 守护进程 spawn 管理
-========================
+# src/illusion/services/cron_spawn.py
+"""cron 守护进程 spawn 逻辑
 
-主程序启动时自动拉起 cron 守护进程，使用引用计数支持多实例共享。
-
-主要函数：
-    - maybe_spawn_cron_daemon: 主程序启动时调用，有启用任务则 spawn
-    - kill_cron_daemon_by_pid: 通过 PID 文件停止守护进程
-
-使用示例：
-    >>> from illusion.services.cron_spawn import maybe_spawn_cron_daemon
-    >>> proc = maybe_spawn_cron_daemon()
-    >>> if proc:
-    ...     print(f"Started cron daemon (pid={proc.pid})")
+通过 DaemonClient/DaemonServer 管理 IPC 连接，替代 PID 文件 + refs 文件。
 """
 from __future__ import annotations
 
@@ -20,54 +10,83 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from illusion.channels.pid import PidFile, read_pid
 from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron import load_cron_jobs
-from illusion.utils.ref_count import add_ref
+
+if TYPE_CHECKING:
+    from illusion.daemon_ipc import DaemonClient
 
 logger = logging.getLogger(__name__)
 
 
-def maybe_spawn_cron_daemon() -> subprocess.Popen[bytes] | None:
+def _cleanup_old_pid_files(cron_dir: Path) -> None:
+    """清理旧版 PID/refs 文件（一次性迁移）"""
+    for name in ("scheduler.pid", "scheduler.refs", "scheduler.refs.lock"):
+        try:
+            (cron_dir / name).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClient | None"]:
     """主程序启动时自动拉起 cron 守护进程
 
-    读取 jobs.json，若有启用任务且守护进程未运行则 spawn 子进程。
-    守护进程已在运行时追加自己 PID 到 scheduler.refs。
+    通过 DaemonClient 尝试连接 IPC。连接成功则持有 client 作为引用；
+    连接失败则 spawn 子进程，轮询连接成功后持有 client。
 
     Returns:
-        subprocess.Popen 实例（spawn 了新进程）或 None（未 spawn）
+        tuple: (Popen 实例或 None, DaemonClient 实例或 None)
     """
+    import asyncio
+    from illusion.daemon_ipc import DaemonClient, DaemonType
+
     jobs = load_cron_jobs()
-    if not any(j.get("enabled", True) for j in jobs):
-        return None  # 无启用任务，跳过
+    enabled = [j for j in jobs if j.get("enabled")]
+    if not enabled:
+        return None, None
 
     cron_dir = get_cron_dir()
-    pid_file = PidFile(cron_dir / "scheduler.pid")
-    refs_path = cron_dir / "scheduler.refs"
+    client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
 
-    if pid_file.is_running():
-        # 守护进程已在运行：追加自己 PID 到 refs
-        add_ref(refs_path, os.getpid())
-        logger.debug("Cron daemon already running, added ref pid=%d", os.getpid())
-        return None
+    # 尝试连接已运行的守护进程
+    loop = asyncio.new_event_loop()
+    try:
+        connected = loop.run_until_complete(client.connect())
+    finally:
+        loop.close()
 
-    # spawn 子进程
+    if connected:
+        # 守护进程已在运行，发 register 确认
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(client.register())
+        except Exception:  # noqa: BLE001
+            # register 失败，继续持有连接（仍是有效引用）
+            pass
+        finally:
+            loop.close()
+        return None, client
+
+    # 连接失败：清理旧文件并 spawn 新守护进程
+    _cleanup_old_pid_files(cron_dir)
+
     creation_flags = 0
     if os.name == "nt":
-        # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        creation_flags = 0x00000008 | 0x00000200
+        creation_flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
 
-    log_path = get_logs_dir() / "cron_scheduler.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    # daemon 的 cwd：优先用主进程 cwd，失效时回退到 cron_dir
+    logs_dir = get_logs_dir()
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / "cron_scheduler.log"
+
     try:
         daemon_cwd = str(Path.cwd())
     except (OSError, FileNotFoundError):
         daemon_cwd = str(cron_dir)
 
     try:
-        log_file = open(log_path, "ab")  # noqa: SIM115  追加写
+        log_file = open(log_path, "ab")
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "cron", "serve"],
@@ -79,59 +98,90 @@ def maybe_spawn_cron_daemon() -> subprocess.Popen[bytes] | None:
             env=env,
             cwd=daemon_cwd,
         )
-        pid_file.acquire(proc.pid)
-        add_ref(refs_path, os.getpid())  # spawn 方也加引用
-        logger.info("Started cron daemon (pid=%d)", proc.pid)
-        return proc
     except OSError as exc:
         logger.warning("启动 cron 守护进程失败: %s", exc)
-        return None
+        return None, None
+
+    # 轮询连接（最多 10s，每 0.5s 重试）
+    loop = asyncio.new_event_loop()
+    try:
+        import time
+        connected = False
+        for _ in range(20):
+            client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
+            if loop.run_until_complete(client.connect()):
+                try:
+                    loop.run_until_complete(client.register())
+                except Exception:  # noqa: BLE001
+                    pass
+                connected = True
+                break
+            time.sleep(0.5)
+    finally:
+        loop.close()
+
+    if not connected:
+        logger.warning("cron 守护进程 spawn 后 10s 内未能连接")
+        return proc, None
+
+    return proc, client
 
 
 def kill_cron_daemon_by_pid() -> bool:
-    """通过 PID 文件停止 cron 守护进程
+    """通过 IPC 停止 cron 守护进程
 
-    不依赖 proc 引用，通过 scheduler.pid 读取 PID 后终止进程。
-    成功后清理 PID 文件和 refs 文件。
+    通过 DaemonClient 连接守护进程，发送 ping 获取 daemon_pid，
+    然后终止该进程。成功后清理 IPC 残留文件。
 
     Returns:
         bool: 成功终止返回 True，无运行中的守护进程返回 False
     """
-    cron_dir = get_cron_dir()
-    pid_file = PidFile(cron_dir / "scheduler.pid")
-    if not pid_file.is_running():
-        return False
+    import asyncio
+    from illusion.daemon_ipc import DaemonClient, DaemonType
 
-    old_pid = read_pid(pid_file.path)
-    if old_pid is None:
-        return False
+    client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
 
+    loop = asyncio.new_event_loop()
+    try:
+        connected = loop.run_until_complete(client.connect())
+        if not connected:
+            return False
+
+        pong = loop.run_until_complete(client.ping(timeout=2.0))
+        if pong is None or "daemon_pid" not in pong:
+            loop.run_until_complete(client.close())
+            return False
+
+        daemon_pid = pong["daemon_pid"]
+        loop.run_until_complete(client.close())
+    finally:
+        loop.close()
+
+    # 终止守护进程
     try:
         if os.name == "nt":
-            # Windows: taskkill /T /F 终止整个进程树
             subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(old_pid)],
+                ["taskkill", "/T", "/F", "/PID", str(daemon_pid)],
                 capture_output=True,
                 check=False,
             )
         else:
-            # Unix: 发送 SIGTERM 到进程组
             import signal
             try:
-                os.killpg(os.getpgid(old_pid), signal.SIGTERM)  # type: ignore[attr-defined]
+                os.killpg(os.getpgid(daemon_pid), signal.SIGTERM)  # type: ignore[attr-defined]
             except (ProcessLookupError, PermissionError):
                 pass
     except Exception as exc:  # noqa: BLE001
         logger.warning("停止 cron 守护进程失败: %s", exc)
         return False
 
-    # 清理 PID 和 refs 文件
-    pid_file.release()
-    refs_path = cron_dir / "scheduler.refs"
-    try:
-        refs_path.unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001
-        pass
+    # 清理 IPC 残留文件（Unix socket）
+    cron_dir = get_cron_dir()
+    if os.name != "nt":
+        try:
+            (cron_dir / "cron_daemon.sock").unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
 
-    logger.info("Stopped cron daemon (pid=%d)", old_pid)
+    logger.info("Stopped cron daemon (pid=%d)", daemon_pid)
     return True

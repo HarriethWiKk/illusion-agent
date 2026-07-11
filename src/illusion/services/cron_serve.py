@@ -1,31 +1,20 @@
+# src/illusion/services/cron_serve.py
 """cron 守护进程主入口
-====================
 
 实现 'illusion cron serve' 命令：启动 CronScheduler 后台循环，
-监控引用计数，refs 为空时自动退出。
-
-函数说明：
-    - run_cron_serve: serve 命令主入口
-    - _serve_async: 异步主循环
-    - _setup_logging: 配置日志
+通过 DaemonServer 监控 IPC 连接数，连接归零时自动退出。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-import signal
 from typing import Any
 
-from illusion.channels.pid import PidFile, read_pid
 from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron_scheduler import get_scheduler
-from illusion.utils.ref_count import ref_monitor_loop
 
 logger = logging.getLogger(__name__)
-
-# 监控间隔（与调度器 tick 一致）
-_MONITOR_INTERVAL_SECONDS = 30
 
 
 def _setup_logging() -> None:
@@ -41,7 +30,6 @@ def _setup_logging() -> None:
         "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
     )
 
-    # 文件 handler（10MB × 5 备份）
     file_handler = RotatingFileHandler(
         log_path,
         maxBytes=10 * 1024 * 1024,
@@ -51,7 +39,6 @@ def _setup_logging() -> None:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
-    # stdout handler（logging 已在模块顶部导入，直接用 logging.StreamHandler）
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
@@ -60,82 +47,73 @@ def _setup_logging() -> None:
 
 
 def run_cron_serve() -> None:
-    """cron 守护进程主入口
+    """cron 守护进程主入口（IPC 版）
 
-    启动 CronScheduler 异步循环，监控 scheduler.refs。
-    refs 为空时自动退出。
+    启动 DaemonServer 监听连接，运行 _serve_async 等待连接归零。
     """
-    cron_dir = get_cron_dir()
-    pid_file = PidFile(cron_dir / "scheduler.pid")
+    from illusion.daemon_ipc import DaemonServer, DaemonType
+    from illusion.services.cron_spawn import _cleanup_old_pid_files
 
-    # 竞态检查：已有守护进程在运行则退出
-    if pid_file.is_running():
-        existing_pid = read_pid(pid_file.path) or 0
-        if existing_pid != os.getpid():
-            logger.debug(
-                "Cron daemon already running (pid=%d), exiting", existing_pid
-            )
-            return
+    cron_dir = get_cron_dir()
+    _cleanup_old_pid_files(cron_dir)
 
     _setup_logging()
 
-    # 写入 PID
-    try:
-        pid_file.acquire(os.getpid())
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("写入 scheduler.pid 失败: %s", exc)
+    server = DaemonServer(
+        daemon_type=DaemonType.CRON,
+        daemon_pid=os.getpid(),
+    )
 
     try:
-        asyncio.run(_serve_async())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.start())
+        loop.run_until_complete(_serve_async(server))
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            pid_file.release()
-        except Exception:  # noqa: BLE001
-            pass
+        loop.run_until_complete(server.stop())
+        loop.close()
 
 
-async def _serve_async() -> None:
-    """异步主循环：调度任务 + 自监控"""
-    cron_dir = get_cron_dir()
-    refs_path = cron_dir / "scheduler.refs"
+async def _serve_async(server: Any) -> None:
+    """异步主循环：启动调度器 + 等待连接归零
 
+    Args:
+        server: DaemonServer 实例
+    """
     scheduler = get_scheduler()
     stop_event = asyncio.Event()
-
-    # 信号处理
-    loop = asyncio.get_event_loop()
-
-    def _on_signal(*_: Any) -> None:
-        stop_event.set()
-
-    try:
-        loop.add_signal_handler(signal.SIGINT, _on_signal)
-        loop.add_signal_handler(signal.SIGTERM, _on_signal)
-    except (NotImplementedError, RuntimeError, AttributeError):
-        # Windows 不支持 add_signal_handler，依赖 KeyboardInterrupt
-        pass
 
     # 启动调度器
     await scheduler.start()
 
-    # 启动自监控任务
-    monitor_task = asyncio.create_task(
-        ref_monitor_loop(
-            stop_event,
-            refs_path,
-            interval=_MONITOR_INTERVAL_SECONDS,
-        ),
-        name="cron-ref-monitor",
-    )
+    # 启动连接监控（替代 ref_monitor_loop）
+    async def _monitor():
+        await server.wait_for_no_connections(grace_seconds=3.0)
+        stop_event.set()
+
+    monitor_task = asyncio.create_task(_monitor(), name="cron-connection-monitor")
+    stop_wait_task = asyncio.create_task(stop_event.wait())
 
     try:
-        await stop_event.wait()
-    except KeyboardInterrupt:
-        pass
-
-    # 优雅关闭
-    monitor_task.cancel()
-    await scheduler.stop()
-    await asyncio.gather(monitor_task, return_exceptions=True)
+        # 同时等待 stop_event 或 monitor_task 完成
+        # monitor 异常时需要传播，使 _serve_async 退出
+        done, _ = await asyncio.wait(
+            [stop_wait_task, monitor_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        # monitor 异常结束时传播异常
+        if monitor_task in done and not monitor_task.cancelled():
+            exc = monitor_task.exception()
+            if exc is not None:
+                raise exc
+    finally:
+        monitor_task.cancel()
+        stop_wait_task.cancel()
+        for t in (monitor_task, stop_wait_task):
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+        await scheduler.stop()
