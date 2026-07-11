@@ -2,7 +2,9 @@
 """渠道 health_probe 测试"""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -19,30 +21,54 @@ async def test_default_health_probe_returns_true():
 
 
 @pytest.mark.asyncio
-async def test_feishu_health_probe_success(monkeypatch: pytest.MonkeyPatch):
-    """飞书 health_probe 成功（bot_info API 调用成功）"""
+async def test_feishu_health_probe_success():
+    """飞书 health_probe 成功（tenant_access_token API 返回 code=0）"""
     from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
 
     cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="test_secret")
     channel = FeishuChannel.__new__(FeishuChannel)
     channel.config = cfg
-    channel._client = MagicMock()
+    channel._client = MagicMock()  # 只需非 None 即可
 
-    # 模拟 bot_info.get 返回成功响应
-    fake_resp = MagicMock()
-    fake_resp.success.return_value = True
-    fake_resp.data = MagicMock()
-    fake_resp.data.bot = MagicMock(open_id="ou_test")
-    channel._client.im.v1.bot_info.get = MagicMock(return_value=fake_resp)
+    # 模拟 urllib.request.urlopen 返回成功响应
+    fake_resp_data = json.dumps({"code": 0, "tenant_access_token": "t-fake"}).encode()
+    fake_http_resp = BytesIO(fake_resp_data)
+    fake_http_resp.__enter__ = MagicMock(return_value=fake_http_resp)
+    fake_http_resp.__exit__ = MagicMock(return_value=False)
 
-    result = await channel.health_probe()
+    with patch("urllib.request.urlopen", return_value=fake_http_resp):
+        result = await channel.health_probe()
+
     assert result is True
 
 
 @pytest.mark.asyncio
-async def test_feishu_health_probe_failure(monkeypatch: pytest.MonkeyPatch):
-    """飞书 health_probe 失败（API 调用抛异常）"""
+async def test_feishu_health_probe_auth_failure():
+    """飞书 health_probe 失败（API 返回 code!=0，如 app_secret 错误）"""
+    from illusion.channels.feishu.adapter import FeishuChannel
+    from illusion.channels.config import FeishuChannelConfig
+
+    cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="wrong_secret")
+    channel = FeishuChannel.__new__(FeishuChannel)
+    channel.config = cfg
+    channel._client = MagicMock()
+
+    # 模拟 API 返回 code=99991（认证失败）
+    fake_resp_data = json.dumps({"code": 99991, "msg": "app_secret not match"}).encode()
+    fake_http_resp = BytesIO(fake_resp_data)
+    fake_http_resp.__enter__ = MagicMock(return_value=fake_http_resp)
+    fake_http_resp.__exit__ = MagicMock(return_value=False)
+
+    with patch("urllib.request.urlopen", return_value=fake_http_resp):
+        result = await channel.health_probe()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_feishu_health_probe_network_failure():
+    """飞书 health_probe 失败（网络不可达，urlopen 抛异常）"""
     from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
 
@@ -51,10 +77,9 @@ async def test_feishu_health_probe_failure(monkeypatch: pytest.MonkeyPatch):
     channel.config = cfg
     channel._client = MagicMock()
 
-    # 模拟 bot_info.get 抛异常（网络不可达）
-    channel._client.im.v1.bot_info.get = MagicMock(side_effect=ConnectionError("网络不可达"))
+    with patch("urllib.request.urlopen", side_effect=ConnectionError("网络不可达")):
+        result = await channel.health_probe()
 
-    result = await channel.health_probe()
     assert result is False
 
 

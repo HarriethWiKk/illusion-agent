@@ -103,9 +103,10 @@ class FeishuChannel(Channel):
         return self._bot_open_id
 
     async def health_probe(self) -> bool:
-        """飞书健康探活：调用 bot_info API 检测网络和认证状态
+        """飞书健康探活：获取 tenant_access_token 检测网络和认证状态
 
-        通过轻量 API 调用检测网络连接和 token 是否有效。
+        通过轻量 HTTP 调用 tenant_access_token/internal 接口检测
+        网络连接和 app_id/app_secret 是否有效。
         成功返回 True，失败返回 False。
 
         Returns:
@@ -114,14 +115,22 @@ class FeishuChannel(Channel):
         if self._client is None:
             return False
         try:
-            req: Any = None
-            try:
-                from lark_oapi.api.im.v1 import GetBotInfoRequest  # pyright: ignore[reportAttributeAccessIssue]
-                req = GetBotInfoRequest.builder().build()
-            except ImportError:
-                pass  # 旧版 lark_oapi 无 GetBotInfoRequest，直接调用 bot_info.get
-            resp = await asyncio.to_thread(self._client.im.v1.bot_info.get, req)
-            return bool(resp.success())
+            import json as _json
+            import urllib.request as _urllib
+            domain = "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
+            url = f"{domain}/open-apis/auth/v3/tenant_access_token/internal"
+            payload = _json.dumps({
+                "app_id": self.config.app_id,
+                "app_secret": self.config.app_secret,
+            }).encode()
+            req = _urllib.Request(url, data=payload, headers={"Content-Type": "application/json"})
+
+            def _do_request() -> dict:
+                with _urllib.urlopen(req, timeout=10) as resp:  # noqa: S310  飞书 API HTTPS URL
+                    return _json.loads(resp.read().decode())
+
+            data = await asyncio.to_thread(_do_request)
+            return data.get("code") == 0
         except Exception:  # noqa: BLE001
             return False
 

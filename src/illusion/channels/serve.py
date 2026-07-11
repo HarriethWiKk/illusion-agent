@@ -239,8 +239,7 @@ class _EventWatchdog:
         """看门狗主循环，每 30s 检查一次"""
         channel = self._runner.channel
         # 设置回调，让 runner 在收到消息时更新计时器
-        if hasattr(channel, "_event_watchdog"):
-            channel._event_watchdog = self
+        channel._event_watchdog = self
 
         while not self._stop_event.is_set():
             try:
