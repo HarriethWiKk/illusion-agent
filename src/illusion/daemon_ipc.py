@@ -322,6 +322,9 @@ class DaemonServer:
         self._connections: set[_BaseConnection] = set()
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._stop = False
+        # 是否曾有客户端连接过（防止启动竞态：守护进程刚启动时还没有客户端连接，
+        # wait_for_no_connections 不应在此时判定"连接归零"而退出）
+        self._had_connection = False
         self._accept_task: asyncio.Task[None] | None = None
         self._unix_server: asyncio.Server | None = None
         # Windows: 预创建的 pipe 句柄（由 accept loop 消费）
@@ -425,6 +428,7 @@ class DaemonServer:
             if connected and not self._stop:
                 conn = _WindowsPipeConnection(handle)
                 self._connections.add(conn)
+                self._had_connection = True
                 task = asyncio.create_task(self._handle_client(conn))
                 self._client_tasks.add(task)
                 task.add_done_callback(self._client_tasks.discard)
@@ -440,6 +444,7 @@ class DaemonServer:
         """Unix Socket 客户端处理"""
         conn = _UnixSocketConnection(reader, writer)
         self._connections.add(conn)
+        self._had_connection = True
         await self._handle_client(conn)
 
     async def _handle_client(self, conn: _BaseConnection) -> None:
@@ -499,7 +504,14 @@ class DaemonServer:
 
         连接归零后等 grace_seconds 宽限期，仍为空则返回。
         用于守护进程判断是否该退出。
+
+        注意：守护进程刚启动时还没有客户端连接，不能立即判定"连接归零"。
+        先等待首个客户端连接（_had_connection），再进入连接归零检查。
         """
+        # 阶段 1：等待首个客户端连接（无超时，防止启动竞态）
+        while not self._stop and not self._had_connection:
+            await asyncio.sleep(0.5)
+        # 阶段 2：等待所有连接断开（带宽限期）
         while not self._stop:
             if self.connection_count == 0:
                 # 宽限期：等 grace_seconds 后再次检查

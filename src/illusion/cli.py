@@ -1275,11 +1275,14 @@ def main(
             )
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
+    # 注意：backend_only 模式下不 spawn（launcher 已负责），只连接持有 ref
     _daemon_proc = None
     _daemon_client = None
     try:
         from illusion.channels import maybe_spawn_channel_daemon
-        _daemon_proc, _daemon_client = maybe_spawn_channel_daemon()
+        _daemon_proc, _daemon_client = maybe_spawn_channel_daemon(
+            spawn_if_missing=not backend_only,
+        )
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
@@ -1289,7 +1292,9 @@ def main(
     _cron_client = None
     try:
         from illusion.services.cron_spawn import maybe_spawn_cron_daemon
-        _cron_proc, _cron_client = maybe_spawn_cron_daemon()
+        _cron_proc, _cron_client = maybe_spawn_cron_daemon(
+            spawn_if_missing=not backend_only,
+        )
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)

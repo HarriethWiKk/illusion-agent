@@ -30,12 +30,18 @@ def _cleanup_old_pid_files(cron_dir: Path) -> None:
             pass
 
 
-def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+def maybe_spawn_cron_daemon(
+    *, spawn_if_missing: bool = True,
+) -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
     """主程序启动时自动拉起 cron 守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 尝试连接 IPC。连接成功则持有 client 作为引用；
     连接失败则 spawn 子进程，后台线程轮询连接。spawn 后立即返回，
     不阻塞主程序启动。
+
+    Args:
+        spawn_if_missing: 连接失败时是否 spawn 新进程。backend-only 进程
+            传 False（launcher 已负责 spawn），仅连接持有 ref。
 
     Returns:
         tuple: (Popen 实例或 None, DaemonClientRef 实例或 None)
@@ -66,6 +72,18 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
 
     # 连接失败：清理旧文件并 spawn 新守护进程
     _cleanup_old_pid_files(cron_dir)
+
+    # backend-only 模式：不 spawn，只连接（launcher 已负责 spawn）
+    # 后台线程轮询连接守护进程，连接成功后持有 ref
+    if not spawn_if_missing:
+        ref = DaemonClientRef()
+        _start_bg_connect(
+            daemon_type=DaemonType.CRON,
+            fingerprint=None,
+            ref=ref,
+            name="cron 守护进程",
+        )
+        return None, ref
 
     creation_flags = 0
     if os.name == "nt":

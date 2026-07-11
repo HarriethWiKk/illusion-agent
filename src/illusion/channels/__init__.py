@@ -58,12 +58,18 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+def maybe_spawn_channel_daemon(
+    *, spawn_if_missing: bool = True,
+) -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
     """主程序启动时自动拉起渠道守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 连接 IPC。连接成功且指纹匹配则持有 client；
     指纹不匹配则杀旧进程 spawn 新的；连接失败则 spawn 新的。
     spawn 后立即返回，后台线程轮询连接（不阻塞主程序启动）。
+
+    Args:
+        spawn_if_missing: 连接失败时是否 spawn 新进程。backend-only 进程
+            传 False（launcher 已负责 spawn），仅连接持有 ref。
 
     Returns:
         tuple: (Popen 实例或 None, DaemonClientRef 实例或 None)
@@ -99,7 +105,20 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
             ref.set(client)
             return None, ref
 
-        # 指纹不匹配：杀旧进程
+        # 指纹不匹配
+        close_client(client)
+        if not spawn_if_missing:
+            # backend-only 模式：不杀旧进程也不 spawn，由 launcher 处理
+            # 返回空 ref，后台线程会尝试连接新启动的守护进程
+            ref = DaemonClientRef()
+            _start_bg_connect(
+                daemon_type=DaemonType.CHANNEL,
+                fingerprint=current_fp,
+                ref=ref,
+                name="渠道守护进程",
+            )
+            return None, ref
+        # launcher 模式：杀旧进程后 spawn 新的
         daemon_pid = client.daemon_pid
         if daemon_pid:
             try:
@@ -115,10 +134,21 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
                     os.kill(daemon_pid, signal.SIGTERM)
             except (OSError, ProcessLookupError):
                 pass
-        close_client(client)
         # 继续向下 spawn 新进程
     else:
         _cleanup_old_channel_files(data_dir)
+
+    # backend-only 模式：不 spawn，只连接（launcher 已负责 spawn）
+    # 后台线程轮询连接守护进程，连接成功后持有 ref
+    if not spawn_if_missing:
+        ref = DaemonClientRef()
+        _start_bg_connect(
+            daemon_type=DaemonType.CHANNEL,
+            fingerprint=current_fp,
+            ref=ref,
+            name="渠道守护进程",
+        )
+        return None, ref
 
     # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
     creation_flags = 0

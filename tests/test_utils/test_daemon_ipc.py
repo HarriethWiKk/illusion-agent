@@ -202,3 +202,25 @@ async def test_wait_for_no_connections_triggers(_pipe_name: str):
         )
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_no_connections_waits_for_first_connection(_pipe_name: str):
+    """没有客户端连接过时 wait_for_no_connections 不返回（防启动竞态）"""
+    server = DaemonServer(
+        daemon_type=DaemonType.CRON,
+        daemon_pid=os.getpid(),
+        pipe_name=_pipe_name,
+    )
+    await server.start()
+    try:
+        # 守护进程刚启动，没有客户端连接 → 不应返回
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                server.wait_for_no_connections(grace_seconds=0.3),
+                timeout=1.0,
+            )
+        # 确认 _had_connection 仍为 False
+        assert not server._had_connection
+    finally:
+        await server.stop()
