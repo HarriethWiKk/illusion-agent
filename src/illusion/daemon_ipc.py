@@ -152,6 +152,8 @@ if _IS_WINDOWS:
             0, None,
         )
         if handle == _INVALID_HANDLE_VALUE or handle == 0:
+            err = _kernel32.GetLastError()
+            logger.debug("连接 Named Pipe 失败: %s, error=%d", name, err)
             return None
         return handle
 
@@ -287,6 +289,7 @@ class DaemonServer:
         self._pipe_name = pipe_name or _default_pipe_name(daemon_type)
         self._fingerprint = fingerprint
         self._connections: set[_BaseConnection] = set()
+        self._client_tasks: set[asyncio.Task[None]] = set()
         self._stop = False
         self._accept_task: asyncio.Task[None] | None = None
         self._unix_server: asyncio.Server | None = None
@@ -315,6 +318,11 @@ class DaemonServer:
             self._unix_server = await asyncio.start_unix_server(
                 self._handle_unix_client, path=self._pipe_name
             )
+            # 设置 socket 文件权限为 0600（仅属主可读写）
+            try:
+                os.chmod(self._pipe_name, 0o600)
+            except OSError:
+                pass
             logger.debug("DaemonServer 监听: %s", self._pipe_name)
 
     async def stop(self) -> None:
@@ -386,7 +394,9 @@ class DaemonServer:
             if connected and not self._stop:
                 conn = _WindowsPipeConnection(handle)
                 self._connections.add(conn)
-                asyncio.create_task(self._handle_client(conn))
+                task = asyncio.create_task(self._handle_client(conn))
+                self._client_tasks.add(task)
+                task.add_done_callback(self._client_tasks.discard)
             else:
                 # 未连接或已停止：关闭句柄
                 _win_close_handle(handle)
@@ -429,6 +439,7 @@ class DaemonServer:
             return {
                 "type": "pong",
                 "daemon_pid": self._daemon_pid,
+                "connections": self.connection_count,
                 "channels": self._get_channel_status(),
             }
         elif msg_type == "register":
@@ -594,3 +605,84 @@ class DaemonClient:
         if self._conn is not None:
             await self._conn.close()
             self._conn = None
+
+
+# ─── 同步辅助函数 ───
+# 以下函数封装了 DaemonClient 的异步操作，在同一个事件循环中完成，
+# 避免 Unix 上 StreamWriter 绑定到已关闭的 loop 导致 drain() 失败。
+
+
+def connect_and_register(client: "DaemonClient") -> tuple[bool, dict | None]:
+    """在同一个事件循环中完成 connect + register
+
+    Args:
+        client: DaemonClient 实例
+
+    Returns:
+        tuple: (是否连接成功, register 响应)
+        - 连接失败: (False, None)
+        - 连接成功但 register 异常: (True, {"type": "ok"})
+        - 连接成功且 register 成功: (True, 响应字典)
+    """
+    import asyncio
+
+    async def _do() -> tuple[bool, dict | None]:
+        connected = await client.connect()
+        if not connected:
+            return False, None
+        try:
+            resp = await client.register()
+        except Exception:  # noqa: BLE001
+            resp = {"type": "ok"}
+        return True, resp
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_do())
+    finally:
+        loop.close()
+
+
+def close_client(client: "DaemonClient") -> None:
+    """在独立事件循环中关闭 IPC 连接
+
+    Args:
+        client: DaemonClient 实例
+    """
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(client.close())
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        loop.close()
+
+
+def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict | None:
+    """在独立事件循环中 ping 守护进程
+
+    Args:
+        client: DaemonClient 实例
+        timeout: 超时秒数
+
+    Returns:
+        dict: pong 响应，失败返回 None
+    """
+    import asyncio
+
+    async def _do() -> dict | None:
+        connected = await client.connect()
+        if not connected:
+            return None
+        try:
+            return await client.ping(timeout=timeout)
+        finally:
+            await client.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_do())
+    finally:
+        loop.close()

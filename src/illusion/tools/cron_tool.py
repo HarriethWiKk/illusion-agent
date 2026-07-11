@@ -268,13 +268,14 @@ Returns JSON result for each action."""
         if status.get("pid"):
             lines.append(f"PID: {status['pid']}")
 
-        # 显示引用计数（引用方主程序数量）
+        # 显示 IPC 连接数（引用方主程序数量）
         try:
-            from illusion.utils.ref_count import alive_refs
-            from illusion.config.paths import get_cron_dir
-            refs = alive_refs(get_cron_dir() / "scheduler.refs")
-            lines.append(f"Refs: {len(refs)}")
-        except Exception:
+            from illusion.daemon_ipc import DaemonClient, DaemonType, ping_daemon
+            client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
+            pong = ping_daemon(client, timeout=2.0)
+            if pong is not None:
+                lines.append(f"Connections: {pong.get('connections', '?')}")
+        except Exception:  # noqa: BLE001
             pass
 
         return ToolResult(output="\n".join(lines))
@@ -387,11 +388,11 @@ Returns JSON result for each action."""
         job_id = upsert_cron_job(job_data)
 
         # 自动启动调度器（如果未运行）
-        # 通过 spawn cron 守护进程实现，引用计数支持多实例共享
+        # 通过 spawn cron 守护进程实现，IPC 连接数支持多实例共享
         try:
             from illusion.services.cron_spawn import maybe_spawn_cron_daemon
             maybe_spawn_cron_daemon()
-        except Exception:
+        except Exception:  # noqa: BLE001
             # spawn 失败不应阻止任务创建
             pass
 

@@ -53,6 +53,16 @@ class FeishuChannel(Channel):
         self._bot_open_id: str = ""  # bot 自身 open_id（hydrate 后赋值）
         self._stop_event = asyncio.Event()  # 停止信号
 
+    def _get_domain(self) -> str:
+        """获取飞书 API 域名
+
+        domain == "feishu" 使用国内域名，否则使用海外 Larksuite 域名。
+
+        Returns:
+            str: API 基础 URL
+        """
+        return "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
+
     async def connect(self) -> None:
         """建立 WS 长连接"""
         from illusion.channels.feishu.messaging import build_lark_client
@@ -64,7 +74,7 @@ class FeishuChannel(Channel):
         # 获取 bot 自身 open_id（用于自回显检测和 @提及识别）
         await self._hydrate_bot_id()
         # 构造 WS 包装
-        domain = "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
+        domain = self._get_domain()
         self._ws = FeishuWSClient(
             app_id=self.config.app_id,
             app_secret=self.config.app_secret,
@@ -117,8 +127,7 @@ class FeishuChannel(Channel):
         try:
             import json as _json
             import urllib.request as _urllib
-            domain = "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
-            url = f"{domain}/open-apis/auth/v3/tenant_access_token/internal"
+            url = f"{self._get_domain()}/open-apis/auth/v3/tenant_access_token/internal"
             payload = _json.dumps({
                 "app_id": self.config.app_id,
                 "app_secret": self.config.app_secret,

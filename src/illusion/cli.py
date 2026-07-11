@@ -1022,15 +1022,10 @@ def web_start(
         pass  # IPC 连接关闭即触发守护进程退出
     finally:
         # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
-        import asyncio
+        from illusion.daemon_ipc import close_client
         for client in (_cron_client, _daemon_client):
             if client is not None:
-                try:
-                    loop = asyncio.new_event_loop()
-                    loop.run_until_complete(client.close())
-                    loop.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                close_client(client)
 
 
 # ---- update 子命令 ----
@@ -1477,15 +1472,10 @@ def main(
         pass  # IPC 连接关闭即触发守护进程退出
     finally:
         # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
-        import asyncio
+        from illusion.daemon_ipc import close_client
         for client in (_cron_client, _daemon_client):
             if client is not None:
-                try:
-                    loop = asyncio.new_event_loop()
-                    loop.run_until_complete(client.close())
-                    loop.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                close_client(client)
 
 
 # ---- channel 子命令 ----
@@ -1704,21 +1694,23 @@ def channel_serve() -> None:
 def channel_status() -> None:
     """显示各渠道状态（enabled / 连接 / PID）"""
     from illusion.channels.config import load_channels_config
-    from illusion.channels.pid import PidFile
-    from illusion.config.paths import get_channels_data_dir
+    from illusion.daemon_ipc import DaemonClient, DaemonType, ping_daemon
 
     _ensure_language()
     cfg = load_channels_config()
-    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
-    running = pid_file.is_running()
+
+    # 通过 IPC ping 检查守护进程是否在运行，并获取各渠道健康状态
+    client = DaemonClient(daemon_type=DaemonType.CHANNEL, pid=os.getpid())
+    pong = ping_daemon(client, timeout=2.0)
+    channels_status = pong.get("channels", {}) if pong else {}
 
     print(_t("channel_status_title"))
-    feishu_state = _t("channel_connected") if (cfg.feishu.enabled and running) else _t("channel_disconnected")
-    weixin_state = _t("channel_connected") if (cfg.weixin.enabled and running) else _t("channel_disconnected")
-    qq_state = _t("channel_connected") if (cfg.qq.enabled and running) else _t("channel_disconnected")
-    print(f"  feishu: enabled={cfg.feishu.enabled} {feishu_state}")
-    print(f"  weixin: enabled={cfg.weixin.enabled} {weixin_state}")
-    print(f"  qq: enabled={cfg.qq.enabled} {qq_state}")
+    for name in ("feishu", "weixin", "qq"):
+        enabled = getattr(cfg, name).enabled
+        ch_status = channels_status.get(name, {})
+        healthy = bool(ch_status.get("healthy", False)) if ch_status else False
+        state = _t("channel_connected") if (enabled and healthy) else _t("channel_disconnected")
+        print(f"  {name}: enabled={enabled} {state}")
 
 
 @channel_app.command("enable")

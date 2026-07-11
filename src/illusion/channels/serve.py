@@ -151,30 +151,6 @@ def _load_settings_safely() -> Any:
         return None
 
 
-def _force_shutdown() -> None:
-    """强制关闭渠道守护进程
-
-    尝试关闭所有运行中的渠道，然后用 os._exit 确保进程退出
-    （lark-oapi 的 WS 客户端在 executor 线程阻塞，正常终止可能挂起）。
-    """
-    import threading
-    # 尽力关闭：在守护线程里跑关闭逻辑，主线程不等待
-    def _shutdown() -> None:
-        try:
-            # 通过遍历获取 runner 列表（_serve_async 的局部变量，这里无法直接访问）
-            # 实际关闭在 _serve_async 的 finally 里已处理，这里仅兜底退出
-            pass
-        except Exception:  # noqa: BLE001
-            pass
-        os._exit(0)  # 强制退出，不等待 executor 线程
-
-    threading.Thread(target=_shutdown, daemon=True).start()
-    # 给关闭逻辑 1 秒，否则强制退出
-    import time
-    time.sleep(1)
-    os._exit(0)
-
-
 async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
     """看门狗：监督单个渠道 runner，异常退出后带退避自动重启
 
@@ -185,12 +161,19 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
     退避在持续失败时递增（5s/10s/30s 封顶），避免疯狂重连；
     成功运行一轮后（run 正常返回）重置退避。stop_event 触发后停止。
 
+    每轮 runner.run() 期间同步启动 _EventWatchdog 监控事件超时。
+    看门狗判定僵死后会调用 channel.shutdown() 打断 listen()，
+    使 runner.run() 正常返回，从而触发本协程重启 runner。
+
     Args:
         runner: ChannelRunner 实例
         stop_event: 停止事件
     """
     backoff_idx = 0
     while not stop_event.is_set():
+        # 每轮启动事件看门狗，runner.run() 返回或异常时取消
+        watchdog = _EventWatchdog(runner, stop_event)
+        watchdog_task = asyncio.create_task(watchdog.run())
         try:
             await runner.run()
             # run 正常返回（不应发生，run 是无限循环）——重置退避
@@ -210,19 +193,20 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
                 continue  # 退避结束，重启 runner
         else:
             backoff_idx = 0
+        finally:
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
 
 
 class _EventWatchdog:
     """事件超时看门狗
 
     监控渠道最后事件时间，超时且 health_probe 失败时
-    退出看门狗，让 _supervise 检测到异常重启 runner。
-
-    Note: health_probe() 在 Task 4 中添加到 Channel 基类。
-    在此之前 health_probe 不存在会触发 AttributeError，
-    被 except 捕获后 healthy=False，看门狗会退出。
-    这在 Task 3 和 Task 4 之间的间隙是可接受的：
-    5分钟超时后看门狗退出，但守护进程继续运行。
+    调用 channel.shutdown() 打断 listen()，使 runner.run() 返回，
+    从而让 _supervise 重启 runner 重建连接。
     """
 
     def __init__(self, runner: Any, stop_event: asyncio.Event, timeout: float = 300.0) -> None:
@@ -261,10 +245,16 @@ class _EventWatchdog:
 
             if not healthy:
                 logger.warning(
-                    "渠道 %s 事件超时（%ds）且 health_probe 失败，判定僵死",
+                    "渠道 %s 事件超时（%ds）且 health_probe 失败，判定僵死，触发重启",
                     channel.name, int(elapsed),
                 )
-                return  # 退出看门狗，_supervise 会检测到 runner 异常
+                # 调用 channel.shutdown() 打断 listen()，使 runner.run() 返回
+                # _supervise 检测到 run 返回后会重启 runner 重建连接
+                try:
+                    await channel.shutdown()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("看门狗调用 channel.shutdown() 失败: %s", exc)
+                return  # 退出看门狗
             else:
                 # health_probe 成功，可能只是无消息，重置计时器
                 self._last_event_time = time.monotonic()
@@ -345,15 +335,11 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
 
     print(t("channel_press_exit"))
 
-    # 启动所有 runner（通过 _supervise 看门狗监督，异常后自动重启）
+    # 启动所有 runner（通过 _supervise 看门狗监督，异常后自动重启；
+    # _supervise 内部会启动 _EventWatchdog 监控事件超时）
     tasks = [
         asyncio.create_task(_supervise(r, stop_event)) for r in runners
     ]
-
-    # 启动事件超时看门狗（飞书等渠道）
-    for r in runners:
-        watchdog = _EventWatchdog(r, stop_event)
-        tasks.append(asyncio.create_task(watchdog.run()))
 
     # 启动连接监控（替代 ref_monitor_loop）
     async def _monitor():

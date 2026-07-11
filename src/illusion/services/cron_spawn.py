@@ -39,8 +39,7 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
     Returns:
         tuple: (Popen 实例或 None, DaemonClient 实例或 None)
     """
-    import asyncio
-    from illusion.daemon_ipc import DaemonClient, DaemonType
+    from illusion.daemon_ipc import DaemonClient, DaemonType, connect_and_register
 
     jobs = load_cron_jobs()
     enabled = [j for j in jobs if j.get("enabled")]
@@ -50,23 +49,11 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
     cron_dir = get_cron_dir()
     client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
 
-    # 尝试连接已运行的守护进程
-    loop = asyncio.new_event_loop()
-    try:
-        connected = loop.run_until_complete(client.connect())
-    finally:
-        loop.close()
+    # 尝试连接已运行的守护进程（connect+register 在同一事件循环中完成）
+    connected, _ = connect_and_register(client)
 
     if connected:
-        # 守护进程已在运行，发 register 确认
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(client.register())
-        except Exception:  # noqa: BLE001
-            # register 失败，继续持有连接（仍是有效引用）
-            pass
-        finally:
-            loop.close()
+        # 守护进程已在运行，持有连接作为引用
         return None, client
 
     # 连接失败：清理旧文件并 spawn 新守护进程
@@ -102,23 +89,16 @@ def maybe_spawn_cron_daemon() -> tuple[subprocess.Popen[bytes] | None, "DaemonCl
         logger.warning("启动 cron 守护进程失败: %s", exc)
         return None, None
 
-    # 轮询连接（最多 10s，每 0.5s 重试）
-    loop = asyncio.new_event_loop()
-    try:
-        import time
-        connected = False
-        for _ in range(20):
-            client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
-            if loop.run_until_complete(client.connect()):
-                try:
-                    loop.run_until_complete(client.register())
-                except Exception:  # noqa: BLE001
-                    pass
-                connected = True
-                break
-            time.sleep(0.5)
-    finally:
-        loop.close()
+    # 轮询连接（每次 connect+register 在独立事件循环中完成，最多 10s，每 0.5s 重试）
+    import time
+    connected = False
+    for _ in range(20):
+        client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())
+        ok, _ = connect_and_register(client)
+        if ok:
+            connected = True
+            break
+        time.sleep(0.5)
 
     if not connected:
         logger.warning("cron 守护进程 spawn 后 10s 内未能连接")

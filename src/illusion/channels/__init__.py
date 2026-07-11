@@ -67,8 +67,7 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
     Returns:
         tuple: (Popen 实例或 None, DaemonClient 实例或 None)
     """
-    import asyncio
-    from illusion.daemon_ipc import DaemonClient, DaemonType
+    from illusion.daemon_ipc import DaemonClient, DaemonType, connect_and_register, close_client
     from illusion.config.paths import get_channels_data_dir
 
     cfg = load_channels_config()
@@ -83,23 +82,10 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
         fingerprint=current_fp,
     )
 
-    loop = asyncio.new_event_loop()
-    try:
-        connected = loop.run_until_complete(client.connect())
-    finally:
-        loop.close()
+    connected, resp = connect_and_register(client)
 
     if connected:
-        # 连接成功，检查指纹
-        loop = asyncio.new_event_loop()
-        try:
-            resp = loop.run_until_complete(client.register())
-        except Exception:  # noqa: BLE001
-            resp = {"type": "ok"}
-        finally:
-            loop.close()
-
-        if resp.get("type") == "ok":
+        if resp is not None and resp.get("type") == "ok":
             return None, client  # 指纹匹配，持有连接
 
         # 指纹不匹配：杀旧进程
@@ -119,12 +105,7 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
             except (OSError, ProcessLookupError):
                 pass
         # 关闭旧连接
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(client.close())
-        except Exception:  # noqa: BLE001
-            pass
-        loop.close()
+        close_client(client)
         # 继续向下 spawn 新进程
     else:
         # 连接失败：清理旧文件
@@ -164,27 +145,20 @@ def maybe_spawn_channel_daemon() -> tuple[subprocess.Popen[bytes] | None, "Daemo
         logger.warning("启动渠道守护进程失败: %s", exc)
         return None, None
 
-    # 轮询连接
-    loop = asyncio.new_event_loop()
-    try:
-        import time
-        connected = False
-        for _ in range(20):
-            client = DaemonClient(
-                daemon_type=DaemonType.CHANNEL,
-                pid=os.getpid(),
-                fingerprint=current_fp,
-            )
-            if loop.run_until_complete(client.connect()):
-                try:
-                    loop.run_until_complete(client.register())
-                except Exception:  # noqa: BLE001
-                    pass
-                connected = True
-                break
-            time.sleep(0.5)
-    finally:
-        loop.close()
+    # 轮询连接（每次 connect+register 在独立事件循环中完成）
+    import time
+    connected = False
+    for _ in range(20):
+        client = DaemonClient(
+            daemon_type=DaemonType.CHANNEL,
+            pid=os.getpid(),
+            fingerprint=current_fp,
+        )
+        ok, _ = connect_and_register(client)
+        if ok:
+            connected = True
+            break
+        time.sleep(0.5)
 
     if not connected:
         logger.warning("渠道守护进程 spawn 后 10s 内未能连接")
@@ -206,8 +180,8 @@ def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
     """已废弃的渠道守护进程终止函数（noop）
 
     .. deprecated::
-        此函数为向后兼容保留。新方案采用引用计数：
-        主程序退出时调用 remove_ref，守护进程自监控 refs 为空时自动退出。
+        此函数为向后兼容保留。新方案采用 IPC 连接数管理：
+        主程序退出时关闭 IPC 连接，守护进程检测到连接归零后自动退出。
         不再需要主动 kill 守护进程。
 
     Args:
@@ -215,7 +189,7 @@ def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
     """
     import warnings
     warnings.warn(
-        "kill_channel_daemon() 已废弃，请使用 remove_ref + 引用计数机制",
+        "kill_channel_daemon() 已废弃，请使用 DaemonClient.close() 关闭 IPC 连接",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -223,29 +197,29 @@ def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
 
 
 def is_channel_daemon_running() -> bool:
-    """检查渠道守护进程是否正在运行（通过 PID 文件，不依赖 proc 引用）
+    """检查渠道守护进程是否正在运行（通过 IPC ping）
 
     用于退出时判断是否需要询问用户是否一同退出渠道。
 
     Note:
-        新方案采用引用计数后，此函数仅用于诊断/查询。
-        退出处理已改为 remove_ref + 自监控，不再依赖此函数。
+        新方案采用 IPC 连接数后，此函数仅用于诊断/查询。
+        退出处理已改为关闭 IPC 连接，不再依赖此函数。
 
     Returns:
         bool: 守护进程在运行返回 True
     """
-    from illusion.config.paths import get_channels_data_dir
-    from illusion.channels.pid import PidFile
-    pid_file = PidFile(get_channels_data_dir() / "daemon.pid")
-    return pid_file.is_running()
+    from illusion.daemon_ipc import DaemonClient, DaemonType, ping_daemon
+    client = DaemonClient(daemon_type=DaemonType.CHANNEL, pid=os.getpid())
+    pong = ping_daemon(client, timeout=2.0)
+    return pong is not None
 
 
 def stop_channel_daemon_by_pid() -> bool:
     """已废弃的渠道守护进程停止函数（noop）
 
     .. deprecated::
-        此函数为向后兼容保留。新方案采用引用计数：
-        守护进程通过自监控 refs 为空时自动退出，
+        此函数为向后兼容保留。新方案采用 IPC 连接数管理：
+        守护进程检测到连接归零后自动退出，
         不再需要通过 PID 主动停止。
 
     Returns:
@@ -253,7 +227,7 @@ def stop_channel_daemon_by_pid() -> bool:
     """
     import warnings
     warnings.warn(
-        "stop_channel_daemon_by_pid() 已废弃，请使用 remove_ref + 引用计数机制",
+        "stop_channel_daemon_by_pid() 已废弃，请使用 DaemonClient.close() 关闭 IPC 连接",
         DeprecationWarning,
         stacklevel=2,
     )
