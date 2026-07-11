@@ -1,7 +1,7 @@
 """cli.py 退出处理测试
 
-验证 main() 和 web_start() 的 finally 块调用 remove_ref，
-而非 handle_daemon_exit_on_interrupt（已废弃）。
+验证 main() 和 web_start() 的 finally 块关闭 IPC 连接，
+而非调用 remove_ref（已废弃）或 handle_daemon_exit_on_interrupt（已废弃）。
 
 使用 ast 解析验证真正的函数调用，而非源码字符串匹配。
 """
@@ -22,27 +22,27 @@ def _extract_call_names(func) -> set[str]:
     return call_names
 
 
-def test_main_calls_remove_ref():
-    """main() 应在 finally 中调用 remove_ref"""
+def test_main_does_not_call_remove_ref():
+    """main() 不应再调用 remove_ref（已替换为 IPC 连接关闭）"""
     import illusion.cli as cli_module
 
     main_calls = _extract_call_names(cli_module.main)
-    assert "remove_ref" in main_calls, (
-        "main() 应调用 remove_ref 清理引用"
+    assert "remove_ref" not in main_calls, (
+        "main() 不应调用 remove_ref（已替换为 IPC 连接关闭）"
     )
     assert "handle_daemon_exit_on_interrupt" not in main_calls, (
-        "main() 不应再调用已废弃的 handle_daemon_exit_on_interrupt"
+        "main() 不应调用已废弃的 handle_daemon_exit_on_interrupt"
     )
 
 
-def test_web_start_calls_remove_ref():
-    """web_start() 应调用 remove_ref"""
+def test_web_start_does_not_call_remove_ref():
+    """web_start() 不应再调用 remove_ref"""
     import illusion.cli as cli_module
 
     web_start_calls = _extract_call_names(cli_module.web_start)
-    assert "remove_ref" in web_start_calls, (
-        "web_start() 应调用 remove_ref 清理引用"
+    assert "remove_ref" not in web_start_calls, (
+        "web_start() 不应调用 remove_ref（已替换为 IPC 连接关闭）"
     )
     assert "handle_daemon_exit_on_interrupt" not in web_start_calls, (
-        "web_start() 不应再调用已废弃的 handle_daemon_exit_on_interrupt"
+        "web_start() 不应调用已废弃的 handle_daemon_exit_on_interrupt"
     )

@@ -230,7 +230,7 @@ def cron_start() -> None:
     """启动 cron 调度器"""
     from illusion.services.cron_spawn import maybe_spawn_cron_daemon
 
-    proc = maybe_spawn_cron_daemon()
+    proc, client = maybe_spawn_cron_daemon()
     if proc is None:
         # 已有守护进程在运行，或无启用任务
         from illusion.services.cron_scheduler import is_scheduler_running
@@ -951,18 +951,20 @@ def web_start(
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（与 illusion 主命令一致）
     _daemon_proc = None
+    _daemon_client = None
     try:
         from illusion.channels import maybe_spawn_channel_daemon
-        _daemon_proc = maybe_spawn_channel_daemon()
+        _daemon_proc, _daemon_client = maybe_spawn_channel_daemon()
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
     # cron 自动激活（与 illusion 主命令一致）
     _cron_proc = None
+    _cron_client = None
     try:
         from illusion.services.cron_spawn import maybe_spawn_cron_daemon
-        _cron_proc = maybe_spawn_cron_daemon()
+        _cron_proc, _cron_client = maybe_spawn_cron_daemon()
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
@@ -1013,24 +1015,22 @@ def web_start(
         import webbrowser
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
-    # Ctrl+C / 正常退出时移除引用，守护进程通过引用计数自管理
+    # Ctrl+C / 正常退出时关闭 IPC 连接，守护进程检测到连接归零后自动退出
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
-        pass  # 引用计数机制自动处理，无需确认提示
+        pass  # IPC 连接关闭即触发守护进程退出
     finally:
-        # 静默移除引用（不杀守护进程，不弹确认）
-        import os
-        from illusion.utils.ref_count import remove_ref
-        from illusion.config.paths import get_cron_dir, get_channels_data_dir
-        try:
-            remove_ref(get_cron_dir() / "scheduler.refs", os.getpid())
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            remove_ref(get_channels_data_dir() / "daemon.refs", os.getpid())
-        except Exception:  # noqa: BLE001
-            pass
+        # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
+        import asyncio
+        for client in (_cron_client, _daemon_client):
+            if client is not None:
+                try:
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(client.close())
+                    loop.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 # ---- update 子命令 ----
@@ -1282,18 +1282,20 @@ def main(
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
     _daemon_proc = None
+    _daemon_client = None
     try:
         from illusion.channels import maybe_spawn_channel_daemon
-        _daemon_proc = maybe_spawn_channel_daemon()
+        _daemon_proc, _daemon_client = maybe_spawn_channel_daemon()
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
     # cron 自动激活：有启用任务时 spawn 守护进程
     _cron_proc = None
+    _cron_client = None
     try:
         from illusion.services.cron_spawn import maybe_spawn_cron_daemon
-        _cron_proc = maybe_spawn_cron_daemon()
+        _cron_proc, _cron_client = maybe_spawn_cron_daemon()
     except Exception as exc:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
@@ -1449,10 +1451,10 @@ def main(
         return
 
     # 启动交互式 REPL 会话
-    # Ctrl+C 触发 KeyboardInterrupt，进入 except → pass → finally 移除引用
-    # 守护进程通过引用计数机制自管理，无需弹确认提示：
-    #   - refs 仍有其他主程序 → 守护进程保持运行
-    #   - refs 为空 → 守护进程自监控发现后自动退出（30s 内）
+    # Ctrl+C 触发 KeyboardInterrupt，进入 except → pass → finally 关闭 IPC 连接
+    # 守护进程通过连接数自管理，无需弹确认提示：
+    #   - 仍有其他主程序连接 → 守护进程保持运行
+    #   - 连接归零 → 守护进程检测后自动退出（grace 期内）
     try:
         asyncio.run(
             run_repl(
@@ -1472,21 +1474,18 @@ def main(
             )
         )
     except KeyboardInterrupt:
-        pass  # 引用计数机制自动处理，无需确认提示
+        pass  # IPC 连接关闭即触发守护进程退出
     finally:
-        # 静默移除引用（不杀守护进程，不弹确认）
-        # 守护进程自监控发现 refs 为空时自动退出
-        import os
-        from illusion.utils.ref_count import remove_ref
-        from illusion.config.paths import get_cron_dir, get_channels_data_dir
-        try:
-            remove_ref(get_cron_dir() / "scheduler.refs", os.getpid())
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            remove_ref(get_channels_data_dir() / "daemon.refs", os.getpid())
-        except Exception:  # noqa: BLE001
-            pass
+        # 关闭 IPC 连接（OS 也会在进程退出时自动关闭）
+        import asyncio
+        for client in (_cron_client, _daemon_client):
+            if client is not None:
+                try:
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(client.close())
+                    loop.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 # ---- channel 子命令 ----
