@@ -257,3 +257,14 @@ class Channel(ABC):
             str: bot 自身标识
         """
         return ""
+
+    async def health_probe(self) -> bool:
+        """健康探活（默认返回 True，子类可覆盖）
+
+        用于事件超时看门狗判定渠道是否僵死。
+        飞书：调用 bot_info API 检测网络和认证；微信/QQ：已有重连机制，默认 True。
+
+        Returns:
+            bool: 渠道健康返回 True，僵死返回 False
+        """
+        return True

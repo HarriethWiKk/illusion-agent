@@ -315,6 +315,10 @@ class ChannelRunner:
         async for msg in self.channel.listen():
             if self._stop:
                 break
+            # 更新事件看门狗计时器（用于检测渠道僵死）
+            watchdog = getattr(self.channel, "_event_watchdog", None)
+            if watchdog is not None:
+                watchdog.on_event()
             # 每条消息独立处理，加异常日志回调避免静默失败
             task = asyncio.create_task(self._handle_message(msg))
             task.add_done_callback(self._log_task_exception)

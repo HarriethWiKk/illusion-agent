@@ -102,6 +102,29 @@ class FeishuChannel(Channel):
         """
         return self._bot_open_id
 
+    async def health_probe(self) -> bool:
+        """飞书健康探活：调用 bot_info API 检测网络和认证状态
+
+        通过轻量 API 调用检测网络连接和 token 是否有效。
+        成功返回 True，失败返回 False。
+
+        Returns:
+            bool: 渠道健康返回 True，僵死返回 False
+        """
+        if self._client is None:
+            return False
+        try:
+            req: Any = None
+            try:
+                from lark_oapi.api.im.v1 import GetBotInfoRequest  # pyright: ignore[reportAttributeAccessIssue]
+                req = GetBotInfoRequest.builder().build()
+            except ImportError:
+                pass  # 旧版 lark_oapi 无 GetBotInfoRequest，直接调用 bot_info.get
+            resp = await asyncio.to_thread(self._client.im.v1.bot_info.get, req)
+            return bool(resp.success())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _on_raw_event(self, event: Any) -> None:
         """处理原始飞书事件（在 WS 客户端的 executor 线程调用）
 
