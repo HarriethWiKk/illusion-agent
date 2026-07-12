@@ -33,12 +33,18 @@ class _DuplicateLogFilter(logging.Filter):
     """重复日志抑制 filter
 
     参照 hermes-agent _write_runtime_status_safe 的日志降级思路：
-    相同消息在 THROTTLE_SECONDS 内只记录一次 WARNING，之后降级为 DEBUG。
+    相同消息在 THROTTLE_SECONDS 内只放行一次，之后直接丢弃（return False）。
     避免 lark SDK 循环错误（attached to a different loop / Event loop is closed）
     爆炸式填充 log 文件造成资源浪费。
+
+    注意：必须 return False 丢弃重复 record，而非降级 level。
+    Lark logger 自带 StreamHandler(stdout) level=NOTSET(0)，降级到 DEBUG
+    仍会通过 `10 >= 0` 检查输出到 stdout。守护进程 detached 时 stdout 重定向
+    到文件（不受 RotatingFileHandler 管理），仍会爆炸。
     """
 
     THROTTLE_SECONDS = 60.0  # 同类消息抑制窗口
+    _MAX_SEEN = 200  # _seen 字典上限，超出后清理过期条目
 
     def __init__(self) -> None:
         super().__init__()
@@ -57,11 +63,13 @@ class _DuplicateLogFilter(logging.Filter):
         if last_seen is None or (now - last_seen) > self.THROTTLE_SECONDS:
             # 首次或窗口外，记录时间戳，放行
             self._seen[key] = now
+            # 字典上限清理：超出时删除过期条目，避免无界增长
+            if len(self._seen) > self._MAX_SEEN:
+                cutoff = now - self.THROTTLE_SECONDS * 2
+                self._seen = {k: v for k, v in self._seen.items() if v > cutoff}
             return True
-        # 窗口内重复，降级为 DEBUG（不进入日志文件，除非显式开 DEBUG）
-        record.levelno = logging.DEBUG
-        record.levelname = "DEBUG"
-        return True
+        # 窗口内重复，直接丢弃（return False 让所有 handler 看不到此 record）
+        return False
 
 
 # 模块级 filter 实例（飞书 WS 客户端导入时安装到 lark logger）
@@ -82,8 +90,9 @@ def _install_lark_log_filter() -> None:
         # 检查是否已安装（幂等）
         if not any(isinstance(f, _DuplicateLogFilter) for f in lark_logger.filters):
             lark_logger.addFilter(_duplicate_filter)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # 不静默：至少 debug 记录，避免 lark SDK 重命名属性后 filter 静默不安装
+        logger.debug("安装 lark 日志 filter 失败: %s", exc)
 
 
 class FeishuWSClient:

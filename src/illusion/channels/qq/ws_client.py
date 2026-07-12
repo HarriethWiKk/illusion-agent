@@ -142,12 +142,29 @@ class QQWSClient:
         logger.info("QQ WS 已连接: %s", gateway_url)
 
     async def close(self) -> None:
-        """关闭连接"""
+        """关闭连接
+
+        参照 hermes-agent Feishu adapter disconnect() 模式：
+        cancel task 后 await 等待 task 退出（带 timeout），避免旧 task
+        在 _supervise 重启时仍在运行。与 Feishu adapter 的 await ws_future
+        保持一致的"等待线程退出"语义。
+        """
         self._running = False
+        # 取消 task
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
         if self._listen_task:
             self._listen_task.cancel()
+        # 等待 task 退出（带 timeout，避免卡死）
+        for task in (self._listen_task, self._heartbeat_task):
+            if task is None:
+                continue
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+        self._listen_task = None
+        self._heartbeat_task = None
         await self._cleanup()
 
     async def _cleanup(self) -> None:
@@ -235,6 +252,14 @@ class QQWSClient:
                     quick_disconnects = 0
 
                 # 致命错误码：sleep 长时间后继续（不放弃，网络恢复后可能就好了）
+                # 偏离 hermes-agent：hermes-agent 对致命错误码（bot banned 4915、
+                # offline 4914、intent not authorized 4014 等）return 退出循环并
+                # _set_fatal_error(retryable=False) 标记不可恢复。illusion-code
+                # 无 _set_fatal_error 机制，return 会让 _listen_task 静默退出，
+                # _EventWatchdog 300s 后才触发 supervisor 重启，重启后又命中相同
+                # fatal code → supervisor 级 thrashing（每 300s 重启一次）比当前
+                # 60s sleep 更浪费。当前 sleep+retry 是折中方案，长期应引入
+                # fatal error 通知机制（如 adapter 标记 disabled + 通知用户）。
                 if exc.code in FATAL_CLOSE_CODES:
                     logger.error(
                         "QQ WS 致命错误 code=%s，等待 %ds 后继续重连",
