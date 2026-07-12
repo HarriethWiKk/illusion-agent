@@ -47,6 +47,14 @@ async def model_handler(args: str, context: CommandContext) -> CommandResult:
                 if context.app_state is not None:
                     context.app_state.set(model=model_name)
                 needs_rebuild = env_key != old_env_key
+                # 通知渠道守护进程重新加载 settings.json
+                # 守护进程启动时对 settings.json 做一次性快照，切换 env 后必须刷新
+                if needs_rebuild:
+                    try:
+                        from illusion.daemon_ipc import notify_channel_daemon_reload
+                        notify_channel_daemon_reload()
+                    except Exception:  # noqa: BLE001
+                        pass  # 守护进程未运行或通知失败，静默忽略
                 return CommandResult(
                     message=i18n_t("model_set_to", ref=model_ref, name=model_name),
                     needs_api_rebuild=needs_rebuild,

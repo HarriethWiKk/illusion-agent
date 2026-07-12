@@ -670,10 +670,12 @@ class ChannelRunner:
 
         # 构建临时 runtime（复用 build_runtime，注入渠道工具）
         # 校验 session model 是否仍与当前活跃环境兼容，避免切格式后发到旧端点
+        # 动态读取 settings.json：守护进程启动时快照可能已过期（主程序 /model 切换 env 后）
+        from illusion.config.settings import load_settings as _load_settings_dynamic
         resolved_model = None
         if session.model:
             session_env = session.model.split(".")[0] if "." in session.model else ""
-            current_env = getattr(self.settings, "_active_env_key", "") or ""
+            current_env = getattr(_load_settings_dynamic(), "_active_env_key", "") or ""
             if session_env == current_env:
                 resolved_model = session.model
             else:

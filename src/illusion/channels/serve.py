@@ -123,6 +123,7 @@ def run_channel_serve() -> None:
         daemon_type=DaemonType.CHANNEL,
         daemon_pid=os.getpid(),
         fingerprint=fingerprint,
+        on_reload=_on_settings_reload,
     )
 
     try:
@@ -149,6 +150,26 @@ def _load_settings_safely() -> Any:
     except Exception as exc:  # noqa: BLE001
         logger.warning("加载主设置失败: %s", exc)
         return None
+
+
+def _on_settings_reload() -> None:
+    """reload 回调：重新加载 settings.json 并刷新所有 runner/channel 的 settings 引用
+
+    主程序 /model 切换 env 后通过 IPC reload 消息触发。
+    守护进程启动时对 settings.json 做一次性快照，切换 env 后必须刷新
+    runner.settings 和 channel.settings 引用，否则旧快照会导致认证失败。
+    """
+    fresh_settings = _load_settings_safely()
+    if fresh_settings is None:
+        logger.warning("reload 失败：无法加载 settings.json")
+        return
+    for runner in _active_runners:
+        runner.settings = fresh_settings
+        channel = getattr(runner, "channel", None)
+        if channel is not None:
+            channel.settings = fresh_settings
+    logger.info("守护进程配置已重新加载（model=%s, env=%s）",
+                fresh_settings.model, getattr(fresh_settings, "_active_env_key", ""))
 
 
 async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:

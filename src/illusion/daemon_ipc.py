@@ -27,7 +27,7 @@ import json
 import logging
 import os
 from enum import Enum
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -314,11 +314,13 @@ class DaemonServer:
         daemon_pid: int,
         pipe_name: str | None = None,
         fingerprint: str | None = None,
+        on_reload: Callable[[], None] | None = None,
     ) -> None:
         self._daemon_type = daemon_type
         self._daemon_pid = daemon_pid
         self._pipe_name = pipe_name or _default_pipe_name(daemon_type)
         self._fingerprint = fingerprint
+        self._on_reload = on_reload
         self._connections: set[_BaseConnection] = set()
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._stop = False
@@ -485,6 +487,15 @@ class DaemonServer:
                 if client_fp != self._fingerprint:
                     return {"type": "restart_required"}
             return {"type": "ok"}
+        elif msg_type == "reload":
+            # 通知守护进程重新加载配置（如主程序 /model 切换模型后）
+            if self._on_reload is not None:
+                try:
+                    self._on_reload()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("reload 回调异常: %s", exc)
+                    return {"type": "error", "message": str(exc)}
+            return {"type": "ok"}
         return None
 
     def _get_channel_status(self) -> dict:
@@ -643,6 +654,31 @@ class DaemonClient:
         except json.JSONDecodeError:
             return None
 
+    async def reload(self, timeout: float = 5.0) -> dict | None:
+        """发送 reload 消息，通知守护进程重新加载配置
+
+        用于主程序 /model 切换模型后通知守护进程刷新 settings.json。
+
+        Args:
+            timeout: 超时秒数
+
+        Returns:
+            dict: 响应字典（{"type":"ok"} 或 {"type":"error",...}），失败返回 None
+        """
+        if self._conn is None:
+            return None
+        try:
+            await self._conn.write_line(json.dumps({"type": "reload"}))
+            line = await asyncio.wait_for(self._conn.read_line(), timeout=timeout)
+        except (OSError, asyncio.TimeoutError):
+            return None
+        if line is None:
+            return None
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return None
+
     async def close(self) -> None:
         """关闭连接"""
         if self._conn is not None:
@@ -727,5 +763,40 @@ def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict | None:
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(_do())
+    finally:
+        loop.close()
+
+
+def notify_channel_daemon_reload() -> bool:
+    """通知渠道守护进程重新加载 settings.json
+
+    创建临时 DaemonClient，连接守护进程并发送 reload 消息。
+    用于主程序 /model 命令切换模型后通知守护进程刷新配置。
+    守护进程未运行时静默返回 False（无需 reload）。
+
+    Returns:
+        bool: 通知成功返回 True，守护进程未运行或通知失败返回 False
+    """
+    import asyncio
+
+    async def _do() -> bool:
+        client = DaemonClient(
+            daemon_type=DaemonType.CHANNEL,
+            pid=os.getpid(),
+        )
+        connected = await client.connect()
+        if not connected:
+            return False
+        try:
+            resp = await client.reload()
+            return resp is not None and resp.get("type") == "ok"
+        finally:
+            await client.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_do())
+    except Exception:  # noqa: BLE001
+        return False
     finally:
         loop.close()
