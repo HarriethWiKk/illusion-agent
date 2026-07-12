@@ -52,6 +52,7 @@ class FeishuChannel(Channel):
         self._loop: Any = None  # 主事件循环引用（connect 时保存，WS 回调线程用）
         self._bot_open_id: str = ""  # bot 自身 open_id（hydrate 后赋值）
         self._stop_event = asyncio.Event()  # 停止信号
+        self._ws_future: Any = None  # executor future（run_in_executor 返回，shutdown 等待用）
 
     def _get_domain(self) -> str:
         """获取飞书 API 域名
@@ -64,10 +65,18 @@ class FeishuChannel(Channel):
         return "https://open.feishu.cn" if self.config.domain == "feishu" else "https://open.larksuite.com"
 
     async def connect(self) -> None:
-        """建立 WS 长连接"""
+        """建立 WS 长连接
+
+        参照 hermes-agent _connect_with_retry 模式：
+        - 先清理旧资源（_supervise 重启时复用 adapter 实例）
+        - 失败时调用 shutdown 清理已创建的资源，避免 lark_loop 泄漏
+        """
         from illusion.channels.feishu.messaging import build_lark_client
         from illusion.channels.feishu.ws_client import FeishuWSClient
         from illusion.config.i18n import t
+
+        # 先清理旧资源（_supervise 重启时复用 adapter 实例，避免多个 lark_loop 冲突）
+        await self._cleanup_resources()
 
         # 构造 lark 客户端
         self._client = build_lark_client(self.config)
@@ -83,9 +92,33 @@ class FeishuChannel(Channel):
         )
         # 保存当前事件循环引用（WS 回调线程需要用它跨线程投递消息）
         self._loop = asyncio.get_event_loop()
-        # 在 executor 线程跑阻塞的 start()
-        self._loop.run_in_executor(None, self._ws.start)
+        # 在 executor 线程跑阻塞的 start()，保存 future 供 shutdown 等待线程退出
+        self._ws_future = self._loop.run_in_executor(None, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
+
+    async def _cleanup_resources(self) -> None:
+        """清理旧 WS 客户端资源（connect 重启或 shutdown 时调用）
+
+        参照 hermes-agent disconnect() 模式：调用 ws.stop() 跨线程中断 lark_loop，
+        等待 future 退出，避免多个 lark_loop 并存导致 "attached to a different loop" 错误。
+        """
+        # 先停止 WS 客户端（跨线程中断 lark_loop）
+        if self._ws is not None:
+            try:
+                self._ws.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        # 等待 WS 线程退出（超时 10s）
+        ws_future = self._ws_future
+        if ws_future is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(ws_future), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("飞书 WS 线程 10s 内未退出，可能卡死")
+            except Exception:
+                pass
+            self._ws_future = None
+        self._ws = None
 
     async def _hydrate_bot_id(self) -> None:
         """从飞书 API 获取 bot 自身 open_id
@@ -630,10 +663,12 @@ class FeishuChannel(Channel):
         return str(save_path_obj)
 
     async def shutdown(self) -> None:
-        """关闭渠道"""
+        """关闭渠道
+
+        参照 hermes-agent disconnect() 模式：复用 _cleanup_resources 统一清理。
+        """
         self._stop_event.set()
-        if self._ws is not None:
-            self._ws.stop()
+        await self._cleanup_resources()
 
 
 def _extract_text(content: str) -> str:

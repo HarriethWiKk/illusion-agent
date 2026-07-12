@@ -121,11 +121,17 @@ class QQChannel(Channel):
         )
 
     async def connect(self) -> None:
-        """建立 WS 连接和 HTTP session"""
+        """建立 WS 连接和 HTTP session
+
+        失败时清理已创建的 session/ws_client，避免 Unclosed client session 警告。
+        """
         import aiohttp
 
         from illusion.channels.qq.ws_client import QQWSClient
         from illusion.config.i18n import t
+
+        # 先清理旧资源（_supervise 重启时可能复用 adapter 实例）
+        await self._cleanup_resources()
 
         self._session = aiohttp.ClientSession(trust_env=True)
         self._ws_client = QQWSClient(
@@ -133,12 +139,32 @@ class QQChannel(Channel):
             client_secret=self.config.client_secret,
             on_event=self._on_ws_event,
         )
-        await self._ws_client.connect()
+        try:
+            await self._ws_client.connect()
+        except Exception:
+            # connect 失败时清理已创建的 session/ws_client，避免泄漏
+            await self._cleanup_resources()
+            raise
 
         # 获取 bot 自身 openid（用于自回显检测）
         await self._hydrate_bot_openid()
 
         print(t("channel_starting_qq"))
+
+    async def _cleanup_resources(self) -> None:
+        """清理 ws_client/session 资源（connect 失败或 shutdown 时调用）"""
+        try:
+            if self._ws_client is not None:
+                await self._ws_client.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if self._session is not None and not self._session.closed:
+                await self._session.close()
+        except Exception:  # noqa: BLE001
+            pass
+        self._ws_client = None
+        self._session = None
 
     async def _hydrate_bot_openid(self) -> None:
         """从 QQ API 获取 bot 自身 openid
@@ -421,7 +447,11 @@ class QQChannel(Channel):
         return False
 
     async def listen(self) -> AsyncIterator[InboundMessage]:
-        """异步迭代器，不断 yield 入站消息"""
+        """异步迭代器，不断 yield 入站消息
+
+        参照 hermes-agent 模式：_listen_loop 自己永远循环处理重连，
+        不依赖外部 _supervise 重启。listen() 只负责从队列取消息 yield。
+        """
         logger.info("QQ 监听已启动")
         while not self._stop_event.is_set():
             try:
@@ -775,7 +805,4 @@ class QQChannel(Channel):
     async def shutdown(self) -> None:
         """关闭渠道"""
         self._stop_event.set()
-        if self._ws_client:
-            await self._ws_client.close()
-        if self._session:
-            await self._session.close()
+        await self._cleanup_resources()

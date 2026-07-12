@@ -23,9 +23,67 @@ from __future__ import annotations
 
 import asyncio  # 跨线程调度
 import logging  # 日志
+import time  # 重复日志抑制
 from typing import Any, Callable  # 类型
 
 logger = logging.getLogger(__name__)  # 日志器
+
+
+class _DuplicateLogFilter(logging.Filter):
+    """重复日志抑制 filter
+
+    参照 hermes-agent _write_runtime_status_safe 的日志降级思路：
+    相同消息在 THROTTLE_SECONDS 内只记录一次 WARNING，之后降级为 DEBUG。
+    避免 lark SDK 循环错误（attached to a different loop / Event loop is closed）
+    爆炸式填充 log 文件造成资源浪费。
+    """
+
+    THROTTLE_SECONDS = 60.0  # 同类消息抑制窗口
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._seen: dict[str, float] = {}  # key: 简化消息 → 首次时间戳
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # 只抑制 WARNING 及以上（INFO/DEBUG 原样放行）
+        if record.levelno < logging.WARNING:
+            return True
+        # 简化消息 key：去掉 conn_id 等动态部分
+        msg = record.getMessage()
+        # 提取前 80 字符作为 key（足够区分错误类型，忽略 conn_id 差异）
+        key = msg[:80]
+        now = time.monotonic()
+        last_seen = self._seen.get(key)
+        if last_seen is None or (now - last_seen) > self.THROTTLE_SECONDS:
+            # 首次或窗口外，记录时间戳，放行
+            self._seen[key] = now
+            return True
+        # 窗口内重复，降级为 DEBUG（不进入日志文件，除非显式开 DEBUG）
+        record.levelno = logging.DEBUG
+        record.levelname = "DEBUG"
+        return True
+
+
+# 模块级 filter 实例（飞书 WS 客户端导入时安装到 lark logger）
+_duplicate_filter = _DuplicateLogFilter()
+
+
+def _install_lark_log_filter() -> None:
+    """给 lark SDK logger 安装重复日志抑制 filter
+
+    在 start() 首次调用前安装，避免 lark SDK 循环错误爆炸填充 log 文件。
+    幂等：重复调用只安装一次。
+    """
+    try:
+        import lark_oapi.core.log as lark_log_module
+        lark_logger = getattr(lark_log_module, "logger", None)
+        if lark_logger is None:
+            return
+        # 检查是否已安装（幂等）
+        if not any(isinstance(f, _DuplicateLogFilter) for f in lark_logger.filters):
+            lark_logger.addFilter(_duplicate_filter)
+    except Exception:
+        pass
 
 
 class FeishuWSClient:
@@ -40,6 +98,12 @@ class FeishuWSClient:
         _event_handler: 事件处理回调（同步，接收 P2ImMessageReceiveV1 事件对象）
         _domain: 域名 URL
         _client: 官方客户端实例（start 后赋值）
+        _lark_loop: lark SDK 独立事件循环（start 创建，stop 用它跨线程中断）
+
+    参照 hermes-agent 的 _run_official_feishu_ws_client + disconnect 模式：
+    - start() 创建独立 loop，替换 lark SDK 模块级 loop，保存到 self._lark_loop；
+      finally 块清理 pending tasks + stop + close loop
+    - stop() 通过 call_soon_threadsafe 取消 tasks + loop.stop() 让阻塞的 start() 返回
     """
 
     def __init__(self, *, app_id: str, app_secret: str,
@@ -58,6 +122,7 @@ class FeishuWSClient:
         self._domain = domain  # 域名
         self._client: Any = None  # 官方客户端
         self._running = False  # 运行标志
+        self._lark_loop: Any = None  # lark SDK 独立事件循环（供 stop() 跨线程中断）
 
     def start(self) -> None:
         """启动 WS 客户端（阻塞，应在 executor 线程调用）
@@ -66,24 +131,29 @@ class FeishuWSClient:
 
         关键：lark SDK 在模块加载时缓存了 asyncio.get_event_loop() 作为模块级
         变量 loop。WsClient.__init__ 创建 ExpiringCache 时调用 loop.create_task()，
-        start() 内部用 loop.run_until_complete() 阻塞运行。
+        start() 内部用 loop.run_until_complete(_select()) 阻塞运行。
         守护进程主事件循环已 running，lark SDK 若复用主 loop 会抛
         RuntimeError: This event loop is already running。
 
-        修复：每次 start() 前都创建新的事件循环并替换 lark SDK 模块级 loop 变量，
-        使 lark SDK 在自己的 loop 上运行。WsClient.__init__ 也用新 loop。
-        不在结束时关闭 loop（lark SDK 的 ExpiringCache 等对象可能持有 loop 引用，
-        关闭后下次 WsClient.__init__ 会抛 Event loop is closed）。
+        参照 hermes-agent _run_official_feishu_ws_client 模式：
+        - 创建独立 loop 并替换 lark SDK 模块级 loop 变量（WsClient.__init__ 需要）
+        - 保存 loop 到 self._lark_loop 供 stop() 跨线程中断
+        - start() 阻塞运行，由 stop() 通过 loop.stop() 中断
+        - finally 块清理 pending tasks + stop + close loop
         """
         import lark_oapi as lark  # 延迟导入
         from lark_oapi.ws.client import Client as WsClient
         import lark_oapi.ws.client as lark_ws_module  # 替换模块级 loop
+
+        # 安装日志抑制 filter（幂等），避免 lark SDK 循环错误爆炸填充 log 文件
+        _install_lark_log_filter()
 
         # 每次启动前创建新 loop 并替换 lark SDK 模块级 loop
         # 必须在 WsClient.__init__ 之前执行（ExpiringCache 用 loop.create_task）
         lark_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(lark_loop)
         lark_ws_module.loop = lark_loop
+        self._lark_loop = lark_loop  # 供 stop() 跨线程中断
 
         event_handler = self._event_handler
 
@@ -105,38 +175,71 @@ class FeishuWSClient:
         )
         self._running = True
         try:
-            self._client.start()  # 阻塞运行（在 lark_loop 上）
+            # 阻塞运行（在 lark_loop 上，由 stop() 的 loop.stop() 中断 _select()）
+            self._client.start()
+        except Exception:
+            logger.debug("飞书 WS start() 异常退出", exc_info=True)
         finally:
+            # 清理 pending tasks + stop + close loop（参照 hermes-agent）
             self._running = False
+            self._cleanup_loop(lark_loop)
+            self._lark_loop = None
+
+    @staticmethod
+    def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
+        """清理事件循环上的 pending tasks 并关闭 loop
+
+        参照 hermes-agent _run_official_feishu_ws_client 的 finally 块。
+        """
+        try:
+            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        except Exception:
+            pass
+        try:
+            loop.stop()
+        except Exception:
+            pass
+        try:
+            loop.close()
+        except Exception:
+            pass
 
     def stop(self) -> None:
-        """停止 WS 客户端
+        """停止 WS 客户端（线程安全，非阻塞）
 
-        lark-oapi 的 Client 没有公开的 stop() 方法，
-        通过 _disconnect() 关闭 WS 连接。
-        _disconnect() 是 async 方法，需在 lark-oapi 自己的事件循环中调度
-        （start() 后该 loop 持续运行，被 _select() 阻塞）。
+        参照 hermes-agent disconnect() 模式：
+        通过 call_soon_threadsafe 在 lark_loop 上调度 cancel_all_tasks，
+        取消所有 pending tasks 并 call_later(0.1, loop.stop) 让阻塞的
+        run_until_complete(_select()) 返回，从而让 start() 退出并执行 finally 清理。
 
-        注意：start() 为 lark SDK 创建了独立的事件循环（lark_ws_module.loop）。
-        stop() 在主线程调用，通过 run_coroutine_threadsafe 跨线程调度 _disconnect()。
-        若 start() 已退出（loop 已关闭），直接清理 _conn。
+        调用方应随后 await executor future（adapter.shutdown 负责等待线程退出）。
         """
         self._running = False
-        if self._client is not None:
+        lark_loop = self._lark_loop
+        if lark_loop is None or lark_loop.is_closed():
+            # start() 未调用或已退出
+            return
+
+        def cancel_all_tasks() -> None:
+            """在 lark_loop 线程中取消所有 pending tasks 并停止 loop"""
             try:
-                # 获取 lark SDK 模块级事件循环（start() 创建的独立 loop）
-                import lark_oapi.ws.client as lark_ws_module
-                lark_loop = lark_ws_module.loop
-                if lark_loop.is_running() and not lark_loop.is_closed():
-                    # 跨线程调度 _disconnect() 到 lark loop，等待 2s
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._client._disconnect(), lark_loop
-                    )
-                    future.result(timeout=2.0)
-                    logger.info("飞书 WS 客户端已断开连接")
-                else:
-                    # lark loop 未运行或已关闭（start() 未调用或已退出），直接清理
-                    self._client._conn = None
-                    logger.debug("lark loop 未运行，跳过 _disconnect()")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("停止飞书 WS 客户端异常: %s", exc)
+                tasks = [t for t in asyncio.all_tasks(lark_loop) if not t.done()]
+                for task in tasks:
+                    task.cancel()
+                # 延迟 0.1s 停止 loop，给 task cancellation 一个传播窗口
+                lark_loop.call_later(0.1, lark_loop.stop)
+            except Exception:
+                pass
+
+        try:
+            lark_loop.call_soon_threadsafe(cancel_all_tasks)
+            logger.info("飞书 WS 客户端已请求停止")
+        except RuntimeError:
+            # loop 已关闭
+            pass

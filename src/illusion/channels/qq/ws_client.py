@@ -186,10 +186,24 @@ class QQWSClient:
     # ── 监听 ──────────────────────────────────────────────────
 
     async def _listen_loop(self) -> None:
-        """读取 WS 帧并分发，断线后自动重连"""
+        """读取 WS 帧并分发，断线后自动重连
+
+        参照 hermes-agent qqbot/adapter.py _listen_loop 模式：
+        - 永远循环，不退出（除非 CancelledError 或 _running=False）
+        - 快速断连次数过多：sleep 长时间后重置计数器继续循环（不放弃）
+        - 致命错误码：sleep 长时间后继续循环（网络恢复后可能就好了）
+        - 重连失败达上限：sleep 长时间后重置 backoff 继续
+        - _reconnect 返回 bool：成功重置 backoff，失败递增
+
+        关键：不依赖外部 _supervise 重启，_listen_loop 自己永远活着。
+        若 raise 异常让 _supervise 重启 runner，会导致 session 泄漏
+        且重启后 _listen_task 从头开始（丢失退避状态）。
+        """
         backoff_idx = 0
         connect_time = 0.0
         quick_disconnects = 0
+        # 长退避：快速断连/重连失败达上限时用，避免疯狂重连
+        LONG_BACKOFF_SECONDS = 60
 
         while self._running:
             try:
@@ -208,15 +222,26 @@ class QQWSClient:
                 if duration < QUICK_DISCONNECT_THRESHOLD and connect_time > 0:
                     quick_disconnects += 1
                     if quick_disconnects >= MAX_QUICK_DISCONNECTS:
-                        logger.error("QQ 快速断连次数过多，停止重连")
-                        return
+                        # 不退出，sleep 长时间后重置继续（hermes-agent 模式）
+                        logger.warning(
+                            "QQ 快速断连 %d 次，等待 %ds 后重置计数继续重连",
+                            quick_disconnects, LONG_BACKOFF_SECONDS,
+                        )
+                        await asyncio.sleep(LONG_BACKOFF_SECONDS)
+                        quick_disconnects = 0
+                        backoff_idx = 0
+                        continue
                 else:
                     quick_disconnects = 0
 
-                # 致命错误码
+                # 致命错误码：sleep 长时间后继续（不放弃，网络恢复后可能就好了）
                 if exc.code in FATAL_CLOSE_CODES:
-                    logger.error("QQ WS 致命错误 code=%s，停止重连", exc.code)
-                    return
+                    logger.error(
+                        "QQ WS 致命错误 code=%s，等待 %ds 后继续重连",
+                        exc.code, LONG_BACKOFF_SECONDS,
+                    )
+                    await asyncio.sleep(LONG_BACKOFF_SECONDS)
+                    continue
 
                 # Token 无效
                 if exc.code == INVALID_TOKEN_CODE:
@@ -234,15 +259,35 @@ class QQWSClient:
                     self._session_id = ""
                     self._last_seq = None
 
-                # 重连
-                backoff_idx = await self._reconnect(backoff_idx)
+                # 重连（返回 bool：成功重置 backoff，失败递增）
+                if await self._reconnect(backoff_idx):
+                    backoff_idx = 0
+                    quick_disconnects = 0
+                else:
+                    backoff_idx = min(backoff_idx + 1, len(RECONNECT_BACKOFF) - 1)
+                    # 重连失败达上限，sleep 长时间后重置（hermes-agent 模式）
+                    if backoff_idx >= len(RECONNECT_BACKOFF) - 1:
+                        logger.warning(
+                            "QQ WS 重连失败达上限，等待 %ds 后重置退避继续",
+                            LONG_BACKOFF_SECONDS,
+                        )
+                        await asyncio.sleep(LONG_BACKOFF_SECONDS)
+                        backoff_idx = 0
 
             except Exception as exc:  # noqa: BLE001
+                if not self._running:
+                    return
                 logger.warning("QQ WS 监听异常: %s", exc)
-                backoff_idx = await self._reconnect(backoff_idx)
+                if await self._reconnect(backoff_idx):
+                    backoff_idx = 0
+                else:
+                    backoff_idx = min(backoff_idx + 1, len(RECONNECT_BACKOFF) - 1)
 
-    async def _reconnect(self, backoff_idx: int) -> int:
+    async def _reconnect(self, backoff_idx: int) -> bool:
         """指数退避重连（仅替换 ws，不重建监听任务）
+
+        参照 hermes-agent qqbot/adapter.py _reconnect 模式：返回 bool。
+        成功 True（重置 backoff），失败 False（递增 backoff）。
 
         关键：重连在 _listen_loop 内部调用，listen_loop 自己会接着循环
         调 _read_events。这里只负责关旧 ws、建新 ws，绝不能创建新的
@@ -252,10 +297,10 @@ class QQWSClient:
             backoff_idx: 当前退避索引
 
         Returns:
-            int: 下一个退避索引
+            bool: 重连成功返回 True，失败返回 False
         """
         if not self._running:
-            return backoff_idx
+            return False
 
         delay = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
         logger.info("QQ WS 将在 %ds 后重连 (attempt %d)", delay, backoff_idx + 1)
@@ -270,10 +315,10 @@ class QQWSClient:
             if self._session is None or self._session.closed:
                 self._session = aiohttp.ClientSession(trust_env=True)
             await self._open_ws()
-            return 0  # 重连成功，重置退避
+            return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("QQ WS 重连失败: %s", exc)
-            return min(backoff_idx + 1, len(RECONNECT_BACKOFF) - 1)
+            return False
 
     async def _read_events(self) -> None:
         """读取 WS 帧并分发
