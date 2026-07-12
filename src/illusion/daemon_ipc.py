@@ -612,6 +612,10 @@ class DaemonClient:
         except (FileNotFoundError, ConnectionRefusedError, asyncio.TimeoutError):
             return False
         self._conn = _UnixSocketConnection(reader, writer)
+        # 让 server accept loop 有时间处理连接：
+        # asyncio.open_unix_connection 成功后，server 端 _handle_unix_client 才被调度，
+        # 需等待事件循环调度回调将连接加入 self._connections。
+        await asyncio.sleep(0.05)
         return True
 
     async def register(self) -> dict[str, Any]:
@@ -630,6 +634,8 @@ class DaemonClient:
         if line is None:
             raise ConnectionError("连接关闭")
         result: dict[str, Any] = json.loads(line)
+        if result.get("daemon_pid"):
+            self._daemon_pid = result["daemon_pid"]
         return result
 
     async def ping(self, timeout: float = 10.0) -> dict[str, Any] | None:
