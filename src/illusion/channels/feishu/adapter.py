@@ -91,7 +91,8 @@ class FeishuChannel(Channel):
             domain=domain,
         )
         # 保存当前事件循环引用（WS 回调线程需要用它跨线程投递消息）
-        self._loop = asyncio.get_event_loop()
+        # 用 get_running_loop() 替代已弃用的 get_event_loop()（Python 3.10+）
+        self._loop = asyncio.get_running_loop()
         # 在 executor 线程跑阻塞的 start()，保存 future 供 shutdown 等待线程退出
         self._ws_future = self._loop.run_in_executor(None, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))

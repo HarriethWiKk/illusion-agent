@@ -54,8 +54,9 @@ class _DuplicateLogFilter(logging.Filter):
         # 只抑制 WARNING 及以上（INFO/DEBUG 原样放行）
         if record.levelno < logging.WARNING:
             return True
-        # 简化消息 key：去掉 conn_id 等动态部分
-        msg = record.getMessage()
+        # 用 record.msg（原始模板）而非 record.getMessage() 避免 format 两次
+        # （handler 后续会调 getMessage() 格式化，filter 这里只需 key）
+        msg = record.msg if isinstance(record.msg, str) else str(record.msg)
         # 提取前 80 字符作为 key（足够区分错误类型，忽略 conn_id 差异）
         key = msg[:80]
         now = time.monotonic()
