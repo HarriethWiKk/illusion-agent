@@ -92,15 +92,22 @@ class FeishuChannel(Channel):
 
         调用 bot_info 接口获取 bot 的 open_id，
         用于自回显检测和 @提及识别。
+
+        lark SDK 升级后 GetBotInfoRequest 被移除，
+        改用 lark_oapi.channel.bot_identity.fetch_bot_identity。
         """
         try:
-            from lark_oapi.api.im.v1 import GetBotInfoRequest  # pyright: ignore[reportAttributeAccessIssue]
-            req = GetBotInfoRequest.builder().build()
-            resp = await asyncio.to_thread(self._client.im.v1.bot_info.get, req)
-            if resp.success() and resp.data and getattr(resp.data, "bot", None):
-                self._bot_open_id = getattr(resp.data.bot, "open_id", "") or ""
-                if self._bot_open_id:
-                    logger.info("飞书 bot open_id: %s", self._bot_open_id)
+            from lark_oapi.channel.bot_identity import fetch_bot_identity
+            from lark_oapi.core.model.config import Config
+            # 构造 Config 对象（fetch_bot_identity 需要）
+            config = Config()
+            config.app_id = self.config.app_id
+            config.app_secret = self.config.app_secret
+            config.domain = self._get_domain()
+            identity = await fetch_bot_identity(config)
+            if identity is not None and identity.open_id:
+                self._bot_open_id = identity.open_id
+                logger.info("飞书 bot open_id: %s", self._bot_open_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("获取飞书 bot open_id 失败: %s", exc)
 

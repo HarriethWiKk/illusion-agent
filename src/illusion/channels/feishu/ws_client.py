@@ -84,7 +84,7 @@ class FeishuWSClient:
         dispatcher = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(lambda event: event_handler(event))
-            .register_p2_im_message_read_v1(lambda _event: None)
+            .register_p2_im_message_message_read_v1(lambda _event: None)
             .build()
         )
 
