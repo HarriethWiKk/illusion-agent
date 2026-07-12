@@ -60,6 +60,7 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
 
     async def _fake_register(self):
         # 返回 daemon_pid 以触发杀旧进程路径
+        self._daemon_pid = 99999
         return {"type": "restart_required", "daemon_pid": 99999}
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
