@@ -63,9 +63,18 @@ class FeishuWSClient:
         """启动 WS 客户端（阻塞，应在 executor 线程调用）
 
         构造官方 lark WS 客户端并 start()。事件通过 _event_handler 回调投递。
+
+        关键：lark SDK 在模块加载时缓存了 asyncio.get_event_loop() 作为模块级
+        变量 loop，start() 内部用 loop.run_until_complete() 阻塞运行。
+        首次启动时 worker 线程的 get_event_loop() 可能返回新 loop（成功）；
+        但守护进程重启飞书时，模块级 loop 已是主线程的 running loop，
+        run_until_complete() 抛 RuntimeError: This event loop is already running。
+        修复：为 lark SDK 创建独立的事件循环并替换模块级 loop 变量，
+        使 lark SDK 在自己的 loop 上运行，不干扰主事件循环。
         """
         import lark_oapi as lark  # 延迟导入
         from lark_oapi.ws.client import Client as WsClient
+        import lark_oapi.ws.client as lark_ws_module  # 替换模块级 loop
 
         event_handler = self._event_handler
 
@@ -75,7 +84,7 @@ class FeishuWSClient:
         dispatcher = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(lambda event: event_handler(event))
-            .register_p2_im_message_message_read_v1(lambda _event: None)
+            .register_p2_im_message_read_v1(lambda _event: None)
             .build()
         )
 
@@ -85,11 +94,20 @@ class FeishuWSClient:
             event_handler=dispatcher,
             domain=self._domain,
         )
+        # 为 lark SDK 创建独立事件循环，替换模块级 loop
+        # 避免与主事件循环冲突（This event loop is already running）
+        lark_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(lark_loop)
+        lark_ws_module.loop = lark_loop
         self._running = True
         try:
-            self._client.start()  # 阻塞运行
+            self._client.start()  # 阻塞运行（在 lark_loop 上）
         finally:
             self._running = False
+            try:
+                lark_loop.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def stop(self) -> None:
         """停止 WS 客户端
@@ -98,13 +116,18 @@ class FeishuWSClient:
         通过 _disconnect() 关闭 WS 连接。
         _disconnect() 是 async 方法，需在 lark-oapi 自己的事件循环中调度
         （start() 后该 loop 持续运行，被 _select() 阻塞）。
+
+        注意：start() 为 lark SDK 创建了独立的事件循环（lark_ws_module.loop）。
+        stop() 在主线程调用，通过 run_coroutine_threadsafe 跨线程调度 _disconnect()。
+        若 start() 已退出（loop 已关闭），直接清理 _conn。
         """
         self._running = False
         if self._client is not None:
             try:
-                # 获取 lark-oapi 模块级事件循环
-                from lark_oapi.ws.client import loop as lark_loop
-                if lark_loop.is_running():
+                # 获取 lark SDK 模块级事件循环（start() 创建的独立 loop）
+                import lark_oapi.ws.client as lark_ws_module
+                lark_loop = lark_ws_module.loop
+                if lark_loop.is_running() and not lark_loop.is_closed():
                     # 跨线程调度 _disconnect() 到 lark loop，等待 2s
                     future = asyncio.run_coroutine_threadsafe(
                         self._client._disconnect(), lark_loop
@@ -112,7 +135,7 @@ class FeishuWSClient:
                     future.result(timeout=2.0)
                     logger.info("飞书 WS 客户端已断开连接")
                 else:
-                    # lark loop 未运行（start() 未调用或已退出），直接清理
+                    # lark loop 未运行或已关闭（start() 未调用或已退出），直接清理
                     self._client._conn = None
                     logger.debug("lark loop 未运行，跳过 _disconnect()")
             except Exception as exc:  # noqa: BLE001

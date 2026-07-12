@@ -286,9 +286,14 @@ class QQWSClient:
 
         循环条件检查 self._ws.closed：重连后旧 ws 已关闭，循环自然退出，
         避免对已关闭的旧 ws 继续调用 receive（参考 hermes qqbot 实现）。
+
+        注意：self._ws 为 None 时必须抛 QQCloseError 而非直接 return。
+        若直接 return，_listen_loop 会认为读取正常完成 → 重置 backoff_idx →
+        立即再次调用 _read_events → 又 return → 形成不 yield 的忙循环，
+        饿死整个事件循环（IPC 不响应、其他渠道停摆）。
         """
         if not self._ws:
-            return
+            raise QQCloseError(0, "WS 连接为空（上次重连失败）")
         # 连续探活失败计数：超过阈值认定连接已死，强制重连
         idle_probes = 0
         max_idle_probes = 3  # 3 次 ping 无响应（约 90s）判定连接已死
