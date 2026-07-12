@@ -78,6 +78,53 @@ def _serialize_media_for_openai(block: MediaBlock) -> dict[str, Any]:
     }
 
 
+def _model_consumes_thought_signature(model: str) -> bool:
+    """判断目标模型是否需要回传 Gemini thought_signature（extra_content）。
+
+    Gemini 3 思考模型对每个 functionCall 附加 ``thought_signature``，且要求在后续
+    请求中原样回传，否则 API 返回 HTTP 400 "missing thought_signature"。
+    但严格的 OpenAI 兼容 provider（如 Fireworks、Mistral）会拒绝任何包含
+    ``extra_content`` 字段的请求（"Extra inputs are not permitted"）。
+    因此只有当目标模型属于 Gemini 家族时才保留 ``extra_content``，其余一律剥离。
+
+    Args:
+        model: 模型名称
+
+    Returns:
+        bool: 是否为需要回传 thought_signature 的 Gemini 家族模型
+    """
+    m = (model or "").lower()
+    return "gemini" in m or "gemma" in m
+
+
+def _extract_extra_content(tc_delta: Any) -> Any:
+    """从流式工具调用增量中提取 extra_content（Gemini thought_signature 载体）。
+
+    OpenAI SDK 配置了 ``extra='allow'``，未知字段（如 Gemini 的 ``extra_content``）
+    既可通过属性直接访问，也可通过 ``model_extra`` 字典访问。SDK 可能将其解析为
+    pydantic 模型，此处统一转为 dict 以便后续处理。
+
+    Args:
+        tc_delta: 流式增量中的工具调用对象
+
+    Returns:
+        extra_content 的 dict 形式，或 None
+    """
+    extra = getattr(tc_delta, "extra_content", None)
+    if extra is None:
+        me = getattr(tc_delta, "model_extra", None) or {}
+        if isinstance(me, dict):
+            extra = me.get("extra_content")
+    if extra is None:
+        return None
+    if hasattr(extra, "model_dump"):
+        try:
+            extra = extra.model_dump()
+        except Exception:
+            pass
+    return extra
+
+
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """将 Anthropic 工具模式转换为 OpenAI function-calling 格式
     
@@ -108,19 +155,23 @@ def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]
 def _convert_messages_to_openai(
     messages: list[ConversationMessage],
     system_prompt: str | None,
+    *,
+    model: str = "",
 ) -> list[dict[str, Any]]:
     """将 Anthropic 风格消息转换为 OpenAI 聊天格式
-    
+
     主要差异：
     - Anthropic：系统提示词是单独参数
     - OpenAI：系统提示词是 role="system" 的消息
     - Anthropic：tool_use / tool_result 是 content blocks
     - OpenAI：tool_calls 在 assistant 消息上，tool results 是独立消息
-    
+
     Args:
         messages: Anthropic 风格的消息列表
         system_prompt: 系统提示词
-    
+        model: 目标模型名称，用于决定是否回传 Gemini thought_signature
+            （``extra_content``）。仅 Gemini 家族模型保留，其余剥离。
+
     Returns:
         list[dict[str, Any]]: OpenAI 格式的消息列表
     """
@@ -132,7 +183,7 @@ def _convert_messages_to_openai(
 
     for msg in messages:
         if msg.role == "assistant":
-            openai_msg = _convert_assistant_message(msg)
+            openai_msg = _convert_assistant_message(msg, model=model)
             openai_messages.append(openai_msg)
         elif msg.role == "user":
             # 用户消息可能包含文本、tool_result 或 media blocks
@@ -186,14 +237,19 @@ def _convert_messages_to_openai(
     return openai_messages
 
 
-def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
+def _convert_assistant_message(msg: ConversationMessage, *, model: str = "") -> dict[str, Any]:
     """将 assistant ConversationMessage 转换为 OpenAI 格式
 
     支持思维模型（如 Kimi k2.5）的 providers 要求每个包含 tool calls 的 assistant
     消息都有 ``reasoning_content`` 字段。这里统一从 ThinkingBlock 回放 reasoning。
 
+    Gemini 3 思考模型还会对每个 functionCall 附加 ``thought_signature``（通过
+    ``extra_content`` 字段）。该签名必须原样回传，否则 API 返回 400。仅当目标
+    ``model`` 属于 Gemini 家族时保留 ``extra_content``；严格 provider 会拒绝该字段。
+
     Args:
         msg: ConversationMessage 对象
+        model: 目标模型名称，用于 Gemini thought_signature 门控
 
     Returns:
         dict[str, Any]: OpenAI 格式的消息
@@ -223,8 +279,12 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
         openai_msg["reasoning_content"] = ""
 
     if tool_uses:
-        openai_msg["tool_calls"] = [
-            {
+        # Gemini 3 思考模型要求回传 thought_signature（extra_content）；
+        # 严格 provider（Fireworks/Mistral 等）会拒绝未知字段，故按模型门控。
+        keep_extra = _model_consumes_thought_signature(model)
+        tool_calls: list[dict[str, Any]] = []
+        for tu in tool_uses:
+            tc: dict[str, Any] = {
                 "id": tu.id,
                 "type": "function",
                 "function": {
@@ -232,8 +292,12 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
                     "arguments": json.dumps(tu.input),
                 },
             }
-            for tu in tool_uses
-        ]
+            if keep_extra:
+                extra = tu.provider_data.get("extra_content")
+                if extra is not None:
+                    tc["extra_content"] = extra
+            tool_calls.append(tc)
+        openai_msg["tool_calls"] = tool_calls
 
     return openai_msg
 
@@ -279,10 +343,16 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
     if message.tool_calls:
         for tc in message.tool_calls:
             args = parse_tool_arguments(getattr(tc.function, "arguments", ""))
+            # 保留 Gemini thought_signature（extra_content）
+            extra = _extract_extra_content(tc)
+            provider_data: dict[str, Any] = {}
+            if extra is not None:
+                provider_data["extra_content"] = extra
             content.append(ToolUseBlock(
                 id=tc.id,
                 name=tc.function.name,
                 input=args,
+                provider_data=provider_data,
             ))
 
     return ConversationMessage(role="assistant", content=content)
@@ -391,7 +461,9 @@ class OpenAICompatibleClient:
         Yields:
             ApiStreamEvent: 流式事件
         """
-        openai_messages = _convert_messages_to_openai(request.messages, request.system_prompt)
+        openai_messages = _convert_messages_to_openai(
+            request.messages, request.system_prompt, model=request.model,
+        )
         openai_tools = _convert_tools_to_openai(request.tools) if request.tools else None
 
         # 检测是否为 Codex 模型（使用 chatgpt.com/backend-api 或模型名包含 codex）
@@ -497,10 +569,15 @@ class OpenAICompatibleClient:
                             "id": tc_delta.id or "",
                             "name": "",
                             "arguments": "",
+                            "extra_content": None,
                         }
                     entry = collected_tool_calls[idx]
                     if tc_delta.id:
                         entry["id"] = tc_delta.id
+                    # 捕获 Gemini thought_signature（通过 extra_content 字段返回）
+                    extra = _extract_extra_content(tc_delta)
+                    if extra is not None:
+                        entry["extra_content"] = extra
                     if tc_delta.function:
                         if tc_delta.function.name:
                             # 工具调用开始：模型刚开始生成工具调用时立即通知
@@ -532,10 +609,15 @@ class OpenAICompatibleClient:
             if not tc["name"]:
                 continue
             args = parse_tool_arguments(tc["arguments"])
+            # 保留 Gemini thought_signature（extra_content）以便后续请求回传
+            provider_data: dict[str, Any] = {}
+            if tc.get("extra_content") is not None:
+                provider_data["extra_content"] = tc["extra_content"]
             content.append(ToolUseBlock(
                 id=tc["id"],
                 name=tc["name"],
                 input=args,
+                provider_data=provider_data,
             ))
 
         merged_reasoning = merge_reasoning_text(collected_reasoning, tagged_reasoning)

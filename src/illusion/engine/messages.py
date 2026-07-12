@@ -37,18 +37,26 @@ class TextBlock(BaseModel):
 
 class ToolUseBlock(BaseModel):
     """模型执行命名工具的请求
-    
+
     Attributes:
         type: 块类型（固定为 "tool_use"）
         id: 工具调用唯一标识
         name: 工具名称
         input: 工具输入参数
+        provider_data: 供应商特有、需原样回传的不透明元数据。Gemini 3 思考模型
+            对每个 functionCall 附加 ``thought_signature``，必须在后续请求中回传，
+            否则 API 返回 400 "missing thought_signature"。此处存放形如
+            ``{"extra_content": {"google": {"thought_signature": "..."}}}``，
+            非思考模型或非 Gemini 模型保持为空字典。仅在 OpenAI 兼容路径中
+            被 ``_convert_assistant_message`` 读取；Anthropic 路径的
+            ``serialize_content_block`` 不读取此字段，保持透明。
     """
 
     type: Literal["tool_use"] = "tool_use"
     id: str = Field(default_factory=lambda: f"toolu_{uuid4().hex}")
     name: str
     input: dict[str, Any] = Field(default_factory=dict[str, Any])
+    provider_data: dict[str, Any] = Field(default_factory=dict[str, Any])
 
 
 class ToolResultBlock(BaseModel):

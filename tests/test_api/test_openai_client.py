@@ -7,6 +7,8 @@ import json
 from illusion.api.openai_client import (
     _convert_messages_to_openai,
     _convert_tools_to_openai,
+    _extract_extra_content,
+    _model_consumes_thought_signature,
 )
 from illusion.engine.messages import (
     ConversationMessage,
@@ -195,3 +197,142 @@ class TestConvertMessagesToOpenai:
         assert len(result) == 2
         assert result[0]["tool_call_id"] == "c1"
         assert result[1]["tool_call_id"] == "c2"
+
+
+class TestModelConsumesThoughtSignature:
+    """Test the Gemini thought_signature model gating predicate."""
+
+    def test_gemini_models_return_true(self):
+        for model in ("gemini-3-pro", "gemini-3.5-flash", "gemini-flash-latest", "google/gemini-3-pro"):
+            assert _model_consumes_thought_signature(model), model
+
+    def test_gemma_models_return_true(self):
+        # Gemma is served through the same Gemini API and shares the thought_signature contract
+        assert _model_consumes_thought_signature("gemma-4-31b-it")
+
+    def test_non_gemini_models_return_false(self):
+        for model in ("deepseek-chat", "claude-sonnet-4", "glm-5.2", "qwen-plus", "", "llama-v3"):
+            assert not _model_consumes_thought_signature(model), model
+
+
+class TestExtractExtraContent:
+    """Test extraction of extra_content (thought_signature carrier) from SDK objects."""
+
+    def test_attribute_access(self):
+        class FakeDelta:
+            extra_content = {"google": {"thought_signature": "sig_123"}}
+
+        assert _extract_extra_content(FakeDelta()) == {"google": {"thought_signature": "sig_123"}}
+
+    def test_model_extra_fallback(self):
+        class FakeDelta:
+            model_extra = {"extra_content": {"google": {"thought_signature": "sig_abc"}}}
+
+        assert _extract_extra_content(FakeDelta()) == {"google": {"thought_signature": "sig_abc"}}
+
+    def test_returns_none_when_absent(self):
+        class FakeDelta:
+            pass
+
+        assert _extract_extra_content(FakeDelta()) is None
+
+    def test_pydantic_model_dump(self):
+        from pydantic import BaseModel
+
+        class ExtraModel(BaseModel):
+            thought_signature: str = "sig_xyz"
+
+        class FakeDelta:
+            extra_content = ExtraModel()
+
+        result = _extract_extra_content(FakeDelta())
+        assert result == {"thought_signature": "sig_xyz"}
+
+
+class TestThoughtSignatureReplay:
+    """Test that Gemini thought_signature (extra_content) round-trips correctly.
+
+    Gemini 3 thinking models attach a thought_signature to every functionCall.
+    This signature MUST be replayed on subsequent requests or the API returns
+    HTTP 400 "missing thought_signature". Strict providers (Fireworks, Mistral)
+    reject the extra_content field, so it must be model-gated.
+    """
+
+    def _msg_with_signature(self) -> ConversationMessage:
+        return ConversationMessage(
+            role="assistant",
+            content=[
+                ToolUseBlock(
+                    id="call_1",
+                    name="write_file",
+                    input={"file_path": "/tmp/x"},
+                    provider_data={
+                        "extra_content": {"google": {"thought_signature": "SIG_GEMINI_123"}}
+                    },
+                ),
+            ],
+        )
+
+    def test_preserves_extra_content_for_gemini(self):
+        """Gemini targets keep extra_content so the signature round-trips."""
+        msg = self._msg_with_signature()
+        result = _convert_messages_to_openai([msg], None, model="gemini-3.5-flash")
+        tc = result[0]["tool_calls"][0]
+        assert tc["extra_content"] == {"google": {"thought_signature": "SIG_GEMINI_123"}}
+
+    def test_preserves_extra_content_for_gemma(self):
+        msg = self._msg_with_signature()
+        result = _convert_messages_to_openai([msg], None, model="gemma-4-31b-it")
+        assert result[0]["tool_calls"][0]["extra_content"] == {
+            "google": {"thought_signature": "SIG_GEMINI_123"}
+        }
+
+    def test_strips_extra_content_for_strict_provider(self):
+        """Non-Gemini providers reject extra_content with 400 — must be stripped."""
+        msg = self._msg_with_signature()
+        result = _convert_messages_to_openai([msg], None, model="deepseek-chat")
+        assert "extra_content" not in result[0]["tool_calls"][0]
+
+    def test_strips_extra_content_when_no_model(self):
+        """Default (no model) is to strip — safe for strict providers."""
+        msg = self._msg_with_signature()
+        result = _convert_messages_to_openai([msg], None)
+        assert "extra_content" not in result[0]["tool_calls"][0]
+
+    def test_no_extra_content_key_when_provider_data_empty(self):
+        """When provider_data has no extra_content, the tool call must not carry the key."""
+        msg = ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="call_1", name="read_file", input={"path": "/tmp/x"})],
+        )
+        result = _convert_messages_to_openai([msg], None, model="gemini-3-pro")
+        assert "extra_content" not in result[0]["tool_calls"][0]
+
+    def test_multiple_tool_calls_each_keep_their_signature(self):
+        """Each tool call carries its own thought_signature — must be preserved independently."""
+        msg = ConversationMessage(
+            role="assistant",
+            content=[
+                ToolUseBlock(
+                    id="call_1", name="read_file", input={"path": "/a"},
+                    provider_data={"extra_content": {"google": {"thought_signature": "SIG_A"}}},
+                ),
+                ToolUseBlock(
+                    id="call_2", name="write_file", input={"path": "/b"},
+                    provider_data={"extra_content": {"google": {"thought_signature": "SIG_B"}}},
+                ),
+            ],
+        )
+        result = _convert_messages_to_openai([msg], None, model="gemini-3-pro")
+        tcs = result[0]["tool_calls"]
+        assert tcs[0]["extra_content"] == {"google": {"thought_signature": "SIG_A"}}
+        assert tcs[1]["extra_content"] == {"google": {"thought_signature": "SIG_B"}}
+
+    def test_backward_compat_tooluseblock_without_provider_data(self):
+        """Existing ToolUseBlock construction (no provider_data arg) must still work."""
+        tu = ToolUseBlock(id="call_1", name="read_file", input={"path": "/tmp/x"})
+        assert tu.provider_data == {}
+        msg = ConversationMessage(role="assistant", content=[tu])
+        # Gemini target, empty provider_data → no extra_content key
+        result = _convert_messages_to_openai([msg], None, model="gemini-3-pro")
+        assert "extra_content" not in result[0]["tool_calls"][0]
