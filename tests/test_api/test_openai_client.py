@@ -9,6 +9,7 @@ from illusion.api.openai_client import (
     _convert_tools_to_openai,
     _extract_extra_content,
     _model_consumes_thought_signature,
+    _StreamingThoughtTagProcessor,
 )
 from illusion.engine.messages import (
     ConversationMessage,
@@ -336,3 +337,171 @@ class TestThoughtSignatureReplay:
         # Gemini target, empty provider_data → no extra_content key
         result = _convert_messages_to_openai([msg], None, model="gemini-3-pro")
         assert "extra_content" not in result[0]["tool_calls"][0]
+
+
+class TestStreamingThoughtTagProcessor:
+    """Test real-time separation of <thought> tags from streaming text deltas.
+
+    Gemini sends thinking content inside <thought> tags via delta.content
+    instead of the structured reasoning_content field.  The processor must
+    split these in real-time so the frontend receives reasoning and text
+    as separate events — otherwise thinking leaks into the assistant reply.
+    """
+
+    def _collect(self, proc: _StreamingThoughtTagProcessor, chunk: str) -> list[tuple[str, str]]:
+        return proc.feed(chunk)
+
+    def _flush(self, proc: _StreamingThoughtTagProcessor) -> list[tuple[str, str]]:
+        return proc.flush()
+
+    # ── Basic behaviour ───────────────────────────────────────────
+
+    def test_no_tags_passthrough(self):
+        """Plain text with no thought tags passes through as text."""
+        proc = _StreamingThoughtTagProcessor()
+        assert self._collect(proc, "Hello world") == [("Hello world", "")]
+        assert self._flush(proc) == []
+
+    def test_complete_thought_block(self):
+        """A single complete <thought>…</thought> block yields reasoning only."""
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "<thought>thinking deeply</thought>Answer here")
+        assert ("", "thinking deeply") in result
+        assert ("Answer here", "") in result
+
+    def test_text_before_and_after(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "Before<thought>inner</thought>After")
+        texts = [(t, r) for t, r in result if t]
+        reasoning = [(t, r) for t, r in result if r]
+        assert texts == [("Before", ""), ("After", "")]
+        assert reasoning == [("", "inner")]
+
+    def test_empty_thought_block(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "<thought></thought>Done")
+        # Empty thinking → no reasoning output; "Done" emitted as text
+        reasoning = [r for _, r in result if r]
+        assert reasoning == []
+        texts = [t for t, _ in result if t]
+        assert "Done" in texts
+
+    # ── Split across chunks ──────────────────────────────────────
+
+    def test_tag_split_across_chunks(self):
+        """The <thought> opening tag split across two chunks."""
+        proc = _StreamingThoughtTagProcessor()
+        r1 = self._collect(proc, "Hello <thou")
+        r2 = self._collect(proc, "ght>deep thinking</thought>Reply")
+        all_reasoning = [r for _, r in r1 + r2 if r]
+        all_text = [t for t, _ in r1 + r2 if t]
+        assert any("deep thinking" in r for r in all_reasoning)
+        assert any("Reply" in t for t in all_text)
+
+    def test_close_tag_split(self):
+        """The </thought> closing tag split across two chunks."""
+        proc = _StreamingThoughtTagProcessor()
+        r1 = self._collect(proc, "<thought>some reasoning</tho")
+        r2 = self._collect(proc, "ught>Final answer")
+        all_reasoning = [r for _, r in r1 + r2 if r]
+        all_text = [t for t, _ in r1 + r2 if t]
+        assert any("some reasoning" in r for r in all_reasoning)
+        assert any("Final answer" in t for t in all_text)
+
+    def test_content_split_inside_thought(self):
+        """Content inside <thought> arrives in many small chunks."""
+        proc = _StreamingThoughtTagProcessor()
+        results: list[tuple[str, str]] = []
+        for ch in ["<thought>", "line1", " line2", " line3", "</thought>", "Done"]:
+            results.extend(self._collect(proc, ch))
+        results.extend(self._flush(proc))
+        reasoning = [r for _, r in results if r]
+        assert any("line1" in r for r in reasoning)
+        assert any("line3" in r for r in reasoning)
+        texts = [t for t, _ in results if t]
+        assert any("Done" in t for t in texts)
+
+    # ── Multiple blocks ──────────────────────────────────────────
+
+    def test_two_sequential_blocks(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "<thought>first</thought>A<thought>second</thought>B")
+        reasoning = [r for _, r in result if r]
+        assert any("first" in r for r in reasoning)
+        assert any("second" in r for r in reasoning)
+        texts = [t for t, _ in result if t]
+        assert any("A" in t for t in texts)
+        assert any("B" in t for t in texts)
+
+    # ── Case insensitivity ───────────────────────────────────────
+
+    def test_uppercase_tags(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "<THOUGHT>deep</THOUGHT>text")
+        assert ("", "deep") in result
+        assert ("text", "") in result
+
+    def test_mixed_case_tags(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "<Thought>content</Thought>reply")
+        reasoning = [r for _, r in result if r]
+        assert any("content" in r for r in reasoning)
+
+    # ── Tag with attributes ──────────────────────────────────────
+
+    def test_tag_with_attributes(self):
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, '<thought model="gemini">inner</thought>out')
+        assert ("", "inner") in result
+        assert ("out", "") in result
+
+    # ── Flush behaviour ──────────────────────────────────────────
+
+    def test_flush_residues_open_thought(self):
+        """Unclosed <thought> with trailing '<' — the '<' is held back during feed()
+        (could be start of </thought) and flushed as reasoning on stream end."""
+        proc = _StreamingThoughtTagProcessor()
+        feed_result = self._collect(proc, "<thought>some reasoning<")
+        # "some reasoning" was output during feed (no tag prefix in it)
+        assert ("", "some reasoning") in feed_result
+        # trailing "<" was buffered; flushed at stream end
+        flush_result = self._flush(proc)
+        assert ("", "<") in flush_result
+
+    def test_flush_residues_trailing_text(self):
+        """Trailing text with no tag prefix → already emitted during feed, flush is empty."""
+        proc = _StreamingThoughtTagProcessor()
+        feed_result = self._collect(proc, "answer text")
+        assert ("answer text", "") in feed_result
+        assert self._flush(proc) == []
+
+    def test_flush_empty_buffer(self):
+        proc = _StreamingThoughtTagProcessor()
+        assert self._flush(proc) == []
+
+    # ── No cross-contamination ───────────────────────────────────
+
+    def test_reasoning_never_in_text(self):
+        """Content inside <thought> must never appear in the text output."""
+        proc = _StreamingThoughtTagProcessor()
+        chunks = ["<thought>", "secret ", "reasoning", "</thought>", "public answer"]
+        results: list[tuple[str, str]] = []
+        for ch in chunks:
+            results.extend(self._collect(proc, ch))
+        results.extend(self._flush(proc))
+        for text, reasoning in results:
+            if text:
+                assert "secret" not in text
+                assert "reasoning" not in text
+            if reasoning:
+                assert "public answer" not in reasoning
+
+    def test_text_never_in_reasoning(self):
+        """Content outside <thought> must never appear in the reasoning output."""
+        proc = _StreamingThoughtTagProcessor()
+        result = self._collect(proc, "visible<thought>inner</thought>visible2")
+        for text, reasoning in result:
+            if reasoning:
+                assert "visible" not in reasoning
+            if text:
+                assert "inner" not in text

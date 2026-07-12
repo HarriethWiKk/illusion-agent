@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re as _re
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -123,6 +124,153 @@ def _extract_extra_content(tc_delta: Any) -> Any:
         except Exception:
             pass
     return extra
+
+
+class _StreamingThoughtTagProcessor:
+    """流式文本中实时分离 ``<thought>…</thought>`` 标签内容。
+
+    Gemini 通过 OpenAI 兼容端点返回思考内容时，将其包裹在 ``<thought>`` 标签内
+    （而非 ``<think>``），且通过 ``delta.content`` 字段传输而非 ``reasoning_content``。
+    如果直接将带标签的文本发给前端，思考内容会与助手回复混在一起显示。
+
+    本处理器维护一个内部缓冲区，逐块接收文本增量并输出 (text, reasoning) 元组。
+    它在标签边界处智能缓冲：仅当尾部文本可能是 ``<thought`` 或 ``</thought`` 的
+    前缀时才保留，否则立即输出，避免对短文本造成不必要的延迟。
+
+    用法::
+
+        proc = _StreamingThoughtTagProcessor()
+        for chunk in delta_chunks:
+            for text, reasoning in proc.feed(chunk):
+                if reasoning:
+                    yield ApiTextDeltaEvent(text="", reasoning=reasoning)
+                if text:
+                    yield ApiTextDeltaEvent(text=text)
+        # 流结束时刷出残留
+        for text, reasoning in proc.flush():
+            ...同上...
+    """
+
+    _OPEN_RE = _re.compile(r'<thought\b[^>]*>', _re.IGNORECASE)
+    _CLOSE_RE = _re.compile(r'</thought\b[^>]*>', _re.IGNORECASE)
+    # ``<thought`` 前缀候选（不含 ``<``）：用于判断尾部是否可能是截断的标签
+    _TAG_PREFIXES = ("t", "th", "tho", "thou", "thoug", "thought",
+                     "/t", "/th", "/tho", "/thou", "/thoug", "/thought")
+    _TAG_MAX_LEN = 10  # len("</thought") = 10
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._in_thought = False
+
+    def feed(self, chunk: str) -> list[tuple[str, str]]:
+        """输入文本增量，返回待发送的 (text, reasoning) 元组列表。
+
+        Args:
+            chunk: 新的文本增量
+
+        Returns:
+            list[tuple[str, str]]: 每项为 (plain_text, reasoning_text)；
+                两者之一可为空字符串。
+        """
+        if not chunk:
+            return []
+        self._buf += chunk
+        return self._process(flush_all=False)
+
+    def flush(self) -> list[tuple[str, str]]:
+        """流结束时刷出缓冲区中所有剩余内容。"""
+        if not self._buf:
+            return []
+        return self._process(flush_all=True)
+
+    @classmethod
+    def _trailing_tag_prefix_len(cls, text: str) -> int:
+        """返回 ``text`` 尾部可能是 ``<thought`` 或 ``</thought`` 前缀的字符数。
+
+        例如 ``"abc<Tho"`` → ``5``（``"<Tho"`` 是 ``"<thought"`` 的前缀）；
+        ``"abc"`` → ``0``（尾部不含 ``<``，不可能是标签开头）。
+
+        Args:
+            text: 待检查的文本
+
+        Returns:
+            int: 可能是标签前缀的尾部字符数，0 表示不需要缓冲
+        """
+        # 只有当尾部包含 ``<`` 时才可能是标签开头
+        lt_pos = text.rfind("<")
+        if lt_pos < 0:
+            return 0
+        tail = text[lt_pos:]
+        tail_lower = tail.lower()
+        # 检查 tail 是否是 ``<thought...`` 或 ``</thought...`` 的前缀
+        for prefix in cls._TAG_PREFIXES:
+            tag = "<" + prefix
+            if tag.startswith(tail_lower) and len(tail) < len(tag):
+                return len(tail)
+        # ``tail`` 以 ``<`` 开头但不是任何已知标签前缀 → 不需要缓冲
+        return 0
+
+    def _process(self, *, flush_all: bool) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        while self._buf:
+            if self._in_thought:
+                close_match = self._CLOSE_RE.search(self._buf)
+                if close_match:
+                    # 输出 </thought> 前的思考内容作为 reasoning
+                    thinking = self._buf[:close_match.start()]
+                    if thinking:
+                        results.append(("", thinking))
+                    self._buf = self._buf[close_match.end():]
+                    self._in_thought = False
+                    continue
+                else:
+                    # 没有找到关闭标签
+                    if flush_all:
+                        # 流结束，残留的思考内容全部作为 reasoning 输出
+                        if self._buf:
+                            results.append(("", self._buf))
+                            self._buf = ""
+                    else:
+                        # 检查尾部是否可能是截断的 </thought 标签
+                        hold = self._trailing_tag_prefix_len(self._buf)
+                        safe = len(self._buf) - hold
+                        if safe > 0:
+                            results.append(("", self._buf[:safe]))
+                            self._buf = self._buf[safe:]
+                        elif hold == 0:
+                            # 整个缓冲区都不是标签前缀，全部输出
+                            results.append(("", self._buf))
+                            self._buf = ""
+                    break
+            else:
+                open_match = self._OPEN_RE.search(self._buf)
+                if open_match:
+                    # 开标签前的文本作为普通文本输出
+                    before = self._buf[:open_match.start()]
+                    if before:
+                        results.append((before, ""))
+                    self._buf = self._buf[open_match.end():]
+                    self._in_thought = True
+                    continue
+                else:
+                    # 没有找到开标签
+                    if flush_all:
+                        if self._buf:
+                            results.append((self._buf, ""))
+                            self._buf = ""
+                    else:
+                        # 检查尾部是否可能是截断的 <thought 标签
+                        hold = self._trailing_tag_prefix_len(self._buf)
+                        safe = len(self._buf) - hold
+                        if safe > 0:
+                            results.append((self._buf[:safe], ""))
+                            self._buf = self._buf[safe:]
+                        elif hold == 0:
+                            # 整个缓冲区都不是标签前缀，全部输出
+                            results.append((self._buf, ""))
+                            self._buf = ""
+                    break
+        return results
 
 
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -512,6 +660,9 @@ class OpenAICompatibleClient:
         collected_reasoning = ""
         collected_tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
+        # Gemini 通过 delta.content 返回 <thought> 标签包裹的思考内容，
+        # 需要实时分离以避免思考过程与助手回复混在一起显示。
+        thought_processor = _StreamingThoughtTagProcessor()
         usage_data: dict[str, int] = {}
 
         try:
@@ -558,7 +709,14 @@ class OpenAICompatibleClient:
             # 向用户流式传输文本内容
             if delta.content:
                 collected_content += delta.content
-                yield ApiTextDeltaEvent(text=delta.content)
+                # 通过流式处理器实时分离 <thought> 标签包裹的思考内容，
+                # 避免 Gemini 的思考过程与助手回复混在一起显示。
+                for text_part, reasoning_part in thought_processor.feed(delta.content):
+                    if reasoning_part:
+                        collected_reasoning += reasoning_part
+                        yield ApiTextDeltaEvent(text="", reasoning=reasoning_part)
+                    if text_part:
+                        yield ApiTextDeltaEvent(text=text_part)
 
             # 收集工具调用
             if delta.tool_calls:
@@ -596,6 +754,14 @@ class OpenAICompatibleClient:
                     "input_tokens": chunk.usage.prompt_tokens or 0,
                     "output_tokens": chunk.usage.completion_tokens or 0,
                 }
+
+        # 刷出流式思考标签处理器中可能残留的内容
+        for text_part, reasoning_part in thought_processor.flush():
+            if reasoning_part:
+                collected_reasoning += reasoning_part
+                yield ApiTextDeltaEvent(text="", reasoning=reasoning_part)
+            if text_part:
+                yield ApiTextDeltaEvent(text=text_part)
 
         # 构建最终 ConversationMessage
         content: list[ContentBlock] = []
