@@ -113,7 +113,7 @@ class WeixinChannel(Channel):
         from illusion.channels.weixin.ilink_api import _make_ssl_connector
         from illusion.config.i18n import t
 
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         connector = _make_ssl_connector()
         # 长轮询 session（有超时，35 秒 hold）
         self._poll_session = aiohttp.ClientSession(trust_env=True, connector=connector)
