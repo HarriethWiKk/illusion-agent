@@ -706,7 +706,10 @@ class ChannelRunner:
         try:
             bundle = await build_runtime(
                 model=resolved_model,
-                api_key=self.settings.resolve_api_key(),
+                # 不传 api_key：让 build_runtime 内部 load_settings() 动态解析当前 env 的 key
+                # 守护进程启动时对 settings.json 做一次性快照，永不刷新；
+                # 若传 self.settings.resolve_api_key() 会用旧 env 的 key，
+                # 被 merge_cli_overrides 强行覆盖到新 env 的 EnvConfig 上 → "新端点+旧密钥" → 401
                 restore_messages=session.messages if session.messages else None,
                 restore_session_id=session.session_id,
                 is_interactive=False,
