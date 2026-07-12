@@ -26,8 +26,9 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def _default_pipe_name(daemon_type: DaemonType) -> str:
             return str(get_channels_data_dir() / "channel_daemon.sock")
 
 
-def _get_channel_status_provider() -> Callable[[], dict] | None:
+def _get_channel_status_provider() -> Callable[[], dict[str, Any]] | None:
     """获取渠道状态提供器（延迟导入避免循环依赖）"""
     try:
         from illusion.channels.serve import get_channel_status
@@ -128,7 +129,7 @@ if _IS_WINDOWS:
 
     def _win_create_pipe(name: str) -> int:
         """创建 Named Pipe 实例（服务端）"""
-        handle = _kernel32.CreateNamedPipeW(
+        handle: int = _kernel32.CreateNamedPipeW(
             name,
             _PIPE_ACCESS_DUPLEX,
             _PIPE_TYPE_BYTE | _PIPE_WAIT,
@@ -175,7 +176,7 @@ if _IS_WINDOWS:
 
     def _win_connect_to_pipe(name: str) -> int | None:
         """客户端连接到 Named Pipe，失败返回 None"""
-        handle = _kernel32.CreateFileW(
+        handle: int = _kernel32.CreateFileW(
             name,
             _GENERIC_READ | _GENERIC_WRITE,
             0, None,
@@ -345,7 +346,7 @@ class DaemonServer:
             first_handle = await asyncio.to_thread(_win_create_pipe, self._pipe_name)
             self._pending_pipe_handle = first_handle
             self._accept_task = asyncio.create_task(self._windows_accept_loop())
-        else:
+        elif sys.platform != "win32":
             # Unix: 先清理残留 socket 文件
             try:
                 os.unlink(self._pipe_name)
@@ -470,7 +471,7 @@ class DaemonServer:
             self._connections.discard(conn)
             await conn.close()
 
-    def _handle_message(self, msg: dict) -> dict | None:
+    def _handle_message(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         """处理消息，返回响应"""
         msg_type = msg.get("type")
         if msg_type == "ping":
@@ -498,7 +499,7 @@ class DaemonServer:
             return {"type": "ok"}
         return None
 
-    def _get_channel_status(self) -> dict:
+    def _get_channel_status(self) -> dict[str, Any]:
         """获取渠道状态（用于 pong 响应）"""
         provider = _get_channel_status_provider()
         if provider is not None:
@@ -600,7 +601,9 @@ class DaemonClient:
         return True
 
     async def _unix_connect(self) -> bool:
-        """Unix Socket 连接"""
+        """Unix Socket 连接（仅 Unix 平台可用）"""
+        if sys.platform == "win32":
+            return False
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(self._pipe_name),
@@ -611,7 +614,7 @@ class DaemonClient:
         self._conn = _UnixSocketConnection(reader, writer)
         return True
 
-    async def register(self) -> dict:
+    async def register(self) -> dict[str, Any]:
         """发送 register 消息，获取响应
 
         Returns:
@@ -619,16 +622,17 @@ class DaemonClient:
         """
         if self._conn is None:
             raise RuntimeError("未连接")
-        msg = {"type": "register", "pid": self._pid}
+        msg: dict[str, Any] = {"type": "register", "pid": self._pid}
         if self._fingerprint is not None:
             msg["fingerprint"] = self._fingerprint
         await self._conn.write_line(json.dumps(msg))
         line = await asyncio.wait_for(self._conn.read_line(), timeout=5.0)
         if line is None:
             raise ConnectionError("连接关闭")
-        return json.loads(line)
+        result: dict[str, Any] = json.loads(line)
+        return result
 
-    async def ping(self, timeout: float = 10.0) -> dict | None:
+    async def ping(self, timeout: float = 10.0) -> dict[str, Any] | None:
         """发送 ping，等待 pong
 
         Args:
@@ -647,14 +651,14 @@ class DaemonClient:
         if line is None:
             return None
         try:
-            resp = json.loads(line)
+            resp: dict[str, Any] = json.loads(line)
             if resp.get("type") == "pong":
                 self._daemon_pid = resp.get("daemon_pid")
             return resp
         except json.JSONDecodeError:
             return None
 
-    async def reload(self, timeout: float = 5.0) -> dict | None:
+    async def reload(self, timeout: float = 5.0) -> dict[str, Any] | None:
         """发送 reload 消息，通知守护进程重新加载配置
 
         用于主程序 /model 切换模型后通知守护进程刷新 settings.json。
@@ -675,7 +679,8 @@ class DaemonClient:
         if line is None:
             return None
         try:
-            return json.loads(line)
+            result: dict[str, Any] = json.loads(line)
+            return result
         except json.JSONDecodeError:
             return None
 
@@ -691,7 +696,7 @@ class DaemonClient:
 # 避免 Unix 上 StreamWriter 绑定到已关闭的 loop 导致 drain() 失败。
 
 
-def connect_and_register(client: "DaemonClient") -> tuple[bool, dict | None]:
+def connect_and_register(client: "DaemonClient") -> tuple[bool, dict[str, Any] | None]:
     """在同一个事件循环中完成 connect + register
 
     Args:
@@ -705,7 +710,7 @@ def connect_and_register(client: "DaemonClient") -> tuple[bool, dict | None]:
     """
     import asyncio
 
-    async def _do() -> tuple[bool, dict | None]:
+    async def _do() -> tuple[bool, dict[str, Any] | None]:
         connected = await client.connect()
         if not connected:
             return False, None
@@ -739,7 +744,7 @@ def close_client(client: "DaemonClient") -> None:
         loop.close()
 
 
-def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict | None:
+def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict[str, Any] | None:
     """在独立事件循环中 ping 守护进程
 
     Args:
@@ -751,7 +756,7 @@ def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict | None:
     """
     import asyncio
 
-    async def _do() -> dict | None:
+    async def _do() -> dict[str, Any] | None:
         connected = await client.connect()
         if not connected:
             return None

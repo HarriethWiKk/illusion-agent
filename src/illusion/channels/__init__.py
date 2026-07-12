@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from illusion.channels.feishu.streaming import FeishuStreamingCardController
     from illusion.channels.qq.streaming import QQStreamingController
     from illusion.config.settings import Settings
-    from illusion.daemon_ipc import DaemonClient
+    from illusion.daemon_ipc import DaemonClient as DaemonClient, DaemonClientRef, DaemonType
 
 logger = logging.getLogger(__name__)
 

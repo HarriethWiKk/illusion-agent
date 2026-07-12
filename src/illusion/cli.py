@@ -28,6 +28,7 @@ IllusionCode CLI 入口模块
 from __future__ import annotations
 
 import json  # JSON 解析和序列化
+import os  # 操作系统相关功能
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
 from typing import TYPE_CHECKING, Any, Optional  # 类型注解

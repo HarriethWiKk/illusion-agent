@@ -64,6 +64,7 @@ def run_cron_serve() -> None:
         daemon_pid=os.getpid(),
     )
 
+    loop: asyncio.AbstractEventLoop | None = None
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -72,8 +73,9 @@ def run_cron_serve() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        loop.run_until_complete(server.stop())
-        loop.close()
+        if loop is not None:
+            loop.run_until_complete(server.stop())
+            loop.close()
 
 
 async def _serve_async(server: Any) -> None:
@@ -89,7 +91,7 @@ async def _serve_async(server: Any) -> None:
     await scheduler.start()
 
     # 启动连接监控（替代 ref_monitor_loop）
-    async def _monitor():
+    async def _monitor() -> None:
         await server.wait_for_no_connections(grace_seconds=3.0)
         stop_event.set()
 

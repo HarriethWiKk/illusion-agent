@@ -16,7 +16,7 @@ from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron import load_cron_jobs
 
 if TYPE_CHECKING:
-    from illusion.daemon_ipc import DaemonClient
+    from illusion.daemon_ipc import DaemonClient as DaemonClient, DaemonClientRef, DaemonType
 
 logger = logging.getLogger(__name__)
 

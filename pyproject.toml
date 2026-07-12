@@ -99,3 +99,7 @@ target-version = "py312"
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = "lark_oapi.*"
+ignore_missing_imports = true

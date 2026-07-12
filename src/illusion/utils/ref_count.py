@@ -22,7 +22,15 @@
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 import warnings
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+from illusion.utils.atomic_write import atomic_write_text
 
 # 模块加载时发出 DeprecationWarning
 warnings.warn(
@@ -30,15 +38,6 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
-
-import asyncio
-import logging
-import os
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Iterator
-
-from illusion.utils.atomic_write import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
