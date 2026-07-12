@@ -65,16 +65,25 @@ class FeishuWSClient:
         构造官方 lark WS 客户端并 start()。事件通过 _event_handler 回调投递。
 
         关键：lark SDK 在模块加载时缓存了 asyncio.get_event_loop() 作为模块级
-        变量 loop，start() 内部用 loop.run_until_complete() 阻塞运行。
-        首次启动时 worker 线程的 get_event_loop() 可能返回新 loop（成功）；
-        但守护进程重启飞书时，模块级 loop 已是主线程的 running loop，
-        run_until_complete() 抛 RuntimeError: This event loop is already running。
-        修复：为 lark SDK 创建独立的事件循环并替换模块级 loop 变量，
-        使 lark SDK 在自己的 loop 上运行，不干扰主事件循环。
+        变量 loop。WsClient.__init__ 创建 ExpiringCache 时调用 loop.create_task()，
+        start() 内部用 loop.run_until_complete() 阻塞运行。
+        守护进程主事件循环已 running，lark SDK 若复用主 loop 会抛
+        RuntimeError: This event loop is already running。
+
+        修复：每次 start() 前都创建新的事件循环并替换 lark SDK 模块级 loop 变量，
+        使 lark SDK 在自己的 loop 上运行。WsClient.__init__ 也用新 loop。
+        不在结束时关闭 loop（lark SDK 的 ExpiringCache 等对象可能持有 loop 引用，
+        关闭后下次 WsClient.__init__ 会抛 Event loop is closed）。
         """
         import lark_oapi as lark  # 延迟导入
         from lark_oapi.ws.client import Client as WsClient
         import lark_oapi.ws.client as lark_ws_module  # 替换模块级 loop
+
+        # 每次启动前创建新 loop 并替换 lark SDK 模块级 loop
+        # 必须在 WsClient.__init__ 之前执行（ExpiringCache 用 loop.create_task）
+        lark_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(lark_loop)
+        lark_ws_module.loop = lark_loop
 
         event_handler = self._event_handler
 
@@ -94,20 +103,11 @@ class FeishuWSClient:
             event_handler=dispatcher,
             domain=self._domain,
         )
-        # 为 lark SDK 创建独立事件循环，替换模块级 loop
-        # 避免与主事件循环冲突（This event loop is already running）
-        lark_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(lark_loop)
-        lark_ws_module.loop = lark_loop
         self._running = True
         try:
             self._client.start()  # 阻塞运行（在 lark_loop 上）
         finally:
             self._running = False
-            try:
-                lark_loop.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     def stop(self) -> None:
         """停止 WS 客户端
