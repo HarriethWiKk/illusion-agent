@@ -116,7 +116,9 @@ class FeishuChannel(Channel):
                 await asyncio.wait_for(asyncio.shield(ws_future), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.warning("飞书 WS 线程 10s 内未退出，可能卡死")
-            except Exception:
+            except BaseException:  # noqa: BLE001  包括 CancelledError
+                # ws_client.start() 被 stop() 取消时可能传播 CancelledError，
+                # 属正常关闭路径，不应中断 shutdown 流程
                 pass
             self._ws_future = None
         self._ws = None
@@ -175,9 +177,10 @@ class FeishuChannel(Channel):
             }).encode()
             req = _urllib.Request(url, data=payload, headers={"Content-Type": "application/json"})
 
-            def _do_request() -> dict:
+            def _do_request() -> dict[str, Any]:
                 with _urllib.urlopen(req, timeout=10) as resp:  # noqa: S310  飞书 API HTTPS URL
-                    return _json.loads(resp.read().decode())
+                    result: dict[str, Any] = _json.loads(resp.read().decode())
+                    return result
 
             data = await asyncio.to_thread(_do_request)
             return data.get("code") == 0

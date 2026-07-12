@@ -30,9 +30,9 @@ SUPERVISOR_BACKOFF_SECONDS = (5.0, 10.0, 30.0)
 _active_runners: list[Any] = []
 
 
-def get_channel_status() -> dict:
+def get_channel_status() -> dict[str, Any]:
     """获取渠道状态（用于 pong 响应）"""
-    status = {}
+    status: dict[str, Any] = {}
     for runner in _active_runners:
         channel = getattr(runner, "channel", None)
         if channel is None:
@@ -126,6 +126,7 @@ def run_channel_serve() -> None:
         on_reload=_on_settings_reload,
     )
 
+    loop: asyncio.AbstractEventLoop | None = None
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -134,8 +135,9 @@ def run_channel_serve() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        loop.run_until_complete(server.stop())
-        loop.close()
+        if loop is not None:
+            loop.run_until_complete(server.stop())
+            loop.close()
 
 
 def _load_settings_safely() -> Any:
@@ -363,7 +365,7 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
     ]
 
     # 启动连接监控（替代 ref_monitor_loop）
-    async def _monitor():
+    async def _monitor() -> None:
         await server.wait_for_no_connections(grace_seconds=3.0)
         stop_event.set()
     tasks.append(asyncio.create_task(_monitor(), name="channel-connection-monitor"))
@@ -390,7 +392,8 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
             await asyncio.wait_for(r.shutdown(), timeout=5.0)
         except asyncio.TimeoutError:
             logger.warning("关闭渠道超时（5s），跳过: %s", r)
-        except Exception as exc:  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001  包括 CancelledError
+            # 单个渠道 shutdown 异常不应中断其他渠道的关闭
             logger.warning("关闭渠道异常: %s", exc)
 
     # 清空 runners 引用

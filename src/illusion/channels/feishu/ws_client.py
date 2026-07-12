@@ -187,6 +187,9 @@ class FeishuWSClient:
         try:
             # 阻塞运行（在 lark_loop 上，由 stop() 的 loop.stop() 中断 _select()）
             self._client.start()
+        except asyncio.CancelledError:
+            # 正常关闭：stop() 取消 lark_loop 上的任务时触发
+            logger.debug("飞书 WS start() 被 stop() 取消（正常关闭）")
         except Exception:
             logger.debug("飞书 WS start() 异常退出", exc_info=True)
         finally:
