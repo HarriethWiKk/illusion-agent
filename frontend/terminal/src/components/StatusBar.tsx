@@ -129,9 +129,11 @@ export function StatusBar({
 
 	return (
 		<Box flexDirection="column" marginTop={noMarginTop ? 0 : 1}>
-			<Box flexDirection="row">
-				<Text color={theme.colors.text}>{'─'.repeat(60)}</Text>
-			</Box>
+			{!noMarginTop ? (
+				<Box flexDirection="row">
+					<Text color={theme.colors.text}>{'─'.repeat(60)}</Text>
+				</Box>
+			) : null}
 			<Box flexDirection="row" alignItems="center">
 				<Text color={theme.colors.illusion}>{model}</Text>
 				{(inputTokens > 0 || outputTokens > 0) ? (
