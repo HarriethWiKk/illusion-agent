@@ -693,7 +693,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* 状态栏 */}
 			{session.ready ? (
-				<StatusBar status={session.status} tasks={session.tasks} />
+				<StatusBar status={session.status} tasks={session.tasks} noMarginTop={session.todoItems.length > 0} />
 			) : null}
 
 			{/* 输入区域 — 后端就绪前显示加载指示器（后端退出后隐藏） */}

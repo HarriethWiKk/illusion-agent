@@ -15,7 +15,9 @@ import {Box, Text} from 'ink';
 
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
+import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import type {TodoItemSnapshot} from '../types.js';
+import {stringWidth, truncateToDisplayWidth, WIDTH_SAFETY_EXTRA} from '../utils/markdown.js';
 
 /** 所有任务完成后自动隐藏的延迟时间（毫秒） */
 const HIDE_DELAY_MS = 5000;
@@ -37,6 +39,7 @@ const MAX_TODO_DISPLAY = 4;
  */
 export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Element {
 	const theme = useTheme();
+	const {columns: terminalWidth} = useTerminalSize();
 	const [hidden, setHidden] = useState(false);
 	const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const completionTimeRef = useRef<Record<string, number>>({});
@@ -100,8 +103,11 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 	const display = truncated ? sorted.slice(0, MAX_TODO_DISPLAY) : sorted;
 	const remaining = sorted.length - MAX_TODO_DISPLAY;
 
+	// 边框 + paddingX 的开销：left border(1) + right border(1) + left pad(1) + right pad(1) = 4
+	const contentWidth = terminalWidth - 4;
+
 	return (
-		<Box flexDirection="column" marginTop={1}>
+		<Box flexDirection="column" borderStyle="single" borderColor={theme.colors.illusion} paddingX={1}>
 			<Box marginBottom={0}>
 				<Text color={theme.colors.illusion} bold>{theme.icons.pointer} </Text>
 				<Text bold>Todos</Text>
@@ -110,7 +116,7 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 				{pending > 0 ? <Text dimColor>{` ${theme.icons.middleDot} ${pending} open`}</Text> : null}
 			</Box>
 			{display.map((item, i) => (
-				<TodoRow key={i} item={item} theme={theme} now={now} completionTimes={completionTimeRef.current} />
+				<TodoRow key={i} item={item} theme={theme} now={now} completionTimes={completionTimeRef.current} contentWidth={contentWidth} />
 			))}
 			{truncated ? (
 				<Box>
@@ -121,7 +127,7 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 	);
 }
 
-function TodoRow({item, theme, now, completionTimes}: {item: TodoItemSnapshot; theme: ThemeConfig; now: number; completionTimes: Record<string, number>}): React.JSX.Element {
+function TodoRow({item, theme, now, completionTimes, contentWidth}: {item: TodoItemSnapshot; theme: ThemeConfig; now: number; completionTimes: Record<string, number>; contentWidth: number}): React.JSX.Element {
 	let icon: string;
 	let color: string;
 
@@ -144,6 +150,11 @@ function TodoRow({item, theme, now, completionTimes}: {item: TodoItemSnapshot; t
 	// 最近完成的任务不高亮（不dim）
 	const isRecentCompleted = isCompleted && (now - (completionTimes[item.content] ?? 0)) < RECENT_COMPLETED_TTL_MS;
 
+	// 前缀 = 图标 + 空格
+	const prefixWidth = stringWidth(icon) + 1;
+	const maxWidth = Math.max(12, contentWidth - prefixWidth - WIDTH_SAFETY_EXTRA);
+	const displayContent = truncateToDisplayWidth(item.content, maxWidth);
+
 	return (
 		<Box>
 			<Text color={color}>{icon} </Text>
@@ -153,7 +164,7 @@ function TodoRow({item, theme, now, completionTimes}: {item: TodoItemSnapshot; t
 				strikethrough={isCompleted}
 				bold={item.status === 'in_progress'}
 			>
-				{item.content}
+				{displayContent}
 			</Text>
 		</Box>
 	);

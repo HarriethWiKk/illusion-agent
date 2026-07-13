@@ -17,6 +17,12 @@ import wrapAnsi from 'wrap-ansi';
 /** 重新导出常用的文本处理工具 */
 export {stripAnsi, stringWidth, wrapAnsi};
 
+/** 最小换行宽度 */
+export const MIN_WRAP_WIDTH = 12;
+
+/** 宽度安全余量（防止终端宽度计算偏差导致溢出） */
+export const WIDTH_SAFETY_EXTRA = 2;
+
 /**
  * 文本对齐填充
  *
@@ -65,4 +71,57 @@ export function wrapText(text: string, width: number, options?: {hard?: boolean}
 	});
 	const lines = wrapped.split('\n').filter((line) => line.length > 0);
 	return lines.length > 0 ? lines : [''];
+}
+
+/**
+ * 按显示宽度截断文本，超出部分用省略号替代
+ *
+ * @param text - 原始文本
+ * @param maxWidth - 最大显示宽度
+ * @returns 截断后的文本（如有截断则末尾加 `…`）
+ */
+export function truncateToDisplayWidth(text: string, maxWidth: number): string {
+	// 将 tab 替换为空格，因为 string-width 将 tab 算作1字符宽度，
+	// 但终端中 tab 会展开为多个空格，导致宽度计算偏小、截断不足
+	const expanded = text.replace(/\t/g, '        ');
+	if (stringWidth(expanded) <= maxWidth) {
+		return expanded;
+	}
+	let result = '';
+	let width = 0;
+	for (const ch of expanded) {
+		const charWidth = stringWidth(ch);
+		if (width + charWidth > Math.max(1, maxWidth - 1)) {
+			break;
+		}
+		result += ch;
+		width += charWidth;
+	}
+	return result + '…';
+}
+
+/**
+ * 按前缀宽度换行文本
+ *
+ * 计算可用宽度 = max(MIN_WRAP_WIDTH, terminalWidth - prefixWidth - WIDTH_SAFETY_EXTRA)，
+ * 将文本按此宽度换行，续行由调用方自行添加缩进对齐。
+ *
+ * @param text - 要换行的文本
+ * @param terminalWidth - 终端总宽度
+ * @param prefix - 前缀字符串（用于计算可用宽度）
+ * @returns 换行后的字符串数组
+ */
+export function wrapForPrefix(text: string, terminalWidth: number, prefix: string): string[] {
+	const availableWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(prefix) - WIDTH_SAFETY_EXTRA);
+	const sourceLines = text.split('\n');
+	const wrapped: string[] = [];
+	for (const source of sourceLines) {
+		const segments = wrapText(source, availableWidth, {hard: true});
+		if (segments.length === 0) {
+			wrapped.push('');
+			continue;
+		}
+		wrapped.push(...segments);
+	}
+	return wrapped.length > 0 ? wrapped : [''];
 }

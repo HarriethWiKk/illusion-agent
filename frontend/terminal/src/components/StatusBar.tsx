@@ -109,9 +109,11 @@ function AgentIndicator({count}: {count: number}): React.JSX.Element {
 export function StatusBar({
 	status,
 	tasks,
+	noMarginTop,
 }: {
 	status: Record<string, unknown>;
 	tasks: TaskSnapshot[];
+	noMarginTop?: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
 	const model = String(status.model ?? 'unknown');
@@ -126,7 +128,7 @@ export function StatusBar({
 	const isAutoMode = mode === 'full_auto' || mode === 'auto';
 
 	return (
-		<Box flexDirection="column" marginTop={1}>
+		<Box flexDirection="column" marginTop={noMarginTop ? 0 : 1}>
 			<Box flexDirection="row">
 				<Text color={theme.colors.text}>{'─'.repeat(60)}</Text>
 			</Box>
