@@ -202,7 +202,7 @@ class FeishuWSClient:
     def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
         """清理事件循环上的 pending tasks 并关闭 loop
 
-        参照 hermes-agent _run_official_feishu_ws_client 的 finally 块。
+        使用 BaseException 捕获 CancelledError（Python 3.9+ 下为 BaseException 子类）。
         """
         try:
             pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
@@ -212,24 +212,23 @@ class FeishuWSClient:
                 loop.run_until_complete(
                     asyncio.gather(*pending, return_exceptions=True)
                 )
-        except Exception:
+        except BaseException:  # noqa: BLE001
             pass
         try:
             loop.stop()
-        except Exception:
+        except BaseException:  # noqa: BLE001
             pass
         try:
             loop.close()
-        except Exception:
+        except BaseException:  # noqa: BLE001
             pass
 
     def stop(self) -> None:
         """停止 WS 客户端（线程安全，非阻塞）
 
         参照 hermes-agent disconnect() 模式：
-        通过 call_soon_threadsafe 在 lark_loop 上调度 cancel_all_tasks，
-        取消所有 pending tasks 并 call_later(0.1, loop.stop) 让阻塞的
-        run_until_complete(_select()) 返回，从而让 start() 退出并执行 finally 清理。
+        通过 call_soon_threadsafe 在 lark_loop 上调度 _shutdown_loop，
+        取消所有 pending tasks 并停止 loop，让阻塞的 run_until_complete(_select()) 返回。
 
         调用方应随后 await executor future（adapter.shutdown 负责等待线程退出）。
         """
@@ -239,19 +238,23 @@ class FeishuWSClient:
             # start() 未调用或已退出
             return
 
-        def cancel_all_tasks() -> None:
+        def _shutdown_loop() -> None:
             """在 lark_loop 线程中取消所有 pending tasks 并停止 loop"""
             try:
                 tasks = [t for t in asyncio.all_tasks(lark_loop) if not t.done()]
                 for task in tasks:
                     task.cancel()
-                # 延迟 0.1s 停止 loop，给 task cancellation 一个传播窗口
-                lark_loop.call_later(0.1, lark_loop.stop)
-            except Exception:
+            except BaseException:  # noqa: BLE001  捕获 CancelledError 等
+                pass
+            # 直接停止 loop，让 run_until_complete(_select()) 返回
+            # 不用 call_later，避免与 loop.stop() 竞争
+            try:
+                lark_loop.stop()
+            except BaseException:  # noqa: BLE001
                 pass
 
         try:
-            lark_loop.call_soon_threadsafe(cancel_all_tasks)
+            lark_loop.call_soon_threadsafe(_shutdown_loop)
             logger.info("飞书 WS 客户端已请求停止")
         except RuntimeError:
             # loop 已关闭

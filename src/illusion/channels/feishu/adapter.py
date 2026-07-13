@@ -104,7 +104,9 @@ class FeishuChannel(Channel):
         等待 future 退出，避免多个 lark_loop 并存导致 "attached to a different loop" 错误。
         """
         # 先停止 WS 客户端（跨线程中断 lark_loop）
+        old_lark_loop = None
         if self._ws is not None:
+            old_lark_loop = getattr(self._ws, '_lark_loop', None)
             try:
                 self._ws.stop()
             except Exception:  # noqa: BLE001
@@ -116,6 +118,12 @@ class FeishuChannel(Channel):
                 await asyncio.wait_for(asyncio.shield(ws_future), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.warning("飞书 WS 线程 10s 内未退出，可能卡死")
+                # 强制关闭旧 lark_loop，防止残留导致 "attached to a different loop"
+                if old_lark_loop is not None and not old_lark_loop.is_closed():
+                    try:
+                        old_lark_loop.call_soon_threadsafe(old_lark_loop.stop)
+                    except Exception:  # noqa: BLE001
+                        pass
             except BaseException:  # noqa: BLE001  包括 CancelledError
                 # ws_client.start() 被 stop() 取消时可能传播 CancelledError，
                 # 属正常关闭路径，不应中断 shutdown 流程
