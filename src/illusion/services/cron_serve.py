@@ -90,7 +90,7 @@ async def _serve_async(server: Any) -> None:
     # 启动调度器
     await scheduler.start()
 
-    # 启动连接监控（替代 ref_monitor_loop）
+    # 启动连接监控
     async def _monitor() -> None:
         await server.wait_for_no_connections(grace_seconds=3.0)
         stop_event.set()

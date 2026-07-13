@@ -265,18 +265,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "请先访问 https://q.qq.com 注册机器人应用，获取 App ID 和 Client Secret",
         "en-US": "Please visit https://q.qq.com to register a bot app and obtain App ID and Client Secret",
     },
-    # 渠道守护进程退出确认（已废弃，不再使用）
-    # 新方案：引用计数机制，主程序退出时调用 remove_ref，
-    # 守护进程自监控 refs 为空时自动退出，不再弹确认提示
-    "channel_daemon_exit_prompt": {
-        "zh-CN": "渠道守护进程仍在运行，是否一同退出？(Y/n)",
-        "en-US": "Channel daemon is still running. Stop it too? (Y/n)",
-    },
-    # 二次 Ctrl+C 确认退出守护进程（已废弃，不再使用）
-    "channel_daemon_exit_confirmed": {
-        "zh-CN": "已确认退出，正在停止守护进程…",
-        "en-US": "Confirmed, stopping daemon…",
-    },
     # 守护进程已在运行（拒绝重复启动）
     "channel_daemon_already_running": {
         "zh-CN": "[channel] 守护进程已在运行 (PID={pid})，拒绝重复启动。 若确信无进程在运行，请删除 {pid_file} 后重试。",

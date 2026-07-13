@@ -364,7 +364,7 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         asyncio.create_task(_supervise(r, stop_event)) for r in runners
     ]
 
-    # 启动连接监控（替代 ref_monitor_loop）
+    # 启动连接监控
     async def _monitor() -> None:
         await server.wait_for_no_connections(grace_seconds=3.0)
         stop_event.set()

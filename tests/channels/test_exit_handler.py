@@ -11,7 +11,7 @@ handle_daemon_exit_on_interrupt 已废弃，保留壳函数返回 noop。
 - stop_channel_daemon_by_pid 调用追踪
 - OSError 防御性兜底
 
-新方案：主程序退出时直接调用 remove_ref，无确认流程。
+IPC 连接监控机制替代了原有的退出确认流程。
 """
 from __future__ import annotations
 
