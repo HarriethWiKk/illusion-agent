@@ -13,7 +13,9 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {useTheme} from '../theme/ThemeContext.js';
+import {stringWidth, wrapForPrefix} from '../utils/markdown.js';
 
 /**
  * 选择选项类型
@@ -53,6 +55,7 @@ export function SelectModal({
 	selectedIndex: number;
 }): React.JSX.Element {
 	const theme = useTheme();
+	const {columns: terminalWidth} = useTerminalSize();
 
 	const startIndex = Math.max(
 		0,
@@ -74,24 +77,34 @@ export function SelectModal({
 				const i = startIndex + vi;
 				const isSelected = i === selectedIndex;
 				const isCurrent = opt.active;
+				// 前缀（合并为一个字符串，避免 Ink 压缩空白）
+				const prefix = isSelected ? `${theme.icons.pointer} ` : '  ';
+				const prefixWidth = stringWidth(prefix);
+				const continuationPrefix = ' '.repeat(prefixWidth);
+				// content = label + activeSuffix + separator + description
+				const activeSuffix = isCurrent ? ' (current)' : '';
+				const sep = opt.description ? ` ${theme.icons.middleDot} ` : '';
+				const content = `${opt.label}${activeSuffix}${sep}${opt.description ?? ''}`;
+				const wrapped = wrapForPrefix(content, terminalWidth, prefix);
+				const splitAt = opt.label.length + activeSuffix.length;
 				return (
-					<Box key={opt.value}>
-						<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
-							{isSelected ? `${theme.icons.pointer} ` : '  '}
-						</Text>
-						<Text color={isSelected ? theme.colors.suggestion : undefined} bold={isSelected} dimColor={!isSelected}>
-							{opt.label}
-						</Text>
-						{isCurrent ? (
-							<Box marginLeft={1}>
-								<Text color={theme.colors.success} dimColor>(current)</Text>
+					<Box key={opt.value} flexDirection="column">
+						{wrapped.map((line, li) => (
+							<Box key={li}>
+								{li === 0 ? (
+									<Text>
+										<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted} bold={isSelected}>
+											{prefix}{line.slice(0, splitAt)}
+										</Text>
+										{line.length > splitAt ? (
+											<Text dimColor>{line.slice(splitAt)}</Text>
+										) : null}
+									</Text>
+								) : (
+									<Text dimColor>{continuationPrefix}{line}</Text>
+								)}
 							</Box>
-						) : null}
-						{opt.description ? (
-							<Box marginLeft={1}>
-								<Text dimColor>{theme.icons.middleDot} {opt.description}</Text>
-							</Box>
-						) : null}
+						))}
 					</Box>
 				);
 			})}
