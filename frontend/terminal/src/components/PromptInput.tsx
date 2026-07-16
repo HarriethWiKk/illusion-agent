@@ -16,25 +16,13 @@ import {Box} from 'ink';
 import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
 import {useTheme} from '../theme/ThemeContext.js';
+import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {Spinner} from './Spinner.js';
 import MultilineTextInput from './MultilineTextInput.js';
 import type {TodoItemSnapshot} from '../types.js';
 
 /** 空操作函数，用于禁用提交 */
 function noop(): void {}
-
-/**
- * 清理输入内容
- *
- * 仅移除回车符，保留换行符（多行）和空格。
- *
- * @param value - 原始输入
- * @returns 清理后的输入
- */
-function sanitizeInput(value: string): string {
-	// 仅移除回车符，保留换行符（多行）和空格
-	return value.replace(/\r/g, '');
-}
 
 /**
  * 提示输入组件
@@ -75,10 +63,10 @@ export function PromptInput({
 	todoItems?: TodoItemSnapshot[];
 }): React.JSX.Element {
 	const theme = useTheme();
+	const {columns} = useTerminalSize();
 
-	const handleChange = React.useCallback((value: string) => {
-		setInput(sanitizeInput(value));
-	}, [setInput]);
+	// 四边圆角框：边框2列 + padding 2列 + 光标预留1列 = 5列
+	const inputColumns = Math.max(10, columns - 5);
 
 	return (
 		<Box flexDirection="column" marginTop={1}>
@@ -91,10 +79,11 @@ export function PromptInput({
 				<MultilineTextInput
 					key={cursorReset ?? 0}
 					value={input}
-					onChange={handleChange}
+					onChange={setInput}
 					onSubmit={suppressSubmit ? noop : onSubmit}
 					placeholder={t(language, 'longTextHint')}
 					focus={!busy}
+					columns={inputColumns}
 				/>
 			</Box>
 		</Box>
