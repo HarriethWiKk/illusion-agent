@@ -76,14 +76,16 @@ export class Cursor {
 
 	/**
 	 * 上移：先尝试 display line，到顶则尝试 logical line
+	 * @param targetColumn - 目标列位置（用于保持列位置），默认使用当前列
 	 */
-	up(): Cursor {
+	up(targetColumn?: number): Cursor {
 		const pos = this.getPosition();
 		if (pos.line > 0) {
 			// display line 上移
 			const prevLineText = this.measuredText.getWrappedText()[pos.line - 1] ?? '';
 			const prevWidth = stringWidth(prevLineText);
-			const newCol = Math.min(pos.column, prevWidth);
+			const desired = targetColumn ?? pos.column;
+			const newCol = Math.min(desired, prevWidth);
 			const newOffset = this.measuredText.getOffsetFromPosition({line: pos.line - 1, column: newCol});
 			return new Cursor(this.measuredText, newOffset);
 		}
@@ -98,14 +100,16 @@ export class Cursor {
 
 	/**
 	 * 下移：先尝试 display line，到底则尝试 logical line
+	 * @param targetColumn - 目标列位置（用于保持列位置），默认使用当前列
 	 */
-	down(): Cursor {
+	down(targetColumn?: number): Cursor {
 		const pos = this.getPosition();
 		if (pos.line < this.measuredText.lineCount - 1) {
 			// display line 下移
 			const nextLineText = this.measuredText.getWrappedText()[pos.line + 1] ?? '';
 			const nextWidth = stringWidth(nextLineText);
-			const newCol = Math.min(pos.column, nextWidth);
+			const desired = targetColumn ?? pos.column;
+			const newCol = Math.min(desired, nextWidth);
 			const newOffset = this.measuredText.getOffsetFromPosition({line: pos.line + 1, column: newCol});
 			return new Cursor(this.measuredText, newOffset);
 		}

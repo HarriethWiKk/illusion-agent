@@ -238,13 +238,19 @@ export class MeasuredText {
 
 	/**
 	 * 将显示宽度转换为字符串索引
+	 *
+	 * ASCII 快速路径：全 ASCII 字符时直接用 Math.min 避免逐字符遍历。
 	 */
 	private displayWidthToStringIndex(text: string, targetWidth: number): number {
 		if (targetWidth <= 0) return 0;
 		if (!text) return 0;
 
+		// ASCII 快速路径：每个字符宽度为1
+		if (text.length === stringWidth(text)) {
+			return Math.min(targetWidth, text.length);
+		}
+
 		let currentWidth = 0;
-		// 逐字符遍历，累加显示宽度
 		for (let i = 0; i < text.length; i++) {
 			const char = text[i]!;
 			const charWidth = stringWidth(char);

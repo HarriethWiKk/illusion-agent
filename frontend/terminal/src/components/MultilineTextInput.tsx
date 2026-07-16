@@ -240,13 +240,14 @@ export default function MultilineTextInput({
 		if (key.upArrow) {
 			if (!showCursor) return;
 			resetCtrlUCount();
-			const next = cursor.up();
+			// 首次按上下箭头时保存列位置，后续保持该列
+			const pos = cursor.getPosition();
+			const targetCol = preservedColumn ?? pos.column;
+			if (preservedColumn === null) {
+				setPreservedColumn(pos.column);
+			}
+			const next = cursor.up(targetCol);
 			if (!next.equals(cursor)) {
-				// 保存列位置（仅在首次上下移动时）
-				const pos = cursor.getPosition();
-				if (preservedColumn === null) {
-					setPreservedColumn(pos.column);
-				}
 				applyCursor(next);
 			}
 			return;
@@ -256,12 +257,13 @@ export default function MultilineTextInput({
 		if (key.downArrow) {
 			if (!showCursor) return;
 			resetCtrlUCount();
-			const next = cursor.down();
+			const pos = cursor.getPosition();
+			const targetCol = preservedColumn ?? pos.column;
+			if (preservedColumn === null) {
+				setPreservedColumn(pos.column);
+			}
+			const next = cursor.down(targetCol);
 			if (!next.equals(cursor)) {
-				const pos = cursor.getPosition();
-				if (preservedColumn === null) {
-					setPreservedColumn(pos.column);
-				}
 				applyCursor(next);
 			}
 			return;
