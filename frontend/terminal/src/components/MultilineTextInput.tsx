@@ -1,110 +1,42 @@
 /**
  * @fileoverview 多行文本输入组件
  *
- * 提供支持多行编辑的文本输入组件，功能包括：
- * - 光标移动（上下左右箭头）
- * - 文本插入和删除
- * - 多行编辑（Ctrl+J 换行）
- * - 光标位置记忆（上下移动时保持列位置）
+ * 基于 Cursor/MeasuredText 模型，提供：
+ * - display-line 感知的光标导航（上下箭头在 wrap 行间移动）
+ * - 粘贴缓冲（多字符一次性插入，不吞换行/空格）
+ * - Ctrl+U 逐逻辑行删除（连续5次清空全部）
+ * - Ctrl+A/E 行首/行尾
+ * - 视口滚动（最大可见行数限制）
  * - 占位符显示
  *
  * @module MultilineTextInput
  */
 
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import {Text, useInput} from 'ink';
 import chalk from 'chalk';
+import {Cursor} from '../utils/Cursor.js';
 
-/**
- * 文本位置接口
- */
-interface TextPosition {
-	/** 行号（从 0 开始） */
-	line: number;
-	/** 列号（从 0 开始） */
-	column: number;
-}
-
-/**
- * 光标状态接口
- */
-interface CursorState {
-	/** 光标在文本中的偏移量 */
-	cursorOffset: number;
-	/** 期望的列位置（用于上下移动时保持列位置） */
-	desiredColumn: number | null;
-}
-
-/**
- * 将字符偏移量转换为行列位置
- *
- * @param text - 原始文本
- * @param offset - 字符偏移量
- * @returns 对应的行列位置
- */
-function offsetToPosition(text: string, offset: number): TextPosition {
-	let line = 0;
-	let column = 0;
-	for (let i = 0; i < offset && i < text.length; i++) {
-		if (text[i] === '\n') {
-			line++;
-			column = 0;
-		} else {
-			column++;
-		}
-	}
-	return {line, column};
-}
-
-/**
- * 获取指定行的起始偏移量和行内容
- *
- * @param text - 原始文本
- * @param lineNumber - 行号（从 0 开始）
- * @returns 包含行起始偏移量和行内容的对象
- */
-function getLineInfo(text: string, lineNumber: number): {startOffset: number; content: string} {
-	const lines = text.split('\n');
-	let offset = 0;
-	for (let i = 0; i < lineNumber && i < lines.length; i++) {
-		offset += lines[i].length + 1; // +1 for \n
-	}
-	return {
-		startOffset: offset,
-		content: lines[lineNumber] ?? '',
-	};
-}
-
-/**
- * 获取文本总行数
- *
- * @param text - 原始文本
- * @returns 文本的总行数
- */
-function getLineCount(text: string): number {
-	if (text.length === 0) return 1;
-	return text.split('\n').length;
-}
+/** 粘贴超时（ms） */
+const PASTE_TIMEOUT_MS = 100;
+/** Ctrl+U 连续删除达到此值时清空全部 */
+const CTRL_U_CLEAR_THRESHOLD = 5;
+/** 默认最大可见行数 */
+const DEFAULT_MAX_VISIBLE_LINES = 10;
 
 /**
  * 多行文本输入组件
  *
- * 提供支持多行编辑的文本输入功能。
- *
- * @param props - 组件属性
- * @param props.value - 当前文本内容
- * @param props.placeholder - 占位符文本（可选）
- * @param props.focus - 是否获取焦点（可选，默认 true）
- * @param props.showCursor - 是否显示光标（可选，默认 true）
- * @param props.onChange - 文本变更回调
- * @param props.onSubmit - 提交回调（可选，Enter 键触发）
- * @returns 返回多行文本输入的 JSX 元素
+ * 基于 Cursor/MeasuredText 模型，提供 display-line 感知的光标导航、
+ * 粘贴缓冲、Ctrl+U 逐行删除、视口滚动。
  */
 export default function MultilineTextInput({
 	value: originalValue,
 	placeholder = '',
 	focus = true,
 	showCursor = true,
+	columns,
+	maxVisibleLines = DEFAULT_MAX_VISIBLE_LINES,
 	onChange,
 	onSubmit,
 }: {
@@ -112,27 +44,115 @@ export default function MultilineTextInput({
 	placeholder?: string;
 	focus?: boolean;
 	showCursor?: boolean;
+	columns: number;
+	maxVisibleLines?: number;
 	onChange: (value: string) => void;
 	onSubmit?: (value: string) => void;
 }): React.JSX.Element {
-	const [state, setState] = useState<CursorState>({
-		cursorOffset: (originalValue || '').length,
-		desiredColumn: null,
-	});
+	// === 状态 ===
+	const [cursorOffset, setCursorOffset] = useState((originalValue || '').length);
+	const [preservedColumn, setPreservedColumn] = useState<number | null>(null);
+	const [isPasting, setIsPasting] = useState(false);
+
+	// 粘贴缓冲（用 ref 避免闭包陷阱）
+	const pasteChunksRef = useRef<string[]>([]);
+	const pasteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// Ctrl+U 连续计数
+	const ctrlUCountRef = useRef(0);
 
 	// 外部 value 变化时，钳位光标位置
 	useEffect(() => {
-		setState(prev => {
+		setCursorOffset(prev => {
 			if (!focus || !showCursor) return prev;
 			const maxOffset = (originalValue || '').length;
-			if (prev.cursorOffset > maxOffset) {
-				return {cursorOffset: maxOffset, desiredColumn: null};
-			}
+			if (prev > maxOffset) return maxOffset;
 			return prev;
 		});
 	}, [originalValue, focus, showCursor]);
 
-	const {cursorOffset, desiredColumn} = state;
+	// === 辅助函数 ===
+
+	/** 应用光标变更 */
+	const applyCursor = useCallback((next: Cursor) => {
+		if (next.text !== originalValue) {
+			onChange(next.text);
+		}
+		setCursorOffset(next.offset);
+	}, [originalValue, onChange]);
+
+	/** 清除 preservedColumn */
+	const clearPreservedColumn = useCallback(() => setPreservedColumn(null), []);
+
+	/** 重置 Ctrl+U 计数 */
+	const resetCtrlUCount = useCallback(() => {
+		ctrlUCountRef.current = 0;
+	}, []);
+
+	// === 粘贴处理 ===
+
+	/** 清理粘贴文本（保留换行和空格，只统一换行符和Tab） */
+	const cleanPastedText = useCallback((rawText: string): string => {
+		return rawText
+			.replace(/\r\n/g, '\n')
+			.replace(/\r/g, '\n')
+			.replace(/\t/g, '    ');
+	}, []);
+
+	/** 处理粘贴缓冲完成：一次性插入所有缓存的 chunk */
+	const flushPasteBuffer = useCallback(() => {
+		const rawText = pasteChunksRef.current.join('');
+		pasteChunksRef.current = [];
+		setIsPasting(false);
+
+		if (rawText.length === 0) return;
+
+		const cleaned = cleanPastedText(rawText);
+		const cursor = Cursor.fromText(originalValue, columns, cursorOffset);
+		applyCursor(cursor.insert(cleaned));
+	}, [originalValue, cursorOffset, columns, cleanPastedText, applyCursor]);
+
+	/** 检测是否为粘贴输入（多字符且非特殊键） */
+	const isPasteInput = useCallback((input: string, key: {
+		upArrow?: boolean;
+		downArrow?: boolean;
+		leftArrow?: boolean;
+		rightArrow?: boolean;
+		return?: boolean;
+		escape?: boolean;
+		tab?: boolean;
+		ctrl?: boolean;
+		meta?: boolean;
+	}): boolean => {
+		if (key.ctrl || key.meta) return false;
+		if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return false;
+		if (key.return || key.escape || key.tab) return false;
+		// 多字符输入且不是特殊键 = 粘贴
+		return input.length > 1;
+	}, []);
+
+	/** 将输入加入粘贴缓冲 */
+	const addToPasteBuffer = useCallback((input: string) => {
+		setIsPasting(true);
+		pasteChunksRef.current.push(input);
+		if (pasteTimeoutRef.current) {
+			clearTimeout(pasteTimeoutRef.current);
+		}
+		pasteTimeoutRef.current = setTimeout(() => {
+			flushPasteBuffer();
+		}, PASTE_TIMEOUT_MS);
+	}, [flushPasteBuffer]);
+
+	// 组件卸载时清理定时器
+	useEffect(() => {
+		return () => {
+			if (pasteTimeoutRef.current) {
+				clearTimeout(pasteTimeoutRef.current);
+			}
+		};
+	}, []);
+
+	// === 键盘处理 ===
 
 	const handleKeyDown = useCallback((input: string, key: {
 		upArrow?: boolean;
@@ -142,120 +162,158 @@ export default function MultilineTextInput({
 		return?: boolean;
 		backspace?: boolean;
 		delete?: boolean;
-		ctrl?: boolean;
-		shift?: boolean;
+		escape?: boolean;
 		tab?: boolean;
+		ctrl?: boolean;
+		meta?: boolean;
+		shift?: boolean;
 	}) => {
-		// Ctrl 组合键：不插入字符
+		// 粘贴检测：优先处理
+		if (isPasteInput(input, key)) {
+			addToPasteBuffer(input);
+			resetCtrlUCount();
+			return;
+		}
+
+		// 粘贴期间不处理其他按键（防止 Enter 提交）
+		if (isPasting && key.return) {
+			return;
+		}
+
+		const cursor = Cursor.fromText(originalValue, columns, cursorOffset);
+
+		// Ctrl 组合键
 		if (key.ctrl) {
 			if (input === 'u') {
-				onChange('');
-				setState({cursorOffset: 0, desiredColumn: null});
+				// Ctrl+U: 删除当前逻辑行内容
+				// 注意：此处不调用 resetCtrlUCount()，计数需要跨多次 Ctrl+U 累积
+				ctrlUCountRef.current++;
+
+				const logicalStart = cursor.text.lastIndexOf('\n', cursorOffset - 1);
+				const lineStart = logicalStart === -1 ? 0 : logicalStart + 1;
+
+				if (cursorOffset === lineStart) {
+					// 光标已在行首
+					if (ctrlUCountRef.current >= CTRL_U_CLEAR_THRESHOLD) {
+						onChange('');
+						setCursorOffset(0);
+						ctrlUCountRef.current = 0;
+					}
+					return;
+				}
+
+				const next = cursor.deleteToLogicalLineStart();
+				applyCursor(next);
+
+				if (ctrlUCountRef.current >= CTRL_U_CLEAR_THRESHOLD) {
+					onChange('');
+					setCursorOffset(0);
+					ctrlUCountRef.current = 0;
+				}
 				return;
 			}
-			// 其他 Ctrl 组合键（c/o/x 等）不插入，让 App 层处理
+			if (input === 'a') {
+				resetCtrlUCount();
+				applyCursor(cursor.startOfLine());
+				clearPreservedColumn();
+				return;
+			}
+			if (input === 'e') {
+				resetCtrlUCount();
+				applyCursor(cursor.endOfLine());
+				clearPreservedColumn();
+				return;
+			}
+			// 其他 Ctrl 组合键不处理，让 App 层处理
 			return;
 		}
 
 		// Tab 不处理（留给命令选择器）
 		if (key.tab) return;
 
-		// \n (Ctrl+J) 插入换行（终端中 \n 与 \r 是不同字节，可靠区分）
+		// \n (Ctrl+J) 插入换行
 		if (input === '\n') {
-			const nextValue = originalValue.slice(0, cursorOffset) + '\n' + originalValue.slice(cursorOffset);
-			onChange(nextValue);
-			setState({cursorOffset: cursorOffset + 1, desiredColumn: null});
+			resetCtrlUCount();
+			applyCursor(cursor.insert('\n'));
+			clearPreservedColumn();
 			return;
 		}
 
-		// Enter (\r) 提交（Shift+Enter 在大多数终端中与 Enter 发送相同的 \r，
-		// 无法区分，因此仅支持 Ctrl+J 换行）
+		// Enter (\r) 提交
 		if (key.return) {
+			resetCtrlUCount();
 			onSubmit?.(originalValue);
 			return;
 		}
 
-		// 上箭头：移动到上一行的同列位置
+		// 上箭头
 		if (key.upArrow) {
 			if (!showCursor) return;
-			const pos = offsetToPosition(originalValue, cursorOffset);
-			if (pos.line === 0) {
-				// 已经在第一行，移到行首
-				if (pos.column > 0) {
-					setState({cursorOffset: cursorOffset - pos.column, desiredColumn: null});
+			resetCtrlUCount();
+			const next = cursor.up();
+			if (!next.equals(cursor)) {
+				// 保存列位置（仅在首次上下移动时）
+				const pos = cursor.getPosition();
+				if (preservedColumn === null) {
+					setPreservedColumn(pos.column);
 				}
-				return;
+				applyCursor(next);
 			}
-			const targetColumn = desiredColumn ?? pos.column;
-			const prevLine = getLineInfo(originalValue, pos.line - 1);
-			const newColumn = Math.min(targetColumn, prevLine.content.length);
-			setState({
-				cursorOffset: prevLine.startOffset + newColumn,
-				desiredColumn: targetColumn,
-			});
 			return;
 		}
 
-		// 下箭头：移动到下一行的同列位置
+		// 下箭头
 		if (key.downArrow) {
 			if (!showCursor) return;
-			const totalLines = getLineCount(originalValue);
-			const pos = offsetToPosition(originalValue, cursorOffset);
-			if (pos.line >= totalLines - 1) {
-				// 已经在最后一行，移到行尾
-				if (cursorOffset < originalValue.length) {
-					setState({cursorOffset: originalValue.length, desiredColumn: null});
+			resetCtrlUCount();
+			const next = cursor.down();
+			if (!next.equals(cursor)) {
+				const pos = cursor.getPosition();
+				if (preservedColumn === null) {
+					setPreservedColumn(pos.column);
 				}
-				return;
+				applyCursor(next);
 			}
-			const targetColumn = desiredColumn ?? pos.column;
-			const nextLine = getLineInfo(originalValue, pos.line + 1);
-			const newColumn = Math.min(targetColumn, nextLine.content.length);
-			setState({
-				cursorOffset: nextLine.startOffset + newColumn,
-				desiredColumn: targetColumn,
-			});
 			return;
 		}
 
-		// 左右箭头时清除 desiredColumn
+		// 左右箭头
 		if (key.leftArrow) {
-			if (showCursor && cursorOffset > 0) {
-				setState({cursorOffset: cursorOffset - 1, desiredColumn: null});
-			}
+			resetCtrlUCount();
+			applyCursor(cursor.left());
+			clearPreservedColumn();
 			return;
 		}
 		if (key.rightArrow) {
-			if (showCursor && cursorOffset < originalValue.length) {
-				setState({cursorOffset: cursorOffset + 1, desiredColumn: null});
-			}
+			resetCtrlUCount();
+			applyCursor(cursor.right());
+			clearPreservedColumn();
 			return;
 		}
 
-		// 退格/删除（统一处理：Windows Terminal 的 Backspace 发送 \x7f 被解析为 key.delete，
-		// 与 ink-text-input 保持一致，都删除光标前一个字符）
+		// 退格/删除（统一处理：Windows Terminal 的 Backspace 发送 \x7f 被解析为 key.delete）
 		if (key.backspace || key.delete) {
-			if (cursorOffset > 0) {
-				const nextValue = originalValue.slice(0, cursorOffset - 1) + originalValue.slice(cursorOffset);
-				onChange(nextValue);
-				setState({cursorOffset: cursorOffset - 1, desiredColumn: null});
-			}
+			resetCtrlUCount();
+			applyCursor(cursor.backspace());
+			clearPreservedColumn();
 			return;
 		}
 
 		// 普通字符输入
 		if (input.length > 0) {
-			const nextValue = originalValue.slice(0, cursorOffset) + input + originalValue.slice(cursorOffset);
-			onChange(nextValue);
-			setState({cursorOffset: cursorOffset + input.length, desiredColumn: null});
+			resetCtrlUCount();
+			applyCursor(cursor.insert(input));
+			clearPreservedColumn();
 		}
-	}, [originalValue, cursorOffset, showCursor, onChange, onSubmit]);
+	}, [originalValue, cursorOffset, columns, showCursor, isPasting,
+		preservedColumn, onChange, onSubmit, applyCursor,
+		isPasteInput, addToPasteBuffer, resetCtrlUCount,
+		clearPreservedColumn]);
 
 	useInput(handleKeyDown, {isActive: focus});
 
-	// --- 渲染 ---
-	const lines = originalValue.split('\n');
-
+	// === 渲染 ===
+	// 空 placeholder 处理
 	if (originalValue.length === 0 && placeholder) {
 		const renderedPlaceholder = showCursor && focus
 			? chalk.inverse(placeholder[0] ?? ' ') + chalk.grey(placeholder.slice(1))
@@ -263,36 +321,15 @@ export default function MultilineTextInput({
 		return <Text>{renderedPlaceholder}</Text>;
 	}
 
-	const renderedLines: string[] = [];
-	let runningOffset = 0;
-
-	for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-		const line = lines[lineIdx];
-		const lineStart = runningOffset;
-		const lineEnd = lineStart + line.length;
-
-		if (showCursor && focus && cursorOffset >= lineStart && cursorOffset <= lineEnd) {
-			// 光标在这一行
-			const cursorCol = cursorOffset - lineStart;
-			let rendered = '';
-			for (let i = 0; i < line.length; i++) {
-				rendered += i === cursorCol ? chalk.inverse(line[i]) : line[i];
-			}
-			if (cursorCol === line.length) {
-				rendered += chalk.inverse(' ');
-			}
-			renderedLines.push(rendered);
-		} else {
-			renderedLines.push(line || ' ');
-		}
-
-		runningOffset = lineEnd + 1; // +1 for \n
+	// 空文本无 placeholder
+	if (originalValue.length === 0) {
+		return <Text>{showCursor && focus ? chalk.inverse(' ') : ' '}</Text>;
 	}
 
-	// 空文本且无 placeholder
-	if (renderedLines.length === 0) {
-		renderedLines.push(showCursor && focus ? chalk.inverse(' ') : ' ');
-	}
+	// 构建 Cursor 并渲染带视口的文本
+	const cursor = Cursor.fromText(originalValue, columns, cursorOffset);
+	const startLine = cursor.getViewportStartLine(maxVisibleLines);
+	const renderedText = cursor.render(' ', startLine, maxVisibleLines);
 
-	return <Text>{renderedLines.join('\n')}</Text>;
+	return <Text>{renderedText}</Text>;
 }
