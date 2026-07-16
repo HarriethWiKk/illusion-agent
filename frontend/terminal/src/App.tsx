@@ -734,8 +734,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
 				<Box>
 					<Text dimColor>
-						<Text color={theme.colors.muted}>/</Text> {t(language, 'cmdHint')}
-						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+a</Text> {t(language, 'lineStart')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+e</Text> {t(language, 'lineEnd')}
