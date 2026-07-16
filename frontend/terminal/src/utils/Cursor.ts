@@ -199,8 +199,7 @@ export class Cursor {
 	 * 删除光标到当前显示行（display line）行首的内容
 	 *
 	 * display line 是 wrap 后的视觉行，不是逻辑行。
-	 * 连续调用时，到达 display line 行首后删除 \n，跨行继续。
-	 * 当已在 display line 行首时，回退删除到逻辑行行首。
+	 * 连续调用时，到达 display line 行首后删除前一个字符，跨行继续。
 	 */
 	deleteToDisplayLineStart(): Cursor {
 		// 光标紧跟在 \n 之后：删除该 \n
@@ -210,8 +209,8 @@ export class Cursor {
 		}
 		const displayStart = this.startOfLine();
 		if (displayStart.offset === this.offset) {
-			// 已在 display line 行首，回退到逻辑行行首
-			return this.deleteToLogicalLineStart();
+			// 已在 display line 行首，删除前一个字符（与上一行连接）
+			return this.backspace();
 		}
 		const newText = this.text.slice(0, displayStart.offset) + this.text.slice(this.offset);
 		return Cursor.fromText(newText, this.columns, displayStart.offset);
