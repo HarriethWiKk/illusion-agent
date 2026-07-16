@@ -185,7 +185,7 @@ export default function MultilineTextInput({
 		// Ctrl 组合键
 		if (key.ctrl) {
 			if (input === 'u') {
-				// Ctrl+U: 删除当前逻辑行内容（含跨行 \n 删除）
+				// Ctrl+U: 删除当前显示行（display line）内容，跨行时删 \n 继续
 				// 注意：此处不调用 resetCtrlUCount()，计数需要跨多次 Ctrl+U 累积
 				ctrlUCountRef.current++;
 
@@ -197,8 +197,8 @@ export default function MultilineTextInput({
 					return;
 				}
 
-				// 删除当前逻辑行内容（deleteToLogicalLineStart 会处理 \n 跨行情况）
-				const next = cursor.deleteToLogicalLineStart();
+				// 删除当前显示行内容
+				const next = cursor.deleteToDisplayLineStart();
 				applyCursor(next);
 				return;
 			}

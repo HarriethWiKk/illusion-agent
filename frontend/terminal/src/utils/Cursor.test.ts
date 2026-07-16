@@ -76,6 +76,19 @@ describe('Cursor', () => {
 		assert.equal(result.offset, 11);
 	});
 
+	it('deleteToDisplayLineStart 删除当前显示行（wrap 行）的内容', () => {
+		// 'Hello World' 宽度5，wrap 后:
+		// display line 0: "Hello" (offset 0-4)
+		// display line 1: " Worl" → 显示为 "Worl" (offset 5-9，前导空格被 trim)
+		// display line 2: "d" (offset 10)
+		// 光标在 offset 7 ('r')，display line 行首 = offset 6 (跳过前导空格)
+		// 删除 offset 6-7（即 'W'），结果: "Hello orld"
+		const c = Cursor.fromText('Hello World', 5, 7);
+		const result = c.deleteToDisplayLineStart();
+		assert.equal(result.offset, 6);
+		assert.equal(result.text, 'Hello orld');
+	});
+
 	it('startOfLine / endOfLine', () => {
 		const c = Cursor.fromText('Hello World', 5, 7);
 		const start = c.startOfLine();

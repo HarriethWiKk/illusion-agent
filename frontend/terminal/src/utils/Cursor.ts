@@ -195,6 +195,24 @@ export class Cursor {
 		return Cursor.fromText(newText, this.columns, logicalStart);
 	}
 
+	/**
+	 * 删除光标到当前显示行（display line）行首的内容
+	 *
+	 * display line 是 wrap 后的视觉行，不是逻辑行。
+	 * 连续调用时，到达 display line 行首后删除 \n，跨行继续。
+	 */
+	deleteToDisplayLineStart(): Cursor {
+		// 光标紧跟在 \n 之后：删除该 \n
+		if (this.offset > 0 && this.text[this.offset - 1] === '\n') {
+			const newText = this.text.slice(0, this.offset - 1) + this.text.slice(this.offset);
+			return Cursor.fromText(newText, this.columns, this.offset - 1);
+		}
+		const displayStart = this.startOfLine();
+		if (displayStart.offset === this.offset) return this;
+		const newText = this.text.slice(0, displayStart.offset) + this.text.slice(this.offset);
+		return Cursor.fromText(newText, this.columns, displayStart.offset);
+	}
+
 	// === 视口与渲染 ===
 
 	/**
