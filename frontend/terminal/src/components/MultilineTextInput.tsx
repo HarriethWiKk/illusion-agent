@@ -321,17 +321,5 @@ export default function MultilineTextInput({
 	const startLine = cursor.getViewportStartLine(maxVisibleLines);
 	const renderedText = cursor.render(' ', startLine, maxVisibleLines);
 
-	// 每行用独立的 <Text wrap="truncate-end"> 渲染，防止 Ink 二次换行
-	// （我们的 MeasuredText 已按正确宽度换行，Ink 不应再做 wrap）
-	const renderedLines = renderedText.split('\n');
-	if (renderedLines.length === 1) {
-		return <Text wrap="truncate-end">{renderedLines[0]}</Text>;
-	}
-	return (
-		<Box flexDirection="column">
-			{renderedLines.map((line, i) => (
-				<Text key={i} wrap="truncate-end">{line}</Text>
-			))}
-		</Box>
-	);
+	return <Text>{renderedText}</Text>;
 }
