@@ -65,8 +65,8 @@ export function PromptInput({
 	const theme = useTheme();
 	const {columns} = useTerminalSize();
 
-	// 四边圆角框：边框2列 + padding 2列 + 光标预留1列 = 5列
-	const inputColumns = Math.max(10, columns - 5);
+	// 四边圆角框：边框2列 + padding 2列 + 光标预留1列 + 安全余量1列 = 6列
+	const inputColumns = Math.max(10, columns - 6);
 
 	return (
 		<Box flexDirection="column" marginTop={1}>
