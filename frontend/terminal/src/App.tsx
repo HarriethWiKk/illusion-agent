@@ -734,17 +734,19 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
 				<Box>
 					<Text dimColor>
-						<Text color={theme.colors.muted}>enter</Text> {t(language, 'send')}
+						<Text color={theme.colors.muted}>/</Text> {t(language, 'cmdHint')}
 						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>/</Text> {t(language, 'commands')}
+						<Text color={theme.colors.muted}>ctrl+a</Text> {t(language, 'lineStart')}
 						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
-						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
+						<Text color={theme.colors.muted}>ctrl+e</Text> {t(language, 'lineEnd')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+u</Text> {t(language, 'clearInput')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+j</Text> {t(language, 'newline')}
+						<Text> {theme.icons.middleDot} </Text>
+						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
+						<Text> {theme.icons.middleDot} </Text>
+						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
 					</Text>
 				</Box>
 			) : session.ready && session.busy && !session.modal && !selectModal ? (
