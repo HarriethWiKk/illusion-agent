@@ -61,10 +61,19 @@ describe('Cursor', () => {
 		assert.equal(result.offset, 6);
 	});
 
-	it('deleteToLogicalLineStart 在行首不删除', () => {
-		const c = Cursor.fromText('line1\nline2', 80, 6);
+	it('deleteToLogicalLineStart 在文本起始(offset=0)不删除', () => {
+		const c = Cursor.fromText('line1\nline2', 80, 0);
 		const result = c.deleteToLogicalLineStart();
-		assert.equal(result.offset, 6);
+		assert.equal(result.offset, 0);
+	});
+
+	it('deleteToLogicalLineStart 光标在 \\n 之后时删除该 \\n', () => {
+		// 'line1\nline2\n' 光标在 offset 12（末尾，紧跟最后的 \n 之后）
+		// 此时 text[11] = '\n'，应该删除该 \n
+		const c = Cursor.fromText('line1\nline2\n', 80, 12);
+		const result = c.deleteToLogicalLineStart();
+		assert.equal(result.text, 'line1\nline2');
+		assert.equal(result.offset, 11);
 	});
 
 	it('startOfLine / endOfLine', () => {

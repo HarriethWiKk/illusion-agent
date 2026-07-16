@@ -13,7 +13,7 @@
  */
 
 import React, {useState, useEffect, useCallback, useRef} from 'react';
-import {Text, useInput} from 'ink';
+import {Box, Text, useInput} from 'ink';
 import chalk from 'chalk';
 import {Cursor} from '../utils/Cursor.js';
 
@@ -185,31 +185,21 @@ export default function MultilineTextInput({
 		// Ctrl 组合键
 		if (key.ctrl) {
 			if (input === 'u') {
-				// Ctrl+U: 删除当前逻辑行内容
+				// Ctrl+U: 删除当前逻辑行内容（含跨行 \n 删除）
 				// 注意：此处不调用 resetCtrlUCount()，计数需要跨多次 Ctrl+U 累积
 				ctrlUCountRef.current++;
 
-				const logicalStart = cursor.text.lastIndexOf('\n', cursorOffset - 1);
-				const lineStart = logicalStart === -1 ? 0 : logicalStart + 1;
-
-				if (cursorOffset === lineStart) {
-					// 光标已在行首
-					if (ctrlUCountRef.current >= CTRL_U_CLEAR_THRESHOLD) {
-						onChange('');
-						setCursorOffset(0);
-						ctrlUCountRef.current = 0;
-					}
-					return;
-				}
-
-				const next = cursor.deleteToLogicalLineStart();
-				applyCursor(next);
-
+				// 达到阈值：直接清空全部
 				if (ctrlUCountRef.current >= CTRL_U_CLEAR_THRESHOLD) {
 					onChange('');
 					setCursorOffset(0);
 					ctrlUCountRef.current = 0;
+					return;
 				}
+
+				// 删除当前逻辑行内容（deleteToLogicalLineStart 会处理 \n 跨行情况）
+				const next = cursor.deleteToLogicalLineStart();
+				applyCursor(next);
 				return;
 			}
 			if (input === 'a') {
@@ -331,5 +321,17 @@ export default function MultilineTextInput({
 	const startLine = cursor.getViewportStartLine(maxVisibleLines);
 	const renderedText = cursor.render(' ', startLine, maxVisibleLines);
 
-	return <Text>{renderedText}</Text>;
+	// 每行用独立的 <Text wrap="truncate-end"> 渲染，防止 Ink 二次换行
+	// （我们的 MeasuredText 已按正确宽度换行，Ink 不应再做 wrap）
+	const renderedLines = renderedText.split('\n');
+	if (renderedLines.length === 1) {
+		return <Text wrap="truncate-end">{renderedLines[0]}</Text>;
+	}
+	return (
+		<Box flexDirection="column">
+			{renderedLines.map((line, i) => (
+				<Text key={i} wrap="truncate-end">{line}</Text>
+			))}
+		</Box>
+	);
 }

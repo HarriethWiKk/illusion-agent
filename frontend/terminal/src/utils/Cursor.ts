@@ -179,8 +179,16 @@ export class Cursor {
 
 	/**
 	 * 删除光标到当前逻辑行行首的内容
+	 *
+	 * 特殊处理：当光标紧跟在 \n 之后（逻辑行首），删除该 \n，
+	 * 使连续 Ctrl+U 能跨行逐行删除。
 	 */
 	deleteToLogicalLineStart(): Cursor {
+		// 光标紧跟在 \n 之后：删除该 \n（连接到上一行）
+		if (this.offset > 0 && this.text[this.offset - 1] === '\n') {
+			const newText = this.text.slice(0, this.offset - 1) + this.text.slice(this.offset);
+			return Cursor.fromText(newText, this.columns, this.offset - 1);
+		}
 		const logicalStart = this.findLogicalLineStart();
 		if (this.offset === logicalStart) return this;
 		const newText = this.text.slice(0, logicalStart) + this.text.slice(this.offset);
