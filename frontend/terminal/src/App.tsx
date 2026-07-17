@@ -681,8 +681,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* 待办面板 — 计划审批期间隐藏 */}
-			{session.ready && session.todoItems.length > 0 ? (
+			{/* 待办面板 — 计划审批期间或非权限模态框期间隐藏 */}
+			{session.ready && session.todoItems.length > 0 && !(session.modal && !isPermissionModal) ? (
 				<TodoPanel items={session.todoItems} />
 			) : null}
 
@@ -691,8 +691,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				<SwarmPanel teammates={session.swarmTeammates} notifications={session.swarmNotifications} />
 			) : null}
 
-			{/* 状态栏 */}
-			{session.ready ? (
+			{/* 状态栏 — 模态框期间隐藏状态栏腾出空间 */}
+			{session.ready && !(session.modal && !isPermissionModal) ? (
 				<StatusBar status={session.status} tasks={session.tasks} noMarginTop={session.todoItems.length > 0} />
 			) : null}
 

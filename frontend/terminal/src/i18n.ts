@@ -71,7 +71,6 @@ const ZH: Dict = {
 	questionHintToggle: 'Space 切换',
 	questionHintSubmit: 'Enter 提交',
 	questionHintCancel: 'Esc 取消',
-	questionHintNotes: 'n 添加备注',
 	questionHintQuickSelect: '数字键快捷选择',
 	// ---- 后端退出兜底提示 ----
 	backend_exit_hint: '后端启动失败。请运行 \'illusion auth login\' 配置 API 环境，或检查 settings.json 配置。',
@@ -125,7 +124,6 @@ const EN: Dict = {
 	questionHintToggle: 'Space to toggle',
 	questionHintSubmit: 'Enter to submit',
 	questionHintCancel: 'Esc to cancel',
-	questionHintNotes: 'n to add notes',
 	questionHintQuickSelect: '1-N quick select',
 	// ---- backend exit fallback hint ----
 	backend_exit_hint: 'Backend startup failed. Run \'illusion auth login\' to configure API environment, or check settings.json.',

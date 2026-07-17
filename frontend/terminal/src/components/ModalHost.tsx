@@ -108,6 +108,8 @@ function QuestionModal({
 	const [otherInput, setOtherInput] = useState('');
 	/** 当前问题多选的已选索引集合 */
 	const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+	/** 预览模式下的分页起始行 */
+	const [previewStartLine, setPreviewStartLine] = useState(0);
 
 	/** 解析后端下发的问题列表 */
 	const questions: QuestionItem[] = useMemo(() => {
@@ -155,6 +157,7 @@ function QuestionModal({
 		setOptionIndex(0);
 		setIsOtherFocused(false);
 		setOtherInput('');
+		setPreviewStartLine(0);
 		// 恢复当前问题已持久化的多选状态（从 questionStates 回读）
 		const persisted = currentQuestion
 			? state.questionStates[currentQuestion.question]?.selectedValue
@@ -248,6 +251,20 @@ function QuestionModal({
 
 		if (!currentQuestion) return;
 
+		// ---- 预览分页：ctrl+左右方向键 ----
+		if (hasPreview && key.ctrl && (key.leftArrow || key.rightArrow)) {
+			const previewContent = allOptions[optionIndex]?.type === 'option' ? (allOptions[optionIndex]?.preview ?? '') : '';
+			const totalPreviewLines = previewContent.split('\n').length;
+			const maxPreviewLines = 10;
+			const totalPages = Math.max(1, Math.ceil(totalPreviewLines / maxPreviewLines));
+			if (key.leftArrow) {
+				setPreviewStartLine((s) => Math.max(0, s - maxPreviewLines));
+			} else {
+				setPreviewStartLine((s) => Math.min((totalPages - 1) * maxPreviewLines, s + maxPreviewLines));
+			}
+			return;
+		}
+
 		// ---- "其他"选项输入模式：仅拦截特殊键，字符交给 TextInput ----
 		if (isOtherFocused) {
 			if (key.escape) {
@@ -309,10 +326,12 @@ function QuestionModal({
 		// ---- 选项导航 ----
 		if (key.upArrow) {
 			setOptionIndex((i) => Math.max(0, i - 1));
+			setPreviewStartLine(0);
 			return;
 		}
 		if (key.downArrow) {
 			setOptionIndex((i) => Math.min(allOptions.length - 1, i + 1));
+			setPreviewStartLine(0);
 			return;
 		}
 		if (key.escape) {
@@ -495,9 +514,6 @@ function QuestionModal({
 		if (questions.length > 1) {
 			hintFragments.push({key: 'tab', label: t(language, 'questionHintSwitchTab')});
 		}
-		if (hasPreview) {
-			hintFragments.push({key: 'notes', label: t(language, 'questionHintNotes')});
-		}
 		hintFragments.push({key: 'cancel', label: t(language, 'questionHintCancel')});
 	} else {
 		// 无选项自由输入
@@ -523,7 +539,8 @@ function QuestionModal({
 				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
 				{currentQuestion.header ? (
 					<>
-						<Text color={theme.colors.suggestion} bold>[{currentQuestion.header}] </Text>
+						<Text backgroundColor={theme.colors.illusionShimmer} color={theme.colors.foreground} bold>{' '}{currentQuestion.header}{' '}</Text>
+						<Text> </Text>
 						<Text bold>{currentQuestion.question}</Text>
 					</>
 				) : (
@@ -563,7 +580,45 @@ function QuestionModal({
 							<Box flexDirection="column" width={Math.min(30, Math.floor(terminalWidth * 0.35))}>
 								{allOptions.map((opt, i) => {
 									const isCurrent = i === optionIndex;
-									if (opt.type === 'other') return null; // 预览模式不显示"其他"
+									if (opt.type === 'other') {
+										const isActive = isOtherFocused;
+										return (
+											<Box key="other" flexDirection="row">
+												<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+													{isCurrent ? `${theme.icons.pointer} ` : '  '}
+												</Text>
+												<Text dimColor>{` ${i + 1}.`}</Text>
+												<Text
+													color={isCurrent ? theme.colors.suggestion : undefined}
+													bold={isCurrent}
+												>
+													{` ${opt.label}`}
+												</Text>
+												{isActive ? (
+													<Text>
+														<Text> </Text>
+														<TextInput
+															value={otherInput}
+															onChange={setOtherInput}
+															placeholder={t(language, 'questionOtherPlaceholder')}
+															focus={true}
+															showCursor={true}
+															onSubmit={(v) => {
+																const allLines = [...extraLines, v].filter(Boolean);
+																setExtraLines([]);
+																setIsOtherFocused(false);
+																if (allLines.length > 0 && currentQuestion) {
+																	commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
+																}
+															}}
+														/>
+													</Text>
+												) : otherInput ? (
+													<Text> {otherInput}</Text>
+												) : null}
+											</Box>
+										);
+									}
 									return (
 										<Box key={opt.label} flexDirection="row">
 											<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
@@ -579,6 +634,7 @@ function QuestionModal({
 								<QuestionPreviewBox
 									content={focusedPreview ?? ''}
 									maxWidth={terminalWidth - 36}
+									startLine={previewStartLine}
 								/>
 							</Box>
 						</Box>

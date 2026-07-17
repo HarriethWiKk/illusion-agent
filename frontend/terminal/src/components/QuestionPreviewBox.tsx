@@ -2,10 +2,7 @@
  * @fileoverview 问答预览框组件
  *
  * 用于 ask_user_question 工具单选问题的 preview 字段：以带边框的等宽框
- * 渲染 Markdown 预览内容。设计参考自 Claude Code 的 PreviewBox，但内部
- * 复用本项目已有的 MarkdownContent 渲染器，保留代码高亮、列表等样式。
- *
- * 超过最大行数的内容会被截断，并显示截断提示行（├── ✂ ── N lines hidden ──┤）。
+ * 渲染纯文本预览内容。超过最大行数的内容支持 ctrl+←/→ 分页浏览。
  *
  * @module QuestionPreviewBox
  */
@@ -13,7 +10,6 @@
 import React, {useMemo} from 'react';
 import {Box, Text} from 'ink';
 
-import {MarkdownContent} from './MarkdownContent.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {useTheme} from '../theme/ThemeContext.js';
 
@@ -35,12 +31,14 @@ const BOX_CHARS = {
 type Props = {
 	/** 预览内容（Markdown） */
 	content: string;
-	/** 最大显示行数（超出截断），默认 20 */
+	/** 最大显示行数（超出截断），默认 10 */
 	maxLines?: number;
 	/** 框的最小宽度，默认 40 */
 	minWidth?: number;
 	/** 框的最大可用宽度（容器宽度限制） */
 	maxWidth?: number;
+	/** 起始行号（从 0 开始，用于分页），默认 0 */
+	startLine?: number;
 };
 
 /**
@@ -80,9 +78,10 @@ function visualWidth(str: string): number {
  */
 export function QuestionPreviewBox({
 	content,
-	maxLines = 20,
+	maxLines = 10,
 	minWidth = 40,
 	maxWidth,
+	startLine = 0,
 }: Props): React.JSX.Element {
 	const theme = useTheme();
 	const {columns: terminalWidth} = useTerminalSize();
@@ -97,34 +96,39 @@ export function QuestionPreviewBox({
 	const boxWidth = Math.min(contentWidth + 4, effectiveMaxWidth);
 	const innerWidth = Math.max(1, boxWidth - 4);
 
-	// 截断处理：超过 maxLines 的内容只展示前 maxLines 行，并显示提示行
-	const isTruncated = contentLines.length > maxLines;
-	const visibleLines = isTruncated ? contentLines.slice(0, maxLines) : contentLines;
-	const hiddenCount = contentLines.length - maxLines;
+	// 截断处理：按 startLine 分页显示内容
+	const totalLines = contentLines.length;
+	const totalPages = Math.max(1, Math.ceil(totalLines / maxLines));
+	const currentPage = Math.min(Math.floor(startLine / maxLines), totalPages - 1);
+	const effectiveStart = currentPage * maxLines;
+	const visibleLines = contentLines.slice(effectiveStart, effectiveStart + maxLines);
+	const hasMultiplePages = totalPages > 1;
 
 	const topBorder = `${BOX_CHARS.topLeft}${BOX_CHARS.horizontal.repeat(Math.max(0, boxWidth - 2))}${BOX_CHARS.topRight}`;
 	const bottomBorder = `${BOX_CHARS.bottomLeft}${BOX_CHARS.horizontal.repeat(Math.max(0, boxWidth - 2))}${BOX_CHARS.bottomRight}`;
-	// 截断提示行：├── ✂ ── N lines hidden ──┤
-	const truncationLabel = `${BOX_CHARS.horizontal.repeat(3)} ✂ ${BOX_CHARS.horizontal.repeat(3)} ${hiddenCount} lines hidden `;
-	const truncationFill = Math.max(0, boxWidth - 2 - visualWidth(truncationLabel));
-	const truncationBar = `${BOX_CHARS.teeLeft}${truncationLabel}${BOX_CHARS.horizontal.repeat(truncationFill)}${BOX_CHARS.teeRight}`;
+	// 页码指示行：├── ctrl + ←/→ ──┤
+	const pageLabel = `${BOX_CHARS.horizontal.repeat(2)} ctrl + \u2190/\u2192 `;
+	const pageFill = Math.max(0, boxWidth - 2 - visualWidth(pageLabel));
+	const pageBar = `${BOX_CHARS.teeLeft}${pageLabel}${BOX_CHARS.horizontal.repeat(pageFill)}${BOX_CHARS.teeRight}`;
 
 	return (
 		<Box flexDirection="column">
 			<Text dimColor>{topBorder}</Text>
-			{/* 预览内容区：复用 MarkdownContent 渲染，限制内宽 */}
+			{/* 预览内容区：纯文本渲染，不解析 Markdown */}
 			<Box flexDirection="row">
 				<Text dimColor>{BOX_CHARS.vertical} </Text>
 				<Box flexDirection="column" width={innerWidth}>
 					{content.trim() ? (
-						<MarkdownContent text={visibleLines.join('\n')} availableWidth={innerWidth} />
+						visibleLines.map((line, i) => (
+							<Text key={i}>{line}</Text>
+						))
 					) : (
 						<Text dimColor>No preview available</Text>
 					)}
 				</Box>
 				<Text dimColor> {BOX_CHARS.vertical}</Text>
 			</Box>
-			{isTruncated ? <Text color={theme.colors.warning}>{truncationBar}</Text> : null}
+			{hasMultiplePages ? <Text color={theme.colors.info}>{pageBar}</Text> : null}
 			<Text dimColor>{bottomBorder}</Text>
 		</Box>
 	);
