@@ -216,6 +216,59 @@ function QuestionModal({
 		commitAnswer(currentQuestion.question, labels, header);
 	};
 
+	/** 渲染"其他"选项行（预览模式与普通模式共用） */
+	const renderOtherOption = (index: number, isCurrent: boolean, opts?: {rowLayout?: boolean}) => {
+		const isActive = isOtherFocused;
+		return (
+			<Box key="other" flexDirection={opts?.rowLayout ? 'row' : undefined}>
+				<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+					{isCurrent ? `${theme.icons.pointer} ` : '  '}
+				</Text>
+				{!opts?.rowLayout && isMultiSelect ? (
+					<Text color={selectedIndices.has(index) ? theme.colors.suggestion : theme.colors.muted}>
+						[{selectedIndices.has(index) ? theme.icons.check : ' '}]{' '}
+					</Text>
+				) : null}
+				<Text
+					color={isActive ? theme.colors.suggestion : (isCurrent ? theme.colors.suggestion : undefined)}
+					bold={isCurrent && (opts?.rowLayout || !isMultiSelect)}
+					dimColor={!opts?.rowLayout && !isCurrent && !isActive}
+				>
+					{opts?.rowLayout ? ` ${optLabel(index)}` : `${index + 1}. ${optLabel(index)}`}
+				</Text>
+				{isActive ? (
+					<Text>
+						<Text> </Text>
+						<TextInput
+							value={otherInput}
+							onChange={setOtherInput}
+							placeholder={t(language, 'questionOtherPlaceholder')}
+							focus={true}
+							showCursor={true}
+							onSubmit={(v) => {
+								if (!opts?.rowLayout && isMultiSelect) {
+									setIsOtherFocused(false);
+									return;
+								}
+								const allLines = [...extraLines, v].filter(Boolean);
+								setExtraLines([]);
+								setIsOtherFocused(false);
+								if (allLines.length > 0 && currentQuestion) {
+									commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
+								}
+							}}
+						/>
+					</Text>
+				) : otherInput ? (
+					<Text> {otherInput}</Text>
+				) : null}
+			</Box>
+		);
+	};
+
+	/** 获取选项标签 */
+	const optLabel = (index: number): string => allOptions[index]?.label ?? '';
+
 	useInput((_chunk, key) => {
 		// ---- 复核/提交页 ----
 		if (isSubmitView) {
@@ -580,45 +633,7 @@ function QuestionModal({
 							<Box flexDirection="column" width={Math.min(30, Math.floor(terminalWidth * 0.35))}>
 								{allOptions.map((opt, i) => {
 									const isCurrent = i === optionIndex;
-									if (opt.type === 'other') {
-										const isActive = isOtherFocused;
-										return (
-											<Box key="other" flexDirection="row">
-												<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
-													{isCurrent ? `${theme.icons.pointer} ` : '  '}
-												</Text>
-												<Text dimColor>{` ${i + 1}.`}</Text>
-												<Text
-													color={isCurrent ? theme.colors.suggestion : undefined}
-													bold={isCurrent}
-												>
-													{` ${opt.label}`}
-												</Text>
-												{isActive ? (
-													<Text>
-														<Text> </Text>
-														<TextInput
-															value={otherInput}
-															onChange={setOtherInput}
-															placeholder={t(language, 'questionOtherPlaceholder')}
-															focus={true}
-															showCursor={true}
-															onSubmit={(v) => {
-																const allLines = [...extraLines, v].filter(Boolean);
-																setExtraLines([]);
-																setIsOtherFocused(false);
-																if (allLines.length > 0 && currentQuestion) {
-																	commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
-																}
-															}}
-														/>
-													</Text>
-												) : otherInput ? (
-													<Text> {otherInput}</Text>
-												) : null}
-											</Box>
-										);
-									}
+									if (opt.type === 'other') return renderOtherOption(i, isCurrent, {rowLayout: true});
 									return (
 										<Box key={opt.label} flexDirection="row">
 											<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
@@ -643,58 +658,7 @@ function QuestionModal({
 						allOptions.map((opt, i) => {
 							const isCurrent = i === optionIndex;
 							const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
-							if (opt.type === 'other') {
-								const isActive = isOtherFocused;
-								return (
-									<Box key="other">
-										<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
-											{isCurrent ? `${theme.icons.pointer} ` : '  '}
-										</Text>
-										{isMultiSelect ? (
-											<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
-												[{isSelected ? theme.icons.check : ' '}]{' '}
-											</Text>
-										) : null}
-										<Text
-											color={isActive ? theme.colors.suggestion : (isCurrent ? theme.colors.suggestion : undefined)}
-											bold={isCurrent && !isMultiSelect}
-											dimColor={!isCurrent && !isActive}
-										>
-											{`${i + 1}. `}
-											{opt.label}
-										</Text>
-										{isActive ? (
-											// 聚焦状态：显示内联输入框
-											<Text>
-												<Text> </Text>
-												<TextInput
-													value={otherInput}
-													onChange={setOtherInput}
-													placeholder={t(language, 'questionOtherPlaceholder')}
-													focus={true}
-													showCursor={true}
-													onSubmit={(v) => {
-														if (isMultiSelect) {
-															// 多选：退出输入模式，保留选中，等 Enter 提交
-															setIsOtherFocused(false);
-															return;
-														}
-														// 单选：直接提交
-														const allLines = [...extraLines, v].filter(Boolean);
-														setExtraLines([]);
-														setIsOtherFocused(false);
-														if (allLines.length > 0 && currentQuestion) {
-															commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
-														}
-													}}
-												/>
-											</Text>
-										) : otherInput ? (
-											<Text> {otherInput}</Text>
-										) : null}
-									</Box>
-								);
-							}
+							if (opt.type === 'other') return renderOtherOption(i, isCurrent);
 							// 普通选项
 							return (
 								<Box key={opt.label}>

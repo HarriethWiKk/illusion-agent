@@ -106,8 +106,8 @@ export function QuestionPreviewBox({
 
 	const topBorder = `${BOX_CHARS.topLeft}${BOX_CHARS.horizontal.repeat(Math.max(0, boxWidth - 2))}${BOX_CHARS.topRight}`;
 	const bottomBorder = `${BOX_CHARS.bottomLeft}${BOX_CHARS.horizontal.repeat(Math.max(0, boxWidth - 2))}${BOX_CHARS.bottomRight}`;
-	// 页码指示行：├── ctrl + ←/→ ──┤
-	const pageLabel = `${BOX_CHARS.horizontal.repeat(2)} ctrl + \u2190/\u2192 `;
+	// 页码指示行：├── Page 2/5 ── ctrl + ←/→ ──┤
+	const pageLabel = `${BOX_CHARS.horizontal.repeat(2)} Page ${currentPage + 1}/${totalPages} ${BOX_CHARS.horizontal.repeat(2)} ctrl + \u2190/\u2192 `;
 	const pageFill = Math.max(0, boxWidth - 2 - visualWidth(pageLabel));
 	const pageBar = `${BOX_CHARS.teeLeft}${pageLabel}${BOX_CHARS.horizontal.repeat(pageFill)}${BOX_CHARS.teeRight}`;
 
