@@ -221,20 +221,19 @@ function QuestionModal({
 		const isActive = isOtherFocused;
 		return (
 			<Box key="other" flexDirection={opts?.rowLayout ? 'row' : undefined}>
-				<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+				<Text color={isCurrent ? theme.colors.suggestion : undefined}>
 					{isCurrent ? `${theme.icons.pointer} ` : '  '}
 				</Text>
 				{!opts?.rowLayout && isMultiSelect ? (
-					<Text color={selectedIndices.has(index) ? theme.colors.suggestion : theme.colors.muted}>
+					<Text color={selectedIndices.has(index) ? theme.colors.suggestion : undefined}>
 						[{selectedIndices.has(index) ? theme.icons.check : ' '}]{' '}
 					</Text>
 				) : null}
 				<Text
 					color={isActive ? theme.colors.suggestion : (isCurrent ? theme.colors.suggestion : undefined)}
 					bold={isCurrent && (opts?.rowLayout || !isMultiSelect)}
-					dimColor={!opts?.rowLayout && !isCurrent && !isActive}
 				>
-					{opts?.rowLayout ? ` ${optLabel(index)}` : `${index + 1}. ${optLabel(index)}`}
+					{`${index + 1}. ${optLabel(index)}`}
 				</Text>
 				{isActive ? (
 					<Text>
@@ -626,7 +625,7 @@ function QuestionModal({
 
 			{hasOptions ? (
 				<Box flexDirection="column" marginTop={questions.length > 1 ? 0 : 1}>
-					<Text dimColor>{hintText}</Text>
+					<Text>{hintText}</Text>
 					{hasPreview ? (
 						// ===== 预览分栏：左选项列表 + 右预览框 =====
 						<Box flexDirection="row" marginTop={1} gap={2}>
@@ -636,11 +635,10 @@ function QuestionModal({
 									if (opt.type === 'other') return renderOtherOption(i, isCurrent, {rowLayout: true});
 									return (
 										<Box key={opt.label} flexDirection="row">
-											<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+											<Text color={isCurrent ? theme.colors.suggestion : undefined}>
 												{isCurrent ? `${theme.icons.pointer} ` : '  '}
 											</Text>
-											<Text dimColor>{` ${i + 1}.`}</Text>
-											<Text color={isCurrent ? theme.colors.suggestion : undefined} bold={isCurrent}>{` ${opt.label}`}</Text>
+											<Text color={isCurrent ? theme.colors.suggestion : undefined} bold={isCurrent}>{`${i + 1}. ${opt.label}`}</Text>
 										</Box>
 									);
 								})}
@@ -662,29 +660,28 @@ function QuestionModal({
 							// 普通选项
 							return (
 								<Box key={opt.label}>
-									<Text color={isCurrent ? theme.colors.suggestion : theme.colors.muted}>
+									<Text color={isCurrent ? theme.colors.suggestion : undefined}>
 										{isCurrent ? `${theme.icons.pointer} ` : '  '}
 									</Text>
 									{isMultiSelect ? (
-										<Text color={isSelected ? theme.colors.suggestion : theme.colors.muted}>
+										<Text color={isSelected ? theme.colors.suggestion : undefined}>
 											[{isSelected ? theme.icons.check : ' '}]{' '}
 										</Text>
 									) : null}
 									<Text
 										color={isCurrent && !isMultiSelect ? theme.colors.suggestion : (isMultiSelect && isSelected ? theme.colors.suggestion : undefined)}
 										bold={isCurrent && !isMultiSelect}
-										dimColor={!isCurrent}
 									>
 										{`${i + 1}. `}
 										{opt.label}
 									</Text>
 									{opt.description ? (
 										<Box marginLeft={1}>
-											<Text dimColor>{theme.icons.middleDot} {opt.description}</Text>
+											<Text>{theme.icons.middleDot} {opt.description}</Text>
 										</Box>
 									) : null}
 									{isCurrent && !isMultiSelect && opt.preview ? (
-										<Text dimColor> {theme.icons.middleDot} preview</Text>
+										<Text> {theme.icons.middleDot} preview</Text>
 									) : null}
 								</Box>
 							);
