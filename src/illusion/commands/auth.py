@@ -16,25 +16,27 @@ async def login_handler(args: str, context: CommandContext) -> CommandResult:
     """显示认证状态或存储 API Key"""
     del context
     settings = load_settings()
+    env = settings._active_env
     api_key = args.strip()
     if not api_key:
+        current_key = env.api_key or env.auth_token or ""
         masked = (
-            f"{settings.api_key[:6]}...{settings.api_key[-4:]}"
-            if settings.api_key
+            f"{current_key[:6]}...{current_key[-4:]}"
+            if current_key
             else "(not configured)"
         )
+        auth_type = "auth_token" if env.auth_token else "api_key"
         return CommandResult(
             message=(
                 f"Auth status:\n"
                 f"- auth_status: {auth_status(settings)}\n"
                 f"- base_url: {settings.base_url or '(default)'}\n"
                 f"- model: {settings.model}\n"
-                f"- api_key: {masked}\n"
+                f"- {auth_type}: {masked}\n"
                 "Usage: /login API_KEY"
             )
         )
     env_key = settings._active_env_key
-    env = settings._active_env
     updated_env = env.model_copy(update={"api_key": api_key})
     setattr(settings, env_key, updated_env)
     save_settings(settings)
