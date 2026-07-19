@@ -21,6 +21,7 @@ class CreateEnvRequest(BaseModel):
     api_format: str = Field(..., description="API 格式：anthropic/openai/copilot/codex")
     base_url: str | None = None
     api_key: str = ""
+    auth_token: str = ""
     model_1: str
     model_2: str | None = None
 
@@ -36,6 +37,7 @@ class UpdateEnvRequest(BaseModel):
     api_format: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    auth_token: str | None = None
     add_models: list[ModelEntry] | None = None
     remove_models: list[str] | None = None
 
@@ -91,7 +93,8 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         env_data: dict[str, Any] = {
             "api_format": req.api_format,
             "base_url": req.base_url or "",
-            "api_key": "",
+            "api_key": req.api_key or "",
+            "auth_token": req.auth_token or "",
             "model_1": req.model_1,
         }
         if req.model_2:
@@ -105,10 +108,6 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             new_settings.model = f"{env_key}.model_1"
         # 原子写入（save_settings 内部处理 atomic_write + 字段排序）
         save_settings(new_settings)
-        # 写入 api_key 到 credentials.json
-        if req.api_key:
-            manager = AuthManager()
-            manager.store_env_api_key(env_key, req.api_key)
         return {"env_key": env_key, "success": True}
 
     @app.patch("/api/envs/{env_key}")
@@ -118,14 +117,16 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         envs = settings.list_envs()
         if env_key not in envs:
             raise HTTPException(status_code=404, detail=_t("unknown_env", env_key=env_key))
-        # 使用 AuthManager.update_env 处理 api_format/base_url/api_key
+        # 使用 AuthManager.update_env 处理 api_format/base_url/api_key/auth_token
         manager = AuthManager()
-        if req.api_format is not None or req.base_url is not None or req.api_key is not None:
+        if (req.api_format is not None or req.base_url is not None
+                or req.api_key is not None or req.auth_token is not None):
             manager.update_env(
                 env_key,
                 api_format=req.api_format,
                 base_url=req.base_url,
                 api_key=req.api_key,
+                auth_token=req.auth_token,
             )
         # 处理 add_models / remove_models（直接操作 model_extra）
         if req.add_models or req.remove_models:
