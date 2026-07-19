@@ -503,6 +503,7 @@ def auth_login() -> None:
     # --- 其他提供商走 API 密钥流程 ---
 
     # 2. 确定 API 格式
+    auth_field = "api_key"  # 默认使用 api_key
     if format_choice == "anthropic":
         api_format = "anthropic"
     elif format_choice == "openai":
