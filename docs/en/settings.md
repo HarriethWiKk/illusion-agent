@@ -200,7 +200,8 @@ Fixed working directory. If set, illusion-code will automatically switch to this
 |-------|------|----------|-------------|
 | `api_format` | string | Yes | API format: `anthropic` / `openai` / `copilot` / `codex` |
 | `base_url` | string\|null | No | Custom API endpoint, null uses default |
-| `api_key` | string | No | API key (or use `illusion auth login` for credentials.json) |
+| `api_key` | string | No | API key (standard `x-api-key` auth) |
+| `auth_token` | string | No | Bearer Token auth (for providers like LongCat using `Authorization: Bearer`) |
 | `system_prompt` | string\|null | No | Per-environment system prompt (overrides global) |
 | `model_N` | string | No | Model name: `model_1`, `model_2`, ... |
 
@@ -296,7 +297,22 @@ Uses ChatGPT subscription auth via Device Code flow. Auth stored in `~/.illusion
 }
 ```
 
-#### 6. Multi-Format Mixed Configuration
+#### 6. LongCat (Bearer Token Authentication)
+
+LongCat uses `Authorization: Bearer` authentication, configured via the `auth_token` field (not `api_key`).
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": "https://api.longcat.chat/anthropic",
+    "auth_token": "ak_your_longcat_api_key",
+    "model_1": "LongCat-2.0"
+  }
+}
+```
+
+#### 7. Multi-Format Mixed Configuration
 
 ```json
 {

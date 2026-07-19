@@ -200,7 +200,8 @@
 |------|------|------|------|
 | `api_format` | string | 是 | API 格式：`anthropic` / `openai` / `copilot` / `codex` |
 | `base_url` | string\|null | 否 | 自定义 API 端点，null 使用默认端点 |
-| `api_key` | string | 否 | API 密钥（或通过 `illusion auth login` 存储到 credentials.json） |
+| `api_key` | string | 否 | API 密钥（标准 x-api-key 认证） |
+| `auth_token` | string | 否 | Bearer Token 认证（用于 LongCat 等使用 `Authorization: Bearer` 的提供商） |
 | `system_prompt` | string\|null | 否 | 该环境的系统提示词（覆盖全局） |
 | `model_N` | string | 否 | 模型名称：`model_1`、`model_2`、... |
 
@@ -296,7 +297,22 @@ illusion auth login   # 选择 OpenAI Codex
 }
 ```
 
-#### 6. 多格式混合配置
+#### 6. LongCat（Bearer Token 认证）
+
+LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 字段配置（而非 `api_key`）。
+
+```json
+{
+  "env_1": {
+    "api_format": "anthropic",
+    "base_url": "https://api.longcat.chat/anthropic",
+    "auth_token": "ak_your_longcat_api_key",
+    "model_1": "LongCat-2.0"
+  }
+}
+```
+
+#### 7. 多格式混合配置
 
 ```json
 {
