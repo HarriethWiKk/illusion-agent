@@ -84,7 +84,7 @@ class AuthManager:
         for env_key, env in envs.items():
             models = env.list_models()
             model_name = next(iter(models.values())) if models else "(无模型)"
-            has_cred = bool(load_env_credential(env_key, "api_key")) or bool(env.api_key)
+            has_cred = bool(env.api_key) or bool(env.auth_token) or bool(load_env_credential(env_key, "api_key"))
             result[env_key] = {
                 "api_format": env.api_format,
                 "base_url": env.base_url or "",
@@ -129,6 +129,7 @@ class AuthManager:
         api_format: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        auth_token: str | None = None,
     ) -> None:
         """更新环境配置
 
@@ -136,7 +137,8 @@ class AuthManager:
             env_key: 环境键名
             api_format: API 格式
             base_url: 基础 URL
-            api_key: API 密钥
+            api_key: API 密钥（标准 x-api-key 认证）
+            auth_token: Bearer Token（用于 LongCat 等）
 
         Raises:
             ValueError: 环境不存在
@@ -151,6 +153,8 @@ class AuthManager:
             updates["base_url"] = base_url
         if api_key is not None:
             updates["api_key"] = api_key
+        if auth_token is not None:
+            updates["auth_token"] = auth_token
         if updates:
             updated_env = env.model_copy(update=updates)
             setattr(self.settings, env_key, updated_env)
