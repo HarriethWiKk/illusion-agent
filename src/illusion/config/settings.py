@@ -356,7 +356,7 @@ class Settings(BaseModel):
     def resolve_api_key(self) -> str:
         """解析 API 密钥
 
-        优先级：EnvConfig.api_key > credentials.json(env_N)
+        优先级：EnvConfig.api_key > EnvConfig.auth_token > credentials.json(env_N)
 
         Returns:
             str: API 密钥字符串
@@ -370,9 +370,16 @@ class Settings(BaseModel):
         if env.api_key:
             return env.api_key
 
+        # 检查 EnvConfig 中的 auth_token
+        if env.auth_token:
+            return env.auth_token
+
         # 从 credentials.json 的 env_N 读取
         from illusion.auth.storage import load_env_credential
         env_cred = load_env_credential(self._active_env_key, "api_key")
+        if env_cred:
+            return env_cred
+        env_cred = load_env_credential(self._active_env_key, "auth_token")
         if env_cred:
             return env_cred
 
@@ -399,12 +406,29 @@ class Settings(BaseModel):
                 state="configured",
             )
 
+        # 检查 EnvConfig 中的 auth_token
+        if env.auth_token:
+            return ResolvedAuth(
+                auth_kind="auth_token",
+                value=env.auth_token,
+                source="env_config",
+                state="configured",
+            )
+
         # 从 credentials.json 的 env_N 读取
         from illusion.auth.storage import load_env_credential
         env_cred = load_env_credential(self._active_env_key, "api_key")
         if env_cred:
             return ResolvedAuth(
                 auth_kind="api_key",
+                value=env_cred,
+                source=f"file:{self._active_env_key}",
+                state="configured",
+            )
+        env_cred = load_env_credential(self._active_env_key, "auth_token")
+        if env_cred:
+            return ResolvedAuth(
+                auth_kind="auth_token",
                 value=env_cred,
                 source=f"file:{self._active_env_key}",
                 state="configured",
