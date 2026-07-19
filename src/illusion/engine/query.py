@@ -159,6 +159,14 @@ class BackgroundAgentTracker:
         self._wake_event.clear()
         return completions
 
+    def drain_now(self) -> list[BgAgentCompletion]:
+        """非阻塞地取出所有已完成的通知。
+
+        用于 mid-turn drain：工具执行后立即检查已完成的后台任务通知，
+        不等待未完成的任务。对齐 Claude Code 的 query.ts drain gate。
+        """
+        return self._drain_completions()
+
     async def wait_for_completion(self) -> list[BgAgentCompletion]:
         """等待任意后台代理完成，返回所有已完成的通知。
 
@@ -493,6 +501,21 @@ async def run_query(
         # 将工具结果作为用户消息添加到历史记录
         all_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
         messages.append(ConversationMessage(role="user", content=all_results))
+
+        # ------------------------------------------------------------------
+        # Mid-turn drain：工具执行后立即检查已完成的后台任务通知
+        # 对齐 Claude Code 的 query.ts drain gate（line 1566-1590）：
+        # 每轮工具执行后，drain 已完成但未消费的通知，注入为 user message，
+        # 让 LLM 在下一轮调用时看到通知，无需轮询 task_output/sleep。
+        # ------------------------------------------------------------------
+        tracker = context.bg_agent_tracker
+        if tracker is not None:
+            completed = tracker.drain_now()
+            if completed:
+                notification_parts = [c.notification_xml for c in completed]
+                notification_text = "\n\n".join(notification_parts)
+                messages.append(ConversationMessage.from_user_text(notification_text))
+                yield StatusEvent(message=t("bg_agent_resuming"), bg_agent=True), None
 
     # 超出最大轮次限制
     if context.max_turns is not None:

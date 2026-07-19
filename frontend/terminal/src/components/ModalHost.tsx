@@ -219,25 +219,19 @@ function QuestionModal({
 	/** 渲染"其他"选项行（预览模式与普通模式共用） */
 	const renderOtherOption = (index: number, isCurrent: boolean, opts?: {rowLayout?: boolean}) => {
 		const isActive = isOtherFocused;
+		const pointer = isCurrent ? `${theme.icons.pointer} ` : '  ';
+		const checkbox = (!opts?.rowLayout && isMultiSelect) ? `[${selectedIndices.has(index) ? theme.icons.check : ' '}]` : '';
+		const labelText = `${pointer}${checkbox}${index + 1}. ${optLabel(index)}`;
 		return (
-			<Box key="other" flexDirection={opts?.rowLayout ? 'row' : undefined}>
-				<Text color={isCurrent ? theme.colors.suggestion : undefined}>
-					{isCurrent ? `${theme.icons.pointer} ` : '  '}
-				</Text>
-				{!opts?.rowLayout && isMultiSelect ? (
-					<Text color={selectedIndices.has(index) ? theme.colors.suggestion : undefined}>
-						[{selectedIndices.has(index) ? theme.icons.check : ' '}]{' '}
-					</Text>
-				) : null}
+			<Box key="other" flexDirection="column">
 				<Text
-					color={isActive ? theme.colors.suggestion : (isCurrent ? theme.colors.suggestion : undefined)}
+					color={isCurrent || (isMultiSelect && selectedIndices.has(index)) ? theme.colors.illusionShimmer : theme.colors.permission}
 					bold={isCurrent && (opts?.rowLayout || !isMultiSelect)}
 				>
-					{`${index + 1}. ${optLabel(index)}`}
+					{labelText}
 				</Text>
 				{isActive ? (
-					<Text>
-						<Text> </Text>
+					<Box paddingLeft={2}>
 						<TextInput
 							value={otherInput}
 							onChange={setOtherInput}
@@ -257,9 +251,11 @@ function QuestionModal({
 								}
 							}}
 						/>
-					</Text>
+					</Box>
 				) : otherInput ? (
-					<Text> {otherInput}</Text>
+					<Box paddingLeft={2}>
+						<Text>{otherInput}</Text>
+					</Box>
 				) : null}
 			</Box>
 		);
@@ -635,10 +631,9 @@ function QuestionModal({
 									if (opt.type === 'other') return renderOtherOption(i, isCurrent, {rowLayout: true});
 									return (
 										<Box key={opt.label} flexDirection="row">
-											<Text color={isCurrent ? theme.colors.suggestion : undefined}>
-												{isCurrent ? `${theme.icons.pointer} ` : '  '}
+											<Text color={isCurrent ? theme.colors.illusionShimmer : theme.colors.permission} bold={isCurrent}>
+												{`${isCurrent ? `${theme.icons.pointer} ` : '  '}${i + 1}. ${opt.label}`}
 											</Text>
-											<Text color={isCurrent ? theme.colors.suggestion : undefined} bold={isCurrent}>{`${i + 1}. ${opt.label}`}</Text>
 										</Box>
 									);
 								})}
@@ -657,31 +652,23 @@ function QuestionModal({
 							const isCurrent = i === optionIndex;
 							const isSelected = isMultiSelect ? selectedIndices.has(i) : false;
 							if (opt.type === 'other') return renderOtherOption(i, isCurrent);
-							// 普通选项
+							// label 单行合并，description 独占下一行缩进
+							const pointer = isCurrent ? `${theme.icons.pointer} ` : '  ';
+							const checkbox = isMultiSelect ? `[${isSelected ? theme.icons.check : ' '}]` : '';
+							const previewHint = isCurrent && !isMultiSelect && opt.preview ? ` ${theme.icons.middleDot}preview` : '';
+							const labelText = `${pointer}${checkbox}${i + 1}. ${opt.label}${previewHint}`;
 							return (
-								<Box key={opt.label}>
-									<Text color={isCurrent ? theme.colors.suggestion : undefined}>
-										{isCurrent ? `${theme.icons.pointer} ` : '  '}
-									</Text>
-									{isMultiSelect ? (
-										<Text color={isSelected ? theme.colors.suggestion : undefined}>
-											[{isSelected ? theme.icons.check : ' '}]{' '}
-										</Text>
-									) : null}
+								<Box key={opt.label} flexDirection="column">
 									<Text
-										color={isCurrent && !isMultiSelect ? theme.colors.suggestion : (isMultiSelect && isSelected ? theme.colors.suggestion : undefined)}
+										color={isCurrent || (isMultiSelect && isSelected) ? theme.colors.illusionShimmer : theme.colors.permission}
 										bold={isCurrent && !isMultiSelect}
 									>
-										{`${i + 1}. `}
-										{opt.label}
+										{labelText}
 									</Text>
 									{opt.description ? (
-										<Box marginLeft={1}>
-											<Text>{theme.icons.middleDot} {opt.description}</Text>
+										<Box paddingLeft={2}>
+											<Text>{opt.description}</Text>
 										</Box>
-									) : null}
-									{isCurrent && !isMultiSelect && opt.preview ? (
-										<Text> {theme.icons.middleDot} preview</Text>
 									) : null}
 								</Box>
 							);
