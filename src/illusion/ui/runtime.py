@@ -369,10 +369,11 @@ async def build_runtime(
                 base_url=settings.base_url,
             )
         elif settings.api_format == "anthropic":
+            auth = settings.resolve_auth()
             resolved_api_client = AnthropicApiClient(  # type: ignore[assignment]
-                api_key=settings.resolve_api_key(),
+                api_key=auth.value if auth.auth_kind == "api_key" else None,
                 base_url=settings.base_url,
-                auth_token=settings._active_env.auth_token or None,
+                auth_token=auth.value if auth.auth_kind == "auth_token" else None,
             )
         else:  # "openai" 及其他 OpenAI 兼容格式
             resolved_api_client = OpenAICompatibleClient(  # type: ignore[assignment]
@@ -742,10 +743,11 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
                 base_url=settings.base_url,
             )
         elif _api_format == "anthropic":
+            auth = settings.resolve_auth()
             new_client = AnthropicApiClient(  # type: ignore[assignment]
-                api_key=settings.resolve_api_key(),
+                api_key=auth.value if auth.auth_kind == "api_key" else None,
                 base_url=settings.base_url,
-                auth_token=settings._active_env.auth_token or None,
+                auth_token=auth.value if auth.auth_kind == "auth_token" else None,
             )
         else:  # "openai" 及其他 OpenAI 兼容格式
             new_client = OpenAICompatibleClient(
