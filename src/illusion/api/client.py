@@ -271,9 +271,11 @@ class AnthropicApiClient:
         api_key: str | None = None,
         *,
         base_url: str | None = None,
+        auth_token: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        self._auth_token = auth_token
         self._client = self._create_client()
 
     def _create_client(self) -> AsyncAnthropic:
@@ -283,7 +285,10 @@ class AnthropicApiClient:
             AsyncAnthropic: 配置好的客户端实例
         """
         kwargs: dict[str, Any] = {}
-        if self._api_key:
+        # 优先使用 auth_token（Bearer Token），否则使用 api_key（x-api-key）
+        if self._auth_token:
+            kwargs["auth_token"] = self._auth_token
+        elif self._api_key:
             kwargs["api_key"] = self._api_key
         if self._base_url:
             kwargs["base_url"] = self._base_url
