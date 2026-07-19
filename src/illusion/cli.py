@@ -524,6 +524,16 @@ def auth_login() -> None:
             print(_t("invalid_selection"), file=sys.stderr)
             raise typer.Exit(1)
 
+        # 自定义格式+anthropic 时，选择认证方式
+        auth_field = "api_key"
+        if api_format == "anthropic":
+            print(_t("select_auth_type"))
+            print(f"  1. api_key ({_t('auth_type_api_key')})")
+            print(f"  2. auth_token ({_t('auth_type_auth_token')})")
+            raw = input(f"{_t('enter_number')} (1): ").strip()
+            if raw == "2":
+                auth_field = "auth_token"
+
     # 3. 输入端点
     default_ep = _DEFAULT_ENDPOINTS.get(format_choice, "")
     if default_ep:
@@ -537,10 +547,14 @@ def auth_login() -> None:
             print(_t("endpoint_required"), file=sys.stderr)
             raise typer.Exit(1)
 
-    # 4. 输入 API 密钥
-    flow = ApiKeyFlow(prompt_text=_t("enter_api_key"))
+    # 4. 输入 API 密钥 / Auth Token
+    if auth_field == "auth_token":
+        prompt_text = _t("enter_auth_token")
+    else:
+        prompt_text = _t("enter_api_key")
+    flow = ApiKeyFlow(prompt_text=prompt_text)
     try:
-        api_key = flow.run()
+        credential = flow.run()
     except ValueError:
         print(_t("api_key_required"), file=sys.stderr)
         raise typer.Exit(1)
@@ -574,18 +588,16 @@ def auth_login() -> None:
     env_key = f"env_{next_num}"
 
     # 保存到 settings.json
-    env_config = {
+    env_config: dict[str, Any] = {
         "api_format": api_format,
         "base_url": endpoint,
-        "api_key": "",  # 不在 settings.json 中存储实际密钥
         "model_1": model_name,
     }
     setattr(manager.settings, env_key, env_config)
     manager.settings.model = f"{env_key}.model_1"
     manager.save_settings()
-
-    # 保存密钥到 credentials.json
-    store_env_credential(env_key, "api_key", api_key)
+    # 密钥保存到 credentials.json
+    store_env_credential(env_key, auth_field, credential)
 
     print(_t("env_saved", env_key=env_key))
 
