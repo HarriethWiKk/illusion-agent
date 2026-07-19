@@ -212,6 +212,7 @@ class EnvConfig(BaseModel):
     api_format: str  # "anthropic" / "openai"
     base_url: str | None = None
     api_key: str = ""
+    auth_token: str = ""  # Bearer Token 认证（用于 LongCat 等使用 Authorization: Bearer 的提供商）
     system_prompt: str | None = None
 
     model_config = {"extra": "allow"}  # 允许 model_N 动态字段
