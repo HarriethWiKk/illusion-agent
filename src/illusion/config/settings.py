@@ -451,7 +451,7 @@ class Settings(BaseModel):
             Settings: 应用覆盖后的新实例
         """
         # env 级覆盖需写入活跃 EnvConfig，不能直接 model_copy
-        env_keys = {"api_key", "base_url", "api_format"}
+        env_keys = {"api_key", "auth_token", "base_url", "api_format"}
         env_overrides = {k: v for k, v in overrides.items() if v is not None and k in env_keys}
         global_updates = {k: v for k, v in overrides.items() if v is not None and k not in env_keys}
 
@@ -511,12 +511,16 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
     # 序列化并重排字段，env_N 置顶
     data = settings.model_dump()
 
-    # 清理 env_N 中的 model 字段和 system_prompt: null
+    # 清理 env_N 中的 model 字段和 system_prompt: null, auth_token/api_key 空字符串
     for key in data:
         if key.startswith("env_") and isinstance(data[key], dict):
             data[key].pop("model", None)
             if data[key].get("system_prompt") is None:
                 data[key].pop("system_prompt", None)
+            if not data[key].get("auth_token"):
+                data[key].pop("auth_token", None)
+            if not data[key].get("api_key"):
+                data[key].pop("api_key", None)
 
     ordered: dict[str, object] = {}
     for key in sorted(data):
