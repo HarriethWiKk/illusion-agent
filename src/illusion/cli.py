@@ -531,8 +531,8 @@ def auth_login() -> None:
             print(_t("select_auth_type"))
             print(f"  1. api_key ({_t('auth_type_api_key')})")
             print(f"  2. auth_token ({_t('auth_type_auth_token')})")
-            raw = input(f"{_t('enter_number')} (1): ").strip()
-            if raw == "2":
+            raw = typer.prompt(_t("enter_number"), default="1")
+            if raw.strip() == "2":
                 auth_field = "auth_token"
 
     # 3. 输入端点

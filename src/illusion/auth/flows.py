@@ -50,9 +50,9 @@ class ApiKeyFlow(AuthFlow):
             str: 输入的 API 密钥
 
         Raises:
-            ValueError: API 密钥为空
+            ValueError: 密钥为空
         """
         key = input(f"{self.prompt_text}: ").strip()
         if not key:
-            raise ValueError("API key cannot be empty.")
+            raise ValueError("Credential cannot be empty.")
         return key
