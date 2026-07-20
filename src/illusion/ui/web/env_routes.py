@@ -89,12 +89,10 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         while f"env_{n}" in existing:
             n += 1
         env_key = f"env_{n}"
-        # 构建 env 配置数据
+        # 构建 env 配置数据（不包含敏感凭证）
         env_data: dict[str, Any] = {
             "api_format": req.api_format,
             "base_url": req.base_url or "",
-            "api_key": req.api_key or "",
-            "auth_token": req.auth_token or "",
             "model_1": req.model_1,
         }
         if req.model_2:
@@ -108,6 +106,10 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             new_settings.model = f"{env_key}.model_1"
         # 原子写入（save_settings 内部处理 atomic_write + 字段排序）
         save_settings(new_settings)
+        # 凭证保存到 credentials.json
+        if req.auth_token:
+            manager = AuthManager()
+            manager.store_env_credential(env_key, "auth_token", req.auth_token)
         return {"env_key": env_key, "success": True}
 
     @app.patch("/api/envs/{env_key}")
