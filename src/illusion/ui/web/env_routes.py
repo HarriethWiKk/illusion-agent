@@ -107,9 +107,12 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         # 原子写入（save_settings 内部处理 atomic_write + 字段排序）
         save_settings(new_settings)
         # 凭证保存到 credentials.json
+        if req.api_key:
+            manager = AuthManager()
+            manager.store_env_api_key(env_key, req.api_key)
         if req.auth_token:
             manager = AuthManager()
-            manager.store_env_credential(env_key, "auth_token", req.auth_token)
+            manager.store_env_auth_token(env_key, req.auth_token)
         return {"env_key": env_key, "success": True}
 
     @app.patch("/api/envs/{env_key}")

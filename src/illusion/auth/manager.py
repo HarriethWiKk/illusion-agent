@@ -190,6 +190,15 @@ class AuthManager:
         """
         store_env_credential(env_key, "api_key", api_key)
 
+    def store_env_auth_token(self, env_key: str, auth_token: str) -> None:
+        """存储环境的 Auth Token 到 credentials.json
+
+        Args:
+            env_key: 环境键名（如 "env_1"）
+            auth_token: Bearer Token
+        """
+        store_env_credential(env_key, "auth_token", auth_token)
+
     def clear_env_api_key(self, env_key: str) -> None:
         """删除环境的 API 密钥
 
