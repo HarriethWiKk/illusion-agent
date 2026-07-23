@@ -36,7 +36,7 @@ from illusion.api.client import (
 )
 from illusion.api.effort import EffortLevel
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, MediaBlock, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, _build_tool_result_content
+from illusion.engine.messages import ConversationMessage, ContentBlock, MediaBlock, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, _build_tool_result_content
 from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -87,6 +87,37 @@ class PermissionDenied(RuntimeError):
     def __init__(self, tool_name: str, message: str = "") -> None:
         self.tool_name = tool_name
         super().__init__(message or f"Permission denied for {tool_name}")
+
+
+def _synthesize_pending_tool_results(
+    tool_calls: list[ToolUseBlock],
+    tool_results_list: list[ToolResultBlock | None],
+    error_message_fn: Callable[[str], str],
+) -> list[ContentBlock]:
+    """为未完成的工具调用合成 tool_result，避免孤立 tool_use。
+
+    DeepSeek 等 strict OpenAI 兼容 provider 要求每个 tool_use 在紧接的下一条
+    消息中有对应的 tool_result。权限拒绝/中断/异常等场景可能导致部分工具
+    未执行完成，本函数为这些工具合成错误 tool_result。
+
+    Args:
+        tool_calls: 本轮所有 tool_use 块
+        tool_results_list: 已收集的结果列表（可能短于 tool_calls，None 表示未完成）
+        error_message_fn: 接受工具名称，返回合成错误消息文案的回调
+
+    Returns:
+        与 tool_calls 等长的 ToolResultBlock 列表（已完成的保留原结果，
+        未完成的替换为合成错误结果）
+    """
+    # 单工具路径 tool_results_list 可能短于 tool_calls，补齐至等长再 zip。
+    # 不修改入参列表，避免隐式副作用。
+    padded = list(tool_results_list)
+    padded.extend([None] * (len(tool_calls) - len(padded)))
+    return [
+        result if result is not None
+        else ToolResultBlock(tool_use_id=tc.id, content=error_message_fn(tc.name), is_error=True)
+        for tc, result in zip(tool_calls, padded)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -418,15 +449,18 @@ async def run_query(
         yield ToolChainStarted(tool_count=len(tool_calls)), None
 
         tool_results_list: list[ToolResultBlock | None] = []
+        # 收集钩子 additionalContext，工具执行完成后合并到 tool_result 消息中。
+        # 不能作为独立 user(text) 消息插入到 assistant(tool_use) 和 user(tool_result)
+        # 之间，否则会破坏 tool_use→tool_result 紧邻不变量，导致 DeepSeek 等
+        # strict provider 返回 400 "tool_use ids were found without tool_result"。
+        all_hook_ctxs: list[str] = []
         try:
             if len(tool_calls) == 1:
                 # 单个工具：顺序执行
                 tc = tool_calls[0]
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
                 result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
-                # 注入钩子 additionalContext 为独立的 user message
-                for ctx in hook_ctxs:
-                    messages.append(ConversationMessage.from_user_text(_wrap_in_system_reminder(ctx)))
+                all_hook_ctxs.extend(hook_ctxs)
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
                     output=result.text_content,
@@ -461,9 +495,7 @@ async def run_query(
                     [_safe_run(i, tc) for i, tc in enumerate(tool_calls)]
                 ):
                     idx, result, hook_ctxs = await coro
-                    # 注入钩子 additionalContext
-                    for ctx in hook_ctxs:
-                        messages.append(ConversationMessage.from_user_text(_wrap_in_system_reminder(ctx)))
+                    all_hook_ctxs.extend(hook_ctxs)
                     tool_results_list[idx] = result
                     yield ToolExecutionCompleted(
                         tool_name=tool_calls[idx].name,
@@ -473,21 +505,60 @@ async def run_query(
                     ), None
         except PermissionDenied as exc:
             from illusion.config.i18n import t
-            # 为所有未完成的工具添加合成 tool_result，确保消息历史一致
-            # （assistant 的 tool_use 必须有对应的 tool_result，否则 API 下一轮报错）
-            # 单工具路径未预分配 tool_results_list，补齐至 tool_calls 长度
-            tool_results_list.extend([None] * (len(tool_calls) - len(tool_results_list)))
-            for i, tc in enumerate(tool_calls):
-                if tool_results_list[i] is None:
-                    tool_results_list[i] = ToolResultBlock(
-                        tool_use_id=tc.id,
-                        content=f"Permission denied for {tc.name}" if tc.name == exc.tool_name else f"Tool {tc.name} interrupted",
-                        is_error=True,
-                    )
-            filtered_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
-            messages.append(ConversationMessage(role="user", content=filtered_results))
+
+            denied_tool_name = exc.tool_name  # 捕获到局部变量，避免 lambda 闭包引用 exc
+
+            # 为所有未完成的工具合成 tool_result，确保消息历史一致
+            synth = _synthesize_pending_tool_results(
+                tool_calls,
+                tool_results_list,
+                error_message_fn=lambda name: (
+                    f"Permission denied for {name}"
+                    if name == denied_tool_name
+                    else f"Tool {name} interrupted"
+                ),
+            )
+            # 中断前已完成工具的钩子上下文也需追加，避免丢失
+            for ctx in all_hook_ctxs:
+                synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
+            messages.append(ConversationMessage(role="user", content=synth))
             yield ErrorEvent(message=t("permission_denied_stopped", tool=exc.tool_name)), None
             return
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # Ctrl+C / Escape 取消 / 模型切换等中断场景：
+            # assistant 消息（含 tool_use）已入列，但 tool_result 未追加。
+            # 合成错误结果保持历史一致性，防止下一轮 API 返回 400。
+            synth = _synthesize_pending_tool_results(
+                tool_calls,
+                tool_results_list,
+                error_message_fn=lambda name: f"Tool {name} interrupted",
+            )
+            # 中断前已完成工具的钩子上下文也需追加，避免丢失
+            for ctx in all_hook_ctxs:
+                synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
+            messages.append(ConversationMessage(role="user", content=synth))
+            raise
+        except Exception:  # noqa: BLE001
+            # 能到达此 handler 的例外路径：
+            #   - 单工具路径 _execute_tool_call 内部工具实现抛出非预期异常
+            #     （如 RuntimeError、OSError、文件系统错误），未经 _safe_run
+            #     包裹故直接传播至此；
+            #   - 多工具路径 asyncio.as_completed 自身可能因取消/超时竞态
+            #     抛出异常（非工具返回值）；
+            #   - 其他运行时意外（内存不足等）。
+            # 多工具路径中单个工具的异常已被 _safe_run 捕获并转为 error
+            # ToolResultBlock，不会到达此 handler。
+            # 合成 tool_result 后重新抛出，保持消息历史一致性。
+            synth = _synthesize_pending_tool_results(
+                tool_calls,
+                tool_results_list,
+                error_message_fn=lambda name: f"Tool {name} interrupted",
+            )
+            # 中断前已完成工具的钩子上下文也需追加，避免丢失
+            for ctx in all_hook_ctxs:
+                synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
+            messages.append(ConversationMessage(role="user", content=synth))
+            raise
 
         # 输出工具链完成事件
         yield ToolChainCompleted(
@@ -499,7 +570,11 @@ async def run_query(
         ), None
 
         # 将工具结果作为用户消息添加到历史记录
+        # 钩子 additionalContext 合并到同一 user 消息中（作为 TextBlock 追加在
+        # tool_result 之后），保持 tool_use→tool_result 紧邻不变量。
         all_results: list[TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | MediaBlock] = [r for r in tool_results_list if r is not None]
+        for ctx in all_hook_ctxs:
+            all_results.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
         messages.append(ConversationMessage(role="user", content=all_results))
 
         # ------------------------------------------------------------------

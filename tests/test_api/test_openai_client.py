@@ -200,6 +200,165 @@ class TestConvertMessagesToOpenai:
         assert result[1]["tool_call_id"] == "c2"
 
 
+class TestOrphanedToolUseSynthesis:
+    """Test synthesis of missing tool_result for orphaned tool_use blocks.
+
+    DeepSeek 等 strict OpenAI 兼容 provider 要求每个 tool_use 在紧接的下一条
+    消息中有对应的 tool_result。会话中断、中途切换模型、会话恢复等场景
+    可能导致 tool_result 缺失，_convert_messages_to_openai 应自动补齐合成
+    错误结果，避免 API 400 错误。
+    """
+
+    def test_trailing_orphaned_tool_use(self):
+        """assistant 末尾的 tool_use 无后续 tool_result → 末尾补齐合成结果。"""
+        messages = [
+            ConversationMessage.from_user_text("read /tmp/x"),
+            ConversationMessage(
+                role="assistant",
+                content=[
+                    ToolUseBlock(id="call_orphan", name="read_file", input={"path": "/tmp/x"}),
+                ],
+            ),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        # user → assistant(tool_calls) → tool(synthesized)
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "assistant"
+        assert len(result[1]["tool_calls"]) == 1
+        assert result[2]["role"] == "tool"
+        assert result[2]["tool_call_id"] == "call_orphan"
+        assert result[2]["content"] == "Tool execution interrupted"
+
+    def test_orphaned_tool_use_followed_by_user_text(self):
+        """tool_use 后用户直接输入文本（中断后继续）→ 先补齐 tool_result 再附用户文本。"""
+        messages = [
+            ConversationMessage(
+                role="assistant",
+                content=[
+                    ToolUseBlock(id="call_1", name="read_file", input={"path": "/a"}),
+                ],
+            ),
+            ConversationMessage.from_user_text("never mind, do something else"),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        # assistant(tool_calls) → tool(synthesized) → user(text)
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["tool_calls"]) == 1
+        assert result[1]["role"] == "tool"
+        assert result[1]["tool_call_id"] == "call_1"
+        assert result[1]["content"] == "Tool execution interrupted"
+        assert result[2]["role"] == "user"
+        assert result[2]["content"] == "never mind, do something else"
+
+    def test_partial_tool_results(self):
+        """多个 tool_use 但只有部分 tool_result → 为缺失的补齐合成结果。"""
+        messages = [
+            ConversationMessage(
+                role="assistant",
+                content=[
+                    ToolUseBlock(id="call_a", name="read_file", input={"path": "/a"}),
+                    ToolUseBlock(id="call_b", name="read_file", input={"path": "/b"}),
+                ],
+            ),
+            ConversationMessage(
+                role="user",
+                content=[
+                    ToolResultBlock(tool_use_id="call_a", content="content of /a"),
+                    # call_b 的 result 缺失（工具被中断）
+                ],
+            ),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        # assistant(tool_calls x2) → tool(synthesized for call_b) → tool(call_a result)
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["tool_calls"]) == 2
+        # call_b 的合成结果应出现在 call_a 的真实结果之前
+        assert result[1]["role"] == "tool"
+        assert result[1]["tool_call_id"] == "call_b"
+        assert result[1]["content"] == "Tool execution interrupted"
+        assert result[2]["role"] == "tool"
+        assert result[2]["tool_call_id"] == "call_a"
+        assert result[2]["content"] == "content of /a"
+
+    def test_consecutive_assistant_with_tool_calls(self):
+        """连续两条 assistant 都含 tool_use 且都无 tool_result → 各自补齐。"""
+        messages = [
+            ConversationMessage(
+                role="assistant",
+                content=[ToolUseBlock(id="c1", name="t1", input={})],
+            ),
+            ConversationMessage(
+                role="assistant",
+                content=[ToolUseBlock(id="c2", name="t2", input={})],
+            ),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        # assistant(c1) → tool(synth c1) → assistant(c2) → tool(synth c2)
+        assert result[0]["role"] == "assistant"
+        assert result[1]["role"] == "tool"
+        assert result[1]["tool_call_id"] == "c1"
+        assert result[2]["role"] == "assistant"
+        assert result[3]["role"] == "tool"
+        assert result[3]["tool_call_id"] == "c2"
+
+    def test_normal_flow_unaffected(self):
+        """完整的 user→assistant(tool)→user(tool_result)→assistant 流程不受影响。"""
+        messages = [
+            ConversationMessage.from_user_text("read /tmp/test.txt"),
+            ConversationMessage(
+                role="assistant",
+                content=[
+                    TextBlock(text="I'll read that."),
+                    ToolUseBlock(id="call_ok", name="read_file", input={"path": "/tmp/test.txt"}),
+                ],
+            ),
+            ConversationMessage(
+                role="user",
+                content=[
+                    ToolResultBlock(tool_use_id="call_ok", content="hello world"),
+                ],
+            ),
+            ConversationMessage(
+                role="assistant",
+                content=[TextBlock(text="The file contains: hello world")],
+            ),
+        ]
+        result = _convert_messages_to_openai(messages, "Be helpful")
+        assert result[0] == {"role": "system", "content": "Be helpful"}
+        assert result[1]["role"] == "user"
+        assert result[2]["role"] == "assistant"
+        assert len(result[2]["tool_calls"]) == 1
+        assert result[3]["role"] == "tool"
+        assert result[3]["tool_call_id"] == "call_ok"
+        assert result[3]["content"] == "hello world"
+        assert result[4]["role"] == "assistant"
+        assert result[4]["content"] == "The file contains: hello world"
+        # 不应有任何合成结果
+        synth = [m for m in result if m.get("content") == "Tool execution interrupted"]
+        assert synth == []
+
+    def test_assistant_without_tool_calls_unaffected(self):
+        """assistant 不含 tool_use 时不应产生任何合成 tool 消息。"""
+        messages = [
+            ConversationMessage(
+                role="assistant",
+                content=[TextBlock(text="Hello!")],
+            ),
+            ConversationMessage.from_user_text("Hi there"),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"] == "Hello!"
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "Hi there"
+
+    def test_empty_message_list(self):
+        """空消息列表不应产生任何合成消息。"""
+        result = _convert_messages_to_openai([], None)
+        assert result == []
+
+
 class TestModelConsumesThoughtSignature:
     """Test the Gemini thought_signature model gating predicate."""
 

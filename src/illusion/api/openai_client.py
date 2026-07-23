@@ -314,6 +314,11 @@ def _convert_messages_to_openai(
     - Anthropic：tool_use / tool_result 是 content blocks
     - OpenAI：tool_calls 在 assistant 消息上，tool results 是独立消息
 
+    DeepSeek 等 strict provider 要求每个 tool_use 在紧接的下一条消息中有
+    对应的 tool_result。会话中断、中途切换模型、会话恢复等场景可能导致
+    tool_result 缺失，本函数自动补齐合成错误结果（content 为
+    "Tool execution interrupted"），避免 API 400 错误。
+
     Args:
         messages: Anthropic 风格的消息列表
         system_prompt: 系统提示词
@@ -329,10 +334,38 @@ def _convert_messages_to_openai(
     if system_prompt:
         openai_messages.append({"role": "system", "content": system_prompt})
 
+    # 跟踪上一条 assistant 消息中尚未收到 tool_result 的 tool_use ID。
+    # DeepSeek 等 strict OpenAI 兼容 provider 要求每个 tool_use 在紧接的
+    # 下一条消息中有对应的 tool_result。会话中断、中途切换模型、会话恢复
+    # 等场景可能导致 tool_result 缺失，此处自动补齐合成错误结果，
+    # 避免 API 返回 400 "tool_use ids were found without tool_result"。
+    pending_tool_use_ids: list[str] = []
+
+    def _flush_pending() -> None:
+        """为所有未收到结果的 tool_use 合成错误 tool 消息。
+
+        文案使用 "Tool execution interrupted"（不含工具名），与运行时层
+        （query.py）的 "Tool {name} interrupted" 区分，便于调试时定位
+        合成来源。转换层无工具名信息，只有 tool_use_id。
+        """
+        for tid in pending_tool_use_ids:
+            openai_messages.append({
+                "role": "tool",
+                "tool_call_id": tid,
+                "content": "Tool execution interrupted",
+            })
+        pending_tool_use_ids.clear()
+
     for msg in messages:
         if msg.role == "assistant":
+            # 新的 assistant 消息前，补齐上一轮未完成的 tool_use
+            _flush_pending()
             openai_msg = _convert_assistant_message(msg, model=model)
             openai_messages.append(openai_msg)
+            # 记录本轮 tool_use ID，等待下一条消息中的 tool_result
+            pending_tool_use_ids = [
+                b.id for b in msg.content if isinstance(b, ToolUseBlock)
+            ]
         elif msg.role == "user":
             # 用户消息可能包含文本、tool_result 或 media blocks
             tool_results = [b for b in msg.content if isinstance(b, ToolResultBlock)]
@@ -340,6 +373,17 @@ def _convert_messages_to_openai(
             media_blocks = [b for b in msg.content if isinstance(b, MediaBlock)]
 
             if tool_results:
+                # 检查是否有缺失的 tool_result，合成错误结果补齐
+                provided_ids = {tr.tool_use_id for tr in tool_results}
+                for tid in pending_tool_use_ids:
+                    if tid not in provided_ids:
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tid,
+                            "content": "Tool execution interrupted",
+                        })
+                pending_tool_use_ids.clear()
+
                 # 每个 tool result 成为独立的 role="tool" 消息
                 # 注意：OpenAI tool 消息只接受字符串 content，不支持图片
                 # 如果 tool result 包含媒体，额外生成一条 user 消息携带媒体
@@ -367,6 +411,11 @@ def _convert_messages_to_openai(
                             "tool_call_id": tr.tool_use_id,
                             "content": tr.content,
                         })
+            else:
+                # 用户消息不含 tool_result
+                # 如果有 pending tool_use，先补齐合成结果
+                _flush_pending()
+
             if text_blocks or media_blocks:
                 text = "".join(b.text for b in text_blocks)
                 if media_blocks:
@@ -381,6 +430,9 @@ def _convert_messages_to_openai(
             if not tool_results and not text_blocks and not media_blocks:
                 # 空用户消息（不应发生，但需优雅处理）
                 openai_messages.append({"role": "user", "content": ""})
+
+    # 处理尾部 orphaned tool_use（assistant 消息后无后续消息）
+    _flush_pending()
 
     return openai_messages
 
