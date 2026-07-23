@@ -37,7 +37,7 @@ const MAX_TODO_DISPLAY = 4;
  * @param props.items - 待办事项列表
  * @returns 返回待办事项面板的 JSX 元素
  */
-export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Element {
+export function TodoPanel({items, externallyHidden}: {items: TodoItemSnapshot[]; externallyHidden?: boolean}): React.JSX.Element {
 	const theme = useTheme();
 	const {columns: terminalWidth} = useTerminalSize();
 	const [hidden, setHidden] = useState(false);
@@ -81,7 +81,7 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 	}, [allDone]);
 
 	// 条件 return 放在 useEffect 之后，避免违反 React Hooks 规则
-	if (items.length === 0 || hidden) {
+	if (items.length === 0 || hidden || externallyHidden) {
 		return <></>;
 	}
 

@@ -681,9 +681,9 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* 待办面板 — 任何模态框或选择器期间隐藏 */}
-			{session.ready && session.todoItems.length > 0 && !session.modal && !selectModal ? (
-				<TodoPanel items={session.todoItems} />
+			{/* 待办面板 — 模态框/命令选择器期间通过 externallyHidden 隐藏而非卸载，避免 hidden 状态丢失 */}
+			{session.ready && session.todoItems.length > 0 ? (
+				<TodoPanel items={session.todoItems} externallyHidden={!!session.modal || !!selectModal || showPicker} />
 			) : null}
 
 			{/* 群体协作面板 */}
