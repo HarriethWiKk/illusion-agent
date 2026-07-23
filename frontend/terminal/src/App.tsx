@@ -681,8 +681,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* 待办面板 — 计划审批期间或非权限模态框期间隐藏 */}
-			{session.ready && session.todoItems.length > 0 && !(session.modal && !isPermissionModal) ? (
+			{/* 待办面板 — 任何模态框或选择器期间隐藏 */}
+			{session.ready && session.todoItems.length > 0 && !session.modal && !selectModal ? (
 				<TodoPanel items={session.todoItems} />
 			) : null}
 
@@ -693,7 +693,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* 状态栏 — 模态框期间隐藏状态栏腾出空间 */}
 			{session.ready && !(session.modal && !isPermissionModal) ? (
-				<StatusBar status={session.status} tasks={session.tasks} noMarginTop={session.todoItems.length > 0} />
+				<StatusBar status={session.status} tasks={session.tasks} />
 			) : null}
 
 			{/* 输入区域 — 后端就绪前显示加载指示器（后端退出后隐藏） */}
