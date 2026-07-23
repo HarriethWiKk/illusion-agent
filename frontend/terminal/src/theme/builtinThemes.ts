@@ -133,7 +133,7 @@ export const defaultTheme: ThemeConfig = {
 		success: '✓',
 		error: '✗',
 		pending: '○',
-		inProgress: '◐',
+		inProgress: '●',
 		completed: '●',
 		bullet: '•',
 		arrow: '→',

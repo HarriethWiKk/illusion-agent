@@ -46,7 +46,6 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 
 	const completed = items.filter((t) => t.status === 'completed').length;
 	const inProgress = items.filter((t) => t.status === 'in_progress').length;
-	const pending = items.filter((t) => t.status === 'pending').length;
 	const allDone = completed === items.length && items.length > 0;
 
 	// 跟踪任务完成时间
@@ -103,26 +102,37 @@ export function TodoPanel({items}: {items: TodoItemSnapshot[]}): React.JSX.Eleme
 	const display = truncated ? sorted.slice(0, MAX_TODO_DISPLAY) : sorted;
 	const remaining = sorted.length - MAX_TODO_DISPLAY;
 
-	// 边框 + paddingX 的开销：left border(1) + right border(1) + left pad(1) + right pad(1) = 4
-	const contentWidth = terminalWidth - 4;
+	// 竖条 ▎ 1 字符 + 左 padding 1 + 右 padding 1 = 内容宽度需减 3
+	const contentWidth = terminalWidth - 3;
 
 	return (
-		<Box flexDirection="column" borderStyle="single" borderColor={theme.colors.illusion} paddingX={1}>
-			<Box marginBottom={0}>
-				<Text color={theme.colors.illusion} bold>{theme.icons.pointer} </Text>
-				<Text bold>Todos</Text>
-				<Text dimColor>{` ${completed}/${items.length} done`}</Text>
-				{inProgress > 0 ? <Text color={theme.colors.info}>{` ${theme.icons.middleDot} ${inProgress} active`}</Text> : null}
-				{pending > 0 ? <Text dimColor>{` ${theme.icons.middleDot} ${pending} open`}</Text> : null}
-			</Box>
-			{display.map((item, i) => (
-				<TodoRow key={i} item={item} theme={theme} now={now} completionTimes={completionTimeRef.current} contentWidth={contentWidth} />
-			))}
-			{truncated ? (
-				<Box>
-					<Text dimColor>{`  … +${remaining} more`}</Text>
+		<Box flexDirection="column" marginTop={1}>
+			<Box flexDirection="row">
+				{/* 左侧 illusion 竖条：▎ 字符，每行一个，覆盖标题+任务+折叠提示行 */}
+				<Box flexDirection="column">
+					<Text color={theme.colors.illusion}>▎</Text>
+					{display.map((_, i) => (
+						<Text key={i} color={theme.colors.illusion}>▎</Text>
+					))}
+					{truncated ? <Text color={theme.colors.illusion}>▎</Text> : null}
 				</Box>
-			) : null}
+				{/* 右侧内容区 */}
+				<Box flexDirection="column" paddingLeft={1} flexGrow={1}>
+					<Box marginBottom={0}>
+						<Text inverse bold color={theme.colors.illusion}>{' Todo '}</Text>
+						<Text dimColor>{`  ${completed}/${items.length} done`}</Text>
+						{inProgress > 0 ? <Text color={theme.colors.info} bold>{`  ${inProgress} active`}</Text> : null}
+					</Box>
+					{display.map((item, i) => (
+						<TodoRow key={i} item={item} theme={theme} now={now} completionTimes={completionTimeRef.current} contentWidth={contentWidth} />
+					))}
+					{truncated ? (
+						<Box>
+							<Text dimColor italic>{`  … +${remaining} more`}</Text>
+						</Box>
+					) : null}
+				</Box>
+			</Box>
 		</Box>
 	);
 }
@@ -157,12 +167,13 @@ function TodoRow({item, theme, now, completionTimes, contentWidth}: {item: TodoI
 
 	return (
 		<Box>
-			<Text color={color}>{icon} </Text>
+			<Text color={color} italic>{icon} </Text>
 			<Text
 				color={isCompleted && !isRecentCompleted ? theme.colors.muted : undefined}
 				dimColor={isCompleted && !isRecentCompleted}
 				strikethrough={isCompleted}
 				bold={item.status === 'in_progress'}
+				italic
 			>
 				{displayContent}
 			</Text>
