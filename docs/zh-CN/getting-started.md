@@ -140,8 +140,11 @@ illusion web
 # 自定义端口启动 Web UI
 illusion web --port 8080
 
-# 非交互式打印模式
+# 非交互式打印模式：只读分析（默认权限模式下安全）
 illusion -p "帮我分析这个项目的结构"
+
+# 打印模式并显式自动放行写入 / 命令执行
+illusion --permission-mode full_auto -p "修复失败的测试"
 
 # 指定模型
 illusion -m env_1.model_2
@@ -152,6 +155,9 @@ illusion -c -p "继续上次会话"
 # 恢复指定会话（配合 -p 使用）
 illusion -r <session-id> -p "继续"
 
+# 在退出码 2 后回答待处理的权限 / 问题 / 计划
+illusion -c -p "Y"
+
 # 设置权限模式
 illusion --permission-mode full_auto
 
@@ -159,7 +165,44 @@ illusion --permission-mode full_auto
 illusion -e high
 ```
 
-> **注意**：终端界面（`illusion`）为推荐的首选模式。Web UI（`illusion web`）仅作为终端不可用时的补充方案。
+> **注意**：终端界面（`illusion`）与 Web UI（`illusion web`）是两个相互独立、同等重要的界面。它们共享同一个后端运行时、设置和会话存储，按你的工作流选择即可。终端适合键盘驱动的工作流；Web UI 适合鼠标浏览、长输出展示或并排使用。
+
+---
+
+## Print 模式详解
+
+`-p` / `--print` 以非交互方式执行单次提示词并立即退出，适用于脚本、CI 或其他智能体控制 Illusion Code 的场景。
+
+### 重要规则
+
+- `-p` 的值必须放在命令行 **最后一个参数**，因为 typer 会贪婪解析 `-p`。
+- 当任务需要写入文件或执行命令时，请显式使用 `--permission-mode full_auto`。
+- 默认权限模式下，变更类工具会以退出码 **2** 退出并保留待审批项。使用 `illusion -c -p "Y"`（单次允许）、`"F"`（总是允许）或 `"N"`（拒绝）继续。
+
+### 退出码
+
+| 退出码 | 含义 | 下一步操作 |
+|--------|------|------------|
+| 0 | 成功 | 从 stdout 读取结果 |
+| 1 | 错误 | 查看 stderr 了解详情 |
+| 2 | 等待跨轮次输入 | 使用 `illusion -c -p "<回答>"` 继续 |
+
+### 常见用法
+
+```bash
+# 只读分析（安全）
+illusion -p "找出代码库中所有的 TODO 注释"
+
+# 自主执行变更
+illusion --permission-mode full_auto -p "运行测试套件并修复失败项"
+
+# 结构化 JSON 输出，供下游脚本解析
+illusion -p "列出 src/ 下的所有公共函数" --output-format json
+
+# 多轮对话
+illusion -p "重构 auth.py 的计划"                          # 以退出码 2 提出问题
+illusion -c -p '{"方案": "JWT", "范围": "完整"}'            # 注入回答后继续执行
+```
 
 ---
 

@@ -18,7 +18,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 ### Core Features
 
-- 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`
+- 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, independently usable alongside the terminal
 - 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support
 - 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component
 - 🌍 **Bilingual Interface** - Chinese/English auto-switch via `ui_language` setting
@@ -87,6 +87,31 @@ illusion -p "Analyze the structure of this project"
 # Specify model
 illusion -m env_1.model_2
 ```
+
+### Print Mode Notes
+
+`-p` / `--print` runs a single non-interactive request and exits:
+
+```bash
+# Read-only analysis (safe, default permission mode)
+illusion -p "Analyze the structure of this project"
+
+# Allow file writes / command execution without interactive approval
+illusion --permission-mode full_auto -p "Fix the failing tests"
+
+# Resume after the process exits with code 2 (pending question/permission/plan)
+illusion -c -p "Y"
+```
+
+Important details:
+
+- The prompt value must be the **last argument** because typer parses `-p` greedily.
+- In default permission mode, mutating tools exit with code **2** and persist a pending approval; answer it with `illusion -c -p "Y"`, `"F"`, or `"N"`.
+- Exit codes: `0` success, `1` error, `2` waiting for cross-turn input.
+
+### Interface Notes
+
+The terminal (`illusion`) and Web UI (`illusion web`) are two independent, first-class interfaces. They share the same backend runtime, settings, and session storage — use whichever fits your workflow.
 
 ---
 

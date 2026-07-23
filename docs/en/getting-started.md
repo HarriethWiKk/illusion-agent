@@ -138,8 +138,11 @@ illusion web
 # Web UI with custom port
 illusion web --port 8080
 
-# Non-interactive print mode
+# Non-interactive print mode: read-only analysis (safe in default permission mode)
 illusion -p "Analyze the structure of this project"
+
+# Print mode with explicit auto-approval for writes/commands
+illusion --permission-mode full_auto -p "Fix the failing tests"
 
 # Specify model
 illusion -m env_1.model_2
@@ -150,6 +153,9 @@ illusion -c -p "Continue the previous session"
 # Restore specific session (use with -p)
 illusion -r <session-id> -p "Continue"
 
+# Answer a pending permission/question/plan after exit code 2
+illusion -c -p "Y"
+
 # Set permission mode
 illusion --permission-mode full_auto
 
@@ -157,7 +163,44 @@ illusion --permission-mode full_auto
 illusion -e high
 ```
 
-> **Note**: The terminal interface (`illusion`) is the recommended primary mode. The Web UI (`illusion web`) is a supplementary option for scenarios where a terminal is unavailable.
+> **Note**: The terminal interface (`illusion`) and the Web UI (`illusion web`) are two independent, first-class interfaces. They share the same backend runtime, settings, and session storage — use whichever fits your workflow. The terminal is great for keyboard-driven workflows; the Web UI is ideal for mouse-based browsing, long outputs, or side-by-side use.
+
+---
+
+## Print Mode Details
+
+`-p` / `--print` runs a single prompt non-interactively and exits. It is designed for scripts, CI, and controlling Illusion Code from other agents.
+
+### Important rules
+
+- The `-p` value must be the **last argument** on the command line because typer parses it greedily.
+- Use `--permission-mode full_auto` when the task needs to write files or run commands without manual approval.
+- In default permission mode, mutating tools exit with code **2** and persist a pending approval. Resume with `illusion -c -p "Y"` (allow once), `"F"` (always allow), or `"N"` (deny).
+
+### Exit codes
+
+| Code | Meaning | Next action |
+|------|---------|-------------|
+| 0 | Success | Read stdout for the result |
+| 1 | Error | Check stderr for details |
+| 2 | Waiting for cross-turn input | Answer with `illusion -c -p "<answer>"` |
+
+### Common patterns
+
+```bash
+# Read-only analysis (safe)
+illusion -p "Find all TODO comments in the codebase"
+
+# Autonomous execution
+illusion --permission-mode full_auto -p "Run the test suite and fix failures"
+
+# Structured JSON output for downstream scripts
+illusion -p "List all public functions in src/" --output-format json
+
+# Multi-turn conversation
+illusion -p "Plan a refactor of auth.py"                 # exits 2 with a question
+illusion -c -p '{"Approach": "JWT", "Scope": "full"}'    # continues with the answer
+```
 
 ---
 
