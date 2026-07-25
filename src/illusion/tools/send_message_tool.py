@@ -19,6 +19,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.aioqueue import QueueShutDown
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,10 @@ When continuing a completed agent, the agent resumes with its full context prese
                 text=message_text,
                 from_agent="coordinator",
             )
-            await agent_ctx.message_queue.put(msg)
+            try:
+                await agent_ctx.message_queue.put(msg)
+            except QueueShutDown:
+                pass  # agent 已关闭，丢弃消息
             logger.debug("[SendMessage] Sent message to in-process agent %s", agent_ctx.agent_id)
             return ToolResult(output=f"Sent message to agent '{target}'")
 

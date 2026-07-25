@@ -44,6 +44,7 @@ from typing import Any, Literal
 from illusion.coordinator.agent_definitions import AgentDefinition
 from illusion.engine.messages import ConversationMessage
 from illusion.tools.base import ToolRegistry
+from illusion.utils.aioqueue import Queue, QueueShutDown
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class AgentExecutionContext:
     abort_controller: AgentAbortController = field(default_factory=AgentAbortController)
     """中止控制器。"""
 
-    message_queue: asyncio.Queue[TeammateMessage] = field(default_factory=asyncio.Queue)
+    message_queue: Queue[TeammateMessage] = field(default_factory=Queue)
     """回合之间传递的待处理消息队列。"""
 
     status: AgentStatus = "starting"
@@ -471,6 +472,23 @@ def _build_agent_cli_flags(
 # ---------------------------------------------------------------------------
 # 进程内代理执行
 # ---------------------------------------------------------------------------
+
+
+async def _message_consumer(
+    messages: list[ConversationMessage],
+    ctx: AgentExecutionContext,
+) -> None:
+    """消息消费者：阻塞式从 message_queue 取消息，注入 messages 列表。
+
+    收到 QueueShutDown 后退出循环。必须在 agent 取消/完成时调用
+    ctx.message_queue.shutdown() 唤醒此消费者。
+    """
+    while True:
+        try:
+            queued = await ctx.message_queue.get()
+        except QueueShutDown:
+            break
+        messages.append(ConversationMessage.from_user_text(queued.text))
 
 
 async def run_agent_in_process(
@@ -818,6 +836,7 @@ __all__ = [
     "AgentStatus",
     "TaskNotification",
     "TeammateMessage",
+    "_message_consumer",
     "format_task_notification",
     "get_active_agent",
     "get_active_agent_by_name",
