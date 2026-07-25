@@ -28,11 +28,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-import contextlib
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -54,9 +53,22 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
-from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
+from illusion.ui.protocol import (
+    BackendEvent,
+    FrontendRequest,
+    TranscriptItem,
+    format_permission_mode,
+)
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
-from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime, _wrap_in_system_reminder
+from illusion.ui.runtime import (
+    RuntimeBundle,
+    build_runtime,
+    close_runtime,
+    handle_line,
+    start_runtime,
+    _wrap_in_system_reminder,
+)
+from illusion.utils.aioqueue import Queue, QueueShutDown
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
@@ -70,10 +82,10 @@ def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
     if not tool_uses:
         return text
     names = [re.escape(tu.name) for tu in tool_uses]
-    pattern = re.compile(rf'^\s*(?:{"|".join(names)})\s*\(', re.IGNORECASE)
-    lines = text.split('\n')
+    pattern = re.compile(rf"^\s*(?:{'|'.join(names)})\s*\(", re.IGNORECASE)
+    lines = text.split("\n")
     filtered = [line for line in lines if not pattern.match(line)]
-    return '\n'.join(filtered) if filtered else text
+    return "\n".join(filtered) if filtered else text
 
 
 @dataclass(frozen=True)
@@ -120,14 +132,18 @@ class WebBackendHost:
         _config: Web 后端配置
         _websocket: WebSocket 连接实例
         _bundle: 运行时数据 bundle
-        _write_lock: 异步写入锁
+        _write_queue: 写入事件队列（串行化所有 WebSocket 写入）
+        _write_task: 单一消费者写循环 Task
+        _dispatch_tasks: fire-and-forget task 强引用集合
         _request_queue: 请求队列
         _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
         _always_allowed_tools: "总是允许"的工具集合
         _busy: 当前是否正在处理请求
         _running: 是否正在运行
+        _ws_closed: WebSocket 是否已关闭
         _active_line_task: 当前活动的行处理任务
+        _periodic_task: 周期状态更新 Task
         _last_tool_inputs: 每个工具名称的最后输入（用于富事件发射）
     """
 
@@ -135,21 +151,27 @@ class WebBackendHost:
         self._config = config
         self._websocket = websocket
         self._bundle: RuntimeBundle | None = None
-        self._write_lock = asyncio.Lock()  # 异步写入锁
+        self._write_queue: Queue[BackendEvent] = (
+            Queue()
+        )  # 替代 _write_lock，串行化所有 WebSocket 写入
+        self._write_task: asyncio.Task[None] | None = None  # 单一消费者写循环 Task
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()  # fire-and-forget 强引用集合
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
-        self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}      # 用户问答
-        self._always_allowed_tools: set[str] = set()                # 总是允许的工具
-        self._busy = False            # 忙碌状态
-        self._running = True           # 运行状态
-        self._ws_closed = False        # WebSocket 是否已关闭
-        self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
+        self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}  # 用户问答
+        self._always_allowed_tools: set[str] = set()  # 总是允许的工具
+        self._busy = False  # 忙碌状态
+        self._running = True  # 运行状态
+        self._ws_closed = False  # WebSocket 是否已关闭
+        self._active_line_task: asyncio.Task[bool] | None = None  # 当前任务
+        self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
         # 跟踪每个工具名称的最后输入，用于富事件发射
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
         # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
         from illusion.ui.web.ws_web_api import WebApiDispatcher
+
         self._web_api = WebApiDispatcher(self)
 
     async def run(self) -> int:
@@ -181,6 +203,8 @@ class WebBackendHost:
         await start_runtime(self._bundle)
         # 加载总是允许的工具列表
         self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
+        # 启动写循环（单一消费者，串行化所有 WebSocket 写入）
+        self._write_task = asyncio.create_task(self._write_loop())
         # 发送就绪事件
         await self._emit(
             BackendEvent.ready(
@@ -207,7 +231,7 @@ class WebBackendHost:
                 if self._running and not self._ws_closed and self._bundle is not None:
                     await self._emit(self._status_snapshot())
 
-        status_updater = asyncio.create_task(_periodic_status_update())
+        self._periodic_task = asyncio.create_task(_periodic_status_update())
 
         try:
             # 主循环：处理请求
@@ -228,7 +252,9 @@ class WebBackendHost:
                 # 权限响应
                 if request.type == "permission_response":
                     if request.request_id in self._permission_requests:
-                        self._permission_requests[request.request_id].set_result(bool(request.allowed))
+                        self._permission_requests[request.request_id].set_result(
+                            bool(request.allowed)
+                        )
                     # 记住"总是允许"工具
                     if request.always_allow and request.tool_name:
                         self._always_allowed_tools.add(request.tool_name)
@@ -286,7 +312,9 @@ class WebBackendHost:
                     continue
                 # 未知请求类型
                 if request.type != "submit_line":
-                    await self._emit(BackendEvent(type="error", message=f"Unknown request type: {request.type}"))
+                    await self._emit(
+                        BackendEvent(type="error", message=f"Unknown request type: {request.type}")
+                    )
                     continue
                 # 忙碌中
                 if self._busy:
@@ -301,7 +329,9 @@ class WebBackendHost:
                     # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
                     # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
                     if request.treat_as_text:
-                        self._active_line_task = asyncio.create_task(self._submit_line_as_text(line))
+                        self._active_line_task = asyncio.create_task(
+                            self._submit_line_as_text(line)
+                        )
                     else:
                         self._active_line_task = asyncio.create_task(self._process_line(line))
                     should_continue = await self._active_line_task
@@ -314,12 +344,15 @@ class WebBackendHost:
                     await self._emit(BackendEvent(type="shutdown"))
                     break
         finally:
-            # 清理资源
+            # 清理资源：取消 reader，_shutdown 处理其余 task/队列，最后关闭运行时
             reader.cancel()
-            status_updater.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await reader
-                await status_updater
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("读取任务关闭异常")
+            await self._shutdown()
             if self._bundle is not None:
                 await close_runtime(self._bundle)
         return 0
@@ -331,8 +364,9 @@ class WebBackendHost:
                 payload = await self._websocket.receive_text()
             except WebSocketDisconnect:
                 self._ws_closed = True
-                self._running = False
+                # 入队 shutdown 请求以唤醒主循环（可能正阻塞在 _request_queue.get()）
                 await self._request_queue.put(FrontendRequest(type="shutdown"))
+                await self._shutdown()
                 return
             except Exception:
                 self._ws_closed = True
@@ -385,33 +419,44 @@ class WebBackendHost:
         Returns:
             异步事件渲染函数
         """
+
         async def _render_event(event: StreamEvent) -> None:
             """渲染流式事件。"""
             # 助手文本增量
             if isinstance(event, AssistantTextDelta):
                 reasoning = getattr(event, "reasoning", None)
-                await self._emit(BackendEvent(
-                    type="assistant_delta",
-                    message=event.text,
-                    reasoning=reasoning if reasoning else None,
-                ))
+                await self._emit(
+                    BackendEvent(
+                        type="assistant_delta",
+                        message=event.text,
+                        reasoning=reasoning if reasoning else None,
+                    )
+                )
                 return
             # 助手回合完成
             if isinstance(event, AssistantTurnComplete):
                 reasoning = event.message.thinking_text
                 cleaned = _strip_tool_previews(event.message.text.strip(), event.message.tool_uses)
-                await self._emit(BackendEvent(
-                    type="assistant_complete",
-                    message=cleaned,
-                    reasoning=reasoning if reasoning else None,
-                    item=TranscriptItem(role="assistant", text=cleaned, reasoning=reasoning if reasoning else None),
-                ))
+                await self._emit(
+                    BackendEvent(
+                        type="assistant_complete",
+                        message=cleaned,
+                        reasoning=reasoning if reasoning else None,
+                        item=TranscriptItem(
+                            role="assistant",
+                            text=cleaned,
+                            reasoning=reasoning if reasoning else None,
+                        ),
+                    )
+                )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):
                 await self._update_phase("tool_executing")
-                await self._emit(BackendEvent(type="tool_chain_started", tool_count=event.tool_count))
+                await self._emit(
+                    BackendEvent(type="tool_chain_started", tool_count=event.tool_count)
+                )
                 return
             # 工具链完成
             if isinstance(event, ToolChainCompleted):
@@ -425,34 +470,53 @@ class WebBackendHost:
                     self._last_tool_inputs[event.tool_name] = event.tool_input
                 if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
                     if event.tool_input:
-                        await self._emit(BackendEvent(
-                            type="tool_input_updated", tool_name=event.tool_name,
-                            tool_input=event.tool_input, tool_use_id=tool_use_id,
-                        ))
+                        await self._emit(
+                            BackendEvent(
+                                type="tool_input_updated",
+                                tool_name=event.tool_name,
+                                tool_input=event.tool_input,
+                                tool_use_id=tool_use_id,
+                            )
+                        )
                     return
                 if tool_use_id:
                     self._emitted_tool_started_ids.add(tool_use_id)
-                await self._emit(BackendEvent(
-                    type="tool_started", tool_name=event.tool_name, tool_input=event.tool_input,
-                    item=TranscriptItem(
-                        role="tool", tool_name=event.tool_name,
-                        tool_input=event.tool_input if event.tool_input else None,
-                        tool_use_id=tool_use_id or None,
-                        text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}" if event.tool_input else event.tool_name,
-                    ),
-                ))
+                await self._emit(
+                    BackendEvent(
+                        type="tool_started",
+                        tool_name=event.tool_name,
+                        tool_input=event.tool_input,
+                        item=TranscriptItem(
+                            role="tool",
+                            tool_name=event.tool_name,
+                            tool_input=event.tool_input if event.tool_input else None,
+                            tool_use_id=tool_use_id or None,
+                            text=f"{event.tool_name} {json.dumps(event.tool_input, ensure_ascii=True)}"
+                            if event.tool_input
+                            else event.tool_name,
+                        ),
+                    )
+                )
                 return
             # 工具执行完成
             if isinstance(event, ToolExecutionCompleted):
                 tool_use_id = getattr(event, "tool_use_id", "") or ""
-                await self._emit(BackendEvent(
-                    type="tool_completed", tool_name=event.tool_name, output=event.output,
-                    is_error=event.is_error, tool_use_id=tool_use_id or None,
-                    item=TranscriptItem(
-                        role="tool_result", text=event.output, tool_name=event.tool_name,
-                        is_error=event.is_error, tool_use_id=tool_use_id or None,
-                    ),
-                ))
+                await self._emit(
+                    BackendEvent(
+                        type="tool_completed",
+                        tool_name=event.tool_name,
+                        output=event.output,
+                        is_error=event.is_error,
+                        tool_use_id=tool_use_id or None,
+                        item=TranscriptItem(
+                            role="tool_result",
+                            text=event.output,
+                            tool_name=event.tool_name,
+                            is_error=event.is_error,
+                            tool_use_id=tool_use_id or None,
+                        ),
+                    )
+                )
                 # === Task/Todo 双向同步 ===
                 # 仅 in_process_teammate 类型参与互通；同步后再发射快照保证前端看到一致状态
                 _manager = get_task_manager()
@@ -463,39 +527,59 @@ class WebBackendHost:
                         todo_items = []
                         for item in todos:
                             if isinstance(item, dict):
-                                todo_items.append({
-                                    "content": item.get("content", ""),
-                                    "status": item.get("status", "pending"),
-                                    "activeForm": item.get("activeForm", item.get("content", "")),
-                                })
-                        if all(t.get("status") == "completed" for t in todo_items) and len(todo_items) >= 1:
+                                todo_items.append(
+                                    {
+                                        "content": item.get("content", ""),
+                                        "status": item.get("status", "pending"),
+                                        "activeForm": item.get(
+                                            "activeForm", item.get("content", "")
+                                        ),
+                                    }
+                                )
+                        if (
+                            all(t.get("status") == "completed" for t in todo_items)
+                            and len(todo_items) >= 1
+                        ):
                             todo_items = []
                         await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
                 await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
                 await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
-                if event.tool_name in ("set_permission_mode", "plan_mode", "enter_plan_mode", "exit_plan_mode"):
+                if event.tool_name in (
+                    "set_permission_mode",
+                    "plan_mode",
+                    "enter_plan_mode",
+                    "exit_plan_mode",
+                ):
                     assert self._bundle is not None
                     raw_mode = self._bundle.current_settings().permission.mode.value
                     formatted_mode = format_permission_mode(raw_mode)
                     self._bundle.app_state.set(permission_mode=raw_mode)
-                    await self._emit(BackendEvent(type="plan_mode_change", plan_mode=formatted_mode))
+                    await self._emit(
+                        BackendEvent(type="plan_mode_change", plan_mode=formatted_mode)
+                    )
                     await self._emit(self._status_snapshot())
                 return
             # 错误事件
             if isinstance(event, ErrorEvent):
-                await self._emit(BackendEvent(
-                    type="transcript_item", item=TranscriptItem(role="system", text=event.message),
-                ))
+                await self._emit(
+                    BackendEvent(
+                        type="transcript_item",
+                        item=TranscriptItem(role="system", text=event.message),
+                    )
+                )
                 return
             # 状态事件
             if isinstance(event, StatusEvent):
                 if event.bg_agent:
                     await self._emit(BackendEvent(type="bg_agent_status", message=event.message))
                 else:
-                    await self._emit(BackendEvent(
-                        type="transcript_item", item=TranscriptItem(role="system", text=event.message),
-                    ))
+                    await self._emit(
+                        BackendEvent(
+                            type="transcript_item",
+                            item=TranscriptItem(role="system", text=event.message),
+                        )
+                    )
                 return
 
         return _render_event
@@ -510,13 +594,18 @@ class WebBackendHost:
         # 发送用户消息（transcript_line 为 None 时不发送转录，用于左侧栏操作等静默场景）
         if transcript_line is not None:
             await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
+                BackendEvent(
+                    type="transcript_item",
+                    item=TranscriptItem(role="user", text=transcript_line or line),
+                )
             )
 
         async def _print_system(message: str) -> None:
             """打印系统消息。"""
             await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
+                BackendEvent(
+                    type="transcript_item", item=TranscriptItem(role="system", text=message)
+                )
             )
 
         # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
@@ -532,13 +621,15 @@ class WebBackendHost:
 
         async def _command_result_emitter(message: str, result_type: str) -> None:
             """发射指令结果事件。"""
-            await self._emit(BackendEvent(
-                type="command_result",
-                command_result_data={
-                    "message": message,
-                    "type": result_type,
-                },
-            ))
+            await self._emit(
+                BackendEvent(
+                    type="command_result",
+                    command_result_data={
+                        "message": message,
+                        "type": result_type,
+                    },
+                )
+            )
 
         async def _replace_transcript_items(items: list[dict[str, Any]]) -> None:
             """替换转录项列表（一次性清空并替换，避免 Ink Static 重复渲染）。"""
@@ -589,10 +680,21 @@ class WebBackendHost:
 
         # 直接调用 engine.submit_message，跳过 handle_line 的命令注册表
         from illusion.engine.query import MaxTurnsExceeded
+
         settings = self._bundle.current_settings()
         self._bundle.engine.set_max_turns(settings.max_turns)
-        from illusion.ui.runtime import build_runtime_system_prompt, save_session_snapshot, sync_app_state  # type: ignore[attr-defined]
-        system_prompt = build_runtime_system_prompt(settings, cwd=self._bundle.cwd, latest_user_prompt=line, channel_hint=self._bundle.channel_hint)
+        from illusion.ui.runtime import (
+            build_runtime_system_prompt,
+            save_session_snapshot,
+            sync_app_state,
+        )  # type: ignore[attr-defined]
+
+        system_prompt = build_runtime_system_prompt(
+            settings,
+            cwd=self._bundle.cwd,
+            latest_user_prompt=line,
+            channel_hint=self._bundle.channel_hint,
+        )
         for ctx in self._bundle.hook_additional_contexts:
             if ctx:
                 system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
@@ -601,13 +703,21 @@ class WebBackendHost:
             async for event in self._bundle.engine.submit_message(line):
                 await _render_event(event)
         except MaxTurnsExceeded as exc:
-            await self._emit(BackendEvent(
-                type="transcript_item", item=TranscriptItem(role="system", text=f"Stopped after {exc.max_turns} turns (max_turns)."),
-            ))
+            await self._emit(
+                BackendEvent(
+                    type="transcript_item",
+                    item=TranscriptItem(
+                        role="system", text=f"Stopped after {exc.max_turns} turns (max_turns)."
+                    ),
+                )
+            )
         # 保存会话快照
         save_session_snapshot(
-            cwd=self._bundle.cwd, model=settings.model, system_prompt=system_prompt,
-            messages=self._bundle.engine.messages, usage=self._bundle.engine.total_usage,
+            cwd=self._bundle.cwd,
+            model=settings.model,
+            system_prompt=system_prompt,
+            messages=self._bundle.engine.messages,
+            usage=self._bundle.engine.total_usage,
             session_id=self._bundle.session_id,
         )
         sync_app_state(self._bundle)
@@ -635,24 +745,36 @@ class WebBackendHost:
             {
                 "value": "both",
                 "label": "回退代码与对话" if zh else "Rewind code & conversation",
-                "description": "撤销文件修改并移除对话" if zh else "Revert files and remove conversation",
+                "description": "撤销文件修改并移除对话"
+                if zh
+                else "Revert files and remove conversation",
             },
             {
                 "value": "conversation",
                 "label": "仅回退对话" if zh else "Rewind conversation only",
-                "description": "只移除对话，保留文件修改" if zh else "Remove conversation, keep files",
+                "description": "只移除对话，保留文件修改"
+                if zh
+                else "Remove conversation, keep files",
             },
             {
                 "value": "code",
                 "label": "仅回退代码" if zh else "Rewind code only",
-                "description": "只撤销文件修改，保留对话" if zh else "Revert files, keep conversation",
+                "description": "只撤销文件修改，保留对话"
+                if zh
+                else "Revert files, keep conversation",
             },
         ]
-        await self._emit(BackendEvent(
-            type="select_request",
-            modal={"kind": "select", "title": "回退方式" if zh else "Rewind mode", "command": "rewind_mode"},
-            select_options=options,
-        ))
+        await self._emit(
+            BackendEvent(
+                type="select_request",
+                modal={
+                    "kind": "select",
+                    "title": "回退方式" if zh else "Rewind mode",
+                    "command": "rewind_mode",
+                },
+                select_options=options,
+            )
+        )
         return True
 
     async def _handle_rewind_mode_selected(self, value: str) -> bool:
@@ -666,8 +788,12 @@ class WebBackendHost:
             return True
         messages = self._bundle.engine.messages
         turns = sum(
-            1 for i, msg in enumerate(messages)
-            if i >= target_idx and msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
+            1
+            for i, msg in enumerate(messages)
+            if i >= target_idx
+            and msg.role == "user"
+            and msg.text.strip()
+            and not msg.text.strip().startswith("/")
         )
         if turns <= 0:
             return True
@@ -685,13 +811,16 @@ class WebBackendHost:
         if command == "context-window" and selected == "__custom__":
             answer = await self._ask_question(
                 "请输入上下文窗口大小（tokens）："
-                if self._bundle and str(self._bundle.app_state.get().ui_language or "").lower().startswith("zh")
+                if self._bundle
+                and str(self._bundle.app_state.get().ui_language or "").lower().startswith("zh")
                 else "Enter context window size (tokens):"
             )
             await self._emit(BackendEvent(type="modal_request", modal=None))
             answer = str(answer).strip()
             if answer:
-                return await self._process_line(f"/context set {answer}", transcript_line="/context")
+                return await self._process_line(
+                    f"/context set {answer}", transcript_line="/context"
+                )
             await self._emit(BackendEvent(type="line_complete"))
             return True
         # rewind 两步选择：第一步（选消息）→ 存储目标，弹出模式选择
@@ -705,7 +834,9 @@ class WebBackendHost:
             return await self._restore_session(selected)
         line = self._build_select_command_line(command, selected)
         if line is None:
-            await self._emit(BackendEvent(type="error", message=f"Unknown select command: {command_name}"))
+            await self._emit(
+                BackendEvent(type="error", message=f"Unknown select command: {command_name}")
+            )
             await self._emit(BackendEvent(type="line_complete"))
             return True
         return await self._process_line(line, transcript_line=f"/{command}")
@@ -742,6 +873,7 @@ class WebBackendHost:
         # 如果有 replay_messages，替换转录项（复用共享的 build_replay_items 函数）
         if result.replay_messages:
             from illusion.ui.web.ws_web_api import build_replay_items
+
             replay_items = build_replay_items(result.replay_messages)
             transcript_items = [TranscriptItem(**item) for item in replay_items]
             await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
@@ -799,12 +931,18 @@ class WebBackendHost:
             bridge_sessions=get_bridge_manager().list_sessions(),
         )
 
-    def _emit_swarm_status(self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None) -> None:
+    def _emit_swarm_status(
+        self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None
+    ) -> None:
         """同步发送 swarm_status 事件（调度为协程）。"""
-        import asyncio
-        loop = asyncio.get_event_loop()
-        loop.create_task(
-            self._emit(BackendEvent(type="swarm_status", swarm_teammates=teammates, swarm_notifications=notifications))
+        self._create_background_task(
+            self._emit(
+                BackendEvent(
+                    type="swarm_status",
+                    swarm_teammates=teammates,
+                    swarm_notifications=notifications,
+                )
+            )
         )
 
     async def _handle_list_sessions(self) -> None:
@@ -813,21 +951,29 @@ class WebBackendHost:
         import time as _time
 
         assert self._bundle is not None
-        locale = str(self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language)
+        locale = str(
+            self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language
+        )
         zh = locale.lower().startswith("zh")
         sessions = list_session_snapshots(self._bundle.cwd, limit=10)
         options = []
         for s in sessions:
             ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
             summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
-            options.append({
-                "value": s["session_id"],
-                "label": f"{ts}  {s['message_count']}msg  {summary}",
-            })
+            options.append(
+                {
+                    "value": s["session_id"],
+                    "label": f"{ts}  {s['message_count']}msg  {summary}",
+                }
+            )
         await self._emit(
             BackendEvent(
                 type="select_request",
-                modal={"kind": "select", "title": "恢复会话" if zh else "Resume Session", "command": "resume"},
+                modal={
+                    "kind": "select",
+                    "title": "恢复会话" if zh else "Resume Session",
+                    "command": "resume",
+                },
                 select_options=options,
             )
         )
@@ -852,7 +998,8 @@ class WebBackendHost:
                 {
                     "value": env_key,
                     "label": f"{env_key} ({info['api_format']})",
-                    "description": f"{info['api_format']} / {info['model']}" + (" [active]" if info["active"] else ""),
+                    "description": f"{info['api_format']} / {info['model']}"
+                    + (" [active]" if info["active"] else ""),
                     "active": info["active"],
                 }
                 for env_key, info in statuses.items()
@@ -860,7 +1007,11 @@ class WebBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "环境配置" if zh else "Env Config", "command": "env"},
+                    modal={
+                        "kind": "select",
+                        "title": "环境配置" if zh else "Env Config",
+                        "command": "env",
+                    },
                     select_options=options,
                 )
             )
@@ -871,7 +1022,9 @@ class WebBackendHost:
                 {
                     "value": "default",
                     "label": "默认" if zh else "Default",
-                    "description": "写入/执行前询问" if zh else "Ask before write/execute operations",
+                    "description": "写入/执行前询问"
+                    if zh
+                    else "Ask before write/execute operations",
                     "active": settings.permission.mode.value == "default",
                 },
                 {
@@ -890,7 +1043,11 @@ class WebBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "权限模式" if zh else "Permission Mode", "command": "permissions"},
+                    modal={
+                        "kind": "select",
+                        "title": "权限模式" if zh else "Permission Mode",
+                        "command": "permissions",
+                    },
                     select_options=options,
                 )
             )
@@ -909,7 +1066,11 @@ class WebBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "输出风格" if zh else "Output Style", "command": "output-style"},
+                    modal={
+                        "kind": "select",
+                        "title": "输出风格" if zh else "Output Style",
+                        "command": "output-style",
+                    },
                     select_options=options,
                 )
             )
@@ -917,16 +1078,45 @@ class WebBackendHost:
 
         if command == "effort":
             options = [
-                {"value": "low", "label": "低" if zh else "Low", "description": "最快响应" if zh else "Fastest responses", "active": settings.effort == "low"},
-                {"value": "medium", "label": "中" if zh else "Medium", "description": "平衡推理" if zh else "Balanced reasoning", "active": settings.effort == "medium"},
-                {"value": "high", "label": "高" if zh else "High", "description": "最深推理" if zh else "Deepest reasoning", "active": settings.effort == "high"},
-                {"value": "xhigh", "label": "超高" if zh else "XHigh", "description": "超深推理" if zh else "Extra deep reasoning", "active": settings.effort == "xhigh"},
-                {"value": "max", "label": "最大" if zh else "Max", "description": "最大推理深度" if zh else "Maximum reasoning depth", "active": settings.effort == "max"},
+                {
+                    "value": "low",
+                    "label": "低" if zh else "Low",
+                    "description": "最快响应" if zh else "Fastest responses",
+                    "active": settings.effort == "low",
+                },
+                {
+                    "value": "medium",
+                    "label": "中" if zh else "Medium",
+                    "description": "平衡推理" if zh else "Balanced reasoning",
+                    "active": settings.effort == "medium",
+                },
+                {
+                    "value": "high",
+                    "label": "高" if zh else "High",
+                    "description": "最深推理" if zh else "Deepest reasoning",
+                    "active": settings.effort == "high",
+                },
+                {
+                    "value": "xhigh",
+                    "label": "超高" if zh else "XHigh",
+                    "description": "超深推理" if zh else "Extra deep reasoning",
+                    "active": settings.effort == "xhigh",
+                },
+                {
+                    "value": "max",
+                    "label": "最大" if zh else "Max",
+                    "description": "最大推理深度" if zh else "Maximum reasoning depth",
+                    "active": settings.effort == "max",
+                },
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "推理强度" if zh else "Reasoning Effort", "command": "effort"},
+                    modal={
+                        "kind": "select",
+                        "title": "推理强度" if zh else "Reasoning Effort",
+                        "command": "effort",
+                    },
                     select_options=options,
                 )
             )
@@ -935,13 +1125,21 @@ class WebBackendHost:
         if command == "passes":
             current = int(state.passes or settings.passes)
             options = [
-                {"value": str(value), "label": (f"{value} 轮" if zh else f"{value} pass{'es' if value != 1 else ''}"), "active": value == current}
+                {
+                    "value": str(value),
+                    "label": (f"{value} 轮" if zh else f"{value} pass{'es' if value != 1 else ''}"),
+                    "active": value == current,
+                }
                 for value in range(1, 9)
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "推理轮数" if zh else "Reasoning Passes", "command": "passes"},
+                    modal={
+                        "kind": "select",
+                        "title": "推理轮数" if zh else "Reasoning Passes",
+                        "command": "passes",
+                    },
                     select_options=options,
                 )
             )
@@ -952,15 +1150,30 @@ class WebBackendHost:
             values = {32, 64, 128, 200, 256, 512}
             if isinstance(current_turns, int):
                 values.add(current_turns)
-            options = [{"value": "unlimited", "label": "无限" if zh else "Unlimited", "description": "不对本会话硬性停止" if zh else "Do not hard-stop this session", "active": current_turns is None}]
+            options = [
+                {
+                    "value": "unlimited",
+                    "label": "无限" if zh else "Unlimited",
+                    "description": "不对本会话硬性停止" if zh else "Do not hard-stop this session",
+                    "active": current_turns is None,
+                }
+            ]
             options.extend(
-                {"value": str(value), "label": (f"{value} 轮" if zh else f"{value} turns"), "active": value == current_turns}
+                {
+                    "value": str(value),
+                    "label": (f"{value} 轮" if zh else f"{value} turns"),
+                    "active": value == current_turns,
+                }
                 for value in sorted(values)
             )
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "最大轮数" if zh else "Max Turns", "command": "turns"},
+                    modal={
+                        "kind": "select",
+                        "title": "最大轮数" if zh else "Max Turns",
+                        "command": "turns",
+                    },
                     select_options=options,
                 )
             )
@@ -969,13 +1182,29 @@ class WebBackendHost:
         if command == "fast":
             current = bool(state.fast_mode)
             options = [
-                {"value": "on", "label": "开" if zh else "On", "description": "偏向更短更快的响应" if zh else "Prefer shorter, faster responses", "active": current},
-                {"value": "off", "label": "关" if zh else "Off", "description": "使用常规响应模式" if zh else "Use normal response mode", "active": not current},
+                {
+                    "value": "on",
+                    "label": "开" if zh else "On",
+                    "description": "偏向更短更快的响应"
+                    if zh
+                    else "Prefer shorter, faster responses",
+                    "active": current,
+                },
+                {
+                    "value": "off",
+                    "label": "关" if zh else "Off",
+                    "description": "使用常规响应模式" if zh else "Use normal response mode",
+                    "active": not current,
+                },
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "快速模式" if zh else "Fast Mode", "command": "fast"},
+                    modal={
+                        "kind": "select",
+                        "title": "快速模式" if zh else "Fast Mode",
+                        "command": "fast",
+                    },
                     select_options=options,
                 )
             )
@@ -984,13 +1213,27 @@ class WebBackendHost:
         if command == "language":
             current_lang = str(state.ui_language or "zh-CN")
             options = [
-                {"value": "set zh-CN", "label": "简体中文", "description": "中文界面", "active": current_lang == "zh-CN"},
-                {"value": "set en", "label": "English", "description": "English UI", "active": current_lang == "en"},
+                {
+                    "value": "set zh-CN",
+                    "label": "简体中文",
+                    "description": "中文界面",
+                    "active": current_lang == "zh-CN",
+                },
+                {
+                    "value": "set en",
+                    "label": "English",
+                    "description": "English UI",
+                    "active": current_lang == "en",
+                },
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "语言" if zh else "Language", "command": "language"},
+                    modal={
+                        "kind": "select",
+                        "title": "语言" if zh else "Language",
+                        "command": "language",
+                    },
                     select_options=options,
                 )
             )
@@ -1001,7 +1244,11 @@ class WebBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "模型" if zh else "Model", "command": "model"},
+                    modal={
+                        "kind": "select",
+                        "title": "模型" if zh else "Model",
+                        "command": "model",
+                    },
                     select_options=options,
                 )
             )
@@ -1010,26 +1257,38 @@ class WebBackendHost:
         if command == "rewind":
             messages = self._bundle.engine.messages
             user_msgs = [
-                (i, msg) for i, msg in enumerate(messages)
+                (i, msg)
+                for i, msg in enumerate(messages)
                 if msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
             ]
             if not user_msgs:
-                await self._emit(BackendEvent(type="error", message=("没有可回退的消息。" if zh else "No messages to rewind to.")))
+                await self._emit(
+                    BackendEvent(
+                        type="error",
+                        message=("没有可回退的消息。" if zh else "No messages to rewind to."),
+                    )
+                )
                 return
             options = []
             total = len(user_msgs)
             for k, (idx, msg) in enumerate(reversed(user_msgs)):
                 text = msg.text.strip()
                 label = text[:80] + ("…" if len(text) > 80 else "")
-                options.append({
-                    "value": str(idx),
-                    "label": label,
-                    "description": f"#{total - k}",
-                })
+                options.append(
+                    {
+                        "value": str(idx),
+                        "label": label,
+                        "description": f"#{total - k}",
+                    }
+                )
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "回退到" if zh else "Rewind to", "command": "rewind"},
+                    modal={
+                        "kind": "select",
+                        "title": "回退到" if zh else "Rewind to",
+                        "command": "rewind",
+                    },
                     select_options=options,
                 )
             )
@@ -1041,25 +1300,40 @@ class WebBackendHost:
 
             sessions = list_session_snapshots(self._bundle.cwd, limit=10)
             if not sessions:
-                await self._emit(BackendEvent(type="error", message=("没有已保存的会话。" if zh else "No saved sessions found.")))
+                await self._emit(
+                    BackendEvent(
+                        type="error",
+                        message=("没有已保存的会话。" if zh else "No saved sessions found."),
+                    )
+                )
                 return
             options = []
             for s in sessions:
                 ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
                 summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
-                options.append({
-                    "value": s["session_id"],
-                    "label": f"{ts}  {s['message_count']}msg  {summary}",
-                })
-            options.append({
-                "value": "__all__",
-                "label": ("清除所有会话" if zh else "Delete all sessions"),
-                "description": ("删除全部已保存的会话快照" if zh else "Remove all saved session snapshots"),
-            })
+                options.append(
+                    {
+                        "value": s["session_id"],
+                        "label": f"{ts}  {s['message_count']}msg  {summary}",
+                    }
+                )
+            options.append(
+                {
+                    "value": "__all__",
+                    "label": ("清除所有会话" if zh else "Delete all sessions"),
+                    "description": (
+                        "删除全部已保存的会话快照" if zh else "Remove all saved session snapshots"
+                    ),
+                }
+            )
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "删除会话" if zh else "Delete Session", "command": "delete"},
+                    modal={
+                        "kind": "select",
+                        "title": "删除会话" if zh else "Delete Session",
+                        "command": "delete",
+                    },
                     select_options=options,
                 )
             )
@@ -1069,18 +1343,37 @@ class WebBackendHost:
             from illusion.skills.loader import get_project_rules_dir
 
             # 加载项目级权限配置
-            from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
+            from illusion.permissions.loader import (
+                load_project_permissions,
+                is_rules_disabled,
+                filter_rules_by_permissions,
+            )
+
             project_permissions = load_project_permissions(self._bundle.cwd)
 
             # 检查是否禁用所有 rules
             if is_rules_disabled(project_permissions):
-                await self._emit(BackendEvent(type="error", message=("所有规则已被禁用" if zh else "All rules are disabled")))
+                await self._emit(
+                    BackendEvent(
+                        type="error",
+                        message=("所有规则已被禁用" if zh else "All rules are disabled"),
+                    )
+                )
                 return
 
             rules_dir = get_project_rules_dir(self._bundle.cwd)
             all_rule_files = sorted(rules_dir.glob("*.md"))
             if not all_rule_files:
-                await self._emit(BackendEvent(type="error", message=(f"没有找到规则文件：{rules_dir}" if zh else f"No rules found in {rules_dir}")))
+                await self._emit(
+                    BackendEvent(
+                        type="error",
+                        message=(
+                            f"没有找到规则文件：{rules_dir}"
+                            if zh
+                            else f"No rules found in {rules_dir}"
+                        ),
+                    )
+                )
                 return
 
             # 过滤掉被禁用的 rules
@@ -1089,19 +1382,32 @@ class WebBackendHost:
             options = []
             for path in rule_files:
                 content = path.read_text(encoding="utf-8", errors="replace").strip()
-                first_line = content.split("\n", 1)[0][:60] if content else ("（空）" if zh else "(empty)")
-                options.append({
-                    "value": path.stem,
-                    "label": path.stem,
-                    "description": first_line,
-                })
+                first_line = (
+                    content.split("\n", 1)[0][:60] if content else ("（空）" if zh else "(empty)")
+                )
+                options.append(
+                    {
+                        "value": path.stem,
+                        "label": path.stem,
+                        "description": first_line,
+                    }
+                )
             if not options:
-                await self._emit(BackendEvent(type="error", message=("没有可用的规则文件" if zh else "No available rules files")))
+                await self._emit(
+                    BackendEvent(
+                        type="error",
+                        message=("没有可用的规则文件" if zh else "No available rules files"),
+                    )
+                )
                 return
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "查看规则" if zh else "View Rules", "command": "rules"},
+                    modal={
+                        "kind": "select",
+                        "title": "查看规则" if zh else "View Rules",
+                        "command": "rules",
+                    },
                     select_options=options,
                 )
             )
@@ -1120,17 +1426,27 @@ class WebBackendHost:
             options = []
             for skill in skills:
                 source = f" [{skill.source}]"
-                first_line = skill.description.split("\n", 1)[0][:60] if skill.description else ("（空）" if zh else "(empty)")
-                options.append({
-                    "value": skill.name,
-                    "label": f"{skill.name}{source}",
-                    "description": first_line,
-                })
+                first_line = (
+                    skill.description.split("\n", 1)[0][:60]
+                    if skill.description
+                    else ("（空）" if zh else "(empty)")
+                )
+                options.append(
+                    {
+                        "value": skill.name,
+                        "label": f"{skill.name}{source}",
+                        "description": first_line,
+                    }
+                )
 
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "查看技能" if zh else "View Skills", "command": "skills"},
+                    modal={
+                        "kind": "select",
+                        "title": "查看技能" if zh else "View Skills",
+                        "command": "skills",
+                    },
                     select_options=options,
                 )
             )
@@ -1146,18 +1462,26 @@ class WebBackendHost:
                 {
                     "value": "__change_window__",
                     "label": "修改上下文窗口大小" if zh else "Change context window size",
-                    "description": f"当前: {current_window:,} tokens" if zh else f"Current: {current_window:,} tokens",
+                    "description": f"当前: {current_window:,} tokens"
+                    if zh
+                    else f"Current: {current_window:,} tokens",
                 },
                 {
                     "value": "__usage__",
                     "label": "查看上下文使用情况" if zh else "View context usage",
-                    "description": f"已用: ~{estimated:,} / {current_window:,} tokens ({percentage}%)" if zh else f"Used: ~{estimated:,} / {current_window:,} tokens ({percentage}%)",
+                    "description": f"已用: ~{estimated:,} / {current_window:,} tokens ({percentage}%)"
+                    if zh
+                    else f"Used: ~{estimated:,} / {current_window:,} tokens ({percentage}%)",
                 },
             ]
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "上下文管理" if zh else "Context Management", "command": "context"},
+                    modal={
+                        "kind": "select",
+                        "title": "上下文管理" if zh else "Context Management",
+                        "command": "context",
+                    },
                     select_options=options,
                 )
             )
@@ -1177,20 +1501,33 @@ class WebBackendHost:
                 }
                 for v in preset_values
             ]
-            options.append({
-                "value": "__custom__",
-                "label": "其他（自定义输入）" if zh else "Other (custom)",
-            })
+            options.append(
+                {
+                    "value": "__custom__",
+                    "label": "其他（自定义输入）" if zh else "Other (custom)",
+                }
+            )
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": "上下文窗口大小" if zh else "Context Window Size", "command": "context-window"},
+                    modal={
+                        "kind": "select",
+                        "title": "上下文窗口大小" if zh else "Context Window Size",
+                        "command": "context-window",
+                    },
                     select_options=options,
                 )
             )
             return
 
-        await self._emit(BackendEvent(type="error", message=(f"/{command} 暂无可选项" if zh else f"No selector available for /{command}")))
+        await self._emit(
+            BackendEvent(
+                type="error",
+                message=(
+                    f"/{command} 暂无可选项" if zh else f"No selector available for /{command}"
+                ),
+            )
+        )
 
     def _model_select_options(self, current_model: str) -> list[dict[str, object]]:
         """从 settings.json 的 env_N 配置中提取所有实际可用的模型。"""
@@ -1204,12 +1541,14 @@ class WebBackendHost:
         # 当前模型排第一位（value 用 model 引用，label 用显示名）
         if settings.model:
             seen.add(settings.model)
-            options.append({
-                "value": settings.model,
-                "label": current_model,
-                "description": "Current",
-                "active": True,
-            })
+            options.append(
+                {
+                    "value": settings.model,
+                    "label": current_model,
+                    "description": "Current",
+                    "active": True,
+                }
+            )
 
         # 遍历所有 env，提取 model_N
         for env_key, env in envs.items():
@@ -1219,12 +1558,14 @@ class WebBackendHost:
                     continue
                 seen.add(ref)
                 is_current = ref == settings.model
-                options.append({
-                    "value": ref,
-                    "label": model_name,
-                    "description": f"{env_key} ({env.api_format})",
-                    "active": is_current,
-                })
+                options.append(
+                    {
+                        "value": ref,
+                        "label": model_name,
+                        "description": f"{env_key} ({env.api_format})",
+                        "active": is_current,
+                    }
+                )
 
         return options
 
@@ -1284,8 +1625,7 @@ class WebBackendHost:
         # 如果是 pydantic 模型列表，转为 dict[str, Any]
         if questions_data is not None and isinstance(questions_data, list):
             questions_data = [
-                q.model_dump() if hasattr(q, "model_dump") else q
-                for q in questions_data
+                q.model_dump() if hasattr(q, "model_dump") else q for q in questions_data
             ]
         modal_payload: dict[str, Any] = {
             "kind": "question",
@@ -1326,6 +1666,7 @@ class WebBackendHost:
         )
         # 复用 question 模态，提供批准/拒绝选项
         from illusion.config.i18n import t as _t
+
         request_id = uuid4().hex
         future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
         self._question_requests[request_id] = future
@@ -1373,18 +1714,26 @@ class WebBackendHost:
         task = self._active_line_task
         if task is None or task.done():
             from illusion.config.i18n import t as _t
-            await self._emit(BackendEvent(
-                type="command_result",
-                command_result_data={"message": _t("no_active_task"), "type": "info"},
-            ))
+
+            await self._emit(
+                BackendEvent(
+                    type="command_result",
+                    command_result_data={"message": _t("no_active_task"), "type": "info"},
+                )
+            )
             return
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("停止行处理任务异常")
         self._busy = False
         await self._update_phase("idle")
         await self._emit(BackendEvent(type="modal_request", modal=None))
         from illusion.config.i18n import t as _t
+
         stopped_message = _t("task_stopped")
         await self._emit(
             BackendEvent(
@@ -1392,10 +1741,12 @@ class WebBackendHost:
                 item=TranscriptItem(role="system", text=stopped_message),
             )
         )
-        await self._emit(BackendEvent(
-            type="command_result",
-            command_result_data={"message": stopped_message, "type": "info"},
-        ))
+        await self._emit(
+            BackendEvent(
+                type="command_result",
+                command_result_data={"message": stopped_message, "type": "info"},
+            )
+        )
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
@@ -1409,26 +1760,97 @@ class WebBackendHost:
         assert self._bundle is not None
         self._bundle.app_state.set(phase=phase)
 
+    async def _write_loop(self) -> None:
+        """单一消费者：串行化所有 WebSocket 写入。
+
+        所有 _emit() 调用通过 _write_queue，确保 FIFO 排序和无并发 WebSocket 访问。
+        收到 QueueShutDown 后退出循环；写入异常时也退出（WebSocket 已断开）。
+        """
+        while True:
+            try:
+                event = await self._write_queue.get()
+            except QueueShutDown:
+                break
+            try:
+                payload = event.model_dump_json()
+                await self._websocket.send_text(payload)
+            except Exception:
+                log.exception("写入 WebSocket 失败")
+                break  # WebSocket 断开，退出写循环
+
     async def _emit(self, event: BackendEvent) -> None:
-        """通过 WebSocket 发送后端事件。
+        """入队事件给写循环。非阻塞。
 
         Args:
             event: 要发送的后端事件
         """
-        if self._ws_closed:
-            return
-        async with self._write_lock:
-            if self._ws_closed:
-                return
+        try:
+            self._write_queue.put_nowait(event)
+        except QueueShutDown:
+            pass  # 正在关闭，丢弃事件
+
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 回收未完成 task。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            asyncio.Task: 创建的 task，完成后自动从 _dispatch_tasks 移除
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
+
+    def _resolve_pending_futures(self) -> None:
+        """resolve 所有 pending permission/question futures，防止永久阻塞。"""
+        for fut in self._permission_requests.values():
+            if not fut.done():
+                fut.set_result(False)  # 默认拒绝
+        self._permission_requests.clear()
+
+        for fut in self._question_requests.values():
+            if not fut.done():
+                fut.set_result("")  # 默认空答
+        self._question_requests.clear()
+
+    async def _shutdown(self) -> None:
+        """优雅关闭，按严格顺序释放资源。
+
+        不包含 stderr 卸载、SIGINT 移除、stdin 线程停止、runtime 关闭
+        （runtime 由 run() finally 块关闭）。
+        """
+        # 1. resolve 所有 pending permission/question futures
+        self._resolve_pending_futures()
+
+        # 2. 取消周期状态更新 task
+        if self._periodic_task is not None and not self._periodic_task.done():
+            self._periodic_task.cancel()
             try:
-                await self._websocket.send_text(event.model_dump_json())
+                await self._periodic_task
+            except asyncio.CancelledError:
+                pass
             except Exception:
-                # 写入失败：不设 _ws_closed（该标记仅由读取循环的
-                # WebSocketDisconnect 设置）。写入失败可能是瞬态错误，
-                # 设 _ws_closed 会永久阻塞后续所有事件（如
-                # web_restore_completed），导致前端白屏。
-                if not self._ws_closed:
-                    log.debug("WebSocket 写入失败，跳过本次发送")
+                log.exception("周期状态更新 task 关闭异常")
+
+        # 3. gather 所有 dispatch tasks（return_exceptions=True 不抛异常）
+        if self._dispatch_tasks:
+            await asyncio.gather(*self._dispatch_tasks, return_exceptions=True)
+            self._dispatch_tasks.clear()
+
+        # 4. 关闭写队列 + 等写循环排空（_write_queue.shutdown() 唤醒 _write_loop）
+        self._write_queue.shutdown()
+        if self._write_task is not None and not self._write_task.done():
+            try:
+                await self._write_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("写循环 task 关闭异常")
+
+        # 5. 标记停止
+        self._running = False
 
 
 __all__ = ["WebBackendHost", "WebHostConfig"]
