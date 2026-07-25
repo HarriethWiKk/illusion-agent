@@ -193,8 +193,8 @@ class InProcessBackend:
                     "[InProcessBackend] %s: no query_context, running stub", agent_id
                 )
                 ctx.status = "running"
-                while not abort_controller.is_cancelled:
-                    await asyncio.sleep(0.1)
+                # 等待取消信号（force=True 也会设置 cancel_event，故只需等这一个）
+                await abort_controller.cancel_event.wait()
 
         except asyncio.CancelledError:
             logger.debug("[InProcessBackend] %s: task cancelled", agent_id)
@@ -253,12 +253,14 @@ class InProcessBackend:
         if force:
             entry.abort_controller.request_cancel(reason="force shutdown", force=True)
             entry.task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.wait_for(asyncio.shield(entry.task), timeout=timeout)
+            # 直接 await task（无 shield），超时则放弃等待（task 已 cancel，最终会退出）
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(entry.task, timeout=timeout)
         else:
             entry.abort_controller.request_cancel(reason="graceful shutdown")
             try:
-                await asyncio.wait_for(asyncio.shield(entry.task), timeout=timeout)
+                # 直接 await task（无 shield），允许取消信号传播
+                await asyncio.wait_for(entry.task, timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning("[InProcessBackend] %s did not exit within %.1fs — forcing", agent_id, timeout)
                 entry.abort_controller.request_cancel(reason="timeout — forcing", force=True)
@@ -266,7 +268,9 @@ class InProcessBackend:
                 with contextlib.suppress(asyncio.CancelledError):
                     await entry.task
 
-        self._active.pop(agent_id, None)
+        # 仅在 task 确实结束后才 pop，避免 task 仍在运行时从注册表移除
+        if entry.task.done():
+            self._active.pop(agent_id, None)
         logger.debug("[InProcessBackend] shut down %s", agent_id)
         return True
 

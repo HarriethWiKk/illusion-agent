@@ -36,7 +36,7 @@ import shutil
 import sys
 import time
 import uuid
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -168,9 +168,16 @@ def get_agent_context() -> AgentExecutionContext | None:
     return _agent_context_var.get()
 
 
-def set_agent_context(ctx: AgentExecutionContext) -> None:
-    """将 *ctx* 绑定到当前异步上下文。"""
-    _agent_context_var.set(ctx)
+def set_agent_context(ctx: AgentExecutionContext) -> Token[AgentExecutionContext | None]:
+    """将 *ctx* 绑定到当前异步上下文，返回用于 reset 的 token。
+
+    Args:
+        ctx: 代理执行上下文
+
+    Returns:
+        Token: 用于 ``_agent_context_var.reset(token)`` 恢复外层 context
+    """
+    return _agent_context_var.set(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +543,8 @@ async def run_agent_in_process(
         )
         _register_agent(ctx)
 
-    set_agent_context(ctx)
+    # 绑定 agent context 到当前异步上下文，token 用于 finally 中 reset 恢复外层
+    token = set_agent_context(ctx)
 
     # 解析工具池
     agent_tools = resolve_agent_tools(agent_def, parent_registry)
@@ -651,8 +659,9 @@ async def run_agent_in_process(
                     logger.debug("[agent_executor] %s: cancelled", agent_id)
                     return
 
-        # 创建并发任务：查询循环 + 消息消费者 + 超时 + 取消事件
+        # 创建并发任务：查询循环 + 消息消费者 + 超时 + 取消事件 + 强制取消
         # ⚠️ 用 asyncio.wait FIRST_COMPLETED 替代 wait_for，避免 consumer 永久卡死
+        # ⚠️ force_cancel_task 用于主动中断运行中的工具（Ctrl+X 根因修复）
         cancel_event = ctx.abort_controller.cancel_event
         query_task = asyncio.create_task(_run_query_loop(), name=f"agent-{agent_id}-query")
         message_task = asyncio.create_task(
@@ -662,20 +671,30 @@ async def run_agent_in_process(
             asyncio.sleep(AGENT_TIMEOUT), name=f"agent-{agent_id}-timeout"
         )
         cancel_task = asyncio.create_task(cancel_event.wait(), name=f"agent-{agent_id}-cancel")
+        force_cancel_task = asyncio.create_task(
+            ctx.abort_controller.force_cancel.wait(),
+            name=f"agent-{agent_id}-force-cancel",
+        )
 
         try:
             logger.warning("[agent_executor] %s: about to await query loop", agent_id)
             done, pending = await asyncio.wait(
-                [query_task, timeout_task, cancel_task],
+                [query_task, timeout_task, cancel_task, force_cancel_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
-            if query_task in done:
+            if force_cancel_task in done:
+                # force_cancel 触发：主动 cancel query_task，中断正在执行的工具
+                query_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await query_task
+                logger.warning("[agent_executor] %s: force_cancel 中断运行中工具", agent_id)
+            elif query_task in done:
                 # 正常完成或抛异常
                 query_task.result()
                 logger.warning("[agent_executor] %s: query loop completed", agent_id)
             else:
-                # 超时或取消：优雅取消 query_task
+                # 超时或优雅取消：cancel query_task
                 query_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await query_task
@@ -693,7 +712,9 @@ async def run_agent_in_process(
                     await message_task
             # 清理辅助 task：主动 cancel 后用 gather(return_exceptions=True) 等待退出
             # 不传播 CancelledError，避免中断 finally 块的后续清理
-            pending_helpers = [t for t in (timeout_task, cancel_task) if not t.done()]
+            pending_helpers = [
+                t for t in (timeout_task, cancel_task, force_cancel_task) if not t.done()
+            ]
             for t in pending_helpers:
                 t.cancel()
             if pending_helpers:
@@ -740,6 +761,8 @@ async def run_agent_in_process(
             duration_ms=int((time.time() - start_time) * 1000),
         )
     finally:
+        # ⚠️ 关键：reset ContextVar，恢复外层 context，防止嵌套 agent 调用污染
+        _agent_context_var.reset(token)
         # 只有自己创建的 context 才注销，外部传入的由调用方负责注销
         if existing_context is None:
             _unregister_agent(agent_id)
