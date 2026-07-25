@@ -22,6 +22,7 @@ Web 专属请求分发层模块
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -317,12 +318,24 @@ class WebApiDispatcher:
         deleted_current = False
         if request.delete_all:
             sessions = _list_session_snapshots(bundle.cwd, limit=1000)
-            for s in sessions:
-                _delete_session_by_id(bundle.cwd, s["session_id"])
+            # 并行删除：每个 _delete_session_by_id 是同步文件 I/O，用 to_thread 隔离，
+            # return_exceptions=True 吞掉单个删除失败，避免一次失败导致整批回滚
+            await asyncio.gather(
+                *(
+                    asyncio.to_thread(_delete_session_by_id, bundle.cwd, s["session_id"])
+                    for s in sessions
+                ),
+                return_exceptions=True,
+            )
             deleted_current = True
         elif request.session_ids:
-            for sid in request.session_ids:
-                _delete_session_by_id(bundle.cwd, sid)
+            await asyncio.gather(
+                *(
+                    asyncio.to_thread(_delete_session_by_id, bundle.cwd, sid)
+                    for sid in request.session_ids
+                ),
+                return_exceptions=True,
+            )
             deleted_current = bundle.session_id in request.session_ids
         # 若删除了当前会话或全部会话，后端原子化地新建一个空会话：
         # 清空引擎、切换 session_id 并推送 web_restore_completed（空转录），

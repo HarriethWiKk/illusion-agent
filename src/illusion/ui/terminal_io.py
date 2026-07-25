@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from typing import Any
 
@@ -91,7 +92,7 @@ async def terminal_permission(tool_name: str, reason: str) -> bool:
     print(t("terminal_permission_request").format(tool_name=tool_name))
     print(t("terminal_permission_reason").format(reason=reason))
     try:
-        answer = input(t("terminal_permission_prompt")).strip().lower()
+        answer = (await asyncio.to_thread(input, t("terminal_permission_prompt"))).strip().lower()
     except EOFError:
         return False
     return answer in ("y", "yes")
@@ -138,7 +139,7 @@ async def terminal_ask_user(question: str, questions: object = None) -> str:
             text = f"{text}\n\n{opts_text}"
     print(text)
     try:
-        answer = input("> ").strip()
+        answer = (await asyncio.to_thread(input, "> ")).strip()
     except EOFError:
         return ""
     return answer

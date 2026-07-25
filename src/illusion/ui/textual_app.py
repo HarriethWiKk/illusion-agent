@@ -371,6 +371,8 @@ class illusionTerminalApp(App[None]):
         self.transcript_lines: list[str] = []  # 对话历史
         # fire-and-forget task 强引用集合，防止 GC 抢收
         self._dispatch_tasks: set[asyncio.Task[None]] = set()
+        # 当前打开的 modal future，卸载时若未完成需 cancel，避免 await 永久挂起
+        self._modal_future: asyncio.Future[object] | None = None
 
     def compose(self) -> ComposeResult:
         """构建界面布局。"""
@@ -435,6 +437,10 @@ class illusionTerminalApp(App[None]):
 
     async def on_unmount(self) -> None:
         """应用卸载时清理资源。"""
+        # 卸载时若有未完成的 modal future，先 cancel，避免 _open_modal 中的 await 永久挂起
+        if self._modal_future is not None and not self._modal_future.done():
+            self._modal_future.cancel()
+        self._modal_future = None
         if self._bundle is not None:
             await close_runtime(self._bundle)
 
@@ -453,13 +459,19 @@ class illusionTerminalApp(App[None]):
         """打开模态对话框并等待用户响应。"""
         loop = asyncio.get_running_loop()
         future: asyncio.Future[object] = loop.create_future()
+        # 记录到实例属性，便于 on_unmount 时 cancel
+        self._modal_future = future
+        try:
+            def _done(result: object) -> None:
+                if not future.done():
+                    future.set_result(result)
 
-        def _done(result: object) -> None:
-            if not future.done():
-                future.set_result(result)
-
-        self.push_screen(screen, callback=_done)
-        return await future
+            self.push_screen(screen, callback=_done)
+            return await future
+        finally:
+            # 清理引用，避免误 cancel 后续 modal
+            if self._modal_future is future:
+                self._modal_future = None
 
     @on(Input.Submitted, "#composer")
     async def handle_submit(self, event: Input.Submitted) -> None:
