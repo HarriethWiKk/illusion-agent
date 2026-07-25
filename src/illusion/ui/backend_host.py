@@ -32,6 +32,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -153,6 +154,8 @@ class ReactBackendHost:
         self._emitted_tool_started_ids: set[str] = set()
         # 跟踪助手简要文本（用于流式更新）
         self._brief_assistant_text: str | None = None
+        self._read_thread: threading.Thread | None = None      # daemon stdin 读取线程
+        self._read_thread_cancel: threading.Event = threading.Event()  # stdin 线程取消信号
 
     async def run(self) -> int:
         """运行后端主机主循环。"""
@@ -344,6 +347,67 @@ class ReactBackendHost:
                 continue
 
             await self._request_queue.put(request)
+
+    def _read_stdin_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Daemon 线程：读取 stdin，通过 call_soon_threadsafe 桥接到事件循环。
+
+        不占用默认 ThreadPoolExecutor。permission_response / question_response / stop
+        必须绕过 _request_queue 直接处理，因为主循环可能在 _process_line 中 await
+        这些请求对应的 future。
+        """
+        while not self._read_thread_cancel.is_set():
+            try:
+                raw = sys.stdin.buffer.readline()
+            except (OSError, ValueError):
+                break  # stdin 已关闭
+            if not raw:
+                break  # EOF
+            try:
+                line = raw.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                continue
+            if not line:
+                continue
+            # 即时请求绕过 _request_queue 直接在事件循环线程处理
+            loop.call_soon_threadsafe(self._dispatch_stdin_line, line)
+
+    def _dispatch_stdin_line(self, line: str) -> None:
+        """在事件循环线程中分发 stdin 行。
+
+        即时请求（permission_response / question_response / stop）直接处理，
+        其他请求入队 _request_queue 供主循环处理。
+        """
+        try:
+            req = FrontendRequest.model_validate_json(line)
+        except Exception:
+            log.warning("无法解析 stdin 行: %s", line[:100])
+            return
+
+        # 即时请求直接处理
+        if req.type == "permission_response":
+            self._resolve_permission(req.request_id, req.allowed)
+            return
+        if req.type == "question_response":
+            self._resolve_question(req.request_id, req.answer)
+            return
+        if req.type == "stop":
+            self._request_queue.put_nowait(req)  # stop 入队让主循环处理
+            return
+
+        # 其他请求入队
+        self._request_queue.put_nowait(req)
+
+    def _resolve_permission(self, request_id: str, allowed: bool) -> None:
+        """resolve 权限请求 Future。"""
+        future = self._permission_requests.pop(request_id, None)
+        if future is not None and not future.done():
+            future.set_result(allowed)
+
+    def _resolve_question(self, request_id: str, answer: str) -> None:
+        """resolve 问答请求 Future。"""
+        future = self._question_requests.pop(request_id, None)
+        if future is not None and not future.done():
+            future.set_result(answer)
 
     async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
         """处理用户输入的行内容。"""
