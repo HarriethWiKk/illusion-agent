@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio  # 异步
 import logging  # 日志
+from concurrent.futures import ThreadPoolExecutor  # 专用线程池
 from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型
 
 from illusion.channels.base import Attachment, Channel, InboundMessage  # 基类与消息类型
@@ -26,6 +27,22 @@ if TYPE_CHECKING:
     from illusion.config.settings import Settings  # 主设置
 
 logger = logging.getLogger(__name__)  # 日志器
+
+# 模块级专用 executor：飞书 lark-oapi SDK 调用是同步阻塞的 HTTP 请求，
+# 单次调用可能耗时数百毫秒到数秒。若复用默认 ThreadPoolExecutor 会与其他
+# to_thread 任务（文件 I/O、urllib 请求等）竞争线程，导致 SDK 调用排队
+# 饥饿。专用 executor 隔离 SDK 调用，保证发送/编辑消息的响应性。
+# daemon 线程：进程退出时自动回收，无需显式 shutdown。
+_feishu_executor = ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="feishu-sdk",
+)
+
+# 飞书 WS 客户端专用 executor：lark-oapi 的 WsClient.start() 是无限阻塞的，
+# 必须独占一个线程（max_workers=1），避免与其他 SDK 调用线程争抢。
+# daemon 线程：进程退出时自动回收，无需显式 shutdown。
+_ws_executor = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="feishu-ws",
+)
 
 
 class FeishuChannel(Channel):
@@ -94,8 +111,9 @@ class FeishuChannel(Channel):
         # 保存当前事件循环引用（WS 回调线程需要用它跨线程投递消息）
         # 用 get_running_loop() 替代已弃用的 get_event_loop()（Python 3.10+）
         self._loop = asyncio.get_running_loop()
-        # 在 executor 线程跑阻塞的 start()，保存 future 供 shutdown 等待线程退出
-        self._ws_future = self._loop.run_in_executor(None, self._ws.start)
+        # 在专用 executor 线程跑阻塞的 start()，保存 future 供 shutdown 等待线程退出
+        # 用 _ws_executor（max_workers=1）而非默认 executor，避免与其他 SDK 调用线程争抢
+        self._ws_future = self._loop.run_in_executor(_ws_executor, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
 
     async def _cleanup_resources(self) -> None:
@@ -125,9 +143,12 @@ class FeishuChannel(Channel):
                         old_lark_loop.call_soon_threadsafe(old_lark_loop.stop)
                     except Exception:  # noqa: BLE001
                         pass
-            except BaseException:  # noqa: BLE001  包括 CancelledError
+            except asyncio.CancelledError:
                 # ws_client.start() 被 stop() 取消时可能传播 CancelledError，
                 # 属正常关闭路径，不应中断 shutdown 流程
+                raise
+            except Exception:  # noqa: BLE001
+                # 其他异常属正常关闭路径，不应中断 shutdown 流程
                 pass
             self._ws_future = None
         self._ws = None
@@ -460,10 +481,12 @@ class FeishuChannel(Channel):
         except ImportError:
             raise NotImplementedError("feishu requires lark_oapi for send_image")
 
-        # 上传图片
-        with open(image_path, "rb") as f:
-            image_file = io.BytesIO(f.read())
-            image_file.name = os.path.basename(image_path)
+        loop = asyncio.get_running_loop()
+        # 上传图片（图片可能很大，用 to_thread 避免阻塞事件循环）
+        from pathlib import Path
+        image_bytes = await asyncio.to_thread(Path(image_path).read_bytes)
+        image_file = io.BytesIO(image_bytes)
+        image_file.name = os.path.basename(image_path)
 
         body = (
             CreateImageRequestBody.builder()
@@ -472,7 +495,7 @@ class FeishuChannel(Channel):
             .build()
         )
         req = CreateImageRequest.builder().request_body(body).build()
-        resp = await asyncio.to_thread(self._client.im.v1.image.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.image.create, req)
         if not resp.success():
             raise RuntimeError(f"飞书图片上传失败: code={resp.code} msg={resp.msg}")
 
@@ -510,7 +533,7 @@ class FeishuChannel(Channel):
             .request_body(msg_body)  # pyright: ignore[reportArgumentType]
             .build()
         )
-        resp = await asyncio.to_thread(self._client.im.v1.message.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.message.create, req)
         if not resp.success():
             raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
 
@@ -544,12 +567,14 @@ class FeishuChannel(Channel):
         except ImportError:
             raise NotImplementedError("feishu requires lark_oapi for send_document")
 
+        loop = asyncio.get_running_loop()
         file_name = os.path.basename(file_path)
 
-        # 上传文件
-        with open(file_path, "rb") as f:
-            file_obj = io.BytesIO(f.read())
-            file_obj.name = file_name
+        # 上传文件（文件可能很大，用 to_thread 避免阻塞事件循环）
+        from pathlib import Path
+        file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
+        file_obj = io.BytesIO(file_bytes)
+        file_obj.name = file_name
 
         body = (
             CreateFileRequestBody.builder()
@@ -559,7 +584,7 @@ class FeishuChannel(Channel):
             .build()
         )
         req = CreateFileRequest.builder().request_body(body).build()
-        resp = await asyncio.to_thread(self._client.im.v1.file.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.file.create, req)
         if not resp.success():
             raise RuntimeError(f"飞书文件上传失败: code={resp.code} msg={resp.msg}")
 
@@ -597,7 +622,7 @@ class FeishuChannel(Channel):
             .request_body(msg_body)  # pyright: ignore[reportArgumentType]
             .build()
         )
-        resp = await asyncio.to_thread(self._client.im.v1.message.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.message.create, req)
         if not resp.success():
             raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
 
@@ -627,6 +652,7 @@ class FeishuChannel(Channel):
         save_path_obj = Path(save_path)
         save_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
+        loop = asyncio.get_running_loop()
         if attachment.media_type == "image":
             # 图片：im.v1.image.get 仅需 image_key
             try:
@@ -637,7 +663,7 @@ class FeishuChannel(Channel):
                 )
 
             req = GetImageRequest.builder().image_key(attachment.file_key).build()
-            resp = await asyncio.to_thread(self._client.im.v1.image.get, req)
+            resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.image.get, req)
         else:
             # 文件：im.v1.message_resource.get 需 message_id + file_key
             try:
@@ -664,8 +690,8 @@ class FeishuChannel(Channel):
                 .type("file")
                 .build()
             )
-            resp = await asyncio.to_thread(
-                self._client.im.v1.message_resource.get, req
+            resp = await loop.run_in_executor(
+                _feishu_executor, self._client.im.v1.message_resource.get, req,
             )
 
         if not resp.success():
@@ -675,8 +701,9 @@ class FeishuChannel(Channel):
         if raw_file is None:
             raise RuntimeError("飞书下载未返回文件数据")
 
+        # 下载的附件可能很大，用 to_thread 写盘避免阻塞事件循环
         data = raw_file.read() if hasattr(raw_file, "read") else bytes(raw_file)
-        save_path_obj.write_bytes(data)
+        await asyncio.to_thread(save_path_obj.write_bytes, data)
         return str(save_path_obj)
 
     async def shutdown(self) -> None:

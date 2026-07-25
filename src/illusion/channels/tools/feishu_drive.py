@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import asyncio  # 异步
 from pathlib import Path  # 路径
 from typing import TYPE_CHECKING, Any  # 类型
 
@@ -156,10 +157,12 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
             return ToolResult(output="lark_oapi drive API not available", is_error=True)
 
         # lark-oapi 用 builder + dict[str, Any] 构造请求（RequestBody 类不接受关键字参数）
+        # 文件可能较大（<20MB），用 to_thread 避免阻塞事件循环
+        file_data = await asyncio.to_thread(path.read_bytes)
         body = {
             "folder_token": folder_token,
             "file_name": name,
-            "file": path.read_bytes(),
+            "file": file_data,
         }
         req = UploadAllFileRequest.builder().request_body(body).build()  # pyright: ignore[reportArgumentType]
         resp = client.drive.v1.file.upload_all(req)
@@ -204,9 +207,13 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         block_num = (file_size + block_size - 1) // block_size
 
         # 2. upload parts
+        # 每个分片读取是阻塞 I/O，用 to_thread 避免阻塞事件循环
+        def _read_chunk(fh: Any, size: int) -> bytes:
+            return fh.read(size)
+
         with open(path, "rb") as f:
             for i in range(block_num):
-                chunk = f.read(block_size)
+                chunk = await asyncio.to_thread(_read_chunk, f, block_size)
                 part_body = {
                     "upload_id": upload_id,
                     "seq": i,
@@ -299,7 +306,9 @@ class FeishuDriveDownloadTool(BaseTool[FeishuDriveDownloadInput]):
             return ToolResult(output="No file data returned", is_error=True)
         save_path = Path(arguments.save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        save_path.write_bytes(raw.read() if hasattr(raw, "read") else bytes(raw))
+        # 下载的文件可能很大，用 to_thread 写盘避免阻塞事件循环
+        raw_bytes = raw.read() if hasattr(raw, "read") else bytes(raw)
+        await asyncio.to_thread(save_path.write_bytes, raw_bytes)
         return ToolResult(output=f"Downloaded to: {save_path}")
 
 

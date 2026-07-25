@@ -9,6 +9,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from illusion.channels.feishu.adapter import _feishu_executor  # 飞书 SDK 专用线程池
+
 if TYPE_CHECKING:
     from illusion.channels.config import (
         ChannelsConfig,
@@ -161,7 +163,8 @@ async def _deliver_feishu(
             builder = CreateMessageRequest.builder().receive_id_type(receive_id_type)
             builder = builder.request_body(body)  # pyright: ignore[reportArgumentType]
             req = builder.build()
-            resp = await asyncio.to_thread(client.im.v1.message.create, req)
+            loop = asyncio.get_running_loop()
+            resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
             if not resp.success():
                 logger.error("飞书纯文本投递失败: code=%s msg=%s", resp.code, resp.msg)
                 return False
@@ -508,11 +511,13 @@ async def _deliver_file_feishu(
 
         client = build_lark_client(config)
         file_name = os.path.basename(file_path)
+        loop = asyncio.get_running_loop()
 
-        # 上传文件
-        with open(file_path, "rb") as f:
-            file_obj = io.BytesIO(f.read())
-            file_obj.name = file_name
+        # 上传文件（文件可能很大，用 to_thread 避免阻塞事件循环）
+        from pathlib import Path
+        file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
+        file_obj = io.BytesIO(file_bytes)
+        file_obj.name = file_name
 
         body = (
             CreateFileRequestBody.builder()
@@ -522,7 +527,7 @@ async def _deliver_file_feishu(
             .build()
         )
         req = CreateFileRequest.builder().request_body(body).build()
-        resp = await asyncio.to_thread(client.im.v1.file.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.im.v1.file.create, req)
         if not resp.success():
             logger.error("飞书文件上传失败: code=%s msg=%s", resp.code, resp.msg)
             return False
@@ -559,7 +564,7 @@ async def _deliver_file_feishu(
         builder = CreateMessageRequest.builder().receive_id_type(receive_id_type)
         builder = builder.request_body(msg_body)  # pyright: ignore[reportArgumentType]
         req = builder.build()
-        resp = await asyncio.to_thread(client.im.v1.message.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
         if not resp.success():
             logger.error("飞书消息发送失败: code=%s msg=%s", resp.code, resp.msg)
             return False
@@ -691,7 +696,8 @@ async def _deliver_file_weixin(
         )
 
         path = Path(file_path)
-        plaintext = path.read_bytes()
+        # 文件可能很大（图片/视频/文档），用 to_thread 避免阻塞事件循环
+        plaintext = await asyncio.to_thread(path.read_bytes)
         mime = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
         # 按 MIME 选择媒体类型和 item 构造器

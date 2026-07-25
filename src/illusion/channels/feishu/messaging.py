@@ -9,7 +9,8 @@
     - 无 markdown 特征 → 纯 text
 
 所有方法均延迟导入 lark_oapi，确保未安装 SDK 时模块可导入。
-所有 lark-oapi SDK 调用均通过 asyncio.to_thread 包装，避免阻塞事件循环。
+所有 lark-oapi SDK 同步调用均通过 loop.run_in_executor(_feishu_executor, ...)
+包装到专用线程池，避免阻塞事件循环且不与其他 to_thread 任务争抢线程。
 
 函数说明：
     - build_lark_client: 构造飞书 lark 客户端
@@ -27,6 +28,8 @@ import logging  # 日志
 import re  # markdown 探测
 from pathlib import Path  # 路径
 from typing import TYPE_CHECKING, Any  # 类型
+
+from illusion.channels.feishu.adapter import _feishu_executor  # 飞书 SDK 专用线程池
 
 if TYPE_CHECKING:
     from illusion.channels.config import FeishuChannelConfig  # 配置
@@ -241,6 +244,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
     # 清理可能引发飞书校验失败的控制字符（保留换行 tab）
     clean_text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
 
+    loop = asyncio.get_running_loop()
     msg_type, content = build_outbound_payload(clean_text)
     body = {"receive_id": receive_id, "msg_type": msg_type, "content": content}
     req = (
@@ -249,7 +253,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
         .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = await asyncio.to_thread(client.im.v1.message.create, req)
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
     if resp.success():
         return resp.data.message_id  # type: ignore[no-any-return]
 
@@ -266,7 +270,7 @@ async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
             .request_body(body)  # pyright: ignore[reportArgumentType]
             .build()
         )
-        resp = await asyncio.to_thread(client.im.v1.message.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
         if resp.success():
             return resp.data.message_id  # type: ignore[no-any-return]
 
@@ -292,6 +296,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         UpdateMessageRequest,
     )
 
+    loop = asyncio.get_running_loop()
     # 流式编辑用纯 text 格式（update 接口只支持 text）
     content = json.dumps({"text": text}, ensure_ascii=False)
     req = (
@@ -300,7 +305,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         .request_body({"msg_type": "text", "content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = await asyncio.to_thread(client.im.v1.message.update, req)
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.update, req)
     if not resp.success():
         # 230072 = 编辑次数超限（飞书硬限制），属预期，finalize 会新建消息补全
         if resp.code == 230072:
@@ -350,6 +355,7 @@ async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "")
     """
     from lark_oapi.api.im.v1 import CreateMessageRequest
 
+    loop = asyncio.get_running_loop()
     receive_id, receive_id_type = resolve_receive_id(chat_id)
     content = build_card_content(text)
     body = {"receive_id": receive_id, "msg_type": "interactive", "content": content}
@@ -359,7 +365,7 @@ async def send_card(client: Any, chat_id: str, text: str, *, reply_to: str = "")
         .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = await asyncio.to_thread(client.im.v1.message.create, req)
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
     if not resp.success():
         raise RuntimeError(f"飞书卡片发送失败: code={resp.code} msg={resp.msg}")
     return resp.data.message_id  # type: ignore[no-any-return]
@@ -378,6 +384,7 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
     """
     from lark_oapi.api.im.v1 import PatchMessageRequest
 
+    loop = asyncio.get_running_loop()
     content = build_card_content(text)
     req = (
         PatchMessageRequest.builder()
@@ -385,7 +392,7 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
         .request_body({"content": content})  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = await asyncio.to_thread(client.im.v1.message.patch, req)
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.patch, req)
     if not resp.success():
         logger.warning("飞书卡片更新失败: code=%s msg=%s", resp.code, resp.msg)
 
@@ -555,6 +562,7 @@ async def create_card_entity(client: Any, card_content: str) -> str:
     """
     from lark_oapi.api.cardkit.v1 import CreateCardRequest
 
+    loop = asyncio.get_running_loop()
     req = (
         CreateCardRequest.builder()
         .request_body({
@@ -564,7 +572,7 @@ async def create_card_entity(client: Any, card_content: str) -> str:
         .build()
     )
     try:
-        resp = await asyncio.to_thread(client.cardkit.v1.card.create, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.cardkit.v1.card.create, req)
         if not resp.success():
             logger.warning(
                 "CardKit 创建卡片失败: code=%s msg=%s", resp.code, resp.msg,
@@ -594,6 +602,7 @@ async def send_card_by_card_id(
     """
     from lark_oapi.api.im.v1 import CreateMessageRequest
 
+    loop = asyncio.get_running_loop()
     receive_id, receive_id_type = resolve_receive_id(chat_id)
     content = json.dumps({"type": "card", "data": {"card_id": card_id}}, ensure_ascii=False)
     body = {"receive_id": receive_id, "msg_type": "interactive", "content": content}
@@ -603,7 +612,7 @@ async def send_card_by_card_id(
         .request_body(body)  # pyright: ignore[reportArgumentType]
         .build()
     )
-    resp = await asyncio.to_thread(client.im.v1.message.create, req)
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
     if not resp.success():
         raise RuntimeError(f"飞书卡片消息发送失败: code={resp.code} msg={resp.msg}")
     return resp.data.message_id  # type: ignore[no-any-return]
@@ -686,6 +695,7 @@ async def set_card_streaming_mode(
         SettingsCardRequestBody,
     )
 
+    loop = asyncio.get_running_loop()
     body = (
         SettingsCardRequestBody.builder()
         .settings(json.dumps({"streaming_mode": streaming_mode}))
@@ -699,7 +709,7 @@ async def set_card_streaming_mode(
         .build()
     )
     try:
-        resp = await asyncio.to_thread(client.cardkit.v1.card.settings, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.cardkit.v1.card.settings, req)
         if not resp.success():
             logger.warning(
                 "CardKit 流式模式切换失败: code=%s msg=%s streaming_mode=%s",
@@ -732,6 +742,7 @@ async def update_cardkit_card(
     """
     from lark_oapi.api.cardkit.v1 import UpdateCardRequest
 
+    loop = asyncio.get_running_loop()
     req = (
         UpdateCardRequest.builder()
         .card_id(card_id)
@@ -742,7 +753,7 @@ async def update_cardkit_card(
         .build()
     )
     try:
-        resp = await asyncio.to_thread(client.cardkit.v1.card.update, req)
+        resp = await loop.run_in_executor(_feishu_executor, client.cardkit.v1.card.update, req)
         if not resp.success():
             logger.warning(
                 "CardKit 全卡更新失败: code=%s msg=%s", resp.code, resp.msg,

@@ -742,7 +742,8 @@ class QQChannel(Channel):
                 async with self._session.get(url, headers=headers) as resp:
                     resp.raise_for_status()
                     data = await resp.read()
-                save_path_obj.write_bytes(data)
+                # 下载的附件可能很大，用 to_thread 写盘避免阻塞事件循环
+                await asyncio.to_thread(save_path_obj.write_bytes, data)
                 logger.info("QQ 附件下载成功: %s → %s (%d bytes)",
                             attachment.filename, save_path_obj, len(data))
                 return str(save_path_obj)
@@ -767,7 +768,8 @@ class QQChannel(Channel):
                     attachment.file_key,
                     is_group=False,
                 )
-                save_path_obj.write_bytes(data)
+                # 下载的附件可能很大，用 to_thread 写盘避免阻塞事件循环
+                await asyncio.to_thread(save_path_obj.write_bytes, data)
                 return str(save_path_obj)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("QQ 附件 file_info 下载失败: %s", exc)

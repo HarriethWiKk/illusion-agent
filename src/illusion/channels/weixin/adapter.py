@@ -705,7 +705,8 @@ class WeixinChannel(Channel):
         # 确保父目录存在
         out_path = Path(save_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(data)
+        # 下载的附件可能很大，用 to_thread 写盘避免阻塞事件循环
+        await asyncio.to_thread(out_path.write_bytes, data)
         logger.info("微信附件已下载: %s → %s (%d bytes)",
                     attachment.filename, save_path, len(data))
         return str(out_path)
@@ -746,7 +747,8 @@ class WeixinChannel(Channel):
         if not self.config.token:
             raise RuntimeError("微信 token 未配置")
 
-        plaintext = Path(path).read_bytes()
+        # 文件可能很大（图片/视频/文档），用 to_thread 避免阻塞事件循环
+        plaintext = await asyncio.to_thread(Path(path).read_bytes)
         media_type, item_builder = self._outbound_media_builder(
             path, force_file_attachment=force_file_attachment,
         )

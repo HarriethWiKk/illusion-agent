@@ -418,7 +418,8 @@ async def upload_file(
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
     file_size = path.stat().st_size
-    hashes = _compute_file_hashes(file_path, file_size)
+    # 大文件哈希计算是 CPU+I/O 密集型，用 to_thread 避免阻塞事件循环
+    hashes = await asyncio.to_thread(_compute_file_hashes, file_path, file_size)
 
     target_type = "groups" if is_group else "users"
     base_url = f"{API_BASE}/v2/{target_type}/{target_id}"
@@ -472,9 +473,12 @@ async def upload_file(
         offset = (part_index - 1) * block_size
         length = min(part_block_size, file_size - offset)
 
-        with path.open("rb") as fh:
-            fh.seek(offset)
-            part_data = fh.read(length)
+        # 分片读取是阻塞 I/O，用 to_thread 避免阻塞事件循环
+        def _read_part() -> bytes:
+            with path.open("rb") as fh:
+                fh.seek(offset)
+                return fh.read(length)
+        part_data = await asyncio.to_thread(_read_part)
         part_md5 = hashlib.md5(part_data).hexdigest()
 
         # PUT 到 presigned URL（COS）

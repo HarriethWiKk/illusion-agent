@@ -202,7 +202,8 @@ class FeishuWSClient:
     def _cleanup_loop(loop: asyncio.AbstractEventLoop) -> None:
         """清理事件循环上的 pending tasks 并关闭 loop
 
-        使用 BaseException 捕获 CancelledError（Python 3.9+ 下为 BaseException 子类）。
+        拆分 BaseException：CancelledError 上抛以尊重取消信号，
+        其他 Exception 静默吞掉（loop 清理是 best-effort）。
         """
         try:
             pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
@@ -212,15 +213,21 @@ class FeishuWSClient:
                 loop.run_until_complete(
                     asyncio.gather(*pending, return_exceptions=True)
                 )
-        except BaseException:  # noqa: BLE001
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
             pass
         try:
             loop.stop()
-        except BaseException:  # noqa: BLE001
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
             pass
         try:
             loop.close()
-        except BaseException:  # noqa: BLE001
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
             pass
 
     def stop(self) -> None:
@@ -244,13 +251,17 @@ class FeishuWSClient:
                 tasks = [t for t in asyncio.all_tasks(lark_loop) if not t.done()]
                 for task in tasks:
                     task.cancel()
-            except BaseException:  # noqa: BLE001  捕获 CancelledError 等
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001  其他异常静默（best-effort 清理）
                 pass
             # 直接停止 loop，让 run_until_complete(_select()) 返回
             # 不用 call_later，避免与 loop.stop() 竞争
             try:
                 lark_loop.stop()
-            except BaseException:  # noqa: BLE001
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
                 pass
 
         try:

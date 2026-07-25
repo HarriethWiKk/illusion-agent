@@ -392,7 +392,10 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
             await asyncio.wait_for(r.shutdown(), timeout=5.0)
         except asyncio.TimeoutError:
             logger.warning("关闭渠道超时（5s），跳过: %s", r)
-        except BaseException as exc:  # noqa: BLE001  包括 CancelledError
+        except asyncio.CancelledError:
+            # 取消信号必须上抛，不能被吞掉
+            raise
+        except Exception as exc:  # noqa: BLE001
             # 单个渠道 shutdown 异常不应中断其他渠道的关闭
             logger.warning("关闭渠道异常: %s", exc)
 
