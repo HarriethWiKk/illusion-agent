@@ -105,9 +105,20 @@ class McpClientManager:
 
         # 并行连接所有 STDIO 服务器
         if stdio_tasks:
-            await asyncio.gather(
-                *(self._connect_stdio(name, config) for name, config in stdio_tasks),
-            )
+            # 包装为 task 以便异常路径下取消尚未完成的连接任务，
+            # 否则 gather 抛异常后剩余 task 会成为孤儿继续在后台跑
+            tasks = [
+                asyncio.create_task(self._connect_stdio(name, config))
+                for name, config in stdio_tasks
+            ]
+            try:
+                await asyncio.gather(*tasks)
+            except Exception:
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
     async def reconnect_all(self) -> None:
         """

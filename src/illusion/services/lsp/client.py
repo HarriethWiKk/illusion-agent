@@ -46,6 +46,8 @@ class LspClient:
         self._write_thread: threading.Thread | None = None
         self._write_q: Any = None  # queue.Queue[bytes | None]
         self._pending: dict[int, asyncio.Future[Any]] = {}
+        # 保护 _pending 字典：reader 线程遍历 / 主线程增删 / 超时 pop 三方并发
+        self._pending_lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._notify_handlers: dict[str, list[Any]] = {}
         self._request_handlers: dict[str, Any] = {}
@@ -60,12 +62,17 @@ class LspClient:
         return self._proc is not None and self._proc.poll() is None
 
     async def start(self, command: str, args: list[str], options: dict[str, Any] | None = None) -> None:
+        """异步启动 LSP 服务器。
+
+        ``sp.Popen`` 在 Windows 上可能阻塞数百毫秒（创建控制台、加载 .cmd 包装器），
+        因此通过 ``asyncio.to_thread`` 让出事件循环。
+        """
         if self._proc is not None:
             return
 
         import queue
         self._write_q = queue.Queue()
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         kw: dict[str, Any] = {
             "stdin": sp.PIPE, "stdout": sp.PIPE, "stderr": sp.PIPE,
@@ -85,9 +92,9 @@ class LspClient:
             # Windows: shell=True 让 cmd.exe 解析 .cmd 包装器
             kw["shell"] = True
             cmd_str = command + " " + " ".join(args) if args else command
-            self._proc = sp.Popen[Any](cmd_str, **kw)
+            self._proc = await asyncio.to_thread(sp.Popen[Any], cmd_str, **kw)
         else:
-            self._proc = sp.Popen[Any]([command] + args, **kw)
+            self._proc = await asyncio.to_thread(sp.Popen[Any], [command] + args, **kw)
         self._connected = True
 
         # 读取线程
@@ -143,14 +150,20 @@ class LspClient:
         self._next_id += 1
         assert self._loop is not None
         fut: asyncio.Future[Any] = self._loop.create_future()
-        self._pending[msg_id] = fut
+        with self._pending_lock:
+            self._pending[msg_id] = fut
 
         self._write_q.put(_encode({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}))
 
         try:
             resp = await asyncio.wait_for(fut, timeout=timeout)
         except asyncio.TimeoutError:
-            self._pending.pop(msg_id, None)
+            # 超时处理：用锁保护 pop，并 cancel Future（而非仅 pop），
+            # 否则 reader 线程后续 set_result 会触发 InvalidStateError
+            with self._pending_lock:
+                fut = self._pending.pop(msg_id, None)
+            if fut is not None and not fut.done():
+                fut.cancel()
             raise TimeoutError(f"LSP '{method}' timed out after {timeout}s")
 
         if "error" in resp:
@@ -171,16 +184,35 @@ class LspClient:
         self._request_handlers[method] = handler
 
     async def stop(self) -> None:
+        """异步停止 LSP 服务器。
+
+        ``proc.wait(timeout=5)`` 阻塞 5 秒，必须通过 ``asyncio.to_thread`` 让出事件循环。
+        同时清理 ``_pending`` Future，避免 reader 线程后续 ``set_result`` 触发 ``InvalidStateError``。
+        """
         self._connected = False
         if self._write_q:
             self._write_q.put(None)  # 停止写入线程
+
+        # 清理 _pending Future：用锁保护，避免与 reader 线程并发访问
+        with self._pending_lock:
+            snapshot = list(self._pending.items())
+            for _req_id, fut in snapshot:
+                if not fut.done():
+                    fut.set_exception(ConnectionError("LSP 服务器关闭"))
+            self._pending.clear()
+
         if self._proc:
             try:
                 self._proc.terminate()
-                self._proc.wait(timeout=5)
+                await asyncio.to_thread(self._proc.wait, timeout=5)
             except Exception:
                 self._proc.kill()
             self._proc = None
+
+        # join daemon 读取线程：proc.wait 返回后 stdout 已 EOF，reader 应立即退出
+        if self._read_thread is not None:
+            self._read_thread.join(timeout=2)
+            self._read_thread = None
         self.is_initialized = False
 
     # --- 线程实现 ---
@@ -237,15 +269,19 @@ class LspClient:
         finally:
             self._connected = False
             if self._loop:
-                for f in self._pending.values():
+                # 用锁保护：snapshot 后再迭代，避免与主线程并发修改触发 RuntimeError
+                with self._pending_lock:
+                    snapshot = list(self._pending.values())
+                    self._pending.clear()
+                for f in snapshot:
                     if not f.done():
                         self._loop.call_soon_threadsafe(f.set_exception, RuntimeError("LSP connection lost"))
-                self._pending.clear()
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
         if "id" in msg and "method" not in msg:
             # 响应 — 通知 asyncio 事件循环
-            fut = self._pending.pop(msg["id"], None)
+            with self._pending_lock:
+                fut = self._pending.pop(msg["id"], None)
             if fut and not fut.done():
                 assert self._loop is not None
                 self._loop.call_soon_threadsafe(fut.set_result, msg)

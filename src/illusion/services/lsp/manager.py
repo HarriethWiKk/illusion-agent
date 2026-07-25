@@ -8,6 +8,7 @@ LSP 多语言管理器
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -80,12 +81,21 @@ class LspManager:
             await client.notify(method, params)
 
     async def shutdown_all(self) -> None:
-        """关闭所有 LSP 服务器。"""
-        for client in self._clients.values():
-            try:
-                await client.stop()
-            except Exception:
-                logger.exception("Error stopping LSP client")
+        """并行关闭所有 LSP 服务器。
+
+        每个 ``client.stop()`` 内部会 ``await asyncio.to_thread(proc.wait, timeout=5)``，
+        串行执行时 N 个客户端要等 5N 秒；用 ``asyncio.gather`` 并行后总时长收敛到 ~5 秒。
+        """
+        if not self._clients:
+            self._starting.clear()
+            return
+        results = await asyncio.gather(
+            *(client.stop() for client in self._clients.values()),
+            return_exceptions=True,
+        )
+        for client, result in zip(self._clients.values(), results):
+            if isinstance(result, Exception):
+                logger.exception("Error stopping LSP client: %s", client, exc_info=result)
         self._clients.clear()
         self._starting.clear()
 
