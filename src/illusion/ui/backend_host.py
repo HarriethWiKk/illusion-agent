@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from collections.abc import Coroutine
 import contextlib
 import json
 import logging
@@ -54,6 +55,7 @@ from illusion.tasks import get_task_manager
 from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime
+from illusion.utils.aioqueue import Queue, QueueShutDown
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
@@ -119,7 +121,9 @@ class ReactBackendHost:
     Attributes:
         _config: 后端配置
         _bundle: 运行时数据bundle
-        _write_lock: 异步写入锁
+        _write_queue: 写入事件队列（替代 _write_lock，串行化所有 stdout 写入）
+        _write_task: 单一消费者写循环 Task
+        _dispatch_tasks: fire-and-forget task 强引用集合
         _request_queue: 请求队列
         _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
@@ -133,7 +137,9 @@ class ReactBackendHost:
     def __init__(self, config: BackendHostConfig) -> None:
         self._config = config
         self._bundle: RuntimeBundle | None = None
-        self._write_lock = asyncio.Lock()  # 异步写入锁
+        self._write_queue: Queue[BackendEvent] = Queue()       # 替代 _write_lock，串行化所有 stdout 写入
+        self._write_task: asyncio.Task[None] | None = None     # 单一消费者写循环 Task
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()  # fire-and-forget 强引用集合
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}      # 用户问答
@@ -708,9 +714,7 @@ class ReactBackendHost:
 
     def _emit_swarm_status(self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None) -> None:
         """同步发送 swarm_status 事件（调度为协程）。"""
-        import asyncio
-        loop = asyncio.get_event_loop()
-        loop.create_task(
+        self._create_background_task(
             self._emit(BackendEvent(type="swarm_status", swarm_teammates=teammates, swarm_notifications=notifications))
         )
 
@@ -1339,27 +1343,46 @@ class ReactBackendHost:
         assert self._bundle is not None
         self._bundle.app_state.set(phase=phase)
 
-    async def _emit(self, event: BackendEvent) -> None:
-        payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
-        data = payload.encode("utf-8")
-        async with self._write_lock:
-            # 在线程池中执行同步写入，防止 flush() 阻塞事件循环
-            # Windows 上管道 buffer 满时 flush() 会阻塞，导致整个事件循环冻结
-            await asyncio.to_thread(self._write_stdout_sync, data)
+    async def _write_loop(self) -> None:
+        """单一消费者：串行化所有 stdout 写入。
 
-    @staticmethod
-    def _write_stdout_sync(data: bytes) -> None:
-        """同步写入 stdout（在线程池中调用）。"""
+        所有 _emit() 调用通过 _write_queue，确保 FIFO 排序和无并发 stdout 访问。
+        不依赖线程池。收到 QueueShutDown 后退出循环。
+        """
+        while True:
+            try:
+                event = await self._write_queue.get()
+            except QueueShutDown:
+                break
+            try:
+                payload = _PROTOCOL_PREFIX + event.model_dump_json() + "\n"
+                data = payload.encode("utf-8")
+                # stdout 写入仍需 to_thread（阻塞 I/O），但单一消费者不争抢
+                await asyncio.to_thread(sys.stdout.buffer.write, data)
+                await asyncio.to_thread(sys.stdout.buffer.flush)
+            except Exception:
+                log.exception("写入 stdout 失败")
+
+    async def _emit(self, event: BackendEvent) -> None:
+        """入队事件给写循环。非阻塞。"""
         try:
-            buffer = getattr(sys.stdout, "buffer", None)
-            if buffer is not None:
-                buffer.write(data)
-                buffer.flush()
-            else:
-                sys.stdout.write(data.decode("utf-8"))
-                sys.stdout.flush()
-        except (BrokenPipeError, OSError):
-            pass  # 前端已断开连接，忽略写入错误
+            self._write_queue.put_nowait(event)
+        except QueueShutDown:
+            pass  # 正在关闭，丢弃事件
+
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 回收未完成 task。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            asyncio.Task: 创建的 task，完成后自动从 _dispatch_tasks 移除
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
 
 
 async def run_backend_host(
