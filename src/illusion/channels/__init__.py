@@ -383,7 +383,17 @@ class ChannelRunner:
             logger.exception("处理渠道消息未捕获异常: %s", exc, exc_info=exc)
 
     async def shutdown(self) -> None:
-        """关闭渠道"""
+        """关闭渠道
+
+        先 resolve 所有 _pending_replies Future 为空串，避免 agent turn 卡在
+        _wait_reply 的 300s 超时；再关闭渠道触发 listen 协程退出。
+        """
+        # resolve 所有 pending replies Future（防止 agent turn 卡 300s 超时）
+        for fut in self._pending_replies.values():
+            if not fut.done():
+                fut.set_result("")
+        self._pending_replies.clear()
+
         self._stop = True
         await self.channel.shutdown()
 
@@ -970,7 +980,7 @@ class ChannelRunner:
         Raises:
             asyncio.TimeoutError: 超时
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut: asyncio.Future[str] = loop.create_future()
         self._pending_replies[chat_id] = fut
         return await asyncio.wait_for(fut, timeout=timeout)

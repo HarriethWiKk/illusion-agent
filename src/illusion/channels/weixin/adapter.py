@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from illusion.channels.base import Attachment, Channel, InboundMessage
+from illusion.utils.aioqueue import Queue  # 支持关闭语义的异步队列
 from illusion.utils.atomic_write import atomic_write_text
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ class WeixinChannel(Channel):
         super().__init__(config, settings)
         self._poll_session: Any = None  # 长轮询专用 session
         self._send_session: Any = None  # 发送专用 session（total=None 避免超时冲突）
-        self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
+        self._queue: Queue[InboundMessage] = Queue()  # 入站队列（保留供未来扩展，listen 当前用 HTTP 长轮询）
         self._stop_event = asyncio.Event()
         self._loop: Any = None
 
@@ -961,6 +962,9 @@ class WeixinChannel(Channel):
     async def shutdown(self) -> None:
         """关闭渠道"""
         self._stop_event.set()
+        # 关闭入站队列唤醒潜在消费者（当前 listen 走 HTTP 长轮询，
+        # 但仍调用 queue.shutdown 以保持与其他渠道一致并防御未来改动）
+        self._queue.shutdown()
         if self._poll_session is not None:
             await self._poll_session.close()
         if self._send_session is not None:

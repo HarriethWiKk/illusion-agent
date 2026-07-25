@@ -19,6 +19,7 @@ import logging  # 日志
 from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型
 
 from illusion.channels.base import Attachment, Channel, InboundMessage  # 基类与消息类型
+from illusion.utils.aioqueue import Queue, QueueShutDown  # 支持关闭语义的异步队列
 
 if TYPE_CHECKING:
     from illusion.channels.config import FeishuChannelConfig  # 配置
@@ -48,7 +49,7 @@ class FeishuChannel(Channel):
         super().__init__(config, settings)
         self._client: Any = None  # lark 客户端
         self._ws: Any = None  # WS 包装
-        self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()  # 入站队列
+        self._queue: Queue[InboundMessage] = Queue()  # 入站队列（支持 shutdown 哨兵唤醒 listen）
         self._loop: Any = None  # 主事件循环引用（connect 时保存，WS 回调线程用）
         self._bot_open_id: str = ""  # bot 自身 open_id（hydrate 后赋值）
         self._stop_event = asyncio.Event()  # 停止信号
@@ -376,13 +377,17 @@ class FeishuChannel(Channel):
         return True
 
     async def listen(self) -> AsyncIterator[InboundMessage]:
-        """异步迭代入站消息"""
-        while not self._stop_event.is_set():
+        """异步迭代入站消息
+
+        阻塞在 queue.get() 等待消息，shutdown() 调用 queue.shutdown() 投递哨兵
+        唤醒 getter 并抛 QueueShutDown，本方法捕获后退出循环。
+        """
+        while True:
             try:
-                msg = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                yield msg
-            except asyncio.TimeoutError:
-                continue
+                msg = await self._queue.get()
+            except QueueShutDown:
+                break
+            yield msg
 
     async def send_text(self, chat_id: str, text: str, *, reply_to: str = "") -> str:
         """发送交互卡片消息（统一用卡片承载，支持 markdown 渲染）
@@ -678,8 +683,10 @@ class FeishuChannel(Channel):
         """关闭渠道
 
         参照 hermes-agent disconnect() 模式：复用 _cleanup_resources 统一清理。
+        先关闭入站队列唤醒 listen 协程，再清理 WS 资源。
         """
         self._stop_event.set()
+        self._queue.shutdown()  # 投递哨兵唤醒 listen 协程
         await self._cleanup_resources()
 
 

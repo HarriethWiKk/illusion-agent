@@ -31,6 +31,7 @@ from illusion.channels.qq.api import (
     split_text,
     strip_markdown,
 )
+from illusion.utils.aioqueue import Queue, QueueShutDown  # 支持关闭语义的异步队列
 
 if TYPE_CHECKING:
     from illusion.channels.config import QQChannelConfig
@@ -79,7 +80,7 @@ class QQChannel(Channel):
             settings: 主设置
         """
         super().__init__(config, settings)
-        self._queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
+        self._queue: Queue[InboundMessage] = Queue()  # 入站队列（支持 shutdown 哨兵唤醒 listen）
         self._stop_event = asyncio.Event()
         self._ws_client: Any = None  # QQWSClient 实例
         self._session: Any = None  # aiohttp.ClientSession（发送用）
@@ -451,14 +452,17 @@ class QQChannel(Channel):
 
         参照 hermes-agent 模式：_listen_loop 自己永远循环处理重连，
         不依赖外部 _supervise 重启。listen() 只负责从队列取消息 yield。
+
+        阻塞在 queue.get() 等待消息，shutdown() 调用 queue.shutdown() 投递哨兵
+        唤醒 getter 并抛 QueueShutDown，本方法捕获后退出循环。
         """
         logger.info("QQ 监听已启动")
-        while not self._stop_event.is_set():
+        while True:
             try:
-                msg = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                yield msg
-            except asyncio.TimeoutError:
-                continue
+                msg = await self._queue.get()
+            except QueueShutDown:
+                break
+            yield msg
 
     def _format_message(self, content: str) -> str:
         """格式化消息内容
@@ -805,4 +809,5 @@ class QQChannel(Channel):
     async def shutdown(self) -> None:
         """关闭渠道"""
         self._stop_event.set()
+        self._queue.shutdown()  # 投递哨兵唤醒 listen 协程
         await self._cleanup_resources()
