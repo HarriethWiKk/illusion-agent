@@ -20,6 +20,7 @@
     Client → {"type":"ping"}
     Server → {"type":"pong","daemon_pid":5678,"channels":{...}}
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +28,7 @@ import json
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from typing import Any, Callable
 
@@ -37,6 +39,7 @@ _IS_WINDOWS = os.name == "nt"
 
 class DaemonType(Enum):
     """守护进程类型"""
+
     CRON = "cron"
     CHANNEL = "channel"
 
@@ -53,6 +56,7 @@ class DaemonClientRef:
     def __init__(self) -> None:
         self._client: "DaemonClient | None" = None
         import threading
+
         self._lock = threading.Lock()
 
     def set(self, client: "DaemonClient") -> None:
@@ -79,6 +83,7 @@ def _default_pipe_name(daemon_type: DaemonType) -> str:
         return f"\\\\.\\pipe\\illusion_{daemon_type.value}"
     else:
         from illusion.config.paths import get_cron_dir, get_channels_data_dir
+
         if daemon_type == DaemonType.CRON:
             return str(get_cron_dir() / "cron_daemon.sock")
         else:
@@ -89,6 +94,7 @@ def _get_channel_status_provider() -> Callable[[], dict[str, Any]] | None:
     """获取渠道状态提供器（延迟导入避免循环依赖）"""
     try:
         from illusion.channels.serve import get_channel_status
+
         return get_channel_status
     except ImportError:
         return None
@@ -134,7 +140,10 @@ if _IS_WINDOWS:
             _PIPE_ACCESS_DUPLEX,
             _PIPE_TYPE_BYTE | _PIPE_WAIT,
             _PIPE_UNLIMITED_INSTANCES,
-            65536, 65536, 0, None,
+            65536,
+            65536,
+            0,
+            None,
         )
         if handle == _INVALID_HANDLE_VALUE or handle == 0:
             err = _kernel32.GetLastError()
@@ -155,20 +164,16 @@ if _IS_WINDOWS:
         """从 pipe 读取数据（阻塞）"""
         buf = ctypes.create_string_buffer(size)
         bytes_read = wintypes.DWORD()
-        success = _kernel32.ReadFile(
-            handle, buf, size, ctypes.byref(bytes_read), None
-        )
+        success = _kernel32.ReadFile(handle, buf, size, ctypes.byref(bytes_read), None)
         if success == 0:
             err = _kernel32.GetLastError()
             raise OSError(f"ReadFile failed: error={err}")
-        return buf.raw[:bytes_read.value]
+        return buf.raw[: bytes_read.value]
 
     def _win_write_pipe(handle: int, data: bytes) -> int:
         """写入 pipe（阻塞）"""
         bytes_written = wintypes.DWORD()
-        success = _kernel32.WriteFile(
-            handle, data, len(data), ctypes.byref(bytes_written), None
-        )
+        success = _kernel32.WriteFile(handle, data, len(data), ctypes.byref(bytes_written), None)
         if success == 0:
             err = _kernel32.GetLastError()
             raise OSError(f"WriteFile failed: error={err}")
@@ -179,9 +184,11 @@ if _IS_WINDOWS:
         handle: int = _kernel32.CreateFileW(
             name,
             _GENERIC_READ | _GENERIC_WRITE,
-            0, None,
+            0,
+            None,
             _OPEN_EXISTING,
-            0, None,
+            0,
+            None,
         )
         if handle == _INVALID_HANDLE_VALUE or handle == 0:
             err = _kernel32.GetLastError()
@@ -193,14 +200,28 @@ if _IS_WINDOWS:
         """关闭句柄"""
         _kernel32.CloseHandle(handle)
 
+    def _win_cancel_io(handle: int) -> None:
+        """取消句柄上所有未完成的 I/O 操作（用于解除 ReadFile/ConnectNamedPipe 阻塞）
+
+        必须在 CloseHandle 之前调用：单独 CloseHandle 在有 pending I/O 时会阻塞。
+        """
+        _kernel32.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+        _kernel32.CancelIoEx.restype = wintypes.BOOL
+        _kernel32.CancelIoEx(handle, None)
+
 
 # ─── 连接抽象 ───
+
 
 class _BaseConnection:
     """连接抽象基类"""
 
-    async def read_line(self) -> str | None:
-        """读取一行 JSON，连接关闭返回 None"""
+    async def read_line(self, timeout: float | None = None) -> str | None:
+        """读取一行 JSON，连接关闭返回 None
+
+        Args:
+            timeout: 超时秒数，None 表示无限等待
+        """
         raise NotImplementedError
 
     async def write_line(self, line: str) -> None:
@@ -213,31 +234,95 @@ class _BaseConnection:
 
 
 if _IS_WINDOWS:
+
     class _WindowsPipeConnection(_BaseConnection):
-        """Windows Named Pipe 连接（用 asyncio.to_thread 包装阻塞调用）"""
+        """Windows Named Pipe 连接，支持超时取消读取。
+
+        通过专用 executor 提交读取线程，线程内 call_soon_threadsafe 桥接结果。
+        超时后 CloseHandle 强制解除 ReadFile 阻塞，避免线程泄漏。
+
+        Attributes:
+            _read_executor: 专用线程池（max_workers=1），避免占用默认线程池
+            _handle: pipe 句柄
+            _read_buf: 读取缓冲区，累积部分数据直到遇到换行符
+            _closed: 连接是否已关闭
+        """
 
         def __init__(self, handle: int) -> None:
-            self._handle = handle
+            self._read_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="daemon-pipe"
+            )
+            self._handle: int | None = handle
             self._read_buf = b""
             self._closed = False
 
-        async def read_line(self) -> str | None:
-            """读取一行（以 \\n 结尾），连接关闭返回 None"""
+        async def read_line(self, timeout: float | None = None) -> str | None:
+            """读取一行（以 \\n 结尾），连接关闭返回 None。
+
+            Args:
+                timeout: 超时秒数，None 表示无限等待
+
+            Returns:
+                读取到的行（不含换行符），连接关闭时返回 None
+
+            Raises:
+                asyncio.TimeoutError: 超时后抛出，同时 CloseHandle 解除线程阻塞
+            """
             while b"\n" not in self._read_buf:
                 if self._closed:
                     return None
+                if self._handle is None:
+                    return None
+
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future[bytes] = asyncio.Future()
+                handle = self._handle
+
+                def _set_result(fut: asyncio.Future[bytes], data: bytes) -> None:
+                    """安全设置 future 结果（避免对已取消 future 抛 InvalidStateError）"""
+                    if not fut.done():
+                        fut.set_result(data)
+
+                def _set_exception(fut: asyncio.Future[bytes], exc: BaseException) -> None:
+                    """安全设置 future 异常（避免对已取消 future 抛 InvalidStateError）"""
+                    if not fut.done():
+                        fut.set_exception(exc)
+
+                def _read_thread() -> None:
+                    """读取线程：阻塞读 pipe，通过 call_soon_threadsafe 桥接结果。"""
+                    try:
+                        data = _win_read_pipe(handle, 4096)
+                        loop.call_soon_threadsafe(_set_result, future, data)
+                    except Exception as exc:
+                        loop.call_soon_threadsafe(_set_exception, future, exc)
+
+                self._read_executor.submit(_read_thread)
+
                 try:
-                    chunk = await asyncio.to_thread(_win_read_pipe, self._handle, 4096)
+                    chunk = await asyncio.wait_for(future, timeout=timeout)
+                except asyncio.TimeoutError:
+                    # ⚠️ 超时后强制关闭 handle，解除 ReadFile 阻塞
+                    # 必须先 CancelIoEx 取消 pending ReadFile，否则 CloseHandle 会阻塞
+                    self._closed = True
+                    try:
+                        _win_cancel_io(handle)
+                        _win_close_handle(handle)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._handle = None
+                    raise
                 except OSError:
                     self._closed = True
                     return None
+
                 if not chunk:
                     self._closed = True
                     return None
                 self._read_buf += chunk
+
             idx = self._read_buf.index(b"\n")
             line = self._read_buf[:idx]
-            self._read_buf = self._read_buf[idx + 1:]
+            self._read_buf = self._read_buf[idx + 1 :]
             return line.decode("utf-8")
 
         async def write_line(self, line: str) -> None:
@@ -250,15 +335,22 @@ if _IS_WINDOWS:
                 raise
 
         async def close(self) -> None:
-            """关闭连接"""
+            """关闭连接和 executor"""
             if not self._closed:
                 self._closed = True
-                try:
-                    _win_close_handle(self._handle)
-                except Exception:  # noqa: BLE001
-                    pass
+                if self._handle is not None:
+                    try:
+                        # CancelIoEx + CloseHandle：避免 pending I/O 时 CloseHandle 阻塞
+                        _win_cancel_io(self._handle)
+                        _win_close_handle(self._handle)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._handle = None
+            # ⚠️ 关闭专用 executor，释放线程资源
+            self._read_executor.shutdown(wait=False, cancel_futures=True)
 
 else:
+
     class _UnixSocketConnection(_BaseConnection):
         """Unix Socket 连接"""
 
@@ -270,11 +362,18 @@ else:
             self._reader = reader
             self._writer = writer
 
-        async def read_line(self) -> str | None:
-            """读取一行，连接关闭返回 None"""
+        async def read_line(self, timeout: float | None = None) -> str | None:
+            """读取一行，连接关闭返回 None
+
+            Args:
+                timeout: 超时秒数，None 表示无限等待
+            """
             try:
-                data = await self._reader.readline()
-            except (ConnectionResetError, asyncio.IncompleteReadError):
+                if timeout is not None:
+                    data = await asyncio.wait_for(self._reader.readline(), timeout=timeout)
+                else:
+                    data = await self._reader.readline()
+            except (ConnectionResetError, asyncio.IncompleteReadError, asyncio.TimeoutError):
                 return None
             if not data:
                 return None
@@ -295,6 +394,7 @@ else:
 
 
 # ─── DaemonServer ───
+
 
 class DaemonServer:
     """守护进程 IPC 服务端
@@ -332,6 +432,8 @@ class DaemonServer:
         self._unix_server: asyncio.Server | None = None
         # Windows: 预创建的 pipe 句柄（由 accept loop 消费）
         self._pending_pipe_handle: int | None = None
+        # Windows: accept loop 当前正在使用的 pipe 句柄（用于 stop() 时强制关闭解除阻塞）
+        self._active_pipe_handle: int | None = None
 
     @property
     def connection_count(self) -> int:
@@ -371,24 +473,23 @@ class DaemonServer:
             if self._pending_pipe_handle is not None:
                 _win_close_handle(self._pending_pipe_handle)
                 self._pending_pipe_handle = None
-            # Windows: accept loop 阻塞在 ConnectNamedPipe（在线程中执行），
-            # asyncio.to_thread 无法中断线程，CloseHandle 也无法解除阻塞。
-            # 唯一方法是以客户端身份连接 pipe 唤醒线程。
-            # 需重试：accept loop 可能正介于两次迭代之间（pipe 尚未创建），
-            # 此时假连接返回 None，等 accept loop 创建 pipe 后重试即可成功。
+            # ⚠️ 用 CancelIoEx + CloseHandle 替代循环连接唤醒 accept loop
+            # CancelIoEx 取消 ConnectNamedPipe，CloseHandle 关闭句柄
+            if self._active_pipe_handle is not None:
+                try:
+                    _win_cancel_io(self._active_pipe_handle)
+                    _win_close_handle(self._active_pipe_handle)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._active_pipe_handle = None
+            # 保留单次连接作为兜底（handle 可能刚好在两次迭代之间）
             if self._accept_task is not None and not self._accept_task.done():
-                for _ in range(20):  # 最多重试 20 × 50ms = 1s
-                    try:
-                        fake_handle = await asyncio.to_thread(
-                            _win_connect_to_pipe, self._pipe_name
-                        )
-                        if fake_handle is not None:
-                            _win_close_handle(fake_handle)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    await asyncio.sleep(0.05)  # 让 accept loop 有时间处理
-                    if self._accept_task.done():
-                        break
+                try:
+                    fake_handle = await asyncio.to_thread(_win_connect_to_pipe, self._pipe_name)
+                    if fake_handle is not None:
+                        _win_close_handle(fake_handle)
+                except Exception:  # noqa: BLE001
+                    pass
         if self._accept_task:
             self._accept_task.cancel()
             try:
@@ -418,16 +519,20 @@ class DaemonServer:
                     await asyncio.sleep(1)
                     continue
             # 等待客户端连接（阻塞，在线程中执行）
-            # stop() 会以客户端身份连接 pipe 来唤醒此阻塞
+            # stop() 会通过 CloseHandle 强制解除 ConnectNamedPipe 阻塞
+            self._active_pipe_handle = handle
             try:
                 connected = await asyncio.to_thread(_win_connect_pipe, handle)
             except asyncio.CancelledError:
                 _win_close_handle(handle)
+                self._active_pipe_handle = None
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.warning("accept 连接异常: %s", exc)
                 _win_close_handle(handle)
+                self._active_pipe_handle = None
                 continue
+            self._active_pipe_handle = None
             if connected and not self._stop:
                 conn = _WindowsPipeConnection(handle)
                 self._connections.add(conn)
@@ -509,9 +614,7 @@ class DaemonServer:
                 pass
         return {}
 
-    async def wait_for_no_connections(
-        self, grace_seconds: float = 3.0
-    ) -> None:
+    async def wait_for_no_connections(self, grace_seconds: float = 3.0) -> None:
         """等待所有连接断开
 
         连接归零后等 grace_seconds 宽限期，仍为空则返回。
@@ -535,6 +638,7 @@ class DaemonServer:
 
 
 # ─── DaemonClient ───
+
 
 class DaemonClient:
     """守护进程 IPC 客户端
@@ -586,9 +690,7 @@ class DaemonClient:
     async def _windows_connect(self) -> bool:
         """Windows Named Pipe 连接"""
         try:
-            handle = await asyncio.to_thread(
-                _win_connect_to_pipe, self._pipe_name
-            )
+            handle = await asyncio.to_thread(_win_connect_to_pipe, self._pipe_name)
         except OSError:
             return False
         if handle is None:
@@ -630,7 +732,7 @@ class DaemonClient:
         if self._fingerprint is not None:
             msg["fingerprint"] = self._fingerprint
         await self._conn.write_line(json.dumps(msg))
-        line = await asyncio.wait_for(self._conn.read_line(), timeout=5.0)
+        line = await self._conn.read_line(timeout=5.0)
         if line is None:
             raise ConnectionError("连接关闭")
         result: dict[str, Any] = json.loads(line)
@@ -651,7 +753,7 @@ class DaemonClient:
             return None
         try:
             await self._conn.write_line(json.dumps({"type": "ping"}))
-            line = await asyncio.wait_for(self._conn.read_line(), timeout=timeout)
+            line = await self._conn.read_line(timeout=timeout)
         except (OSError, asyncio.TimeoutError):
             return None
         if line is None:
@@ -679,7 +781,7 @@ class DaemonClient:
             return None
         try:
             await self._conn.write_line(json.dumps({"type": "reload"}))
-            line = await asyncio.wait_for(self._conn.read_line(), timeout=timeout)
+            line = await self._conn.read_line(timeout=timeout)
         except (OSError, asyncio.TimeoutError):
             return None
         if line is None:
