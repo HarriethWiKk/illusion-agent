@@ -83,6 +83,9 @@ class QQStreamingController:
         self._started: bool = False  # 是否已发送首个分片
         self._last_flushed_text: str = ""  # 去重：上次成功 flush 的文本
 
+        # fire-and-forget 强引用集合（_create_background_task 创建的 task 在此保持引用）
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()
+
     # --- 公开属性 ---
 
     @property

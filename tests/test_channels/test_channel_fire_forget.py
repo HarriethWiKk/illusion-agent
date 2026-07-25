@@ -89,3 +89,20 @@ def test_module_level_set_pattern():
         assert len(module_tasks) == 0
 
     asyncio.run(run())
+
+
+def test_qq_streaming_controller_dispatch_tasks_initialized():
+    """QQStreamingController 初始化 _dispatch_tasks 集合。"""
+    import inspect
+    from illusion.channels.qq.streaming import QQStreamingController
+    # 检查 __init__ 中是否包含 _dispatch_tasks 初始化
+    source = inspect.getsource(QQStreamingController.__init__)
+    assert "_dispatch_tasks" in source, "QQStreamingController.__init__ 应初始化 _dispatch_tasks"
+
+
+def test_feishu_streaming_controller_dispatch_tasks_initialized():
+    """FeishuStreamingCardController 初始化 _dispatch_tasks 集合。"""
+    import inspect
+    from illusion.channels.feishu.streaming import FeishuStreamingCardController
+    source = inspect.getsource(FeishuStreamingCardController.__init__)
+    assert "_dispatch_tasks" in source, "FeishuStreamingCardController.__init__ 应初始化 _dispatch_tasks"

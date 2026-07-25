@@ -95,6 +95,9 @@ class FeishuStreamingCardController:
         self._reasoning_start_time: float = 0.0
         self._reasoning_elapsed_ms: int = 0
 
+        # fire-and-forget 强引用集合（_create_background_task 创建的 task 在此保持引用）
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()
+
     # --- 公开属性 ---
 
     @property
