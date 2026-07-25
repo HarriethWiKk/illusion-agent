@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Coroutine
 
 from rich.panel import Panel
 from textual import on
@@ -369,6 +369,8 @@ class illusionTerminalApp(App[None]):
         self._assistant_buffer = ""           # 助手输出缓冲区
         self._busy = False                  # 当前是否正在处理请求
         self.transcript_lines: list[str] = []  # 对话历史
+        # fire-and-forget task 强引用集合，防止 GC 抢收
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()
 
     def compose(self) -> ComposeResult:
         """构建界面布局。"""
@@ -413,7 +415,23 @@ class illusionTerminalApp(App[None]):
         self.set_interval(1.0, self._refresh_sidebars)
         # 如果有初始提示词，自动执行
         if self._config.prompt:
-            self.call_later(lambda: asyncio.create_task(self._process_line(self._config.prompt or "")))
+            self.call_later(
+                lambda: self._create_background_task(self._process_line(self._config.prompt or ""))
+            )
+
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 抢收。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            创建的 task
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
 
     async def on_unmount(self) -> None:
         """应用卸载时清理资源。"""

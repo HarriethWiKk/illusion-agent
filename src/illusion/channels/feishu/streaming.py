@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Coroutine
 
 from illusion.channels.feishu.messaging import (
     STREAMING_ELEMENT_ID,
@@ -272,7 +272,21 @@ class FeishuStreamingCardController:
     def _delayed_flush_callback(self) -> None:
         """call_later 回调：清除 timer 句柄并调度实际 flush 任务"""
         self._pending_timer = None
-        asyncio.create_task(self._delayed_flush_task())
+        self._create_background_task(self._delayed_flush_task())
+
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 抢收。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            创建的 task
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
 
     async def _delayed_flush_task(self) -> None:
         """延迟 flush 任务：检查状态后执行 flush"""

@@ -21,7 +21,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Coroutine
 
 import aiohttp
 
@@ -101,6 +101,8 @@ class QQWSClient:
         self._session_id: str = ""
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._listen_task: asyncio.Task[None] | None = None
+        # fire-and-forget task 强引用集合，防止 GC 抢收
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def is_connected(self) -> bool:
@@ -396,6 +398,20 @@ class QQWSClient:
 
     # ── 事件分发 ──────────────────────────────────────────────
 
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 抢收。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            创建的 task
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
+
     def _dispatch_payload(self, payload: dict[str, Any]) -> None:
         """路由入站 WS 帧"""
         op = payload.get("op")
@@ -415,9 +431,9 @@ class QQWSClient:
 
             # 首次连接发 Identify，断线重连发 Resume
             if self._session_id:
-                asyncio.create_task(self._send_resume())
+                self._create_background_task(self._send_resume())
             else:
-                asyncio.create_task(self._send_identify())
+                self._create_background_task(self._send_identify())
             return
 
         # op 0 = Dispatch
@@ -431,14 +447,14 @@ class QQWSClient:
 
             # 业务事件交给 adapter
             if d and isinstance(d, dict):
-                asyncio.create_task(self._on_event(t, d))  # type: ignore[arg-type]
+                self._create_background_task(self._on_event(t, d))  # type: ignore[arg-type]
             return
 
         # op 7 = Server Reconnect
         if op == 7:
             logger.info("QQ 服务端要求重连")
             if self._ws and not self._ws.closed:
-                asyncio.create_task(self._ws.close())
+                self._create_background_task(self._ws.close())
             return
 
         # op 9 = Invalid Session

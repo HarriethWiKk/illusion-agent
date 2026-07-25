@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Coroutine, cast
 
 from illusion.channels.config import load_channels_config
 
@@ -334,6 +334,8 @@ class ChannelRunner:
         # 当前正在运行的 agent task（按 chat_id 索引），供 /stop 中断
         self._active_agent_tasks: dict[str, asyncio.Task[None]] = {}
         self._stop = False
+        # fire-and-forget task 强引用集合，防止 GC 抢收
+        self._dispatch_tasks: set[asyncio.Task[None]] = set()
 
     def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
         """获取指定 chat_id 的串行化锁（懒创建）"""
@@ -342,6 +344,20 @@ class ChannelRunner:
             lock = asyncio.Lock()
             self._chat_locks[chat_id] = lock
         return lock
+
+    def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """创建 fire-and-forget task 并保留强引用，防止 GC 抢收。
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            创建的 task
+        """
+        task = asyncio.create_task(coro)
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+        return task
 
     async def run(self) -> None:
         """启动渠道，监听消息并处理"""
@@ -354,7 +370,7 @@ class ChannelRunner:
             if watchdog is not None:
                 watchdog.on_event()
             # 每条消息独立处理，加异常日志回调避免静默失败
-            task = asyncio.create_task(self._handle_message(msg))
+            task = self._create_background_task(self._handle_message(msg))
             task.add_done_callback(self._log_task_exception)
 
     @staticmethod

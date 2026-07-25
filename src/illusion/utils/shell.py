@@ -34,10 +34,28 @@ import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Coroutine
 
 from illusion.config import Settings, load_settings
 from illusion.platforms import PlatformName, get_platform
+
+# 模块级强引用集合，防止 fire-and-forget task 被 GC 抢收
+_module_tasks: set[asyncio.Task[None]] = set()
+
+
+def _create_module_task(coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+    """创建模块级 fire-and-forget task 并保留强引用。
+
+    Args:
+        coro: 要执行的协程
+
+    Returns:
+        创建的 task
+    """
+    task = asyncio.create_task(coro)
+    _module_tasks.add(task)
+    task.add_done_callback(_module_tasks.discard)
+    return task
 
 
 def resolve_shell_command(
@@ -184,7 +202,7 @@ async def create_shell_subprocess(
 
     # 进程结束后异步清理沙箱
     if sandbox_manager:
-        asyncio.create_task(_cleanup_sandbox_after_exit(process, sandbox_manager))
+        _create_module_task(_cleanup_sandbox_after_exit(process, sandbox_manager))
     return process
 
 
