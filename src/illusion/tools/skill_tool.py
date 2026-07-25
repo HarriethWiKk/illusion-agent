@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel, Field
 
 from illusion.skills.loader import load_skill_registry
@@ -58,7 +60,8 @@ Important:
         return True
 
     async def execute(self, arguments: SkillToolInput, context: ToolExecutionContext) -> ToolResult:
-        registry = load_skill_registry(context.cwd)
+        # 加载技能注册表（涉及大量文件 I/O，委托给线程池避免阻塞事件循环）
+        registry = await asyncio.to_thread(load_skill_registry, context.cwd)
         # 尝试多种名称格式匹配
         skill = (
             registry.get(arguments.name)

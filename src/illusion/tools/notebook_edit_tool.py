@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -84,7 +85,7 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
 
         # 对现有文件进行读后编辑检查（基于缓存）
         abs_path = str(path)
-        if path.exists() and cache is not None:
+        if await asyncio.to_thread(path.exists) and cache is not None:
             cached = cache.get(abs_path)
             if cached is None:
                 return ToolResult(
@@ -94,7 +95,7 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
 
             # mtime 过期检测
             try:
-                current_mtime = os.path.getmtime(path)
+                current_mtime = await asyncio.to_thread(os.path.getmtime, path)
                 if current_mtime > cached.timestamp:
                     return ToolResult(
                         output=f"File {path} has been modified since last read. Please read it again before editing.",
@@ -104,7 +105,7 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
                 pass
 
         # 加载 notebook
-        notebook = _load_notebook(path)
+        notebook = await asyncio.to_thread(_load_notebook, path)
         if notebook is None:
             return ToolResult(output=f"Notebook not found: {path}", is_error=True)
 
@@ -141,9 +142,9 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
                     is_error=True,
                 )
             cells.pop(cell_index)
-            _save_notebook(path, notebook)
+            await asyncio.to_thread(_save_notebook, path, notebook)
             # 更新缓存
-            _update_cache(cache, abs_path, path, notebook)
+            await asyncio.to_thread(_update_cache, cache, abs_path, path, notebook)
             return ToolResult(
                 output=f"Deleted cell {cell_index} from {path}"
             )
@@ -155,9 +156,9 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
             # 在指定索引处插入
             insert_at = min(cell_index, len(cells))
             cells.insert(insert_at, new_cell)
-            _save_notebook(path, notebook)
+            await asyncio.to_thread(_save_notebook, path, notebook)
             # 更新缓存
-            _update_cache(cache, abs_path, path, notebook)
+            await asyncio.to_thread(_update_cache, cache, abs_path, path, notebook)
             return ToolResult(
                 output=f"Inserted cell at index {insert_at} in {path}"
             )
@@ -181,9 +182,9 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
 
         cell["source"] = arguments.new_source
 
-        _save_notebook(path, notebook)
+        await asyncio.to_thread(_save_notebook, path, notebook)
         # 更新缓存
-        _update_cache(cache, abs_path, path, notebook)
+        await asyncio.to_thread(_update_cache, cache, abs_path, path, notebook)
         return ToolResult(output=f"Updated notebook cell {cell_index} in {path}")
 
 

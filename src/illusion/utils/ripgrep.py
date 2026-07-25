@@ -4,6 +4,7 @@ ripgrep (rg) 二进制的发现、下载、缓存和执行模块。
 核心原则：让 rg 去碰文件系统，Python 只处理结果。
 """
 
+import asyncio
 import os
 import platform
 import shutil
@@ -239,10 +240,11 @@ async def ensure_ripgrep() -> str:
         RipgrepNotFoundError: rg 不可用时
     """
     try:
-        return find_rg_path()
+        # 委托给线程池避免阻塞事件循环（find_rg_path 会做多次 os.path.exists / shutil.which）
+        return await asyncio.to_thread(find_rg_path)
     except RipgrepNotFoundError:
-        # 尝试下载
-        return download_rg()
+        # 尝试下载（涉及网络与磁盘解压，必须放线程池中执行）
+        return await asyncio.to_thread(download_rg)
 
 
 async def run_rg(args: list[str], cwd: str | None = None,
@@ -261,7 +263,6 @@ async def run_rg(args: list[str], cwd: str | None = None,
     Raises:
         RipgrepError: 执行失败或超时时
     """
-    import asyncio
     import subprocess
 
     rg_path = await ensure_ripgrep()

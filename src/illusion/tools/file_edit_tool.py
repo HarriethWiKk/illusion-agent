@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -122,19 +123,19 @@ Usage:
         cache: FileStateCache | None = context.metadata.get("file_state_cache")
 
         # 处理新文件创建：仅当 old_string 为空时允许
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             if arguments.old_string:
                 return ToolResult(
                     output=f"File not found: {path}. To create a new file, set old_string to empty string.",
                     is_error=True,
                 )
             # 创建新文件
-            path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(path, arguments.new_string)
+            await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(atomic_write_text, path, arguments.new_string)
             # 将新创建的文件写入缓存
             if cache is not None:
                 try:
-                    mtime = os.path.getmtime(path)
+                    mtime = await asyncio.to_thread(os.path.getmtime, path)
                     cache.set(str(path), FileState(
                         content=arguments.new_string,
                         timestamp=mtime,
@@ -163,12 +164,14 @@ Usage:
 
             # mtime 过期检测
             try:
-                current_mtime = os.path.getmtime(path)
+                current_mtime = await asyncio.to_thread(os.path.getmtime, path)
                 if current_mtime > cached.timestamp:
                     # 对于完整读取（offset=None, limit=None），进行内容比较回退
                     # 这解决了 Windows 上 mtime 误报的问题（云同步、杀毒软件等）
                     if cached.offset is None and cached.limit is None:
-                        current_content = path.read_text(encoding="utf-8")
+                        current_content = await asyncio.to_thread(
+                            path.read_text, encoding="utf-8"
+                        )
                         if current_content != cached.content:
                             return ToolResult(
                                 output=(
@@ -196,7 +199,7 @@ Usage:
             )
 
         # 非空文件上的空 old_string
-        original = path.read_text(encoding="utf-8")
+        original = await asyncio.to_thread(path.read_text, encoding="utf-8")
         if not arguments.old_string and original.strip():
             return ToolResult(
                 output=(
@@ -208,11 +211,11 @@ Usage:
 
         # 空文件上的空 old_string = 写入新内容
         if not arguments.old_string and not original.strip():
-            atomic_write_text(path, arguments.new_string)
+            await asyncio.to_thread(atomic_write_text, path, arguments.new_string)
             # 更新缓存
             if cache is not None:
                 try:
-                    mtime = os.path.getmtime(path)
+                    mtime = await asyncio.to_thread(os.path.getmtime, path)
                     cache.set(abs_path, FileState(
                         content=arguments.new_string,
                         timestamp=mtime,
@@ -252,12 +255,12 @@ Usage:
         else:
             updated = original.replace(arguments.old_string, arguments.new_string, 1)
 
-        atomic_write_text(path, updated)
+        await asyncio.to_thread(atomic_write_text, path, updated)
 
         # 更新缓存
         if cache is not None:
             try:
-                mtime = os.path.getmtime(path)
+                mtime = await asyncio.to_thread(os.path.getmtime, path)
                 cache.set(abs_path, FileState(
                     content=updated,
                     timestamp=mtime,

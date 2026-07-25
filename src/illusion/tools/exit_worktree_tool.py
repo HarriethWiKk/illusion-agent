@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -84,12 +85,8 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
         arguments: ExitWorktreeToolInput,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        run_kwargs: dict[str, Any] = {}
-        if sys.platform == "win32":
-            run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
         # 获取主仓库的公共 .git 目录（worktree 内也能正确指向主仓库）
-        common_dir = _git_output(context.cwd, "rev-parse", "--git-common-dir")
+        common_dir = await _git_output(context.cwd, "rev-parse", "--git-common-dir")
         if common_dir is None:
             return ToolResult(output="Not in a git repository", is_error=True)
 
@@ -120,25 +117,22 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
 
         # remove 操作
         # 获取分支名（在删除 worktree 之前）
-        branch = _git_output(worktree_path, "rev-parse", "--abbrev-ref", "HEAD")
+        branch = await _git_output(worktree_path, "rev-parse", "--abbrev-ref", "HEAD")
 
         # 检查未提交的更改，除非 discard_changes 为 true
         if not arguments.discard_changes:
-            status_check = subprocess.run(
+            status_proc = await _create_git_subprocess(
                 ["git", "status", "--porcelain"],
                 cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                check=False,
-                stdin=subprocess.DEVNULL,
-                **run_kwargs,
             )
-            if status_check.stdout.strip():
+            status_stdout, _ = await status_proc.communicate()
+            status_text = (status_stdout or b"").decode("utf-8", errors="replace")
+            if status_text.strip():
                 return ToolResult(
                     output=(
                         f"Worktree has uncommitted changes. "
                         f"Set discard_changes=true to force remove.\n"
-                        f"Changes:\n{status_check.stdout.strip()[:500]}"
+                        f"Changes:\n{status_text.strip()[:500]}"
                     ),
                     is_error=True,
                 )
@@ -149,39 +143,46 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
             cmd.append("--force")
         cmd.append(str(worktree_path))
 
-        result = subprocess.run(
-            cmd,
-            cwd=main_repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            **run_kwargs,
-        )
-        if result.returncode != 0:
-            output = (result.stdout or result.stderr).strip() or f"Failed to remove worktree {worktree_path}"
+        result_proc = await _create_git_subprocess(cmd, cwd=main_repo_root)
+        result_stdout, result_stderr = await result_proc.communicate()
+        result_stdout_text = (result_stdout or b"").decode("utf-8", errors="replace")
+        result_stderr_text = (result_stderr or b"").decode("utf-8", errors="replace")
+        if result_proc.returncode != 0:
+            output = (result_stdout_text or result_stderr_text).strip() or f"Failed to remove worktree {worktree_path}"
             return ToolResult(output=output, is_error=True)
 
         # 删除对应的分支
         if branch and branch != "HEAD":
-            subprocess.run(
+            branch_proc = await _create_git_subprocess(
                 ["git", "branch", "-D", branch],
                 cwd=main_repo_root,
-                capture_output=True,
-                text=True,
-                check=False,
-                stdin=subprocess.DEVNULL,
-                **run_kwargs,
             )
+            await branch_proc.communicate()
 
-        output = (result.stdout or "").strip() or f"Removed worktree {worktree_path}"
+        output = result_stdout_text.strip() or f"Removed worktree {worktree_path}"
         return ToolResult(
             output=output,
             metadata={"new_cwd": str(main_repo_root)},
         )
 
 
-def _git_output(cwd: Path, *args: str) -> str | None:
+async def _create_git_subprocess(
+    cmd: list[str],
+    cwd: Path,
+) -> asyncio.subprocess.Process:
+    """创建 git 子进程，跨平台处理 Windows 的 CREATE_NO_WINDOW 标志。"""
+    kwargs: dict[str, Any] = {
+        "cwd": cwd,
+        "stdin": asyncio.subprocess.DEVNULL,
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return await asyncio.create_subprocess_exec(*cmd, **kwargs)
+
+
+async def _git_output(cwd: Path, *args: str) -> str | None:
     """执行 git 命令并返回输出。
 
     参数：
@@ -191,21 +192,11 @@ def _git_output(cwd: Path, *args: str) -> str | None:
     返回：
         命令输出字符串，失败返回 None
     """
-    run_kwargs: dict[str, Any] = {}
-    if sys.platform == "win32":
-        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        stdin=subprocess.DEVNULL,
-        **run_kwargs,
-    )
-    if result.returncode != 0:
+    proc = await _create_git_subprocess(["git", *args], cwd=cwd)
+    stdout_bytes, _ = await proc.communicate()
+    if proc.returncode != 0:
         return None
-    return (result.stdout or "").strip()
+    return (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
 
 
 def _is_subpath(path: Path, parent: Path) -> bool:

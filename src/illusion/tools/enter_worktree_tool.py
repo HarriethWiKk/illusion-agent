@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 import sys
@@ -93,25 +94,19 @@ class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
         branch_name = name
 
         # 尝试 git 仓库路径
-        top_level = _git_output(context.cwd, "rev-parse", "--show-toplevel")
+        top_level = await _git_output(context.cwd, "rev-parse", "--show-toplevel")
         if top_level is not None:
             # ---- Git 仓库模式 ----
             repo_root = Path(top_level)
             worktree_path = _resolve_worktree_path(repo_root, branch_name)
-            worktree_path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(worktree_path.parent.mkdir, parents=True, exist_ok=True)
             cmd = ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"]
-            run_kwargs: dict[str, Any] = {
-                "cwd": repo_root,
-                "capture_output": True,
-                "text": True,
-                "check": False,
-                "stdin": subprocess.DEVNULL,
-            }
-            if sys.platform == "win32":
-                run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            result = subprocess.run(cmd, **run_kwargs)
-            output = (result.stdout or result.stderr).strip() or f"Created worktree {worktree_path}"
-            if result.returncode != 0:
+            proc = await _create_git_subprocess(cmd, cwd=repo_root)
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            stdout = (stdout_bytes or b"").decode("utf-8", errors="replace")
+            stderr = (stderr_bytes or b"").decode("utf-8", errors="replace")
+            output = (stdout or stderr).strip() or f"Created worktree {worktree_path}"
+            if proc.returncode != 0:
                 return ToolResult(output=output, is_error=True)
             return ToolResult(
                 output=f"{output}\nPath: {worktree_path}",
@@ -125,7 +120,7 @@ class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
             has_remove = "WorktreeRemove" in hooks or "worktree_remove" in hooks
             if has_create and has_remove:
                 worktree_path = _resolve_worktree_path(context.cwd.resolve(), branch_name)
-                worktree_path.mkdir(parents=True, exist_ok=True)
+                await asyncio.to_thread(worktree_path.mkdir, parents=True, exist_ok=True)
                 return ToolResult(
                     output=f"Created isolated worktree at {worktree_path}",
                     metadata={"new_cwd": str(worktree_path)},
@@ -139,7 +134,23 @@ class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
             )
 
 
-def _git_output(cwd: Path, *args: str) -> str | None:
+async def _create_git_subprocess(
+    cmd: list[str],
+    cwd: Path,
+) -> asyncio.subprocess.Process:
+    """创建 git 子进程，跨平台处理 Windows 的 CREATE_NO_WINDOW 标志。"""
+    kwargs: dict[str, Any] = {
+        "cwd": cwd,
+        "stdin": asyncio.subprocess.DEVNULL,
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return await asyncio.create_subprocess_exec(*cmd, **kwargs)
+
+
+async def _git_output(cwd: Path, *args: str) -> str | None:
     """执行 git 命令并返回输出。
 
     参数：
@@ -149,19 +160,11 @@ def _git_output(cwd: Path, *args: str) -> str | None:
     返回：
         命令输出字符串，失败返回 None
     """
-    run_kwargs: dict[str, Any] = {
-        "cwd": cwd,
-        "capture_output": True,
-        "text": True,
-        "check": False,
-        "stdin": subprocess.DEVNULL,
-    }
-    if sys.platform == "win32":
-        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    result = subprocess.run(["git", *args], **run_kwargs)
-    if result.returncode != 0:
+    proc = await _create_git_subprocess(["git", *args], cwd=cwd)
+    stdout_bytes, _ = await proc.communicate()
+    if proc.returncode != 0:
         return None
-    return (result.stdout or "").strip()
+    return (stdout_bytes or b"").decode("utf-8", errors="replace").strip()
 
 
 def _resolve_worktree_path(repo_root: Path, name: str) -> Path:

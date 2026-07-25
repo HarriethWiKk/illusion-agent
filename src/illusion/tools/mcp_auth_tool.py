@@ -14,6 +14,8 @@ MCP 认证配置工具
 
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings, save_settings
@@ -48,8 +50,8 @@ class McpAuthTool(BaseTool[McpAuthToolInput]):
     input_model = McpAuthToolInput
 
     async def execute(self, arguments: McpAuthToolInput, context: ToolExecutionContext) -> ToolResult:
-        # 加载设置
-        settings = load_settings()
+        # 加载设置（涉及文件 I/O，委托给线程池避免阻塞事件循环）
+        settings = await asyncio.to_thread(load_settings)
         mcp_manager = context.metadata.get("mcp_manager")
         # 尝试从设置或 mcp_manager 获取服务器配置
         config = settings.mcp_servers.get(arguments.server_name)
@@ -84,7 +86,7 @@ class McpAuthTool(BaseTool[McpAuthToolInput]):
 
         # 保存设置
         settings.mcp_servers[arguments.server_name] = updated
-        save_settings(settings)
+        await asyncio.to_thread(save_settings, settings)
 
         # 尝试重新连接
         if mcp_manager is not None:

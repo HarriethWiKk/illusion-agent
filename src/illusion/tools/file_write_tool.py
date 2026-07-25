@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -91,7 +92,7 @@ Usage:
 
         # 对于已有文件，执行读后写强制检查（基于缓存）
         abs_path = str(path)
-        if path.exists() and cache is not None:
+        if await asyncio.to_thread(path.exists) and cache is not None:
             cached = cache.get(abs_path)
             if cached is None:
                 return ToolResult(
@@ -105,11 +106,13 @@ Usage:
 
             # mtime 过期检测
             try:
-                current_mtime = os.path.getmtime(path)
+                current_mtime = await asyncio.to_thread(os.path.getmtime, path)
                 if current_mtime > cached.timestamp:
                     # 对于完整读取，进行内容比较回退
                     if cached.offset is None and cached.limit is None:
-                        current_content = path.read_text(encoding="utf-8")
+                        current_content = await asyncio.to_thread(
+                            path.read_text, encoding="utf-8"
+                        )
                         if current_content != cached.content:
                             return ToolResult(
                                 output=(
@@ -131,23 +134,23 @@ Usage:
 
         # 如果需要，创建父目录
         if arguments.create_directories:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
 
         # 判断是创建还是更新
-        is_update = path.exists()
+        is_update = await asyncio.to_thread(path.exists)
 
         # 对于已有文件，读取原始内容以生成diff
         original = ""
         if is_update:
-            original = path.read_text(encoding="utf-8")
+            original = await asyncio.to_thread(path.read_text, encoding="utf-8")
 
         # 写入文件内容
-        atomic_write_text(path, arguments.content)
+        await asyncio.to_thread(atomic_write_text, path, arguments.content)
 
         # 更新缓存
         if cache is not None:
             try:
-                mtime = os.path.getmtime(path)
+                mtime = await asyncio.to_thread(os.path.getmtime, path)
                 cache.set(abs_path, FileState(
                     content=arguments.content,
                     timestamp=mtime,

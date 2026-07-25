@@ -118,7 +118,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             return ToolResult(output="filePath is required for this operation.", is_error=True)
 
         file_path = resolve_path(root, arguments.filePath)
-        if not file_path.exists():
+        if not await asyncio.to_thread(file_path.exists):
             return ToolResult(output=f"File not found: {file_path}", is_error=True)
 
         lang_id = manager.get_language_id(file_path)
@@ -191,7 +191,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
     async def _open_file(client: Any, file_path: Path, lang_id: str, file_uri: str) -> None:
         """打开文件并等待服务器分析完成。"""
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content = await asyncio.to_thread(file_path.read_text, encoding="utf-8", errors="replace")
 
             # 等待诊断通知
             diag_event = asyncio.Event()
@@ -261,7 +261,9 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         # 收集项目中的所有源文件
         source_files: list[tuple[Path, str]] = []
         skip_names = {"node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", "target", "vendor"}
-        for f in root.rglob("*"):
+        # rglob 可能在大仓库上耗时较长，委托给线程池避免阻塞事件循环
+        all_files = await asyncio.to_thread(lambda: list(root.rglob("*")))
+        for f in all_files:
             if not f.is_file():
                 continue
             if any(p in skip_names for p in f.relative_to(root).parts):
@@ -293,7 +295,9 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 if len(all_results) >= 10:
                     break
                 try:
-                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                    content = await asyncio.to_thread(
+                        file_path.read_text, encoding="utf-8", errors="replace"
+                    )
                     file_uri = file_path.as_uri()
 
                     if file_uri not in _get_opened_files():

@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings, save_settings
@@ -72,8 +74,8 @@ Only top-level flat fields can be set. Nested objects (permission, sandbox, memo
 
     async def execute(self, arguments: ConfigToolInput, context: ToolExecutionContext) -> ToolResult:
         del context
-        # 加载当前设置
-        settings = load_settings()
+        # 加载当前设置（涉及文件 I/O，委托给线程池避免阻塞事件循环）
+        settings = await asyncio.to_thread(load_settings)
         # 显示当前所有配置
         if arguments.action == "show":
             return ToolResult(output=settings.model_dump_json(indent=2))
@@ -85,6 +87,6 @@ Only top-level flat fields can be set. Nested objects (permission, sandbox, memo
             # 更新配置值
             setattr(settings, arguments.key, arguments.value)
             # 保存设置
-            save_settings(settings)
+            await asyncio.to_thread(save_settings, settings)
             return ToolResult(output=f"Updated {arguments.key}")
         return ToolResult(output="Usage: action=show or action=set with key/value", is_error=True)

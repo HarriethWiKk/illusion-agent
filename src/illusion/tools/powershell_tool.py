@@ -32,6 +32,12 @@ from illusion.tools.shell_common import MAX_OUTPUT_LENGTH, CommandExecutor
 PowerShellEdition = Literal["core", "desktop"]
 
 
+def _append_chunk(output_file: Path, chunk: bytes) -> None:
+    """将字节块追加写入输出文件（在线程池中执行以避免阻塞事件循环）。"""
+    with output_file.open("ab") as handle:
+        handle.write(chunk)
+
+
 # ---------------------------------------------------------------------------
 # PowerShell 检测
 # ---------------------------------------------------------------------------
@@ -327,8 +333,8 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
                 created_at=_time.time(),
                 started_at=_time.time(),
             )
-            record.output_file.parent.mkdir(parents=True, exist_ok=True)
-            record.output_file.write_text("", encoding="utf-8")
+            await asyncio.to_thread(record.output_file.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(record.output_file.write_text, "", encoding="utf-8")
             manager._tasks[task_id] = record
             manager._output_locks[task_id] = asyncio.Lock()
             # 注册到 bg_agent_tracker，使完成时能自动通知 LLM
@@ -345,15 +351,14 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
                         chunk = await process.stdout.read(4096)
                         if not chunk:
                             break
+                        # 锁保护共享输出文件，I/O 委托给线程池避免阻塞事件循环
                         async with manager._output_locks[task_id]:
-                            with record.output_file.open("ab") as handle:
-                                handle.write(chunk)
+                            await asyncio.to_thread(_append_chunk, record.output_file, chunk)
                     # stderr 也累积到 output_file（与 manager._copy_output 一致）
                     stderr_data = await process.stderr.read()
                     if stderr_data:
                         async with manager._output_locks[task_id]:
-                            with record.output_file.open("ab") as handle:
-                                handle.write(stderr_data)
+                            await asyncio.to_thread(_append_chunk, record.output_file, stderr_data)
                     return_code = await process.wait()
                     record.return_code = return_code
                     record.status = "completed" if return_code == 0 else "failed"

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncio
 import base64
 import json
 import mimetypes
@@ -110,10 +111,10 @@ Usage:
         # 解析文件路径
         path = _resolve_path(context.cwd, arguments.file_path)
         # 检查文件是否存在
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             return ToolResult(output=f"File not found: {path}", is_error=True)
         # 检查是否为目录
-        if path.is_dir():
+        if await asyncio.to_thread(path.is_dir):
             return ToolResult(output=f"Cannot read directory: {path}", is_error=True)
 
         # 获取文件状态缓存
@@ -121,18 +122,18 @@ Usage:
 
         # 检测是否为 Jupyter notebook
         if path.suffix.lower() == ".ipynb":
-            return self._read_notebook_file(path, arguments, cache)
+            return await self._read_notebook_file(path, arguments, cache)
 
         # 检测是否为图片文件
         if _is_image_file(path):
-            return self._read_image_file(path)
+            return await self._read_image_file(path)
 
         # 读取文本文件
-        return self._read_text_file(path, arguments, cache)
+        return await self._read_text_file(path, arguments, cache)
 
-    def _read_image_file(self, path: Path) -> ToolResult:
+    async def _read_image_file(self, path: Path) -> ToolResult:
         """读取图片文件并返回 base64 编码数据。"""
-        raw = path.read_bytes()
+        raw = await asyncio.to_thread(path.read_bytes)
         file_size = len(raw)
 
         # 检查文件大小限制
@@ -161,7 +162,7 @@ Usage:
             },
         )
 
-    def _read_notebook_file(
+    async def _read_notebook_file(
         self,
         path: Path,
         arguments: FileReadToolInput,
@@ -178,7 +179,7 @@ Usage:
             ToolResult: 读取结果
         """
         try:
-            raw = path.read_text(encoding="utf-8")
+            raw = await asyncio.to_thread(path.read_text, encoding="utf-8")
             nb = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             return ToolResult(output=f"Failed to parse notebook {path}: {e}", is_error=True)
@@ -262,7 +263,7 @@ Usage:
         # 写入缓存
         if cache is not None:
             try:
-                mtime = os.path.getmtime(path)
+                mtime = await asyncio.to_thread(os.path.getmtime, path)
                 cache.set(str(path), FileState(
                     content=raw,
                     timestamp=mtime,
@@ -274,7 +275,7 @@ Usage:
 
         return ToolResult(output="\n".join(output_parts).strip())
 
-    def _read_text_file(
+    async def _read_text_file(
         self,
         path: Path,
         arguments: FileReadToolInput,
@@ -303,7 +304,7 @@ Usage:
             ):
                 # 检查 mtime
                 try:
-                    current_mtime = os.path.getmtime(path)
+                    current_mtime = await asyncio.to_thread(os.path.getmtime, path)
                     if current_mtime == cached.timestamp:
                         return ToolResult(
                             output="File unchanged since last read. "
@@ -313,7 +314,7 @@ Usage:
                     pass  # 文件可能已被删除，继续读取
 
         # 实际读取文件
-        raw = path.read_bytes()
+        raw = await asyncio.to_thread(path.read_bytes)
         if b"\x00" in raw:
             return ToolResult(output=f"Binary file cannot be read as text: {path}", is_error=True)
 
@@ -332,7 +333,7 @@ Usage:
         # 写入缓存
         if cache is not None:
             try:
-                mtime = os.path.getmtime(path)
+                mtime = await asyncio.to_thread(os.path.getmtime, path)
                 cache.set(abs_path, FileState(
                     content=text,
                     timestamp=mtime,
