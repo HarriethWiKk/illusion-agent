@@ -646,28 +646,58 @@ async def run_agent_in_process(
                     if getattr(event, "type", None) in ("tool_use", "tool_call", "ToolExecutionCompleted"):
                         ctx.tool_use_count += 1
 
-                # 检查取消
+                # 检查取消（仅在 yield 之间检查，force_cancel 由 Task 10 处理）
                 if ctx.abort_controller.is_cancelled:
                     logger.debug("[agent_executor] %s: cancelled", agent_id)
                     return
 
-                # 耗尽消息队列
-                while not ctx.message_queue.empty():
-                    try:
-                        queued = ctx.message_queue.get_nowait()
-                        logger.debug("[agent_executor] %s: injecting message from %s", agent_id, queued.from_agent)
-                        messages.append(ConversationMessage.from_user_text(queued.text))
-                    except asyncio.QueueEmpty:
-                        break
+        # 创建并发任务：查询循环 + 消息消费者 + 超时 + 取消事件
+        # ⚠️ 用 asyncio.wait FIRST_COMPLETED 替代 wait_for，避免 consumer 永久卡死
+        cancel_event = ctx.abort_controller.cancel_event
+        query_task = asyncio.create_task(_run_query_loop(), name=f"agent-{agent_id}-query")
+        message_task = asyncio.create_task(
+            _message_consumer(messages, ctx), name=f"agent-{agent_id}-msg"
+        )
+        timeout_task = asyncio.create_task(
+            asyncio.sleep(AGENT_TIMEOUT), name=f"agent-{agent_id}-timeout"
+        )
+        cancel_task = asyncio.create_task(cancel_event.wait(), name=f"agent-{agent_id}-cancel")
 
-        # 带超时执行查询循环
         try:
             logger.warning("[agent_executor] %s: about to await query loop", agent_id)
-            await asyncio.wait_for(_run_query_loop(), timeout=AGENT_TIMEOUT)
-            logger.warning("[agent_executor] %s: query loop completed", agent_id)
-        except asyncio.TimeoutError:
-            logger.error("[agent_executor] %s: agent timed out after %ds", agent_id, AGENT_TIMEOUT)
-            error_text = f"Agent timed out after {AGENT_TIMEOUT} seconds"
+            done, pending = await asyncio.wait(
+                [query_task, timeout_task, cancel_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if query_task in done:
+                # 正常完成或抛异常
+                query_task.result()
+                logger.warning("[agent_executor] %s: query loop completed", agent_id)
+            else:
+                # 超时或取消：优雅取消 query_task
+                query_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await query_task
+                if cancel_task in done:
+                    logger.warning("[agent_executor] %s: 通过 abort_controller 取消", agent_id)
+                else:
+                    logger.error("[agent_executor] %s: 超时（%ds）", agent_id, AGENT_TIMEOUT)
+                    error_text = f"Agent timed out after {AGENT_TIMEOUT} seconds"
+                    ctx.abort_controller.request_cancel(force=True)
+        finally:
+            # ⚠️ 关键：关闭 message_queue 唤醒 consumer，否则 consumer 永久卡住
+            ctx.message_queue.shutdown()
+            if message_task is not None:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await message_task
+            # 清理辅助 task：主动 cancel 后用 gather(return_exceptions=True) 等待退出
+            # 不传播 CancelledError，避免中断 finally 块的后续清理
+            pending_helpers = [t for t in (timeout_task, cancel_task) if not t.done()]
+            for t in pending_helpers:
+                t.cancel()
+            if pending_helpers:
+                await asyncio.gather(*pending_helpers, return_exceptions=True)
 
         # 从消息中提取最终文本
         for msg in reversed(messages):
