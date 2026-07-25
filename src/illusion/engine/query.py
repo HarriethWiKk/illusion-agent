@@ -159,6 +159,9 @@ class BackgroundAgentTracker:
         self._wake_event: asyncio.Event = asyncio.Event()
         self._completions: list[BgAgentCompletion] = []
         self._pending_count: int = 0
+        self._shutdown: bool = False
+        # 强引用持有后台 task，防止 GC 在 task 完成前回收
+        self._bg_tasks: set[asyncio.Task[None]] = set()
 
     def register(self, agent_id: str) -> None:
         """注册一个待处理的后台代理。
@@ -168,16 +171,36 @@ class BackgroundAgentTracker:
         """
         self._pending_count += 1
 
+    def register_bg_task(self, task: asyncio.Task[None]) -> None:
+        """注册一个后台 task 的强引用，shutdown 时统一 cancel。
+
+        task 完成后自动从集合中移除，避免内存泄漏。
+
+        Args:
+            task: 后台 asyncio.Task
+        """
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
     def notify_completed(self, agent_id: str, notification_xml: str) -> None:
         """通知后台代理已完成。
+
+        shutdown 后调用为 no-op，避免在关闭后累积虚假 completion。
+        重复 notify 不会使 _pending_count 变负（guard 生效）。
 
         Args:
             agent_id: 代理 ID
             notification_xml: 格式化的任务通知 XML
         """
-        self._completions.append(BgAgentCompletion(agent_id=agent_id, notification_xml=notification_xml))
-        self._pending_count -= 1
-        self._wake_event.set()
+        if self._shutdown:
+            return
+        self._completions.append(
+            BgAgentCompletion(agent_id=agent_id, notification_xml=notification_xml)
+        )
+        # guard 防止 _pending_count 变负（重复 notify 场景）
+        self._pending_count = max(0, self._pending_count - 1)
+        if self._pending_count == 0:
+            self._wake_event.set()
 
     def has_pending(self) -> bool:
         """是否有待处理或已完成但未消费的后台代理。"""
@@ -198,19 +221,54 @@ class BackgroundAgentTracker:
         """
         return self._drain_completions()
 
-    async def wait_for_completion(self) -> list[BgAgentCompletion]:
+    def shutdown(self) -> None:
+        """关闭 tracker，cancel 所有 pending 后台 task 并唤醒等待者。
+
+        多次调用安全（幂等）。shutdown 后 notify_completed 为 no-op，
+        wait_for_completion 立即返回当前已收集的 completions。
+        """
+        self._shutdown = True
+        # cancel 所有未完成的后台 task
+        for task in list(self._bg_tasks):
+            if not task.done():
+                task.cancel()
+        self._bg_tasks.clear()
+        # 唤醒所有 wait_for_completion 等待者
+        self._wake_event.set()
+
+    async def wait_for_completion(self, timeout: float | None = None) -> list[BgAgentCompletion]:
         """等待任意后台代理完成，返回所有已完成的通知。
 
-        如果已有完成的通知则立即返回，否则阻塞等待。
+        - 已 shutdown：立即返回当前 completions（不 drain）
+        - 已有 completion：drain 并返回
+        - 无 pending：返回空列表
+        - 否则阻塞等待 wake_event，支持 timeout 超时保护
+
+        Args:
+            timeout: 超时秒数，None 表示无限等待。超时后返回当前
+                completions（不 drain），tracker 仍可继续使用
 
         Returns:
             list[BgAgentCompletion]: 已完成的后台代理通知列表
         """
+        # shutdown 后立即返回当前 completions（不 drain，因为已关闭）
+        if self._shutdown:
+            return list(self._completions)
         if self._completions:
             return self._drain_completions()
         if self._pending_count <= 0:
             return []
-        await self._wake_event.wait()
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
+            else:
+                await self._wake_event.wait()
+        except asyncio.TimeoutError:
+            # 超时返回当前 completions（不 drain），tracker 仍可继续使用
+            return list(self._completions)
+        # 等待期间发生 shutdown：返回当前 completions（不 drain）
+        if self._shutdown:
+            return list(self._completions)
         return self._drain_completions()
 
 
@@ -252,6 +310,7 @@ class QueryContext:
     tool_metadata: dict[str, object] | None = None
     effort: EffortLevel | None = None
     bg_agent_tracker: BackgroundAgentTracker | None = None
+    bg_agent_wait_timeout: float = 30.0  # 后台代理等待超时（秒）
     compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
     # 文件历史回调：工具执行前调用，参数为 (工具名称, 工具输入)
     on_before_tool_execute: Callable[[str, dict[str, Any]], None] | None = None
@@ -409,8 +468,8 @@ async def run_query(
                 # 发出等待状态事件（显示在 shimmer 区域）
                 from illusion.config.i18n import t as _t
                 yield StatusEvent(message=_t("bg_agent_waiting"), bg_agent=True), None
-                # 等待任意后台代理完成（不消耗 token）
-                completed = await tracker.wait_for_completion()
+                # 等待任意后台代理完成（不消耗 token），带超时保护避免 engine 退出后永久阻塞
+                completed = await tracker.wait_for_completion(timeout=context.bg_agent_wait_timeout)
                 if completed:
                     # 将完成通知注入为用户消息，触发模型继续处理
                     notification_parts = [c.notification_xml for c in completed]

@@ -161,6 +161,16 @@ class QueryEngine:
         self._cost_tracker = CostTracker()
         self._file_state_cache.clear()
 
+    async def aclose(self) -> None:
+        """关闭查询引擎，cancel 所有未完成后台 task。
+
+        调用 BackgroundAgentTracker.shutdown() 取消 pending task，
+        并等待最多 5 秒让 task 完成清理，避免 engine 退出后
+        wait_for_completion 永久阻塞。
+        """
+        self._bg_agent_tracker.shutdown()
+        await self._bg_agent_tracker.wait_for_completion(timeout=5.0)
+
     def set_system_prompt(self, prompt: str) -> None:
         """更新未来轮次的活跃系统提示词。
 
@@ -327,6 +337,7 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
+            bg_agent_wait_timeout=30.0,  # 后台代理等待超时（秒）
             compact_state=self._compact_state,
             on_before_tool_execute=_on_before_tool_execute,
             file_state_cache=self._file_state_cache,
@@ -366,6 +377,7 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
+            bg_agent_wait_timeout=30.0,  # 后台代理等待超时（秒）
             compact_state=self._compact_state,
             file_state_cache=self._file_state_cache,
         )
