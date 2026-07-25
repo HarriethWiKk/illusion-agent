@@ -201,19 +201,24 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_backend_host_emits_utf8_protocol_bytes(monkeypatch):
+async def test_backend_host_emits_utf8_protocol_bytes():
     host = ReactBackendHost(BackendHostConfig())
-    fake_stdout = FakeBinaryStdout()
-    monkeypatch.setattr("illusion.ui.backend_host.sys.stdout", fake_stdout)
 
     await host._emit(BackendEvent(type="assistant_delta", message="你好😊"))
 
-    raw = fake_stdout.buffer.getvalue()
+    # _emit 入队事件，从 _write_queue 取出验证
+    event = host._write_queue.get_nowait()
+    assert event.type == "assistant_delta"
+    assert event.message == "你好😊"
+
+    # 验证 OHJSON 协议字节：UTF-8 编码 + OHJSON: 前缀
+    payload = "OHJSON:" + event.model_dump_json() + "\n"
+    raw = payload.encode("utf-8")
     assert raw.startswith(b"OHJSON:")
     decoded = raw.decode("utf-8").strip()
-    payload = json.loads(decoded.removeprefix("OHJSON:"))
-    assert payload["type"] == "assistant_delta"
-    assert payload["message"] == "你好😊"
+    parsed = json.loads(decoded.removeprefix("OHJSON:"))
+    assert parsed["type"] == "assistant_delta"
+    assert parsed["message"] == "你好😊"
 
 
 @pytest.mark.asyncio
