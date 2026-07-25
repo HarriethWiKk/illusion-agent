@@ -550,18 +550,28 @@ async def run_query(
 
                 # 并发执行所有工具调用，每个工具完成后立即发送完成事件
                 tool_results_list = [None] * len(tool_calls)
-                for coro in asyncio.as_completed(
-                    [_safe_run(i, tc) for i, tc in enumerate(tool_calls)]
-                ):
-                    idx, result, hook_ctxs = await coro
-                    all_hook_ctxs.extend(hook_ctxs)
-                    tool_results_list[idx] = result
-                    yield ToolExecutionCompleted(
-                        tool_name=tool_calls[idx].name,
-                        output=result.text_content,
-                        is_error=result.is_error,
-                        tool_use_id=tool_calls[idx].id,
-                    ), None
+                tasks = [
+                    asyncio.ensure_future(_safe_run(i, tc))
+                    for i, tc in enumerate(tool_calls)
+                ]
+                try:
+                    for coro in asyncio.as_completed(tasks):
+                        idx, result, hook_ctxs = await coro
+                        all_hook_ctxs.extend(hook_ctxs)
+                        tool_results_list[idx] = result
+                        yield ToolExecutionCompleted(
+                            tool_name=tool_calls[idx].name,
+                            output=result.text_content,
+                            is_error=result.is_error,
+                            tool_use_id=tool_calls[idx].id,
+                        ), None
+                finally:
+                    # ⚠️ 关键：取消所有未完成 task，避免孤儿 task 泄漏
+                    pending = [t for t in tasks if not t.done()]
+                    for t in pending:
+                        t.cancel()
+                    if pending:
+                        await asyncio.gather(*pending, return_exceptions=True)
         except PermissionDenied as exc:
             from illusion.config.i18n import t
 
