@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 import contextlib
 import json
 import logging
@@ -57,6 +57,8 @@ from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, 
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime
 from illusion.utils.aioqueue import Queue, QueueShutDown
+from illusion.utils.signals import install_sigint_handler
+from illusion.utils.stderr_redirect import StderrRedirector
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
@@ -156,197 +158,274 @@ class ReactBackendHost:
         self._brief_assistant_text: str | None = None
         self._read_thread: threading.Thread | None = None      # daemon stdin 读取线程
         self._read_thread_cancel: threading.Event = threading.Event()  # stdin 线程取消信号
+        self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
+        self._sigint_remove: Callable[[], None] | None = None   # SIGINT handler 卸载函数
+        self._stderr_redirector: StderrRedirector | None = None  # stderr 重定向器
 
     async def run(self) -> int:
-        """运行后端主机主循环。"""
-        # 构建运行时环境
-        self._bundle = await build_runtime(
-            model=self._config.model,
-            max_turns=self._config.max_turns,
-            api_client=self._config.api_client,
-            restore_messages=self._config.restore_messages,
-            restore_session_id=self._config.restore_session_id,
-            permission_prompt=self._ask_permission,
-            ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
-            plan_approval_prompt=self._ask_plan_approval,
-            effort=self._config.effort,
-            channel_hint=self._config.channel_hint,
-            channel_tools=self._config.channel_tools,
-            permission_mode=self._config.permission_mode,
-            name=self._config.name,
-        )
-        assert self._bundle is not None
-        await start_runtime(self._bundle)
-        # 加载总是允许的工具列表
-        self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
-        # 发送就绪事件
-        await self._emit(
-            BackendEvent.ready(
-                self._bundle.app_state.get(),
-                get_task_manager().list_tasks(),
-                [f"/{command.name}" for command in self._bundle.commands.list_commands()],
-            )
-        )
-        # 发送状态快照
-        await self._emit(self._status_snapshot())
+        """运行后端主机主循环。
 
-        # 创建请求读取任务
-        reader = asyncio.create_task(self._read_requests())
+        启动三任务并发模型：stdin 读取（daemon 线程）+ 写循环（单一消费者 Task）+
+        周期状态更新 Task。安装 stderr 重定向和 SIGINT 处理后进入主分发循环，
+        收到 shutdown 请求或异常时通过 _shutdown() 优雅关闭。
 
-        # 创建定期状态更新任务（每秒刷新一次，用于 agent 计数等实时状态）
-        async def _periodic_status_update() -> None:
-            while self._running:
-                await asyncio.sleep(1.0)
-                if self._running and self._bundle is not None:
-                    await self._emit(self._status_snapshot())
+        Returns:
+            0 表示正常退出，非 0 表示启动失败
+        """
+        loop = asyncio.get_running_loop()
 
-        status_updater = asyncio.create_task(_periodic_status_update())
+        # 1. 安装 stderr 重定向
+        self._stderr_redirector = StderrRedirector()
+        self._stderr_redirector.install()
 
         try:
-            # 主循环：处理请求
+            # 2. 构建运行时环境
+            self._bundle = await build_runtime(
+                model=self._config.model,
+                max_turns=self._config.max_turns,
+                api_client=self._config.api_client,
+                restore_messages=self._config.restore_messages,
+                restore_session_id=self._config.restore_session_id,
+                permission_prompt=self._ask_permission,
+                ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
+                plan_approval_prompt=self._ask_plan_approval,
+                effort=self._config.effort,
+                channel_hint=self._config.channel_hint,
+                channel_tools=self._config.channel_tools,
+                permission_mode=self._config.permission_mode,
+                name=self._config.name,
+            )
+            assert self._bundle is not None
+            await start_runtime(self._bundle)
+            # 加载总是允许的工具列表
+            self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
+
+            # 3. 启动写循环（单一消费者）
+            self._write_task = asyncio.create_task(
+                self._write_loop(), name="backend-write-loop"
+            )
+
+            # 4. 启动 stdin 读取（daemon 线程，不占用默认线程池）
+            self._read_thread = threading.Thread(
+                target=self._read_stdin_loop,
+                args=(loop,),
+                name="backend-stdin-reader",
+                daemon=True,
+            )
+            self._read_thread.start()
+
+            # 5. 启动周期状态更新
+            self._periodic_task = asyncio.create_task(
+                self._periodic_status_update(), name="backend-periodic-status"
+            )
+
+            # 6. 安装 SIGINT 处理（收到 Ctrl+C 时入队 shutdown 请求）
+            self._sigint_remove = install_sigint_handler(loop, self._enqueue_shutdown)
+
+            # 7. 发送就绪事件 + 状态快照
+            await self._emit(
+                BackendEvent.ready(
+                    self._bundle.app_state.get(),
+                    get_task_manager().list_tasks(),
+                    [f"/{command.name}" for command in self._bundle.commands.list_commands()],
+                )
+            )
+            await self._emit(self._status_snapshot())
+
+            # 8. 主分发循环
+            self._running = True
             while self._running:
-                request = await self._request_queue.get()
-                # 关闭请求
-                if request.type == "shutdown":
-                    await self._emit(BackendEvent(type="shutdown"))
+                req = await self._request_queue.get()
+                if req.type == "shutdown":
                     break
-                # 停止当前任务
-                if request.type == "stop":
-                    await self._stop_active_line()
-                    continue
-                # 权限响应
-                if request.type == "permission_response":
-                    if request.request_id in self._permission_requests:
-                        self._permission_requests[request.request_id].set_result(bool(request.allowed))
-                    # 记住"总是允许"工具
-                    if request.always_allow and request.tool_name:
-                        self._always_allowed_tools.add(request.tool_name)
-                        if self._bundle is not None:
-                            self._always_allowed_tools = add_always_allowed_tool(
-                                self._bundle.cwd,
-                                request.tool_name,
-                            )
-                    await self._emit(BackendEvent(type="modal_request", modal=None))
-                    continue
-                # 用户问答响应
-                if request.type == "question_response":
-                    if request.request_id in self._question_requests:
-                        answer: str | dict[Any, Any] = request.answer or ""
-                        # 尝试解析 JSON 格式的多选答案
-                        try:
-                            parsed = json.loads(answer) if isinstance(answer, str) else answer
-                            if isinstance(parsed, dict):
-                                answer = parsed
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                        self._question_requests[request.request_id].set_result(answer)
-                    await self._emit(BackendEvent(type="modal_request", modal=None))
-                    continue
-                # 列出会话
-                if request.type == "list_sessions":
-                    await self._handle_list_sessions()
-                    continue
-                # 选择命令
-                if request.type == "select_command":
-                    await self._handle_select_command(request.command or "")
-                    continue
-                # 应用选择命令
-                if request.type == "apply_select_command":
-                    if self._busy:
-                        await self._emit(BackendEvent(type="error", message="Session is busy"))
-                        continue
-                    self._busy = True
-                    try:
-                        self._active_line_task = asyncio.create_task(
-                            self._apply_select_command(
-                                request.command or "",
-                                request.value or "",
-                            )
-                        )
-                        should_continue = await self._active_line_task
-                    except asyncio.CancelledError:
-                        should_continue = True
-                    finally:
-                        self._active_line_task = None
-                        self._busy = False
-                    if not should_continue:
-                        await self._emit(BackendEvent(type="shutdown"))
-                        break
-                    continue
-                # 未知请求类型
-                if request.type != "submit_line":
-                    await self._emit(BackendEvent(type="error", message=f"Unknown request type: {request.type}"))
-                    continue
-                # 忙碌中
-                if self._busy:
-                    await self._emit(BackendEvent(type="error", message="Session is busy"))
-                    continue
-                # 处理提交的行
-                line = (request.line or "").strip()
-                if not line:
-                    continue
-                self._busy = True
-                try:
-                    self._active_line_task = asyncio.create_task(self._process_line(line))
-                    should_continue = await self._active_line_task
-                except asyncio.CancelledError:
-                    should_continue = True
-                finally:
-                    self._active_line_task = None
-                    self._busy = False
-                if not should_continue:
-                    await self._emit(BackendEvent(type="shutdown"))
-                    break
+                await self._process_request(req)
+
         finally:
-            # 清理资源
-            reader.cancel()
-            status_updater.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await reader
-                await status_updater
-            if self._bundle is not None:
-                await close_runtime(self._bundle)
+            # 9. 优雅关闭（9 步严格顺序）
+            await self._shutdown()
+
         return 0
-    async def _read_requests(self) -> None:
-        """从 stdin 读取请求。"""
-        while True:
-            raw = await asyncio.to_thread(sys.stdin.buffer.readline)
-            if not raw:
-                await self._request_queue.put(FrontendRequest(type="shutdown"))
-                return
-            payload = raw.decode("utf-8").strip()
-            if not payload:
-                continue
+
+    def _enqueue_shutdown(self) -> None:
+        """SIGINT 回调：入队 shutdown 请求，让主循环优雅退出。"""
+        self._request_queue.put_nowait(FrontendRequest(type="shutdown"))
+
+    def _resolve_pending_futures(self) -> None:
+        """resolve 所有 pending permission/question futures，防止永久阻塞。"""
+        for fut in self._permission_requests.values():
+            if not fut.done():
+                fut.set_result(False)  # 默认拒绝
+        self._permission_requests.clear()
+
+        for fut in self._question_requests.values():
+            if not fut.done():
+                fut.set_result("")  # 默认空答
+        self._question_requests.clear()
+
+    async def _shutdown(self) -> None:
+        """优雅关闭，按严格顺序释放资源。"""
+        # 1. resolve 所有 pending permission requests（拒绝 → False）
+        self._resolve_pending_futures()
+
+        # 2. 信号 stdin 读取线程停止
+        self._read_thread_cancel.set()
+
+        # 3. 取消周期状态更新 task
+        if self._periodic_task is not None and not self._periodic_task.done():
+            self._periodic_task.cancel()
             try:
-                request = FrontendRequest.model_validate_json(payload)
-            except Exception as exc:  # 防御性协议处理
-                await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
-                continue
+                await self._periodic_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("周期状态更新 task 关闭异常")
 
-            # 立即解析模态对话框交互以避免死锁
-            # 主循环在 _process_line() 中等待用户输入
-            if request.type == "permission_response":
-                if request.request_id in self._permission_requests:
-                    self._permission_requests[request.request_id].set_result(bool(request.allowed))
-                if request.always_allow and request.tool_name:
-                    self._always_allowed_tools.add(request.tool_name)
-                    if self._bundle is not None:
-                        self._always_allowed_tools = add_always_allowed_tool(
-                            self._bundle.cwd,
-                            request.tool_name,
-                        )
-                await self._emit(BackendEvent(type="modal_request", modal=None))
-                continue
-            if request.type == "stop":
-                await self._stop_active_line()
-                continue
-            if request.type == "question_response":
-                if request.request_id in self._question_requests:
-                    self._question_requests[request.request_id].set_result(request.answer or "")
-                await self._emit(BackendEvent(type="modal_request", modal=None))
-                continue
+        # 4. 取消活跃行处理 task
+        if self._active_line_task is not None and not self._active_line_task.done():
+            self._active_line_task.cancel()
+            try:
+                await self._active_line_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("活跃行处理 task 关闭异常")
 
-            await self._request_queue.put(request)
+        # 5. gather 所有 dispatch tasks（return_exceptions=True 不抛异常）
+        if self._dispatch_tasks:
+            await asyncio.gather(*self._dispatch_tasks, return_exceptions=True)
+            self._dispatch_tasks.clear()
+
+        # 6. 关闭写队列 + 等写循环排空（_write_queue.shutdown() 哨兵唤醒 _write_loop）
+        self._write_queue.shutdown()
+        if self._write_task is not None and not self._write_task.done():
+            try:
+                await self._write_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("写循环 task 关闭异常")
+
+        # 7. 移除 SIGINT handler
+        if self._sigint_remove is not None:
+            self._sigint_remove()
+            self._sigint_remove = None
+
+        # 8. 关闭运行时 + 卸载 stderr 重定向
+        if self._bundle is not None:
+            try:
+                await close_runtime(self._bundle)
+            except Exception:
+                log.exception("运行时关闭异常")
+            self._bundle = None
+        if self._stderr_redirector is not None:
+            self._stderr_redirector.uninstall()
+            self._stderr_redirector = None
+
+        # 9. 标记停止
+        self._running = False
+
+    async def _periodic_status_update(self) -> None:
+        """周期状态更新 Task：每秒刷新一次状态快照（用于 agent 计数等实时状态）。"""
+        while self._running:
+            await asyncio.sleep(1.0)
+            if self._running and self._bundle is not None:
+                await self._emit(self._status_snapshot())
+
+    async def _process_request(self, req: FrontendRequest) -> None:
+        """处理单个前端请求（shutdown 已由主循环处理）。
+
+        Args:
+            req: 前端请求（非 shutdown 类型）
+        """
+        # 停止当前任务
+        if req.type == "stop":
+            await self._stop_active_line()
+            return
+        # 权限响应
+        if req.type == "permission_response":
+            if req.request_id in self._permission_requests:
+                self._permission_requests[req.request_id].set_result(bool(req.allowed))
+            # 记住"总是允许"工具
+            if req.always_allow and req.tool_name:
+                self._always_allowed_tools.add(req.tool_name)
+                if self._bundle is not None:
+                    self._always_allowed_tools = add_always_allowed_tool(
+                        self._bundle.cwd,
+                        req.tool_name,
+                    )
+            await self._emit(BackendEvent(type="modal_request", modal=None))
+            return
+        # 用户问答响应
+        if req.type == "question_response":
+            if req.request_id in self._question_requests:
+                answer: str | dict[Any, Any] = req.answer or ""
+                # 尝试解析 JSON 格式的多选答案
+                try:
+                    parsed = json.loads(answer) if isinstance(answer, str) else answer
+                    if isinstance(parsed, dict):
+                        answer = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                self._question_requests[req.request_id].set_result(answer)
+            await self._emit(BackendEvent(type="modal_request", modal=None))
+            return
+        # 列出会话
+        if req.type == "list_sessions":
+            await self._handle_list_sessions()
+            return
+        # 选择命令
+        if req.type == "select_command":
+            await self._handle_select_command(req.command or "")
+            return
+        # 应用选择命令
+        if req.type == "apply_select_command":
+            if self._busy:
+                await self._emit(BackendEvent(type="error", message="Session is busy"))
+                return
+            self._busy = True
+            try:
+                self._active_line_task = asyncio.create_task(
+                    self._apply_select_command(
+                        req.command or "",
+                        req.value or "",
+                    )
+                )
+                should_continue = await self._active_line_task
+            except asyncio.CancelledError:
+                should_continue = True
+            finally:
+                self._active_line_task = None
+                self._busy = False
+            if not should_continue:
+                await self._emit(BackendEvent(type="shutdown"))
+                self._running = False
+            return
+        # 未知请求类型
+        if req.type != "submit_line":
+            await self._emit(
+                BackendEvent(type="error", message=f"Unknown request type: {req.type}")
+            )
+            return
+        # 忙碌中
+        if self._busy:
+            await self._emit(BackendEvent(type="error", message="Session is busy"))
+            return
+        # 处理提交的行
+        line = (req.line or "").strip()
+        if not line:
+            return
+        self._busy = True
+        try:
+            self._active_line_task = asyncio.create_task(self._process_line(line))
+            should_continue = await self._active_line_task
+        except asyncio.CancelledError:
+            should_continue = True
+        finally:
+            self._active_line_task = None
+            self._busy = False
+        if not should_continue:
+            await self._emit(BackendEvent(type="shutdown"))
+            self._running = False
 
     def _read_stdin_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Daemon 线程：读取 stdin，通过 call_soon_threadsafe 桥接到事件循环。
