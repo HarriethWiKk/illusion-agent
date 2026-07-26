@@ -8,7 +8,8 @@ MCP 模块
     - McpClientManager: MCP 客户端管理器
     - McpServerConfig: MCP 服务器配置
     - McpStdioServerConfig: STDIO 服务器配置
-    - McpHttpServerConfig: HTTP 服务器配置
+    - McpHttpServerConfig: HTTP 服务器配置（Streamable HTTP）
+    - McpSseServerConfig: SSE 服务器配置
     - McpWebSocketServerConfig: WebSocket 服务器配置
     - McpToolInfo: MCP 工具信息
     - McpResourceInfo: MCP 资源信息
@@ -34,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         McpJsonConfig,
         McpResourceInfo,
         McpServerConfig,
+        McpSseServerConfig,
         McpStdioServerConfig,
         McpToolInfo,
         McpWebSocketServerConfig,
@@ -46,6 +48,7 @@ __all__ = [
     "McpJsonConfig",
     "McpResourceInfo",
     "McpServerConfig",
+    "McpSseServerConfig",
     "McpStdioServerConfig",
     "McpToolInfo",
     "McpWebSocketServerConfig",
@@ -77,6 +80,7 @@ def __getattr__(name: str) -> object:
         "McpJsonConfig",
         "McpResourceInfo",
         "McpServerConfig",
+        "McpSseServerConfig",
         "McpStdioServerConfig",
         "McpToolInfo",
         "McpWebSocketServerConfig",
@@ -87,6 +91,7 @@ def __getattr__(name: str) -> object:
             McpJsonConfig,
             McpResourceInfo,
             McpServerConfig,
+            McpSseServerConfig,
             McpStdioServerConfig,
             McpToolInfo,
             McpWebSocketServerConfig,
@@ -98,6 +103,7 @@ def __getattr__(name: str) -> object:
             "McpJsonConfig": McpJsonConfig,
             "McpResourceInfo": McpResourceInfo,
             "McpServerConfig": McpServerConfig,
+            "McpSseServerConfig": McpSseServerConfig,
             "McpStdioServerConfig": McpStdioServerConfig,
             "McpToolInfo": McpToolInfo,
             "McpWebSocketServerConfig": McpWebSocketServerConfig,

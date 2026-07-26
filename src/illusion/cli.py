@@ -145,6 +145,7 @@ def mcp_add(
     """
     from illusion.config import load_settings, save_settings
     from illusion.mcp.types import McpServerConfig
+    from pydantic import TypeAdapter
 
     settings = load_settings()
     try:
@@ -153,7 +154,7 @@ def mcp_add(
         print(_t("mcp_invalid_json", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
     try:
-        cfg = McpServerConfig.model_validate(raw)  # type: ignore[attr-defined]
+        cfg = TypeAdapter(McpServerConfig).validate_python(raw)
     except Exception as exc:
         print(_t("mcp_invalid_config", exc=exc), file=sys.stderr)
         raise typer.Exit(1)

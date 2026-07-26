@@ -11,9 +11,10 @@ MCP 配置和状态模型
 
 类说明：
     - McpStdioServerConfig: STDIO 类型 MCP 服务器配置
-    - McpHttpServerConfig: HTTP 类型 MCP 服务器配置
+    - McpHttpServerConfig: HTTP 类型 MCP 服务器配置（Streamable HTTP）
+    - McpSseServerConfig: SSE 类型 MCP 服务器配置
     - McpWebSocketServerConfig: WebSocket 类型 MCP 服务器配置
-    - McpServerConfig: MCP 服务器配置联合类型
+    - McpServerConfig: MCP 服务器配置联合类型（discriminated union）
     - McpJsonConfig: 配置文件格式（用于插件和项目文件）
     - McpToolInfo: MCP 工具元数据
     - McpResourceInfo: MCP 资源元数据
@@ -27,7 +28,7 @@ MCP 配置和状态模型
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -58,17 +59,36 @@ class McpStdioServerConfig(BaseModel):
 
 class McpHttpServerConfig(BaseModel):
     """
-    HTTP 类型 MCP 服务器配置
+    HTTP 类型 MCP 服务器配置（Streamable HTTP 传输）
     
-    通过 HTTP 协议与 MCP 服务器通信的配置。
+    通过 Streamable HTTP 协议与 MCP 服务器通信的配置。
+    兼容多种 type 别名：http、streamable-http、streamableHttp、streamable_http。
     
     Attributes:
-        type: 服务器类型，固定为 "http"
+        type: 服务器类型，支持 "http"/"streamable-http"/"streamableHttp"/"streamable_http"
         url: 服务器 URL 地址
         headers: HTTP 请求头字典
     """
 
-    type: Literal["http"] = "http"
+    type: Literal["http", "streamable-http", "streamableHttp", "streamable_http"] = "http"
+    url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class McpSseServerConfig(BaseModel):
+    """
+    SSE 类型 MCP 服务器配置
+    
+    通过 Server-Sent Events 协议与 MCP 服务器通信的配置。
+    
+    Attributes:
+        type: 服务器类型，固定为 "sse"
+        url: 服务器 URL 地址
+        headers: HTTP 请求头字典
+    """
+
+    type: Literal["sse"] = "sse"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
@@ -79,21 +99,27 @@ class McpWebSocketServerConfig(BaseModel):
     WebSocket 类型 MCP 服务器配置
     
     通过 WebSocket 协议与 MCP 服务器通信的配置。
+    兼容 type 别名：ws、websocket。
     
     Attributes:
-        type: 服务器类型，固定为 "ws"
+        type: 服务器类型，支持 "ws"/"websocket"
         url: 服务器 WebSocket URL 地址
         headers: WebSocket 连接请求头字典
     """
 
-    type: Literal["ws"] = "ws"
+    type: Literal["ws", "websocket"] = "ws"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
 
 
-# MCP 服务器配置联合类型，支持 STDIO、HTTP、WebSocket 三种传输方式
-McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpWebSocketServerConfig
+# MCP 服务器配置联合类型，使用 discriminator 按 type 字段精确分发，
+# 避免 Pydantic smart union 在字段缺失时产生歧义。
+# 支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 四种传输方式。
+McpServerConfig = Annotated[
+    McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig | McpWebSocketServerConfig,
+    Field(discriminator="type"),
+]
 
 
 class McpJsonConfig(BaseModel):

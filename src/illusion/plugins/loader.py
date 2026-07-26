@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from illusion.config.paths import get_config_dir
-from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig, McpWebSocketServerConfig
 from illusion.plugins.schemas import PluginManifest
 from illusion.plugins.types import LoadedPlugin
 from illusion.skills.types import SkillDefinition
@@ -289,7 +288,7 @@ def _substitute_plugin_vars_in_hooks(data: Any, plugin_root: Path) -> Any:
     return data
 
 
-def _load_plugin_mcp(path: Path) -> dict[str, McpStdioServerConfig | McpHttpServerConfig | McpWebSocketServerConfig]:
+def _load_plugin_mcp(path: Path) -> dict[str, McpServerConfig]:
     """从 JSON 文件加载 MCP 服务器配置。"""
     if not path.exists():
         return {}

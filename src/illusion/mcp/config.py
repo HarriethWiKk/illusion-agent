@@ -70,29 +70,79 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
             logger.warning("Failed to read MCP config %s: %s", json_file, exc)
             continue
 
-        # 兼容 mcp_servers（snake_case）键
-        if "mcp_servers" in raw and "mcpServers" not in raw:
-            raw["mcpServers"] = raw.pop("mcp_servers")
+        servers.update(_parse_mcp_config_dict(raw, _server_adapter, source=json_file))
 
-        # 尝试解析为多服务器格式（mcpServers 键）
-        if "mcpServers" in raw:
-            try:
-                parsed = McpJsonConfig.model_validate(raw)
-                for name, config in parsed.mcpServers.items():
+    return servers
+
+
+def _looks_like_server_config(value: object) -> bool:
+    """判断一个 dict 是否像是单个 MCP 服务器配置（含 type/command/url 等特征字段）。"""
+    if not isinstance(value, dict):
+        return False
+    return any(k in value for k in ("type", "command", "url", "args"))
+
+
+def _parse_mcp_config_dict(
+    raw: dict[str, Any],
+    server_adapter: TypeAdapter,
+    *,
+    source: object | None = None,
+) -> dict[str, object]:
+    """解析一个 MCP 配置 dict 为 {server_name: config} 映射。
+
+    支持三种格式：
+    1. {"mcpServers": {...}} / {"mcp_servers": {...}}（标准多服务器格式）
+    2. {"server-name": {...}, ...}（无包装的多服务器格式，每个 value 必须像 server config）
+    3. {"type": "stdio", ...}（单服务器配置，使用 "_inline" 或文件名作为名称）
+    """
+    from illusion.mcp.types import McpJsonConfig
+
+    # 兼容 mcp_servers（snake_case）键
+    if "mcp_servers" in raw and "mcpServers" not in raw:
+        raw["mcpServers"] = raw.pop("mcp_servers")
+
+    servers: dict[str, object] = {}
+
+    # 格式 1：mcpServers 键
+    if "mcpServers" in raw:
+        try:
+            parsed = McpJsonConfig.model_validate(raw)
+            for name, config in parsed.mcpServers.items():
+                if getattr(config, "enabled", True):
+                    servers[name] = config
+        except Exception as exc:
+            logger.warning("Failed to parse MCP config %s: %s", source or "input", exc)
+        return servers
+
+    # 格式 2：{"server-name": {...}} 无包装多服务器格式
+    # 判定条件：所有 value 都是 dict 且像 server config（且顶层自身不像单个 server config）
+    if isinstance(raw, dict) and raw and not _looks_like_server_config(raw):
+        all_values_like_config = all(
+            isinstance(v, dict) and _looks_like_server_config(v) for v in raw.values()
+        )
+        if all_values_like_config:
+            for name, server_cfg in raw.items():
+                try:
+                    config = server_adapter.validate_python(server_cfg)
                     if getattr(config, "enabled", True):
                         servers[name] = config
-            except Exception as exc:
-                logger.warning("Failed to parse MCP config %s: %s", json_file, exc)
-            continue
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to parse MCP server '%s' in %s: %s",
+                        name,
+                        source or "input",
+                        exc,
+                    )
+            return servers
 
-        # 尝试解析为单服务器格式（文件名作为服务器名）
-        try:
-            config = _server_adapter.validate_python(raw)
-            if getattr(config, "enabled", True):
-                server_name = json_file.stem
-                servers[server_name] = config
-        except Exception as exc:
-            logger.warning("Failed to parse MCP config %s: %s", json_file, exc)
+    # 格式 3：单服务器配置
+    try:
+        config = server_adapter.validate_python(raw)
+        if getattr(config, "enabled", True):
+            name = Path(str(source)).stem if source else "_inline"
+            servers[name] = config
+    except Exception as exc:
+        logger.warning("Failed to parse MCP config %s: %s", source or "input", exc)
 
     return servers
 
@@ -164,9 +214,10 @@ def load_mcp_config_from_string(cfg: str) -> dict[str, object]:
     1. 文件路径（Path 存在时）：读取 JSON 文件
     2. JSON 字符串：直接解析
 
-    支持两种格式：
-    1. {"mcpServers": {...}} 或 {"mcp_servers": {...}}（多服务器）
-    2. {...}（单服务器配置，返回 {"_inline": config}）
+    支持三种格式：
+    1. {"mcpServers": {...}} / {"mcp_servers": {...}}（标准多服务器）
+    2. {"server-name": {...}, ...}（无包装多服务器）
+    3. {...}（单服务器配置，返回 {"_inline": config}）
 
     Args:
         cfg: 文件路径或 JSON 字符串
@@ -181,33 +232,13 @@ def load_mcp_config_from_string(cfg: str) -> dict[str, object]:
 
     # 判断是文件路径还是 JSON 字符串
     cfg_path = Path(cfg)
-    if cfg_path.exists():
+    source = cfg_path if cfg_path.exists() else None
+    if source is not None:
         raw = json.loads(cfg_path.read_text(encoding="utf-8"))
     else:
         raw = json.loads(cfg)
 
-    # 兼容 mcp_servers（snake_case）键
-    if "mcp_servers" in raw and "mcpServers" not in raw:
-        raw["mcpServers"] = raw.pop("mcp_servers")
+    if not isinstance(raw, dict):
+        return {}
 
-    # 多服务器格式
-    if "mcpServers" in raw:
-        servers: dict[str, object] = {}
-        for name, server_cfg in raw["mcpServers"].items():
-            try:
-                config = _server_adapter.validate_python(server_cfg)
-                if getattr(config, "enabled", True):
-                    servers[name] = config
-            except Exception as exc:
-                logger.warning("Failed to parse MCP server '%s': %s", name, exc)
-        return servers
-
-    # 单服务器格式（使用 "_inline" 作为名称）
-    try:
-        config = _server_adapter.validate_python(raw)
-        if getattr(config, "enabled", True):
-            return {"_inline": config}
-    except Exception as exc:
-        logger.warning("Failed to parse MCP config: %s", exc)
-
-    return {}
+    return _parse_mcp_config_dict(raw, _server_adapter, source=source or "_inline")
