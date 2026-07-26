@@ -15,11 +15,12 @@ import asyncio
 import json
 import threading
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from illusion.ui.backend_host import ReactBackendHost
-from illusion.ui.protocol import BackendEvent
+from illusion.ui.protocol import BackendEvent, FrontendRequest
 from illusion.utils.aioqueue import Queue, QueueShutDown
 
 
@@ -275,7 +276,8 @@ async def test_resolve_permission_emits_modal_close_event():
     future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
     host._permission_requests["req-1"] = future
 
-    host._resolve_permission("req-1", True)
+    req = FrontendRequest(type="permission_response", request_id="req-1", allowed=True)
+    host._resolve_permission(req)
 
     # future 应被 resolve
     assert future.done()
@@ -285,6 +287,77 @@ async def test_resolve_permission_emits_modal_close_event():
     event = host._write_queue.get_nowait()
     assert event.type == "modal_request"
     assert event.modal is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_permission_persists_always_allow_to_file(tmp_path, monkeypatch):
+    """_resolve_permission 收到 always_allow=True 时应持久化到 .illusion/permissions.json。
+
+    Bug 回归测试：原版 _resolve_permission 只处理 set_result 和 modal 关闭，
+    完全忽略 always_allow 字段。导致用户点击"总是允许"后，下次调用同一工具
+    仍要重新确认。always_allow 持久化逻辑只在 _process_request 的死代码中存在。
+    修复后 _resolve_permission 直接处理 always_allow。
+    """
+    monkeypatch.chdir(tmp_path)
+    host = _make_host()
+    # 模拟 bundle 已初始化，cwd 指向临时目录
+    bundle = MagicMock()
+    bundle.cwd = str(tmp_path)
+    host._bundle = bundle
+
+    future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+    host._permission_requests["req-always"] = future
+
+    # 发送 always_allow=True 的权限响应
+    req = FrontendRequest(
+        type="permission_response",
+        request_id="req-always",
+        allowed=True,
+        always_allow=True,
+        tool_name="Bash",
+    )
+    host._resolve_permission(req)
+
+    # future 应被 resolve 为 True
+    assert future.done()
+    assert future.result() is True
+    # 内存集合应包含 Bash
+    assert "Bash" in host._always_allowed_tools
+    # 文件应已持久化
+    perm_file = tmp_path / ".illusion" / "permissions.json"
+    assert perm_file.exists(), "permissions.json 应被创建"
+    import json as _json
+    payload = _json.loads(perm_file.read_text(encoding="utf-8"))
+    assert "Bash" in payload.get("always_allow_tools", [])
+
+
+@pytest.mark.asyncio
+async def test_resolve_permission_skips_persist_when_always_allow_false(tmp_path, monkeypatch):
+    """_resolve_permission 收到 always_allow=False 时不应写文件。"""
+    monkeypatch.chdir(tmp_path)
+    host = _make_host()
+    bundle = MagicMock()
+    bundle.cwd = str(tmp_path)
+    host._bundle = bundle
+
+    future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+    host._permission_requests["req-normal"] = future
+
+    req = FrontendRequest(
+        type="permission_response",
+        request_id="req-normal",
+        allowed=True,
+        always_allow=False,  # 不勾选总是允许
+        tool_name="Bash",
+    )
+    host._resolve_permission(req)
+
+    assert future.result() is True
+    # 不应写入文件
+    perm_file = tmp_path / ".illusion" / "permissions.json"
+    assert not perm_file.exists()
+    # 内存集合也不应包含
+    assert "Bash" not in host._always_allowed_tools
 
 
 @pytest.mark.asyncio

@@ -361,20 +361,9 @@ class ReactBackendHost:
         if req.type == "stop":
             await self._stop_active_line()
             return
-        # 权限响应
-        if req.type == "permission_response":
-            if req.request_id in self._permission_requests:
-                self._permission_requests[req.request_id].set_result(bool(req.allowed))
-            # 记住"总是允许"工具
-            if req.always_allow and req.tool_name:
-                self._always_allowed_tools.add(req.tool_name)
-                if self._bundle is not None:
-                    self._always_allowed_tools = add_always_allowed_tool(
-                        self._bundle.cwd,
-                        req.tool_name,
-                    )
-            await self._emit(BackendEvent(type="modal_request", modal=None))
-            return
+        # 注意：permission_response 由 _dispatch_stdin_line → _resolve_permission
+        # 即时处理，不会入队 _request_queue，因此不会进入此方法。
+        # always_allow 持久化逻辑在 _resolve_permission 中实现。
         # 用户问答响应
         if req.type == "question_response":
             if req.request_id in self._question_requests:
@@ -484,7 +473,7 @@ class ReactBackendHost:
 
         # 即时请求直接处理
         if req.type == "permission_response":
-            self._resolve_permission(req.request_id, req.allowed)
+            self._resolve_permission(req)
             return
         if req.type == "question_response":
             self._resolve_question(req.request_id, req.answer)
@@ -500,7 +489,7 @@ class ReactBackendHost:
         # 其他请求入队
         self._request_queue.put_nowait(req)
 
-    def _resolve_permission(self, request_id: str, allowed: bool) -> None:
+    def _resolve_permission(self, req: FrontendRequest) -> None:
         """resolve 权限请求 Future，并通知前端关闭模态框。
 
         同步方法（由 _dispatch_stdin_line 在事件循环线程调用）：
@@ -508,10 +497,26 @@ class ReactBackendHost:
         再 put_nowait 发 modal_request modal=None 让前端 setModal(null)。
         原 _handle_request 路径不会被执行（请求在此即时处理），所以必须在此处补发事件，
         否则前端模态框永远不消失。
+
+        若 req.always_allow 为真，将工具名持久化到 .illusion/permissions.json，
+        下次调用同一工具时直接放行，不再弹模态框。
         """
+        request_id = req.request_id
+        allowed = bool(req.allowed)
         future = self._permission_requests.pop(request_id, None)
         if future is not None and not future.done():
             future.set_result(allowed)
+        # 持久化"总是允许"工具到 permissions.json
+        if req.always_allow and req.tool_name:
+            self._always_allowed_tools.add(req.tool_name)
+            if self._bundle is not None:
+                try:
+                    self._always_allowed_tools = add_always_allowed_tool(
+                        self._bundle.cwd,
+                        req.tool_name,
+                    )
+                except Exception:
+                    log.exception("保存 always_allow 工具失败: %s", req.tool_name)
         # 通知前端关闭模态框（put_nowait 非阻塞，无需 await）
         try:
             self._write_queue.put_nowait(BackendEvent(type="modal_request", modal=None))
