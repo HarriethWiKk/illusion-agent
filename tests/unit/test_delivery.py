@@ -157,7 +157,8 @@ async def test_deliver_file_feishu_success(tmp_path: Path) -> None:
         )
     assert result is True
     mock_client.im.v1.file.create.assert_called_once()
-    mock_client.im.v1.message.create.assert_called_once()
+    # caption 非空时：先发文本消息，再发文件消息 → message.create 调用 2 次
+    assert mock_client.im.v1.message.create.call_count == 2
 
 
 @pytest.mark.skipif(not _has_aiohttp, reason="aiohttp not installed")

@@ -544,89 +544,24 @@ class FeishuChannel(Channel):
     ) -> str:
         """发送文件到飞书会话
 
-        流程：上传文件获取 file_key → 发送文件消息
+        复用 feishu.messaging.send_file，按扩展名路由 file_type
+        （pdf/doc/xls/ppt/opus/mp4/stream），避免硬编码 "stream" 导致
+        部分文件类型上传后 file_key 与实际类型不匹配，发送失败。
 
         Args:
             chat_id: 目标会话
             file_path: 本地文件路径
             caption: 可选附注文字
+            reply_to: 未使用，保留以兼容基类签名
 
         Returns:
             str: 新消息 ID
         """
-        import io
-        import json
-        import os
+        from illusion.channels.feishu.messaging import send_file
 
-        from illusion.channels.feishu.messaging import resolve_receive_id
-
-        try:
-            from lark_oapi.api.im.v1 import (
-                CreateFileRequest, CreateFileRequestBody, CreateMessageRequest,
-            )
-        except ImportError:
-            raise NotImplementedError("feishu requires lark_oapi for send_document")
-
-        loop = asyncio.get_running_loop()
-        file_name = os.path.basename(file_path)
-
-        # 上传文件（文件可能很大，用 to_thread 避免阻塞事件循环）
-        from pathlib import Path
-        file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
-        file_obj = io.BytesIO(file_bytes)
-        file_obj.name = file_name
-
-        body = (
-            CreateFileRequestBody.builder()
-            .file_type("stream")
-            .file_name(file_name)
-            .file(file_obj)
-            .build()
+        return await send_file(
+            self._client, self.config, chat_id, file_path, caption=caption,
         )
-        req = CreateFileRequest.builder().request_body(body).build()
-        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.file.create, req)
-        if not resp.success():
-            raise RuntimeError(f"飞书文件上传失败: code={resp.code} msg={resp.msg}")
-
-        file_key = getattr(getattr(resp, "data", None), "file_key", "")
-        if not file_key:
-            raise RuntimeError("飞书文件上传未返回 file_key")
-
-        # 发送消息
-        receive_id, receive_id_type = resolve_receive_id(chat_id)
-        if caption:
-            post_content = {
-                "zh_cn": {
-                    "title": "",
-                    "content": [[
-                        {"tag": "media", "file_key": file_key, "file_name": file_name},
-                        {"tag": "text", "text": caption},
-                    ]]
-                }
-            }
-            msg_body = {
-                "receive_id": receive_id,
-                "msg_type": "post",
-                "content": json.dumps(post_content, ensure_ascii=False),
-            }
-        else:
-            msg_body = {
-                "receive_id": receive_id,
-                "msg_type": "file",
-                "content": json.dumps({"file_key": file_key}, ensure_ascii=False),
-            }
-
-        req = (
-            CreateMessageRequest.builder()
-            .receive_id_type(receive_id_type)
-            .request_body(msg_body)  # pyright: ignore[reportArgumentType]
-            .build()
-        )
-        resp = await loop.run_in_executor(_feishu_executor, self._client.im.v1.message.create, req)
-        if not resp.success():
-            raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
-
-        return str(getattr(getattr(resp, "data", None), "message_id", ""))
 
     async def download_attachment(
         self, attachment: "Attachment", save_path: str

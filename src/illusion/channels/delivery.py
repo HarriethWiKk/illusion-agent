@@ -485,89 +485,19 @@ async def deliver_file_to_channel(
 async def _deliver_file_feishu(
     config: "FeishuChannelConfig", chat_id: str, file_path: str, caption: str,
 ) -> bool:
-    """飞书文件投递：upload file → send file/post message
+    """飞书文件投递：复用 feishu.messaging.send_file
 
-    直接复用 feishu adapter.send_document 的实现思路：
-        1. CreateFileRequestBody 上传文件 → 拿 file_key
-        2. 有 caption → msg_type=post（media tag + text tag）
-           无 caption → msg_type=file
+    send_file 内部按扩展名路由 file_type（pdf/doc/xls/ppt/opus/mp4/stream），
+    避免硬编码 "stream" 导致部分文件类型发送失败。
     """
     if not config.enabled:
         logger.warning("飞书渠道未启用，跳过文件投递")
         return False
     try:
-        import io
-        import json
-        import os
-
-        from illusion.channels.feishu.messaging import build_lark_client, resolve_receive_id
-        try:
-            from lark_oapi.api.im.v1 import (  # noqa: I001
-                CreateFileRequest, CreateFileRequestBody, CreateMessageRequest,
-            )
-        except ImportError:
-            logger.error("飞书文件投递需要 lark_oapi")
-            return False
+        from illusion.channels.feishu.messaging import build_lark_client, send_file
 
         client = build_lark_client(config)
-        file_name = os.path.basename(file_path)
-        loop = asyncio.get_running_loop()
-
-        # 上传文件（文件可能很大，用 to_thread 避免阻塞事件循环）
-        from pathlib import Path
-        file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
-        file_obj = io.BytesIO(file_bytes)
-        file_obj.name = file_name
-
-        body = (
-            CreateFileRequestBody.builder()
-            .file_type("stream")
-            .file_name(file_name)
-            .file(file_obj)
-            .build()
-        )
-        req = CreateFileRequest.builder().request_body(body).build()
-        resp = await loop.run_in_executor(_feishu_executor, client.im.v1.file.create, req)
-        if not resp.success():
-            logger.error("飞书文件上传失败: code=%s msg=%s", resp.code, resp.msg)
-            return False
-
-        file_key = getattr(getattr(resp, "data", None), "file_key", "")
-        if not file_key:
-            logger.error("飞书文件上传未返回 file_key")
-            return False
-
-        # 发送消息
-        receive_id, receive_id_type = resolve_receive_id(chat_id)
-        if caption:
-            post_content = {
-                "zh_cn": {
-                    "title": "",
-                    "content": [[
-                        {"tag": "media", "file_key": file_key, "file_name": file_name},
-                        {"tag": "text", "text": caption},
-                    ]]
-                }
-            }
-            msg_body = {
-                "receive_id": receive_id,
-                "msg_type": "post",
-                "content": json.dumps(post_content, ensure_ascii=False),
-            }
-        else:
-            msg_body = {
-                "receive_id": receive_id,
-                "msg_type": "file",
-                "content": json.dumps({"file_key": file_key}, ensure_ascii=False),
-            }
-
-        builder = CreateMessageRequest.builder().receive_id_type(receive_id_type)
-        builder = builder.request_body(msg_body)  # pyright: ignore[reportArgumentType]
-        req = builder.build()
-        resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
-        if not resp.success():
-            logger.error("飞书消息发送失败: code=%s msg=%s", resp.code, resp.msg)
-            return False
+        await send_file(client, config, chat_id, file_path, caption=caption)
         return True
     except Exception as exc:  # noqa: BLE001
         logger.exception("飞书文件投递异常: %s", exc)

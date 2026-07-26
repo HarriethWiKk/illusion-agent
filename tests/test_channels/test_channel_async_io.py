@@ -84,13 +84,16 @@ def test_feishu_adapter_no_default_executor_for_ws_start():
 def test_feishu_adapter_no_asyncio_to_thread_for_sdk_calls():
     """feishu/adapter.py 的 SDK 调用不再用 asyncio.to_thread，改用 loop.run_in_executor。
 
-    检查 send_image / send_document / download_attachment 三个方法的源码：
+    检查 send_image / download_attachment 两个方法的源码：
         - 不含 asyncio.to_thread(self._client...) 调用
         - 含 loop.run_in_executor(_feishu_executor, ...) 调用
+
+    send_document 已改为薄壳转发到 messaging.send_file，SDK 调用移至
+    messaging 层，由 test_messaging_no_asyncio_to_thread_for_sdk_calls 覆盖。
     """
     from illusion.channels.feishu.adapter import FeishuChannel
 
-    for method_name in ("send_image", "send_document", "download_attachment"):
+    for method_name in ("send_image", "download_attachment"):
         method = getattr(FeishuChannel, method_name)
         source = inspect.getsource(method)
         # SDK 调用不应再用 asyncio.to_thread
@@ -108,7 +111,7 @@ def test_messaging_no_asyncio_to_thread_for_sdk_calls():
     from illusion.channels.feishu import messaging
 
     sdk_funcs = [
-        "send_text", "edit_message", "send_card", "patch_card",
+        "send_text", "edit_message", "send_file", "send_card", "patch_card",
         "create_card_entity", "send_card_by_card_id",
         "set_card_streaming_mode", "update_cardkit_card",
     ]

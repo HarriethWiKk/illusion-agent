@@ -36,6 +36,55 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)  # 日志器
 
+# 飞书文件上传类型路由表（对齐 hermes-agent _FEISHU_DOC_UPLOAD_TYPES）
+# 飞书 im.v1.file.create 要求 file_type 按扩展名分类，且必须与发送消息时的
+# msg_type 严格匹配（飞书错误码 230055）：
+#   - pdf/doc/xls/ppt：飞书原生支持的办公文档类型，msg_type=file
+#   - opus：音频流，msg_type=audio
+#   - mp4：视频流，msg_type=media
+#   - stream：兜底类型（.txt/.md/.json/.zip 等），msg_type=file
+# 注意：media tag（post 富文本）仅支持视频文件，对 stream/doc 等类型会报 230055。
+_FEISHU_DOC_UPLOAD_TYPES: dict[str, str] = {
+    ".pdf": "pdf",
+    ".doc": "doc",
+    ".docx": "doc",
+    ".xls": "xls",
+    ".xlsx": "xls",
+    ".ppt": "ppt",
+    ".pptx": "ppt",
+}
+_FEISHU_OPUS_UPLOAD_EXTENSIONS = {".ogg", ".opus"}
+_FEISHU_MEDIA_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".avi", ".m4v"}
+_FEISHU_FILE_UPLOAD_TYPE_DEFAULT = "stream"
+
+
+def _resolve_feishu_file_routing(file_name: str) -> tuple[str, str]:
+    """根据文件扩展名解析飞书 (file_type, msg_type)
+
+    飞书要求 file_type 与 msg_type 严格匹配，否则报 code=230055：
+        - .ogg/.opus → ("opus", "audio")
+        - .mp4/.mov/.avi/.m4v → ("mp4", "media")
+        - .pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx → (对应类型, "file")
+        - 其他 → ("stream", "file")
+
+    Args:
+        file_name: 文件名（含扩展名）
+
+    Returns:
+        tuple[str, str]: (file_type, msg_type)
+    """
+    from pathlib import Path
+
+    ext = Path(file_name).suffix.lower()
+    if ext in _FEISHU_OPUS_UPLOAD_EXTENSIONS:
+        return "opus", "audio"
+    if ext in _FEISHU_MEDIA_UPLOAD_EXTENSIONS:
+        return "mp4", "media"
+    if ext in _FEISHU_DOC_UPLOAD_TYPES:
+        return _FEISHU_DOC_UPLOAD_TYPES[ext], "file"
+    return _FEISHU_FILE_UPLOAD_TYPE_DEFAULT, "file"
+
+
 # 飞书域名映射
 _DOMAINS = {
     "feishu": "https://open.feishu.cn",
@@ -397,22 +446,121 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
         logger.warning("飞书卡片更新失败: code=%s msg=%s", resp.code, resp.msg)
 
 
-async def send_file(client: Any, cfg: "FeishuChannelConfig", chat_id: str, file_path: str) -> None:
-    """上传并发送文件
+async def send_file(
+    client: Any,
+    cfg: "FeishuChannelConfig",
+    chat_id: str,
+    file_path: str,
+    *,
+    caption: str = "",
+) -> str:
+    """上传并发送文件到飞书会话
+
+    流程：按扩展名路由 (file_type, msg_type) → im.v1.file.create 上传 →
+    CreateMessageRequest 发送。file_type 与 msg_type 必须严格匹配：
+        - opus → file_type=opus, msg_type=audio
+        - mp4 → file_type=mp4, msg_type=media
+        - pdf/doc/xls/ppt → file_type=对应类型, msg_type=file
+        - stream（.txt/.md/.json/...） → file_type=stream, msg_type=file
+
+    注意：media tag（post 富文本）仅支持视频文件，对 stream/doc 等类型会报 230055，
+    因此 caption 不嵌入 post，而是先发一条文本消息，再发文件。
 
     Args:
         client: lark 客户端
-        cfg: 渠道配置
+        cfg: 渠道配置（未使用，保留以兼容签名）
         chat_id: 目标会话
         file_path: 本地文件路径
+        caption: 可选附注文字（先于文件发送）
+
+    Returns:
+        str: 新消息 ID（文件消息 ID；发送失败抛异常）
+
+    Raises:
+        FileNotFoundError: 文件不存在
+        RuntimeError: 上传失败或未返回 file_key、消息发送失败
     """
+    import io
+    import json
+    import os
+
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"文件不存在: {file_path}")
 
-    # 先上传文件拿 file_key，再发消息（实现细节在 lark-oapi SDK）
-    logger.info("发送文件到飞书 %s: %s", chat_id, path.name)
-    # TODO（实现阶段补全）：im.v1.file.create → 拿 file_key → CreateMessageRequest(msg_type=file/image)
+    try:
+        from lark_oapi.api.im.v1 import (  # noqa: I001
+            CreateFileRequest, CreateFileRequestBody, CreateMessageRequest,
+        )
+    except ImportError as exc:
+        raise NotImplementedError("feishu requires lark_oapi for send_file") from exc
+
+    file_name = os.path.basename(file_path)
+    file_bytes = path.read_bytes()
+    file_obj = io.BytesIO(file_bytes)
+    file_obj.name = file_name
+    file_type, resolved_msg_type = _resolve_feishu_file_routing(file_name)
+    logger.info(
+        "发送文件到飞书 %s: %s file_type=%s msg_type=%s size=%d",
+        chat_id, file_name, file_type, resolved_msg_type, len(file_bytes),
+    )
+
+    loop = asyncio.get_running_loop()
+
+    # 上传文件
+    body = (
+        CreateFileRequestBody.builder()
+        .file_type(file_type)
+        .file_name(file_name)
+        .file(file_obj)
+        .build()
+    )
+    req = CreateFileRequest.builder().request_body(body).build()
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.file.create, req)
+    if not resp.success():
+        log_id = getattr(resp, "get_log_id", lambda: "")()
+        logger.error(
+            "飞书文件上传失败: code=%s msg=%s log_id=%s file_type=%s",
+            resp.code, resp.msg, log_id, file_type,
+        )
+        raise RuntimeError(f"飞书文件上传失败: code={resp.code} msg={resp.msg}")
+
+    file_key = getattr(getattr(resp, "data", None), "file_key", "")
+    if not file_key:
+        logger.error("飞书文件上传未返回 file_key: resp=%s", resp)
+        raise RuntimeError("飞书文件上传未返回 file_key")
+
+    receive_id, receive_id_type = resolve_receive_id(chat_id)
+
+    # 有 caption 时先发一条文本消息（media tag 仅支持视频，不能用于携带 caption）
+    if caption:
+        try:
+            await send_text(client, cfg, chat_id, caption)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("飞书 caption 发送失败（继续发文件）: %s", exc)
+
+    # 发送文件消息：msg_type 严格按路由结果（audio/media/file）
+    msg_body = {
+        "receive_id": receive_id,
+        "msg_type": resolved_msg_type,
+        "content": json.dumps({"file_key": file_key}, ensure_ascii=False),
+    }
+    req = (
+        CreateMessageRequest.builder()
+        .receive_id_type(receive_id_type)
+        .request_body(msg_body)  # pyright: ignore[reportArgumentType]
+        .build()
+    )
+    resp = await loop.run_in_executor(_feishu_executor, client.im.v1.message.create, req)
+    if not resp.success():
+        log_id = getattr(resp, "get_log_id", lambda: "")()
+        logger.error(
+            "飞书消息发送失败: code=%s msg=%s log_id=%s receive_id_type=%s msg_type=%s file_type=%s",
+            resp.code, resp.msg, log_id, receive_id_type, resolved_msg_type, file_type,
+        )
+        raise RuntimeError(f"飞书消息发送失败: code={resp.code} msg={resp.msg}")
+
+    return str(getattr(getattr(resp, "data", None), "message_id", ""))
 
 
 # ---------------------------------------------------------------------------
