@@ -128,7 +128,7 @@ export function TodoPanel({items, externallyHidden}: {items: TodoItemSnapshot[];
 					))}
 					{truncated ? (
 						<Box>
-							<Text dimColor italic>{`  … +${remaining} more`}</Text>
+							<Text dimColor>{`  … +${remaining} more`}</Text>
 						</Box>
 					) : null}
 				</Box>
@@ -167,13 +167,12 @@ function TodoRow({item, theme, now, completionTimes, contentWidth}: {item: TodoI
 
 	return (
 		<Box>
-			<Text color={color} italic>{icon} </Text>
+			<Text color={color}>{icon} </Text>
 			<Text
 				color={isCompleted && !isRecentCompleted ? theme.colors.muted : undefined}
 				dimColor={isCompleted && !isRecentCompleted}
 				strikethrough={isCompleted}
 				bold={item.status === 'in_progress'}
-				italic
 			>
 				{displayContent}
 			</Text>

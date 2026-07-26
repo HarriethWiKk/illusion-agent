@@ -225,7 +225,7 @@ function QuestionModal({
 		return (
 			<Box key="other" flexDirection="column">
 				<Text
-					color={isCurrent || (isMultiSelect && selectedIndices.has(index)) ? theme.colors.illusionShimmer : theme.colors.permission}
+					color={isCurrent || (isMultiSelect && selectedIndices.has(index)) ? theme.colors.illusionShimmer : theme.colors.illusion}
 					bold={isCurrent && (opts?.rowLayout || !isMultiSelect)}
 				>
 					{labelText}
@@ -631,7 +631,7 @@ function QuestionModal({
 									if (opt.type === 'other') return renderOtherOption(i, isCurrent, {rowLayout: true});
 									return (
 										<Box key={opt.label} flexDirection="row">
-											<Text color={isCurrent ? theme.colors.illusionShimmer : theme.colors.permission} bold={isCurrent}>
+											<Text color={isCurrent ? theme.colors.illusionShimmer : theme.colors.illusion} bold={isCurrent}>
 												{`${isCurrent ? `${theme.icons.pointer} ` : '  '}${i + 1}. ${opt.label}`}
 											</Text>
 										</Box>
@@ -660,7 +660,7 @@ function QuestionModal({
 							return (
 								<Box key={opt.label} flexDirection="column">
 									<Text
-										color={isCurrent || (isMultiSelect && isSelected) ? theme.colors.illusionShimmer : theme.colors.permission}
+										color={isCurrent || (isMultiSelect && isSelected) ? theme.colors.illusionShimmer : theme.colors.illusion}
 										bold={isCurrent && !isMultiSelect}
 									>
 										{labelText}
