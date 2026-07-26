@@ -188,6 +188,11 @@ class BackgroundAgentTracker:
         shutdown 后调用为 no-op，避免在关闭后累积虚假 completion。
         重复 notify 不会使 _pending_count 变负（guard 生效）。
 
+        每次调用都 set wake_event，唤醒 wait_for_completion（语义为"等待任意
+        后台代理完成"）。原版 3cc12ba 即此行为，重构时误改为仅在 _pending_count
+        归 0 时 set，导致多后台任务场景下第一个完成无法唤醒主 agent，主 agent
+        只能等 30s 超时或所有任务完成。
+
         Args:
             agent_id: 代理 ID
             notification_xml: 格式化的任务通知 XML
@@ -199,8 +204,9 @@ class BackgroundAgentTracker:
         )
         # guard 防止 _pending_count 变负（重复 notify 场景）
         self._pending_count = max(0, self._pending_count - 1)
-        if self._pending_count == 0:
-            self._wake_event.set()
+        # 每次都 set wake_event：wait_for_completion 语义是"等待任意完成"，
+        # 而非"等待全部完成"。drain 后 wake_event 会被 clear。
+        self._wake_event.set()
 
     def has_pending(self) -> bool:
         """是否有待处理或已完成但未消费的后台代理。"""

@@ -85,3 +85,24 @@ def test_wait_for_completion_after_shutdown_returns_immediately():
         assert result == []
 
     asyncio.run(run())
+
+
+def test_first_completion_wakes_waiter_with_multiple_pending():
+    """多后台任务时，第一个完成就应唤醒 wait_for_completion。
+
+    回归测试：原版 3cc12ba 每次 notify 都 set wake_event，重构时误改为
+    仅在 _pending_count 归 0 时 set，导致多后台任务场景下第一个完成
+    无法唤醒主 agent，主 agent 只能等 30s 超时或所有任务完成。
+    """
+    tracker = BackgroundAgentTracker()
+    tracker.register("agent_1")
+    tracker.register("agent_2")
+    assert tracker._pending_count == 2
+
+    # 第一个 agent 完成（_pending_count 仍为 1）
+    tracker.notify_completed("agent_1", "<notification>1</notification>")
+    assert tracker._pending_count == 1
+    # wake_event 应被 set（修复后行为）
+    assert tracker._wake_event.is_set(), (
+        "第一个后台任务完成时应 set wake_event，而非等到全部完成"
+    )
