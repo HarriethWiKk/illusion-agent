@@ -28,15 +28,21 @@ class StderrRedirector:
     """stderr fd 级重定向器。
 
     通过 os.dup2 将 fd 2 重定向到管道写端，daemon 线程从管道读端逐行读取
-    并交给 logging 模块。捕获所有直接写 fd 2 的输出（C 扩展、warnings）。
+    并直接 os.write 到原始 stderr fd。
+
+    ⚠️ 死锁防护：daemon 线程必须绕过 logging 模块。若用 logger.log()，
+    独立 handler emit 失败会触发 handleError → 写 sys.stderr（fd 2，已重定向
+    到管道）→ 管道写阻塞（daemon 持锁）→ 主线程等 lock → 死锁。
 
     Attributes:
-        logger_name: logging 模块的 logger 名称
-        level: 日志级别（如 logging.ERROR）
+        logger_name: logging 模块的 logger 名称（仅用于 propagate=False）
+        level: 日志级别（保留兼容，实际未使用）
     """
 
     def __init__(self, logger_name: str = "illusion.stderr", level: int = logging.ERROR) -> None:
         self._logger = logging.getLogger(logger_name)
+        # 阻止向 root logger 传播：避免 daemon 通过 root 写 fd 2 形成死锁
+        self._logger.propagate = False
         self._level = level
         self._encoding: str | None = None
         self._installed = False
@@ -44,13 +50,20 @@ class StderrRedirector:
         self._original_fd: int | None = None
         self._read_fd: int | None = None
         self._thread: threading.Thread | None = None
+        # 保存 install 前的 root handler 配置，uninstall 时恢复
+        self._saved_root_handlers: list[logging.Handler] | None = None
+        self._saved_root_level: int | None = None
 
     def install(self) -> None:
         """安装 stderr 重定向。
 
-        流程：os.dup(2) 备份原始 stderr fd → os.pipe() 创建管道 →
-        os.dup2(write_fd, 2) 重定向 fd 2 到管道写端 → 启动 daemon 线程
-        逐行读取管道并交给 logger。幂等可重复调用。
+        流程：
+        1. os.dup(2) 备份原始 stderr fd
+        2. 重定向 root logger 的所有 StreamHandler 到原始 fd（避免写管道死锁）
+        3. os.pipe() 创建管道，os.dup2(write_fd, 2) 重定向 fd 2
+        4. 启动 daemon 线程逐行读取管道，直接 os.write 到原始 fd
+
+        幂等可重复调用。
         """
         with self._lock:
             if self._installed:
@@ -64,10 +77,49 @@ class StderrRedirector:
                 self._encoding = (
                     sys.stderr.encoding or locale.getpreferredencoding(False) or "utf-8"
                 )
+
+            # 重定向 root logger 的 StreamHandler：把 stream 替换为原始 fd 的副本
+            # 避免主线程通过 root 写 fd 2（管道）→ 管道满时 emit 阻塞 → 死锁
+            root_logger = logging.getLogger()
+            self._saved_root_handlers = list(root_logger.handlers)
+            self._saved_root_level = root_logger.level
+            if self._original_fd is not None:
+                # 创建写原始 fd 的 text stream（logging 期望 text mode）
+                # encoding 用 sys.stderr 的 encoding 保持兼容
+                orig_stream = open(
+                    self._original_fd,
+                    "w",
+                    encoding=self._encoding or "utf-8",
+                    errors="replace",
+                    closefd=False,
+                    buffering=1,  # 行缓冲
+                )
+                # 替换 root 现有 StreamHandler 的 stream，或新建一个
+                replaced = False
+                for h in list(root_logger.handlers):
+                    if isinstance(h, logging.StreamHandler) and not isinstance(
+                        h, logging.FileHandler
+                    ):
+                        # 替换 stream 为原始 fd（保留原 formatter/level）
+                        h.stream = orig_stream
+                        replaced = True
+                if not replaced and not root_logger.handlers:
+                    # root 无 handler，会用 lastResort（写 fd 2）。
+                    # 添加一个写原始 fd 的 handler，并禁用 lastResort
+                    new_handler = logging.StreamHandler(orig_stream)
+                    new_handler.setFormatter(
+                        logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+                    )
+                    root_logger.addHandler(new_handler)
+                    root_logger.setLevel(logging.INFO)
+                # 禁用 lastResort，避免它写 fd 2（管道）
+                logging.lastResort = None  # type: ignore[assignment]
+
             read_fd, write_fd = os.pipe()
             os.dup2(write_fd, 2)
             os.close(write_fd)
             self._read_fd = read_fd
+
             self._thread = threading.Thread(
                 target=self._drain, name="illusion-stderr-redirect", daemon=True
             )
@@ -78,7 +130,7 @@ class StderrRedirector:
         """卸载 stderr 重定向，恢复原始 fd 2。
 
         流程：os.dup2(original_fd, 2) 恢复 → join(timeout=2.0) 等 drain
-        线程排空残留数据。幂等可重复调用。
+        线程排空残留数据 → 恢复 root logger 配置。幂等可重复调用。
         """
         with self._lock:
             if not self._installed:
@@ -89,9 +141,30 @@ class StderrRedirector:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
+        # 恢复 root logger 的原始 handler 配置
+        root_logger = logging.getLogger()
+        if self._saved_root_handlers is not None:
+            # 关闭我们替换 stream 的 handler（释放原始 fd 副本）
+            for h in list(root_logger.handlers):
+                if h not in self._saved_root_handlers:
+                    root_logger.removeHandler(h)
+                    with contextlib.suppress(Exception):
+                        h.close()
+            # 恢复原始 handler
+            root_logger.handlers = list(self._saved_root_handlers)
+            self._saved_root_handlers = None
+        if self._saved_root_level is not None:
+            root_logger.setLevel(self._saved_root_level)
+            self._saved_root_level = None
+        # 恢复 lastResort 默认值
+        from logging import _StderrHandler  # type: ignore
+        logging.lastResort = _StderrHandler(logging.WARNING)  # type: ignore[assignment]
 
     def _drain(self) -> None:
-        """daemon 线程主循环：逐行读取管道并交给 logger。"""
+        """daemon 线程主循环：逐行读取管道并直接 os.write 到原始 fd。
+
+        ⚠️ 不使用 logging 模块，避免 handler lock / handleError 死锁。
+        """
         buffer = ""
         read_fd = self._read_fd
         if read_fd is None:
@@ -107,8 +180,9 @@ class StderrRedirector:
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     self._log_line(line)
-        except Exception:
-            self._logger.exception("读取重定向 stderr 失败")
+        except OSError:
+            # 读管道失败时静默退出，避免 daemon 线程崩溃
+            pass
         finally:
             buffer += decoder.decode(b"", final=True)
             if buffer:
@@ -117,11 +191,23 @@ class StderrRedirector:
                 os.close(read_fd)
 
     def _log_line(self, line: str) -> None:
-        """将一行 stderr 输出交给 logger。"""
+        """将一行 stderr 输出直接 os.write 到原始 stderr fd。
+
+        ⚠️ 必须直接用 os.write，绕过 logging 模块。
+        若用 logger.log() → handler emit 失败 → handleError 写 sys.stderr
+        （fd 2 管道）→ 管道写阻塞 → 死锁。
+        """
         text = line.rstrip("\r")
         if not text:
             return
-        self._logger.log(self._level, text)
+        if self._original_fd is None:
+            return
+        try:
+            data = f"[stderr] {text}\n".encode(self._encoding or "utf-8", errors="replace")
+            os.write(self._original_fd, data)
+        except OSError:
+            # 原始 fd 不可写时静默丢弃，避免 daemon 线程崩溃
+            pass
 
     def open_original_stderr_handle(self) -> IO[bytes] | None:
         """打开原始 stderr 的副本句柄，用于需要写真实 stderr 的场景。"""
