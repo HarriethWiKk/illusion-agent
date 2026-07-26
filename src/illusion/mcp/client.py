@@ -7,7 +7,7 @@ MCP 客户端管理器模块
 主要功能：
     - 管理 MCP 服务器连接
     - 暴露 MCP 工具和资源
-    - 支持 STDIO 传输类型连接
+    - 支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 传输类型
     - 提供工具调用和资源读取接口
 
 类说明：
@@ -25,20 +25,29 @@ MCP 客户端管理器模块
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from contextlib import AsyncExitStack
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.websocket import websocket_client
 from mcp.types import CallToolResult, ReadResourceResult
 
 from illusion.mcp.types import (
     McpConnectionStatus,
+    McpHttpServerConfig,
     McpResourceInfo,
+    McpSseServerConfig,
     McpStdioServerConfig,
     McpToolInfo,
+    McpWebSocketServerConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class McpClientManager:
@@ -46,7 +55,7 @@ class McpClientManager:
     MCP 客户端管理器
     
     管理与 MCP 服务器的连接，并暴露服务器提供的工具和资源。
-    支持 STDIO 传输类型的服务器连接。
+    支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 传输类型。
     
     Attributes:
         _server_configs: 服务器名称到配置的映射
@@ -82,43 +91,40 @@ class McpClientManager:
 
     async def connect_all(self) -> None:
         """
-        连接所有已配置的 STDIO 类型 MCP 服务器
+        连接所有已配置的 MCP 服务器
 
-        并行连接所有 STDIO 类型的服务器以加速启动，
-        其他类型的服务器标记为失败（当前版本仅支持 STDIO）。
+        并行连接所有服务器以加速启动，支持 STDIO、HTTP（Streamable HTTP）、
+        SSE、WebSocket 四种传输类型。
         """
-        # 收集需要并行连接的 STDIO 服务器
-        stdio_tasks: list[tuple[str, McpStdioServerConfig]] = []
+        # 收集需要并行连接的任务
+        connect_coros: list[Any] = []
         for name, config in self._server_configs.items():
             if isinstance(config, McpStdioServerConfig):
-                stdio_tasks.append((name, config))
+                connect_coros.append(self._connect_stdio(name, config))
+            elif isinstance(config, (McpHttpServerConfig, McpSseServerConfig, McpWebSocketServerConfig)):
+                connect_coros.append(self._connect_remote(name, config))
             else:
-                # 其他传输类型标记为失败
+                # 未知传输类型标记为失败
                 transport_type = getattr(config, "type", "unknown")
                 self._statuses[name] = McpConnectionStatus(
                     name=name,
                     state="failed",
                     transport=transport_type,
-                    auth_configured=bool(getattr(config, "headers", None)),
-                    detail=f"Unsupported MCP transport in current build: {transport_type}",
+                    detail=f"Unsupported MCP transport: {transport_type}",
                 )
 
-        # 并行连接所有 STDIO 服务器
-        if stdio_tasks:
-            # 包装为 task 以便异常路径下取消尚未完成的连接任务，
-            # 否则 gather 抛异常后剩余 task 会成为孤儿继续在后台跑
-            tasks = [
-                asyncio.create_task(self._connect_stdio(name, config))
-                for name, config in stdio_tasks
-            ]
-            try:
-                await asyncio.gather(*tasks)
-            except Exception:
-                for t in tasks:
-                    if not t.done():
-                        t.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                raise
+        # 并行连接所有服务器
+        if connect_coros:
+            tasks = [asyncio.create_task(coro) for coro in connect_coros]
+            # return_exceptions=True 确保单个服务器连接失败不影响其他服务器；
+            # 各 _connect_* 方法已自行捕获异常并标记 failed status，
+            # 此处仅记录非预期的逃逸异常。
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException) and not isinstance(
+                    result, (KeyboardInterrupt, SystemExit)
+                ):
+                    logger.warning("MCP connection task error: %s", result)
 
     async def reconnect_all(self) -> None:
         """
@@ -277,12 +283,103 @@ class McpClientManager:
                 parts.append(str(getattr(item, "blob", "")))
         return "\n".join(parts).strip()
 
+    async def _finalize_session(
+        self,
+        name: str,
+        config: Any,
+        session: ClientSession,
+        stack: AsyncExitStack,
+        *,
+        auth_configured: bool,
+    ) -> None:
+        """
+        初始化会话并获取工具/资源列表，成功后记录连接状态
+
+        所有传输类型（STDIO/HTTP/SSE/WebSocket）共用的公共逻辑：
+        session.initialize() → list_tools → list_resources → 记录状态。
+        失败时抛出异常，由调用方负责清理 stack 并标记 failed。
+
+        Args:
+            name: 服务器名称
+            config: 服务器配置（用于读取 type 等元信息）
+            session: 已建立的客户端会话
+            stack: 关联的异步退出栈
+            auth_configured: 是否配置了认证信息
+        """
+        await session.initialize()
+        # 获取服务器提供的工具列表
+        tool_result = await session.list_tools()
+        tools = [
+            McpToolInfo(
+                server_name=name,
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
+            )
+            for tool in tool_result.tools
+        ]
+        # 获取服务器提供的资源列表（可选能力，服务器可能不支持）
+        resources: list[McpResourceInfo] = []
+        try:
+            resource_result = await session.list_resources()
+            resources = [
+                McpResourceInfo(
+                    server_name=name,
+                    name=resource.name or str(resource.uri),
+                    uri=str(resource.uri),
+                    description=resource.description or "",
+                )
+                for resource in resource_result.resources
+            ]
+        except Exception:
+            # 服务器不支持 resources 能力，忽略错误
+            pass
+        # 获取资源模板（部分服务器只暴露模板，不暴露静态资源）
+        try:
+            template_result = await session.list_resource_templates()
+            template_items = getattr(template_result, "resourceTemplates", None)
+            if template_items is None:
+                template_items = getattr(template_result, "resource_templates", [])
+            for template in template_items or []:
+                template_uri = str(
+                    getattr(template, "uriTemplate", None)
+                    or getattr(template, "uri_template", None)
+                    or ""
+                ).strip()
+                if not template_uri:
+                    continue
+                if any(item.uri == template_uri for item in resources):
+                    continue
+                resources.append(
+                    McpResourceInfo(
+                        server_name=name,
+                        name=getattr(template, "name", None) or template_uri,
+                        uri=template_uri,
+                        description=getattr(template, "description", "") or "",
+                    )
+                )
+        except Exception:
+            # 服务器不支持 resource templates 能力，忽略错误
+            pass
+        # 保存会话和栈
+        self._sessions[name] = session
+        self._stacks[name] = stack
+        # 更新连接状态为已连接
+        self._statuses[name] = McpConnectionStatus(
+            name=name,
+            state="connected",
+            transport=config.type,
+            auth_configured=auth_configured,
+            tools=tools,
+            resources=resources,
+        )
+
     async def _connect_stdio(self, name: str, config: McpStdioServerConfig) -> None:
         """
         连接 STDIO 类型的 MCP 服务器
-        
+
         建立与 STDIO 服务器的连接，初始化会话，并获取服务器提供的工具和资源列表。
-        
+
         Args:
             name: 服务器名称
             config: STDIO 服务器配置
@@ -310,76 +407,9 @@ class McpClientManager:
                     errlog=errlog,
                 )
             )
-            # 创建客户端会话
+            # 创建客户端会话并完成公共初始化流程
             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
-            await session.initialize()
-            # 获取服务器提供的工具列表
-            tool_result = await session.list_tools()
-            # 转换工具信息为内部数据模型
-            tools = [
-                McpToolInfo(
-                    server_name=name,
-                    name=tool.name,
-                    description=tool.description or "",
-                    input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
-                )
-                for tool in tool_result.tools
-            ]
-            # 获取服务器提供的资源列表（可选能力，服务器可能不支持）
-            resources: list[McpResourceInfo] = []
-            try:
-                resource_result = await session.list_resources()
-                resources = [
-                    McpResourceInfo(
-                        server_name=name,
-                        name=resource.name or str(resource.uri),
-                        uri=str(resource.uri),
-                        description=resource.description or "",
-                    )
-                    for resource in resource_result.resources
-                ]
-            except Exception:
-                # 服务器不支持 resources 能力，忽略错误
-                pass
-            # 获取资源模板（部分服务器只暴露模板，不暴露静态资源）
-            try:
-                template_result = await session.list_resource_templates()
-                template_items = getattr(template_result, "resourceTemplates", None)
-                if template_items is None:
-                    template_items = getattr(template_result, "resource_templates", [])
-                for template in template_items or []:
-                    template_uri = str(
-                        getattr(template, "uriTemplate", None)
-                        or getattr(template, "uri_template", None)
-                        or ""
-                    ).strip()
-                    if not template_uri:
-                        continue
-                    if any(item.uri == template_uri for item in resources):
-                        continue
-                    resources.append(
-                        McpResourceInfo(
-                            server_name=name,
-                            name=getattr(template, "name", None) or template_uri,
-                            uri=template_uri,
-                            description=getattr(template, "description", "") or "",
-                        )
-                    )
-            except Exception:
-                # 服务器不支持 resource templates 能力，忽略错误
-                pass
-            # 保存会话和栈
-            self._sessions[name] = session
-            self._stacks[name] = stack
-            # 更新连接状态为已连接
-            self._statuses[name] = McpConnectionStatus(
-                name=name,
-                state="connected",
-                transport=config.type,
-                auth_configured=bool(config.env),
-                tools=tools,
-                resources=resources,
-            )
+            await self._finalize_session(name, config, session, stack, auth_configured=bool(config.env))
         except Exception as exc:
             # 连接失败，清理资源并更新状态
             await stack.aclose()
@@ -390,6 +420,75 @@ class McpClientManager:
                 auth_configured=bool(config.env),
                 detail=str(exc),
             )
+
+    async def _connect_remote(self, name: str, config: Any) -> None:
+        """
+        连接远程 MCP 服务器（HTTP/SSE/WebSocket）
+
+        根据配置类型选择对应的传输方式建立连接，复用公共的会话初始化流程。
+
+        Args:
+            name: 服务器名称
+            config: 远程服务器配置（McpHttpServerConfig/McpSseServerConfig/McpWebSocketServerConfig）
+        """
+        headers_configured = bool(getattr(config, "headers", None))
+        stack = AsyncExitStack()
+        try:
+            read_stream, write_stream = await self._open_remote_transport(stack, config)
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            await self._finalize_session(
+                name, config, session, stack, auth_configured=headers_configured
+            )
+        except (Exception, asyncio.CancelledError) as exc:
+            # 远程传输（streamablehttp/sse）内部使用 anyio task group，
+            # 连接失败时会通过 cancel scope 取消任务产生 CancelledError（BaseException
+            # 子类，绕过 except Exception），需显式捕获以确保标记为 failed。
+            # stack.aclose() 可能因跨 task 退出 cancel scope 抛 RuntimeError，
+            # 此时传输资源随 session 销毁自动回收。
+            try:
+                await stack.aclose()
+            except Exception:
+                pass
+            self._statuses[name] = McpConnectionStatus(
+                name=name,
+                state="failed",
+                transport=config.type,
+                auth_configured=headers_configured,
+                detail=str(exc) or type(exc).__name__,
+            )
+
+    async def _open_remote_transport(self, stack: AsyncExitStack, config: Any) -> tuple[Any, Any]:
+        """
+        根据配置类型打开对应的远程传输流
+
+        Args:
+            stack: 异步退出栈，传输流的生命周期由其管理
+            config: 远程服务器配置
+
+        Returns:
+            (read_stream, write_stream) 二元组
+
+        Raises:
+            ValueError: 不支持的远程传输类型
+        """
+        headers = dict(getattr(config, "headers", None) or {})
+        if isinstance(config, McpHttpServerConfig):
+            # streamablehttp_client 返回 (read, write, get_session_id) 三元组
+            read, write, _ = await stack.enter_async_context(
+                streamablehttp_client(url=config.url, headers=headers or None)
+            )
+            return read, write
+        if isinstance(config, McpSseServerConfig):
+            read, write = await stack.enter_async_context(
+                sse_client(url=config.url, headers=headers or None)
+            )
+            return read, write
+        if isinstance(config, McpWebSocketServerConfig):
+            read, write = await stack.enter_async_context(
+                websocket_client(url=config.url)
+            )
+            return read, write
+        raise ValueError(f"Unsupported remote MCP transport: {type(config).__name__}")
 
     def _require_session(self, server_name: str) -> ClientSession:
         """获取服务器会话，不存在时抛出可读错误。"""
