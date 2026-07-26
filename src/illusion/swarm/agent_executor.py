@@ -506,6 +506,7 @@ async def run_agent_in_process(
     is_async: bool = False,
     existing_context: AgentExecutionContext | None = None,
     on_progress: Any | None = None,
+    on_activity: Any | None = None,
 ) -> AgentResult:
     """在当前进程中运行代理。
 
@@ -516,6 +517,12 @@ async def run_agent_in_process(
         query_context: 预构建的 QueryContext。
         parent_registry: 父级工具注册表（用于解析代理工具）。
         is_async: 是否为异步（后台）模式。
+        on_progress: 工具进度回调（仅在工具事件触发）。前台模式用于前端进度
+            显示；后台模式不传（与 on_activity 职责重叠）。
+        on_activity: 活动信号回调（对所有事件触发，含文本生成、工具事件）。
+            用于后台 idle 超时判断：刷新 bg_tracker 的活动时间戳，让主循环
+            保持 busy。仅后台模式需要，前台模式通过 last_activity 共享变量
+            直接刷新。
 
     Returns:
         AgentResult: 代理执行结果。
@@ -601,18 +608,31 @@ async def run_agent_in_process(
         agent_query_context.max_turns, config.prompt,
     )
 
-    # Agent 超时时间（秒）
-    AGENT_TIMEOUT = 300  # 5 分钟
+    # Agent 无活动超时（秒）：run_query 持续产出事件时刷新 last_activity，
+    # 仅当长时间无任何事件（API 卡死、工具阻塞）时触发。模型正常思考/生成文本
+    # 期间会持续产出 AssistantTextDelta/工具事件，不会误触发。
+    IDLE_TIMEOUT = 300  # 5 分钟无活动
+
+    # 共享活动时间戳：query loop 每收到一个事件就刷新，idle_watcher 据此判断
+    # 是否超时。nonlocal 在嵌套函数中共享，无需锁（单事件循环下读写原子）。
+    last_activity = time.monotonic()
 
     try:
         from illusion.engine.query import run_query
 
         async def _run_query_loop() -> None:
             """执行查询循环的内部协程。"""
+            nonlocal last_activity
             logger.warning("[agent_executor] %s: entering query loop", agent_id)
             event_count = 0
             async for event, usage in run_query(agent_query_context, messages):
                 event_count += 1
+                # 任何事件都视为活跃，刷新活动时间戳（前台 idle_watcher 据此判断）
+                last_activity = time.monotonic()
+                # 后台模式通过 on_activity 回调通知 bg_tracker 保持 busy
+                if on_activity is not None:
+                    with contextlib.suppress(Exception):
+                        await on_activity(type(event).__name__)
                 if event_count <= 3:
                     logger.warning("[agent_executor] %s: event #%d: %s", agent_id, event_count, type(event).__name__)
                 # 检测错误事件
@@ -659,16 +679,31 @@ async def run_agent_in_process(
                     logger.debug("[agent_executor] %s: cancelled", agent_id)
                     return
 
-        # 创建并发任务：查询循环 + 消息消费者 + 超时 + 取消事件 + 强制取消
+        async def _idle_watcher() -> None:
+            """无活动监控：周期检查 last_activity，超过 IDLE_TIMEOUT 则返回。
+
+            与固定 sleep 超时不同：只要 query loop 持续产出事件，本 task 永不返回，
+            agent 可执行任意时长；仅在真的卡住（无事件）时触发兜底超时。
+            """
+            nonlocal last_activity
+            while True:
+                remaining = IDLE_TIMEOUT - (time.monotonic() - last_activity)
+                if remaining <= 0:
+                    return
+                # 至多睡 30s 重新检查，避免 last_activity 被外部刷新后仍长时间不醒
+                await asyncio.sleep(min(remaining, 30.0))
+
+        # 创建并发任务：查询循环 + 消息消费者 + 无活动超时 + 取消事件 + 强制取消
         # ⚠️ 用 asyncio.wait FIRST_COMPLETED 替代 wait_for，避免 consumer 永久卡死
         # ⚠️ force_cancel_task 用于主动中断运行中的工具（Ctrl+X 根因修复）
+        # ⚠️ timeout_task 改为 _idle_watcher：有活动时不触发，仅卡住时兜底
         cancel_event = ctx.abort_controller.cancel_event
         query_task = asyncio.create_task(_run_query_loop(), name=f"agent-{agent_id}-query")
         message_task = asyncio.create_task(
             _message_consumer(messages, ctx), name=f"agent-{agent_id}-msg"
         )
         timeout_task = asyncio.create_task(
-            asyncio.sleep(AGENT_TIMEOUT), name=f"agent-{agent_id}-timeout"
+            _idle_watcher(), name=f"agent-{agent_id}-idle-timeout"
         )
         cancel_task = asyncio.create_task(cancel_event.wait(), name=f"agent-{agent_id}-cancel")
         force_cancel_task = asyncio.create_task(
@@ -690,19 +725,19 @@ async def run_agent_in_process(
                     await query_task
                 logger.warning("[agent_executor] %s: force_cancel 中断运行中工具", agent_id)
             elif query_task in done:
-                # 正常完成或抛异常
+                # 正常完成或抛异常（含 LLM 提前完成任务的情况，不受超时影响）
                 query_task.result()
                 logger.warning("[agent_executor] %s: query loop completed", agent_id)
             else:
-                # 超时或优雅取消：cancel query_task
+                # 无活动超时或优雅取消：cancel query_task
                 query_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await query_task
                 if cancel_task in done:
                     logger.warning("[agent_executor] %s: 通过 abort_controller 取消", agent_id)
                 else:
-                    logger.error("[agent_executor] %s: 超时（%ds）", agent_id, AGENT_TIMEOUT)
-                    error_text = f"Agent timed out after {AGENT_TIMEOUT} seconds"
+                    logger.error("[agent_executor] %s: 无活动超时（%ds）", agent_id, IDLE_TIMEOUT)
+                    error_text = f"Agent timed out after {IDLE_TIMEOUT} seconds of inactivity"
                     ctx.abort_controller.request_cancel(force=True)
         finally:
             # ⚠️ 关键：关闭 message_queue 唤醒 consumer，否则 consumer 永久卡住

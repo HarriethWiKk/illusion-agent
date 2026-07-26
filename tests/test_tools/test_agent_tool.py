@@ -61,10 +61,12 @@ async def test_agent_tool_forces_foreground_for_team_lead(tmp_path: Path, monkey
         config,
         query_context,
         parent_registry,
+        *,
         is_async: bool = False,
         existing_context=None,
+        **kwargs,
     ):
-        del config, query_context, parent_registry, existing_context
+        del config, query_context, parent_registry, existing_context, kwargs
         calls["is_async"] = is_async
         return AgentResult(agent_id="agent-test", success=True, result_text="agent done")
 
@@ -99,10 +101,12 @@ async def test_agent_tool_keeps_background_outside_team_mode(tmp_path: Path, mon
         config,
         query_context,
         parent_registry,
+        *,
         is_async: bool = False,
         existing_context=None,
+        **kwargs,
     ):
-        del config, query_context, parent_registry, existing_context
+        del config, query_context, parent_registry, existing_context, kwargs
         calls["is_async"] = is_async
         return AgentResult(agent_id="agent-test", success=True, result_text="agent done")
 

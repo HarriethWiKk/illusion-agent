@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -164,6 +165,10 @@ class BackgroundAgentTracker:
         self._shutdown: bool = False
         # 强引用持有后台 task，防止 GC 在 task 完成前回收
         self._bg_tasks: set[asyncio.Task[None]] = set()
+        # 最近一次活动时间戳（monotonic）。后台 agent 通过 on_progress 回调
+        # 触发 notify_activity 刷新此值。wait_for_completion 据此判断是否
+        # 因长时间无活动而退出 busy（agent 仍在运行，下轮 handle_line 续接）。
+        self._last_activity: float = time.monotonic()
 
     def register(self, agent_id: str) -> None:
         """注册一个待处理的后台代理。
@@ -172,6 +177,8 @@ class BackgroundAgentTracker:
             agent_id: 代理 ID
         """
         self._pending_count += 1
+        # 注册即视为一次活动，避免刚启动就被 idle 超时误判
+        self._last_activity = time.monotonic()
 
     def register_bg_task(self, task: asyncio.Task[None]) -> None:
         """注册一个后台 task 的强引用，shutdown 时统一 cancel。
@@ -183,6 +190,26 @@ class BackgroundAgentTracker:
         """
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    def notify_activity(self, agent_id: str, message: str) -> None:
+        """通知后台代理有活动（工具调用、文本生成等）。
+
+        不改变 _pending_count，仅刷新 _last_activity。不 set wake_event，
+        避免对每个 AssistantTextDelta 都空唤醒主循环（流式文本生成期间
+        可能有数千个 delta）。
+
+        wait_for_completion 的 idle 循环通过 wait_for(timeout=remaining)
+        自动在剩余时间内唤醒重算：只要活动持续刷新 _last_activity，
+        remaining 永远不会归零，主循环保持 busy。notify_completed 仍会
+        set wake_event 立即唤醒主循环返回 completion。
+
+        Args:
+            agent_id: 代理 ID
+            message: 活动描述（来自 on_activity 回调，仅用于调试）
+        """
+        if self._shutdown:
+            return
+        self._last_activity = time.monotonic()
 
     def notify_completed(self, agent_id: str, notification_xml: str) -> None:
         """通知后台代理已完成。
@@ -206,6 +233,8 @@ class BackgroundAgentTracker:
         )
         # guard 防止 _pending_count 变负（重复 notify 场景）
         self._pending_count = max(0, self._pending_count - 1)
+        # 完成也是一次活动，刷新时间戳
+        self._last_activity = time.monotonic()
         # 每次都 set wake_event：wait_for_completion 语义是"等待任意完成"，
         # 而非"等待全部完成"。drain 后 wake_event 会被 clear。
         self._wake_event.set()
@@ -244,17 +273,30 @@ class BackgroundAgentTracker:
         # 唤醒所有 wait_for_completion 等待者
         self._wake_event.set()
 
-    async def wait_for_completion(self, timeout: float | None = None) -> list[BgAgentCompletion]:
+    async def wait_for_completion(
+        self,
+        timeout: float | None = None,
+        idle_timeout: float | None = None,
+    ) -> list[BgAgentCompletion]:
         """等待任意后台代理完成，返回所有已完成的通知。
 
         - 已 shutdown：立即返回当前 completions（不 drain）
         - 已有 completion：drain 并返回
         - 无 pending：返回空列表
-        - 否则阻塞等待 wake_event，支持 timeout 超时保护
+        - 否则阻塞等待 wake_event
+
+        两种超时模式：
+            - timeout: 固定总超时（向后兼容）。超时后返回当前 completions（不 drain）。
+            - idle_timeout: 无活动超时。后台 agent 通过 notify_activity 刷新
+              _last_activity，只要持续有活动就一直等待，仅当长时间无活动时
+              才返回空列表（agent 仍在运行，下轮 handle_line 续接）。
 
         Args:
-            timeout: 超时秒数，None 表示无限等待。超时后返回当前
-                completions（不 drain），tracker 仍可继续使用
+            timeout: 固定总超时秒数，None 表示不限制（与 idle_timeout 互斥）。
+                向后兼容用途，新代码应优先使用 idle_timeout。
+            idle_timeout: 无活动超时秒数，None 表示不启用活动感知模式。
+                启用后：有 completion 立即返回；无 completion 但有活动则继续等；
+                无活动超过 idle_timeout 才返回空列表。
 
         Returns:
             list[BgAgentCompletion]: 已完成的后台代理通知列表
@@ -266,6 +308,41 @@ class BackgroundAgentTracker:
             return self._drain_completions()
         if self._pending_count <= 0:
             return []
+
+        # 活动感知模式：循环等待，有活动就刷新，idle 超时才退出
+        # wake_event 仅由 notify_completed/shutdown 触发；notify_activity
+        # 只刷新 _last_activity，不 set event（避免高频空唤醒）。
+        # 因此 wait_for 超时后需重新计算 remaining：若活动持续刷新，
+        # remaining 永远不会归零，循环继续 wait；仅当真 idle 超时才退出。
+        if idle_timeout is not None:
+            while not self._shutdown and self._pending_count > 0:
+                if self._completions:
+                    return self._drain_completions()
+                # 计算剩余 idle 时间
+                remaining = idle_timeout - (time.monotonic() - self._last_activity)
+                if remaining <= 0:
+                    # idle 超时：返回当前 completions（不 drain），agent 仍存活
+                    return list(self._completions)
+                try:
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=remaining)
+                    # wake_event 被 set：可能是 completion 或 shutdown
+                    # 循环顶部会重新检查 _completions 和 _shutdown
+                except asyncio.TimeoutError:
+                    # wait_for 自然超时：可能是真 idle 超时，或活动刷新了
+                    # _last_activity 但未 set event。重新循环计算 remaining。
+                    # 若 _completions 在此期间到达（notify_completed 会 set event，
+                    # 不会走到这里），优先处理 completion。
+                    if self._completions:
+                        return self._drain_completions()
+                    # 继续循环：若 remaining 仍 > 0（活动刷新过），重新 wait；
+                    # 若 remaining <= 0（真 idle 超时），循环顶部返回。
+                    continue
+            # shutdown 或 pending 归零
+            if self._shutdown:
+                return list(self._completions)
+            return self._drain_completions() if self._completions else []
+
+        # 固定总超时模式（向后兼容）
         try:
             if timeout is not None:
                 await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
@@ -318,7 +395,7 @@ class QueryContext:
     tool_metadata: dict[str, object] | None = None
     effort: EffortLevel | None = None
     bg_agent_tracker: BackgroundAgentTracker | None = None
-    bg_agent_wait_timeout: float = 30.0  # 后台代理等待超时（秒）
+    bg_agent_wait_timeout: float = 300.0  # 后台代理 idle 超时阈值（秒），与前台 IDLE_TIMEOUT 一致
     compact_state: Any = None  # AutoCompactState，从 QueryEngine 传入
     # 文件历史回调：工具执行前调用，参数为 (工具名称, 工具输入)
     on_before_tool_execute: Callable[[str, dict[str, Any]], None] | None = None
@@ -484,8 +561,12 @@ async def run_query(
                 # 发出等待状态事件（显示在 shimmer 区域）
                 from illusion.config.i18n import t as _t
                 yield StatusEvent(message=_t("bg_agent_waiting"), bg_agent=True), None
-                # 等待任意后台代理完成（不消耗 token），带超时保护避免 engine 退出后永久阻塞
-                completed = await tracker.wait_for_completion(timeout=context.bg_agent_wait_timeout)
+                # 等待后台代理完成：使用 idle 超时模式，只要代理持续有活动
+                # （工具调用、文本生成等）就保持 busy，仅当长时间无活动时才退出。
+                # bg_agent_wait_timeout 语义从"固定 300s 超时"改为"idle 超时阈值"。
+                completed = await tracker.wait_for_completion(
+                    idle_timeout=context.bg_agent_wait_timeout
+                )
                 if completed:
                     # 将完成通知注入为用户消息，触发模型继续处理
                     notification_parts = [c.notification_xml for c in completed]

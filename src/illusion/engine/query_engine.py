@@ -337,7 +337,10 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
-            bg_agent_wait_timeout=30.0,  # 后台代理等待超时（秒）
+            # idle 超时阈值：后台 agent 持续有活动（工具调用、文本生成）时
+            # 主循环保持 busy；仅当 300s 无任何活动才退出 busy（agent 仍存活，
+            # 下轮 handle_line 续接）。与前台 IDLE_TIMEOUT 一致。
+            bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
             on_before_tool_execute=_on_before_tool_execute,
             file_state_cache=self._file_state_cache,
@@ -377,7 +380,8 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
             effort=self._effort,
             bg_agent_tracker=self._bg_agent_tracker,
-            bg_agent_wait_timeout=30.0,  # 后台代理等待超时（秒）
+            # idle 超时阈值（与 build_query_context 一致，详见上文说明）
+            bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
             file_state_cache=self._file_state_cache,
         )

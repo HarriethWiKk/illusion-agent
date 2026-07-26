@@ -313,8 +313,23 @@ Terse command-style prompts produce shallow, generic work.
                     )
                     _register_agent(bg_ctx)
 
+                    # 后台模式仅传递 on_activity 回调：对所有事件（含文本生成、
+                    # 工具事件）刷新 bg_tracker 的活动时间戳，让主循环通过 idle
+                    # 超时判断是否卡住，避免 30s 固定超时误退出 busy。
+                    # 后台无前端进度展示需求，不传 on_progress（与 on_activity 职责重叠）。
+                    async def _on_bg_activity(event_type: str) -> None:
+                        if bg_tracker is not None:
+                            bg_tracker.notify_activity(agent_id, event_type)
+
                     try:
-                        result = await run_agent_in_process(config, query_context, parent_registry, is_async=True, existing_context=bg_ctx)
+                        result = await run_agent_in_process(
+                            config,
+                            query_context,
+                            parent_registry,
+                            is_async=True,
+                            existing_context=bg_ctx,
+                            on_activity=_on_bg_activity,
+                        )
                         # 构建通知 XML
                         if result.notification:
                             notification_xml = format_task_notification(result.notification)

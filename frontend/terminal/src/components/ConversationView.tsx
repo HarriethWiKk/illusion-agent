@@ -176,12 +176,10 @@ function BlinkingToolIndicator({
 					)}
 				</Box>
 			))}
-			{/* 流式进度消息 */}
+			{/* 流式进度消息：仅显示最新一条，避免多行闪烁 */}
 			{pending.progressMessages && pending.progressMessages.length > 0 ? (
-				<Box marginLeft={2} flexDirection="column">
-					{pending.progressMessages.slice(-3).map((msg, i) => (
-						<Text key={i} dimColor>{msg}</Text>
-					))}
+				<Box marginLeft={2}>
+					<Text dimColor>{pending.progressMessages[pending.progressMessages.length - 1]}</Text>
 				</Box>
 			) : null}
 		</Box>
