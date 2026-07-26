@@ -392,9 +392,16 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   return (
     <div className="py-1.5 flex items-start gap-2">
       <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
-      <span className="text-sm">
+      <span className="text-sm flex-1 min-w-0">
         <span className="font-medium font-mono text-content-primary">{displayName}</span>
         {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
+        {call.progressMessages && call.progressMessages.length > 0 && (
+          <div className="mt-1 flex flex-col gap-0.5">
+            {call.progressMessages.slice(-3).map((msg, i) => (
+              <span key={i} className="text-xs text-content-secondary">{msg}</span>
+            ))}
+          </div>
+        )}
       </span>
     </div>
   );

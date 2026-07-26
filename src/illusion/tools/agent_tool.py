@@ -411,8 +411,14 @@ Terse command-style prompts produce shallow, generic work.
             # 同步模式：前台执行
             try:
                 if query_context is not None:
-                    # 进程内同步执行
-                    result = await run_agent_in_process(config, query_context, parent_registry)
+                    # 进程内同步执行，传入 on_progress 回调以流式上报子代理工具调用进度。
+                    # 仅前台模式传递；后台模式由 task manager 负责状态追踪。
+                    result = await run_agent_in_process(
+                        config,
+                        query_context,
+                        parent_registry,
+                        on_progress=context.on_progress,
+                    )
 
                     if not result.success:
                         return ToolResult(output=result.error or "Agent execution failed", is_error=True)

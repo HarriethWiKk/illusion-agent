@@ -50,6 +50,7 @@ from illusion.engine.stream_events import (
     ToolChainStarted,
     ToolExecutionCompleted,
     ToolExecutionStarted,
+    ToolProgressEvent,
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
@@ -499,6 +500,17 @@ class WebBackendHost:
                             if event.tool_input
                             else event.tool_name,
                         ),
+                    )
+                )
+                return
+            # 工具进度消息（对称于 backend_host，转发为 tool_progress 事件）
+            if isinstance(event, ToolProgressEvent):
+                await self._emit(
+                    BackendEvent(
+                        type="tool_progress",
+                        tool_use_id=event.tool_use_id or None,
+                        message=event.message,
+                        progress_type=event.progress_type,
                     )
                 )
                 return

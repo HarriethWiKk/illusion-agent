@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -26,18 +27,28 @@ from pydantic import BaseModel
 
 ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
 
+# 进度回调类型：接收进度消息文本，返回 Awaitable。
+# 工具在执行过程中调用此回调上报中间状态，由 query.py 注入，
+# 最终通过 ToolProgressEvent 流式传递给前端。
+# 仅 agent 工具前台模式使用此回调上报子代理的工具调用进度。
+ProgressCallback = Callable[[str], Awaitable[None]]
+
 
 @dataclass
 class ToolExecutionContext:
     """工具调用的共享执行上下文
-    
+
     Attributes:
         cwd: 当前工作目录
         metadata: 元数据字典
+        on_progress: 进度回调（可选）。工具执行过程中调用以上报中间状态，
+            由 query.py 注入，最终通过 ToolProgressEvent 流式传递给前端。
+            仅 agent 工具前台模式使用。
     """
 
     cwd: Path
     metadata: dict[str, Any] = field(default_factory=dict)
+    on_progress: ProgressCallback | None = None
 
 
 @dataclass(frozen=True)

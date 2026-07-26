@@ -373,6 +373,19 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setPendingToolCalls(pendingToolCallsRef.current);
         return;
       }
+      // 流式进度消息：累积到对应 pendingToolCall 的 progressMessages（对称于 terminal 端）
+      if (evt.type === 'tool_progress') {
+        const uid = evt.tool_use_id;
+        if (uid) {
+          pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) =>
+            p.tool_use_id === uid
+              ? { ...p, progressMessages: [...(p.progressMessages ?? []), evt.message ?? ''].slice(-10) }
+              : p,
+          );
+          setPendingToolCalls(pendingToolCallsRef.current);
+        }
+        return;
+      }
 
       // === 转录管理 ===
       if (evt.type === 'clear_transcript') { setStaticItems([]); clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return; }

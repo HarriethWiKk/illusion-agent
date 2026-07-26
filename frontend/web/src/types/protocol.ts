@@ -104,6 +104,8 @@ export interface PendingToolCall {
   tool_use_id: string;
   /** 工具输入参数（可选） */
   tool_input?: Record<string, unknown>;
+  /** 流式进度消息列表（可选，由 tool_progress 事件累积） */
+  progressMessages?: string[];
 }
 
 /**
@@ -307,6 +309,8 @@ export interface BackendEvent {
   is_error?: boolean;
   /** 工具数量（可选） */
   tool_count?: number;
+  /** tool_progress 事件的进度类型（可选，如 'stdout'/'status'/'custom'） */
+  progress_type?: string;
   /** 助手的思考/推理过程（可选） */
   reasoning?: string;
   /** 计划模式状态（可选） */

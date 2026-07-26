@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -47,6 +48,7 @@ from illusion.engine.stream_events import (
     ToolChainStarted,
     ToolExecutionCompleted,
     ToolExecutionStarted,
+    ToolProgressEvent,
 )
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
@@ -322,6 +324,14 @@ class QueryContext:
     on_before_tool_execute: Callable[[str, dict[str, Any]], None] | None = None
     # 文件状态缓存：用于读写去重和 mtime 检测
     file_state_cache: FileStateCache | None = None
+    # 工具进度消息队列：工具执行过程中通过 on_progress 回调上报进度，
+    # run_query 主循环 drain 此队列并 yield ToolProgressEvent。
+    # 元素为 (tool_use_id, message)。仅单工具路径使用（agent 工具前台模式），
+    # 每轮工具执行前由 run_query 重置。
+    # 多工具并发路径不支持进度追踪：as_completed 按完成顺序 yield，主循环无法
+    # 并发 drain 队列；且并发场景下进度消息意义有限（用户更关心整体完成情况）。
+    # 如需支持，需改造为 wait(FIRST_COMPLETED) + 共享队列（消息带 tool_use_id 区分）。
+    progress_queue: asyncio.Queue[tuple[str, str]] | None = None
 
 
 async def run_query(
@@ -524,7 +534,34 @@ async def run_query(
                 # 单个工具：顺序执行
                 tc = tool_calls[0]
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
-                result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                # 创建进度队列（仅单工具路径使用，用于 agent 工具前台模式上报子代理工具调用进度）
+                context.progress_queue = asyncio.Queue()
+                try:
+                    exec_task = asyncio.ensure_future(
+                        _execute_tool_call(context, tc.name, tc.id, tc.input)
+                    )
+                    # 工具执行期间产生的进度消息实时 yield
+                    while not exec_task.done():
+                        get_task = asyncio.ensure_future(context.progress_queue.get())
+                        done, _ = await asyncio.wait(
+                            {exec_task, get_task}, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if get_task in done and not get_task.cancelled():
+                            tid, msg = get_task.result()
+                            yield ToolProgressEvent(tool_use_id=tid, message=msg), None
+                        else:
+                            # exec_task 先完成，取消未完成的 get_task
+                            get_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await get_task
+                    # drain 工具执行完成后队列中剩余的进度消息
+                    while not context.progress_queue.empty():
+                        tid, msg = context.progress_queue.get_nowait()
+                        yield ToolProgressEvent(tool_use_id=tid, message=msg), None
+                    # 获取结果（如有异常会重新抛出，由外层 except 处理）
+                    result, hook_ctxs = exec_task.result()
+                finally:
+                    context.progress_queue = None
                 all_hook_ctxs.extend(hook_ctxs)
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
@@ -535,6 +572,9 @@ async def run_query(
                 tool_results_list.append(result)
             else:
                 # 多个工具：并发执行
+                # 注意：此路径不创建 progress_queue，故 _execute_tool_call 注入的
+                # on_progress 为 None，agent 工具前台模式在并发场景下不会上报子代理
+                # 进度。这是设计决策（见 QueryContext.progress_queue 注释）。
                 for tc in tool_calls:
                     # 始终发送带完整 tool_input 的 ToolExecutionStarted，
                     # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
@@ -811,6 +851,12 @@ async def _execute_tool_call(
     if context.on_before_tool_execute is not None:
         context.on_before_tool_execute(tool_name, tool_input)
 
+    # 进度回调：将进度消息入队（仅当 progress_queue 存在时，即单工具路径）。
+    # agent 工具前台模式通过此回调上报子代理的工具调用进度。
+    async def _emit_progress(message: str) -> None:
+        if context.progress_queue is not None:
+            await context.progress_queue.put((tool_use_id, message))
+
     # 执行工具
     result = await tool.execute(
         parsed_input,
@@ -824,6 +870,7 @@ async def _execute_tool_call(
                 "file_state_cache": context.file_state_cache,
                 **(context.tool_metadata or {}),
             },
+            on_progress=_emit_progress if context.progress_queue is not None else None,
         ),
     )
     # 处理工具请求的 CWD 切换（如 enter_worktree）
