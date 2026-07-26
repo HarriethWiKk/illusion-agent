@@ -53,6 +53,7 @@ def _make_host(**fields: Any) -> ReactBackendHost:
         "_periodic_task": None,
         "_sigint_remove": None,
         "_stderr_redirector": None,
+        "_modal_lock": asyncio.Lock(),
     }
     defaults.update(fields)
     for key, value in defaults.items():
@@ -352,3 +353,94 @@ async def test_dispatch_stdin_line_stop_creates_background_task():
                 await host._active_line_task
             except asyncio.CancelledError:
                 pass
+
+
+# === 并发权限请求串行化回归测试 ===
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ask_permission_serialized_by_modal_lock():
+    """并发 _ask_permission 调用应被 _modal_lock 串行化。
+
+    Bug 回归测试：前端 modal 是单例，并发 modal_request 会互相覆盖，
+    导致第一个 future 永不 resolve。修复后所有 modal 请求串行执行。
+    """
+    host = _make_host()
+
+    # 捕获每次 _ask_permission 发送的 modal_request 事件
+    emitted_modals: list[dict[str, Any]] = []
+
+    async def _fake_emit(event: BackendEvent) -> None:
+        if event.type == "modal_request" and event.modal is not None:
+            emitted_modals.append(event.modal)
+
+    host._emit = _fake_emit  # type: ignore[method-assign]
+
+    # 并发启动两个权限请求
+    task_a = asyncio.create_task(host._ask_permission("ToolA", "reason A"))
+    task_b = asyncio.create_task(host._ask_permission("ToolB", "reason B"))
+
+    # 让事件循环跑一拍，让 task_a 获取锁并发送 modal_request
+    await asyncio.sleep(0.05)
+
+    # 此时只有 task_a 的 modal 被发送（task_b 被锁阻塞）
+    assert len(emitted_modals) == 1
+    assert emitted_modals[0]["tool_name"] == "ToolA"
+
+    # resolve task_a 的 future
+    req_a = emitted_modals[0]["request_id"]
+    host._permission_requests[req_a].set_result(True)
+
+    # task_a 应完成
+    result_a = await asyncio.wait_for(task_a, timeout=2.0)
+    assert result_a is True
+
+    # task_b 现在获取锁，发送自己的 modal_request
+    await asyncio.sleep(0.05)
+    assert len(emitted_modals) == 2
+    assert emitted_modals[1]["tool_name"] == "ToolB"
+
+    # resolve task_b 的 future
+    req_b = emitted_modals[1]["request_id"]
+    host._permission_requests[req_b].set_result(False)
+
+    # task_b 应完成
+    result_b = await asyncio.wait_for(task_b, timeout=2.0)
+    assert result_b is False
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ask_question_serialized_by_modal_lock():
+    """并发 _ask_question 调用应被 _modal_lock 串行化。"""
+    host = _make_host()
+
+    emitted_modals: list[dict[str, Any]] = []
+
+    async def _fake_emit(event: BackendEvent) -> None:
+        if event.type == "modal_request" and event.modal is not None:
+            emitted_modals.append(event.modal)
+
+    host._emit = _fake_emit  # type: ignore[method-assign]
+
+    task_a = asyncio.create_task(host._ask_question("Question A"))
+    task_b = asyncio.create_task(host._ask_question("Question B"))
+
+    await asyncio.sleep(0.05)
+    assert len(emitted_modals) == 1
+    assert emitted_modals[0]["question"] == "Question A"
+
+    req_a = emitted_modals[0]["request_id"]
+    host._question_requests[req_a].set_result("answer A")
+
+    result_a = await asyncio.wait_for(task_a, timeout=2.0)
+    assert result_a == "answer A"
+
+    await asyncio.sleep(0.05)
+    assert len(emitted_modals) == 2
+    assert emitted_modals[1]["question"] == "Question B"
+
+    req_b = emitted_modals[1]["request_id"]
+    host._question_requests[req_b].set_result("answer B")
+
+    result_b = await asyncio.wait_for(task_b, timeout=2.0)
+    assert result_b == "answer B"

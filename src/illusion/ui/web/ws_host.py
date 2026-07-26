@@ -165,6 +165,10 @@ class WebBackendHost:
         self._ws_closed = False  # WebSocket 是否已关闭
         self._active_line_task: asyncio.Task[bool] | None = None  # 当前任务
         self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
+        # modal 串行化锁：前端 modal 是单例，并发 modal_request 会互相覆盖导致
+        # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
+        # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
+        self._modal_lock: asyncio.Lock = asyncio.Lock()
         # 跟踪每个工具名称的最后输入，用于富事件发射
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
@@ -1585,24 +1589,26 @@ class WebBackendHost:
         # 如果工具在"总是允许"列表中，则直接允许
         if tool_name in self._always_allowed_tools:
             return True
-        request_id = uuid4().hex
-        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        self._permission_requests[request_id] = future
-        await self._emit(
-            BackendEvent(
-                type="modal_request",
-                modal={
-                    "kind": "permission",
-                    "request_id": request_id,
-                    "tool_name": tool_name,
-                    "reason": reason,
-                },
+        # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
+        async with self._modal_lock:
+            request_id = uuid4().hex
+            future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+            self._permission_requests[request_id] = future
+            await self._emit(
+                BackendEvent(
+                    type="modal_request",
+                    modal={
+                        "kind": "permission",
+                        "request_id": request_id,
+                        "tool_name": tool_name,
+                        "reason": reason,
+                    },
+                )
             )
-        )
-        try:
-            return await future
-        finally:
-            self._permission_requests.pop(request_id, None)
+            try:
+                return await future
+            finally:
+                self._permission_requests.pop(request_id, None)
 
     async def _ask_question(self, question: str, questions: object = None) -> str | dict[Any, Any]:
         """向用户提问并等待回答。
@@ -1614,36 +1620,38 @@ class WebBackendHost:
         Returns:
             str | dict[str, Any]: 用户回答
         """
-        request_id = uuid4().hex
-        future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
-        self._question_requests[request_id] = future
-        # 优先使用显式传入的结构化问题数据，回退到 _last_tool_inputs
-        questions_data = questions
-        if questions_data is None:
-            tool_input = self._last_tool_inputs.get("ask_user_question", {})
-            questions_data = tool_input.get("questions")
-        # 如果是 pydantic 模型列表，转为 dict[str, Any]
-        if questions_data is not None and isinstance(questions_data, list):
-            questions_data = [
-                q.model_dump() if hasattr(q, "model_dump") else q for q in questions_data
-            ]
-        modal_payload: dict[str, Any] = {
-            "kind": "question",
-            "request_id": request_id,
-            "question": question,
-        }
-        if questions_data:
-            modal_payload["questions"] = questions_data
-        await self._emit(
-            BackendEvent(
-                type="modal_request",
-                modal=modal_payload,
+        # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
+        async with self._modal_lock:
+            request_id = uuid4().hex
+            future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
+            self._question_requests[request_id] = future
+            # 优先使用显式传入的结构化问题数据，回退到 _last_tool_inputs
+            questions_data = questions
+            if questions_data is None:
+                tool_input = self._last_tool_inputs.get("ask_user_question", {})
+                questions_data = tool_input.get("questions")
+            # 如果是 pydantic 模型列表，转为 dict[str, Any]
+            if questions_data is not None and isinstance(questions_data, list):
+                questions_data = [
+                    q.model_dump() if hasattr(q, "model_dump") else q for q in questions_data
+                ]
+            modal_payload: dict[str, Any] = {
+                "kind": "question",
+                "request_id": request_id,
+                "question": question,
+            }
+            if questions_data:
+                modal_payload["questions"] = questions_data
+            await self._emit(
+                BackendEvent(
+                    type="modal_request",
+                    modal=modal_payload,
+                )
             )
-        )
-        try:
-            return await future
-        finally:
-            self._question_requests.pop(request_id, None)
+            try:
+                return await future
+            finally:
+                self._question_requests.pop(request_id, None)
 
     async def _ask_plan_approval(self, plan: str) -> tuple[bool, str]:
         """向用户展示计划并等待审批。
@@ -1667,47 +1675,49 @@ class WebBackendHost:
         # 复用 question 模态，提供批准/拒绝选项
         from illusion.config.i18n import t as _t
 
-        request_id = uuid4().hex
-        future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
-        self._question_requests[request_id] = future
-        approve_label = _t("plan_approve")
-        reject_label = _t("plan_reject")
-        modal_payload: dict[str, Any] = {
-            "kind": "question",
-            "request_id": request_id,
-            "question": _t("plan_approval"),
-            "plan": plan,
-            "questions": [
-                {
-                    "question": _t("plan_approve_question"),
-                    "header": "approval",
-                    "options": [
-                        {"label": approve_label, "description": _t("plan_start_impl")},
-                        {"label": reject_label, "description": _t("plan_return_mode")},
-                    ],
-                    "multiSelect": False,
-                }
-            ],
-        }
-        await self._emit(
-            BackendEvent(
-                type="modal_request",
-                modal=modal_payload,
+        # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
+        async with self._modal_lock:
+            request_id = uuid4().hex
+            future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
+            self._question_requests[request_id] = future
+            approve_label = _t("plan_approve")
+            reject_label = _t("plan_reject")
+            modal_payload: dict[str, Any] = {
+                "kind": "question",
+                "request_id": request_id,
+                "question": _t("plan_approval"),
+                "plan": plan,
+                "questions": [
+                    {
+                        "question": _t("plan_approve_question"),
+                        "header": "approval",
+                        "options": [
+                            {"label": approve_label, "description": _t("plan_start_impl")},
+                            {"label": reject_label, "description": _t("plan_return_mode")},
+                        ],
+                        "multiSelect": False,
+                    }
+                ],
+            }
+            await self._emit(
+                BackendEvent(
+                    type="modal_request",
+                    modal=modal_payload,
+                )
             )
-        )
-        try:
-            answer = await future
-            # 解析用户回答
-            answer = str(answer).strip()
-            if answer == f"1. {approve_label}" or answer == approve_label:
-                return True, ""
-            elif answer == f"2. {reject_label}" or answer == reject_label:
-                return False, ""
-            else:
-                # 用户通过"其他"输入的反馈文字
-                return False, answer
-        finally:
-            self._question_requests.pop(request_id, None)
+            try:
+                answer = await future
+                # 解析用户回答
+                answer = str(answer).strip()
+                if answer == f"1. {approve_label}" or answer == approve_label:
+                    return True, ""
+                elif answer == f"2. {reject_label}" or answer == reject_label:
+                    return False, ""
+                else:
+                    # 用户通过"其他"输入的反馈文字
+                    return False, answer
+            finally:
+                self._question_requests.pop(request_id, None)
 
     async def _stop_active_line(self) -> None:
         """停止当前活动的行处理任务。"""

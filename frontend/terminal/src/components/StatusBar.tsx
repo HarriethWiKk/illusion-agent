@@ -66,8 +66,7 @@ function TaskIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
 	return (
 		<Box>
-			<Text color={theme.colors.illusion}>{theme.icons.inProgress}</Text>
-			<Text color={theme.colors.illusion}> {count} task{count !== 1 ? 's' : ''}</Text>
+			<Text color={theme.colors.illusion}>{count} task{count !== 1 ? 's' : ''}</Text>
 		</Box>
 	);
 }
