@@ -454,7 +454,10 @@ class QQWSClient:
         if op == 7:
             logger.info("QQ 服务端要求重连")
             if self._ws and not self._ws.closed:
-                self._create_background_task(self._ws.close())
+                ws = self._ws
+                async def _close_ws() -> None:
+                    await ws.close()
+                self._create_background_task(_close_ws())
             return
 
         # op 9 = Invalid Session

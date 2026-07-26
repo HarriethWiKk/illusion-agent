@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from illusion.config.paths import get_config_dir
+from illusion.mcp.types import McpServerConfig
 from illusion.plugins.schemas import PluginManifest
 from illusion.plugins.types import LoadedPlugin
 from illusion.skills.types import SkillDefinition

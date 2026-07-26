@@ -693,10 +693,10 @@ async def run_query(
                             tool_use_id=tool_calls[idx].id,
                         ), None
                 finally:
-                    # ⚠️ 关键：取消所有未完成 task，避免孤儿 task 泄漏
-                    pending = [t for t in tasks if not t.done()]
-                    for t in pending:
-                        t.cancel()
+                    # 关键：取消所有未完成 task，避免孤儿 task 泄漏
+                    pending = [task for task in tasks if not task.done()]
+                    for task in pending:
+                        task.cancel()
                     if pending:
                         await asyncio.gather(*pending, return_exceptions=True)
         except PermissionDenied as exc:

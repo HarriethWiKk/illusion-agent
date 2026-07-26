@@ -154,7 +154,7 @@ def mcp_add(
         print(_t("mcp_invalid_json", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
     try:
-        cfg = TypeAdapter(McpServerConfig).validate_python(raw)
+        cfg: McpServerConfig = TypeAdapter(McpServerConfig).validate_python(raw)
     except Exception as exc:
         print(_t("mcp_invalid_config", exc=exc), file=sys.stderr)
         raise typer.Exit(1)

@@ -699,11 +699,9 @@ class WebBackendHost:
 
         settings = self._bundle.current_settings()
         self._bundle.engine.set_max_turns(settings.max_turns)
-        from illusion.ui.runtime import (
-            build_runtime_system_prompt,
-            save_session_snapshot,
-            sync_app_state,
-        )  # type: ignore[attr-defined]
+        from illusion.prompts import build_runtime_system_prompt
+        from illusion.services.session_storage import save_session_snapshot
+        from illusion.ui.runtime import sync_app_state
 
         system_prompt = build_runtime_system_prompt(
             settings,
@@ -1837,9 +1835,9 @@ class WebBackendHost:
                 fut.set_result(False)  # 默认拒绝
         self._permission_requests.clear()
 
-        for fut in self._question_requests.values():
-            if not fut.done():
-                fut.set_result("")  # 默认空答
+        for quest_fut in self._question_requests.values():
+            if not quest_fut.done():
+                quest_fut.set_result("")  # 默认空答
         self._question_requests.clear()
 
     async def _shutdown(self) -> None:

@@ -53,7 +53,7 @@ else:
                 return
             self._shutdown = True
             if immediate:
-                self._queue.clear()
+                getattr(self, '_queue').clear()
 
             getters = list(getattr(self, "_getters", []))
             count = max(1, len(getters))
@@ -65,7 +65,7 @@ else:
                 try:
                     super().put_nowait(_SHUTDOWN)
                 except asyncio.QueueFull:
-                    self._queue.clear()
+                    getattr(self, '_queue').clear()
                     super().put_nowait(_SHUTDOWN)
 
         async def get(self) -> T:
@@ -86,13 +86,13 @@ else:
                 raise QueueShutDown
             return item
 
-        async def put(self, item: T) -> None:
+        async def put(self, item: T) -> None:  # type: ignore[override]
             """向队列投入一个项，队列已关闭时抛 QueueShutDown。"""
             if self._shutdown:
                 raise QueueShutDown
             await super().put(item)
 
-        def put_nowait(self, item: T) -> None:
+        def put_nowait(self, item: T) -> None:  # type: ignore[override]
             """非阻塞投入一个项，队列已关闭时抛 QueueShutDown。"""
             if self._shutdown:
                 raise QueueShutDown

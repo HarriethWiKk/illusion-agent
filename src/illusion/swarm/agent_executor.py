@@ -694,9 +694,9 @@ async def run_agent_in_process(
                 await asyncio.sleep(min(remaining, 30.0))
 
         # 创建并发任务：查询循环 + 消息消费者 + 无活动超时 + 取消事件 + 强制取消
-        # ⚠️ 用 asyncio.wait FIRST_COMPLETED 替代 wait_for，避免 consumer 永久卡死
-        # ⚠️ force_cancel_task 用于主动中断运行中的工具（Ctrl+X 根因修复）
-        # ⚠️ timeout_task 改为 _idle_watcher：有活动时不触发，仅卡住时兜底
+        # 用 asyncio.wait FIRST_COMPLETED 替代 wait_for，避免 consumer 永久卡死
+        # force_cancel_task 用于主动中断运行中的工具（Ctrl+X 根因修复）
+        # timeout_task 改为 _idle_watcher：有活动时不触发，仅卡住时兜底
         cancel_event = ctx.abort_controller.cancel_event
         query_task = asyncio.create_task(_run_query_loop(), name=f"agent-{agent_id}-query")
         message_task = asyncio.create_task(
@@ -740,12 +740,12 @@ async def run_agent_in_process(
                     error_text = f"Agent timed out after {IDLE_TIMEOUT} seconds of inactivity"
                     ctx.abort_controller.request_cancel(force=True)
         finally:
-            # ⚠️ 关键：关闭 message_queue 唤醒 consumer，否则 consumer 永久卡住
+            # 关键：关闭 message_queue 唤醒 consumer，否则 consumer 永久卡住
             ctx.message_queue.shutdown()
             if message_task is not None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await message_task
-            # ⚠️ 关键：cancel query_task，避免外层 cancel 传播时 query_task 泄漏
+            # 关键：cancel query_task，避免外层 cancel 传播时 query_task 泄漏
             # 当 _stop_active_line 调用 task.cancel() 中断 await asyncio.wait 时，
             # if/elif/else 分支都不执行，query_task 仍 pending，工具继续运行（Ctrl+X 根因）
             if not query_task.done():
@@ -754,7 +754,7 @@ async def run_agent_in_process(
                     await query_task
             # 清理辅助 task：主动 cancel 后用 gather(return_exceptions=True) 等待退出
             # 不传播 CancelledError，避免中断 finally 块的后续清理
-            pending_helpers = [
+            pending_helpers: list[asyncio.Task[object]] = [
                 t for t in (timeout_task, cancel_task, force_cancel_task) if not t.done()
             ]
             for t in pending_helpers:

@@ -6,6 +6,8 @@ import pytest
 
 def test_build_runtime_exits_gracefully_on_missing_api_key(tmp_path, monkeypatch):
     """无 API key 时 build_runtime 应优雅退出而非抛出异常堆栈。"""
+    import sys
+
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     # 确保无 credentials 和无 env 配置
     from illusion.config.settings import load_settings
@@ -16,6 +18,10 @@ def test_build_runtime_exits_gracefully_on_missing_api_key(tmp_path, monkeypatch
     new_settings = Settings.model_validate({"model": "env_1.model_1", **extras})
     from illusion.config import save_settings
     save_settings(new_settings)
+
+    # 确保 illusion.ui.web.ws_host 不在 sys.modules 中（终端模式），
+    # 否则 build_runtime 会走 web 降级路径而不抛出 SystemExit
+    monkeypatch.delitem(sys.modules, "illusion.ui.web.ws_host", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:
         from illusion.ui.runtime import build_runtime

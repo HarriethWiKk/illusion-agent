@@ -30,7 +30,7 @@ class StderrRedirector:
     通过 os.dup2 将 fd 2 重定向到管道写端，daemon 线程从管道读端逐行读取
     并直接 os.write 到原始 stderr fd。
 
-    ⚠️ 死锁防护：daemon 线程必须绕过 logging 模块。若用 logger.log()，
+    死锁防护：daemon 线程必须绕过 logging 模块。若用 logger.log()，
     独立 handler emit 失败会触发 handleError → 写 sys.stderr（fd 2，已重定向
     到管道）→ 管道写阻塞（daemon 持锁）→ 主线程等 lock → 死锁。
 
@@ -53,6 +53,8 @@ class StderrRedirector:
         # 保存 install 前的 root handler 配置，uninstall 时恢复
         self._saved_root_handlers: list[logging.Handler] | None = None
         self._saved_root_level: int | None = None
+        # 保存每个 handler 的原始 stream，uninstall 时恢复以兼容 pytest logging plugin
+        self._saved_streams: dict[int, object] = {}
 
     def install(self) -> None:
         """安装 stderr 重定向。
@@ -100,6 +102,9 @@ class StderrRedirector:
                     if isinstance(h, logging.StreamHandler) and not isinstance(
                         h, logging.FileHandler
                     ):
+                        # 保存原始 stream 以在 uninstall 时恢复（兼容 pytest logging plugin）
+                        if id(h) not in self._saved_streams:
+                            self._saved_streams[id(h)] = h.stream
                         # 替换 stream 为原始 fd（保留原 formatter/level）
                         h.stream = orig_stream
                         replaced = True
@@ -113,7 +118,7 @@ class StderrRedirector:
                     root_logger.addHandler(new_handler)
                     root_logger.setLevel(logging.INFO)
                 # 禁用 lastResort，避免它写 fd 2（管道）
-                logging.lastResort = None  # type: ignore[assignment]
+                logging.lastResort = None
 
             read_fd, write_fd = os.pipe()
             os.dup2(write_fd, 2)
@@ -144,6 +149,15 @@ class StderrRedirector:
         # 恢复 root logger 的原始 handler 配置
         root_logger = logging.getLogger()
         if self._saved_root_handlers is not None:
+            # 恢复每个 handler 的原始 stream（兼容 pytest logging plugin）
+            for h in self._saved_root_handlers:
+                saved_stream = self._saved_streams.get(id(h))
+                if saved_stream is not None and isinstance(h, logging.StreamHandler):
+                    try:
+                        h.stream = saved_stream
+                    except Exception:
+                        pass
+            self._saved_streams.clear()
             # 关闭我们替换 stream 的 handler（释放原始 fd 副本）
             for h in list(root_logger.handlers):
                 if h not in self._saved_root_handlers:
@@ -158,12 +172,12 @@ class StderrRedirector:
             self._saved_root_level = None
         # 恢复 lastResort 默认值
         from logging import _StderrHandler  # type: ignore
-        logging.lastResort = _StderrHandler(logging.WARNING)  # type: ignore[assignment]
+        logging.lastResort = _StderrHandler(logging.WARNING)
 
     def _drain(self) -> None:
         """daemon 线程主循环：逐行读取管道并直接 os.write 到原始 fd。
 
-        ⚠️ 不使用 logging 模块，避免 handler lock / handleError 死锁。
+        不使用 logging 模块，避免 handler lock / handleError 死锁。
         """
         buffer = ""
         read_fd = self._read_fd
@@ -193,7 +207,7 @@ class StderrRedirector:
     def _log_line(self, line: str) -> None:
         """将一行 stderr 输出直接 os.write 到原始 stderr fd。
 
-        ⚠️ 必须直接用 os.write，绕过 logging 模块。
+        必须直接用 os.write，绕过 logging 模块。
         若用 logger.log() → handler emit 失败 → handleError 写 sys.stderr
         （fd 2 管道）→ 管道写阻塞 → 死锁。
         """

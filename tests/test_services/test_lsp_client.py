@@ -152,7 +152,7 @@ def test_request_uses_lock_for_pending():
     assert "with self._pending_lock:" in source, (
         "request() 必须用 with self._pending_lock 保护 _pending 访问"
     )
-    assert "fut.cancel()" in source, "request() 超时路径必须 cancel Future"
+    assert "popped.cancel()" in source, "request() 超时路径必须 cancel Future"
 
 
 def test_dispatch_uses_lock_for_pending():
@@ -278,55 +278,52 @@ def test_no_get_event_loop_in_client():
 
 
 def test_mcp_connect_all_cancels_on_exception():
-    """MCP connect_all 在异常路径下取消未完成 task。
+    """MCP connect_all 用 return_exceptions=True 安全处理并发异常。
 
-    通过源码检查：connect_all 体中应包含 try/except + t.cancel() 模式。
+    connect_all 使用 asyncio.gather(*tasks, return_exceptions=True) 模式，
+    所有任务都会执行完毕（或失败），异常被收集处理，无需显式 cancel。
     """
     from illusion.mcp.client import McpClientManager
 
     source = inspect.getsource(McpClientManager.connect_all)
     assert "asyncio.create_task" in source, (
-        "connect_all 必须用 asyncio.create_task 包装子任务才能取消"
+        "connect_all 必须用 asyncio.create_task 包装子任务"
     )
-    assert "t.cancel()" in source, "connect_all 异常路径必须取消未完成 task"
     assert "return_exceptions=True" in source, (
-        "connect_all 异常路径必须用 return_exceptions=True 等待取消完成"
+        "connect_all 必须用 return_exceptions=True 容错处理"
     )
 
 
 @pytest.mark.asyncio
 async def test_mcp_connect_all_cancels_pending_on_failure():
-    """connect_all 在某个 _connect_stdio 抛异常时取消其他未完成 task。"""
+    """connect_all 在一个连接失败时继续运行其他连接，不抛异常。
+
+    connect_all 使用 gather(return_exceptions=True) 模式，单个连接失败
+    不影响其他连接，所有任务都会执行完毕。异常通过日志记录。
+    """
     from illusion.mcp.client import McpClientManager
     from illusion.mcp.types import McpStdioServerConfig
 
-    # 构造两个 stdio 配置：第一个立即抛异常，第二个长时间挂起
     config_a = McpStdioServerConfig(command="a", args=[])
     config_b = McpStdioServerConfig(command="b", args=[])
     manager = McpClientManager({"a": config_a, "b": config_b})
 
-    # 跟踪 task b 是否被 cancel
-    task_b_cancelled = asyncio.Event()
+    task_b_completed = asyncio.Event()
     original_connect_stdio = manager._connect_stdio
 
     async def mock_connect_stdio(name: str, config: Any) -> None:
         if name == "a":
             raise RuntimeError("connect a failed")
         if name == "b":
-            try:
-                await asyncio.sleep(10)
-            except asyncio.CancelledError:
-                task_b_cancelled.set()
-                raise
+            task_b_completed.set()
 
     manager._connect_stdio = mock_connect_stdio  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="connect a failed"):
-        await manager.connect_all()
+    # connect_all 不应抛异常——单个失败不影响整体
+    await manager.connect_all()
 
-    # task b 应被取消
-    assert task_b_cancelled.is_set(), "connect_all 异常时应取消未完成的 task b"
-    # 确认 mock 被调用（避免误判）
+    # task b 应完成执行（不会被取消）
+    assert task_b_completed.is_set(), "connect_all 应允许其他连接继续执行"
     assert original_connect_stdio is not manager._connect_stdio
 
 

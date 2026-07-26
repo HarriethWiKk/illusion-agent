@@ -301,7 +301,7 @@ if _IS_WINDOWS:
                 try:
                     chunk = await asyncio.wait_for(future, timeout=timeout)
                 except asyncio.TimeoutError:
-                    # ⚠️ 超时后强制关闭 handle，解除 ReadFile 阻塞
+                    # 超时后强制关闭 handle，解除 ReadFile 阻塞
                     # 必须先 CancelIoEx 取消 pending ReadFile，否则 CloseHandle 会阻塞
                     self._closed = True
                     try:
@@ -329,6 +329,7 @@ if _IS_WINDOWS:
             """写入一行"""
             data = (line + "\n").encode("utf-8")
             try:
+                assert self._handle is not None
                 await asyncio.to_thread(_win_write_pipe, self._handle, data)
             except OSError:
                 self._closed = True
@@ -346,7 +347,7 @@ if _IS_WINDOWS:
                     except Exception:  # noqa: BLE001
                         pass
                     self._handle = None
-            # ⚠️ 关闭专用 executor，释放线程资源
+            # 关闭专用 executor，释放线程资源
             self._read_executor.shutdown(wait=False, cancel_futures=True)
 
 else:

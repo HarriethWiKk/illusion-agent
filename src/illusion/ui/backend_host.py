@@ -277,9 +277,9 @@ class ReactBackendHost:
                 fut.set_result(False)  # 默认拒绝
         self._permission_requests.clear()
 
-        for fut in self._question_requests.values():
-            if not fut.done():
-                fut.set_result("")  # 默认空答
+        for quest_fut in self._question_requests.values():
+            if not quest_fut.done():
+                quest_fut.set_result("")  # 默认空答
         self._question_requests.clear()
 
     async def _shutdown(self) -> None:
@@ -476,7 +476,8 @@ class ReactBackendHost:
             self._resolve_permission(req)
             return
         if req.type == "question_response":
-            self._resolve_question(req.request_id, req.answer)
+            if req.request_id is not None:
+                self._resolve_question(req.request_id, req.answer or "")
             return
         if req.type == "stop":
             # stop 必须即时处理：主循环正阻塞在 await self._active_line_task，
@@ -502,6 +503,8 @@ class ReactBackendHost:
         下次调用同一工具时直接放行，不再弹模态框。
         """
         request_id = req.request_id
+        if request_id is None:
+            return
         allowed = bool(req.allowed)
         future = self._permission_requests.pop(request_id, None)
         if future is not None and not future.done():

@@ -26,6 +26,10 @@ from typing import Any
 import logging
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
+from illusion.config.paths import get_project_mcp_dir
+from illusion.mcp.types import McpServerConfig
 from illusion.plugins.types import LoadedPlugin
 
 logger = logging.getLogger(__name__)
@@ -51,11 +55,6 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
     Returns:
         dict[str, object]: 服务器名称到配置的映射字典
     """
-    from pydantic import TypeAdapter
-
-    from illusion.config.paths import get_project_mcp_dir
-    from illusion.mcp.types import McpJsonConfig, McpServerConfig
-
     _server_adapter: TypeAdapter[McpServerConfig] = TypeAdapter(McpServerConfig)
     servers: dict[str, object] = {}
     mcp_dir = get_project_mcp_dir(cwd)
@@ -84,7 +83,7 @@ def _looks_like_server_config(value: object) -> bool:
 
 def _parse_mcp_config_dict(
     raw: dict[str, Any],
-    server_adapter: TypeAdapter,
+    server_adapter: TypeAdapter[McpServerConfig],
     *,
     source: object | None = None,
 ) -> dict[str, object]:
@@ -225,8 +224,6 @@ def load_mcp_config_from_string(cfg: str) -> dict[str, object]:
     Returns:
         dict[str, object]: 服务器名称到配置的映射
     """
-    from pydantic import TypeAdapter
-    from illusion.mcp.types import McpServerConfig
 
     _server_adapter: TypeAdapter[McpServerConfig] = TypeAdapter(McpServerConfig)
 

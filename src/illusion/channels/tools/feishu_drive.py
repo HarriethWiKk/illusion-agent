@@ -208,7 +208,9 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
 
         # 2. upload parts
         # 每个分片读取是阻塞 I/O，用 to_thread 避免阻塞事件循环
-        def _read_chunk(fh: Any, size: int) -> bytes:
+        from typing import BinaryIO
+
+        def _read_chunk(fh: BinaryIO, size: int) -> bytes:
             return fh.read(size)
 
         with open(path, "rb") as f:

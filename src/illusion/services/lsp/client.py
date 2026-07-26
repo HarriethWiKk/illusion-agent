@@ -92,9 +92,13 @@ class LspClient:
             # Windows: shell=True 让 cmd.exe 解析 .cmd 包装器
             kw["shell"] = True
             cmd_str = command + " " + " ".join(args) if args else command
-            self._proc = await asyncio.to_thread(sp.Popen[Any], cmd_str, **kw)
+
+            def _spawn_win(c: str, **k: Any) -> sp.Popen[str]:
+                return sp.Popen(c, **k)
+
+            self._proc = await asyncio.to_thread(_spawn_win, cmd_str, **kw)
         else:
-            self._proc = await asyncio.to_thread(sp.Popen[Any], [command] + args, **kw)
+            self._proc = await asyncio.to_thread(sp.Popen[Any], [command] + args, **kw)  # type: ignore[arg-type]
         self._connected = True
 
         # 读取线程
@@ -161,9 +165,9 @@ class LspClient:
             # 超时处理：用锁保护 pop，并 cancel Future（而非仅 pop），
             # 否则 reader 线程后续 set_result 会触发 InvalidStateError
             with self._pending_lock:
-                fut = self._pending.pop(msg_id, None)
-            if fut is not None and not fut.done():
-                fut.cancel()
+                popped = self._pending.pop(msg_id, None)
+            if popped is not None and not popped.done():
+                popped.cancel()
             raise TimeoutError(f"LSP '{method}' timed out after {timeout}s")
 
         if "error" in resp:
