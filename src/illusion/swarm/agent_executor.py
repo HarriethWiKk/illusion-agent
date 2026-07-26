@@ -710,6 +710,13 @@ async def run_agent_in_process(
             if message_task is not None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await message_task
+            # ⚠️ 关键：cancel query_task，避免外层 cancel 传播时 query_task 泄漏
+            # 当 _stop_active_line 调用 task.cancel() 中断 await asyncio.wait 时，
+            # if/elif/else 分支都不执行，query_task 仍 pending，工具继续运行（Ctrl+X 根因）
+            if not query_task.done():
+                query_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await query_task
             # 清理辅助 task：主动 cancel 后用 gather(return_exceptions=True) 等待退出
             # 不传播 CancelledError，避免中断 finally 块的后续清理
             pending_helpers = [

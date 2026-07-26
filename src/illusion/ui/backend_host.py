@@ -470,23 +470,43 @@ class ReactBackendHost:
             self._resolve_question(req.request_id, req.answer)
             return
         if req.type == "stop":
-            self._request_queue.put_nowait(req)  # stop 入队让主循环处理
+            # stop 必须即时处理：主循环正阻塞在 await self._active_line_task，
+            # 无法从 _request_queue 取 stop 请求。用 create_task 调度 _stop_active_line，
+            # 它会 cancel self._active_line_task 解除主循环阻塞（原版 _read_requests 也是
+            # 在独立 task 中直接 await self._stop_active_line）。
+            self._create_background_task(self._stop_active_line())
             return
 
         # 其他请求入队
         self._request_queue.put_nowait(req)
 
     def _resolve_permission(self, request_id: str, allowed: bool) -> None:
-        """resolve 权限请求 Future。"""
+        """resolve 权限请求 Future，并通知前端关闭模态框。
+
+        同步方法（由 _dispatch_stdin_line 在事件循环线程调用）：
+        先 set_result 唤醒主循环中 await future 的 _ask_permission，
+        再 put_nowait 发 modal_request modal=None 让前端 setModal(null)。
+        原 _handle_request 路径不会被执行（请求在此即时处理），所以必须在此处补发事件，
+        否则前端模态框永远不消失。
+        """
         future = self._permission_requests.pop(request_id, None)
         if future is not None and not future.done():
             future.set_result(allowed)
+        # 通知前端关闭模态框（put_nowait 非阻塞，无需 await）
+        try:
+            self._write_queue.put_nowait(BackendEvent(type="modal_request", modal=None))
+        except QueueShutDown:
+            pass  # 正在关闭，丢弃
 
     def _resolve_question(self, request_id: str, answer: str) -> None:
-        """resolve 问答请求 Future。"""
+        """resolve 问答请求 Future，并通知前端关闭模态框。"""
         future = self._question_requests.pop(request_id, None)
         if future is not None and not future.done():
             future.set_result(answer)
+        try:
+            self._write_queue.put_nowait(BackendEvent(type="modal_request", modal=None))
+        except QueueShutDown:
+            pass  # 正在关闭，丢弃
 
     async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
         """处理用户输入的行内容。"""

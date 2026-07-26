@@ -1763,8 +1763,11 @@ class WebBackendHost:
     async def _write_loop(self) -> None:
         """单一消费者：串行化所有 WebSocket 写入。
 
-        所有 _emit() 调用通过 _write_queue，确保 FIFO 排序和无并发 WebSocket 访问。
-        收到 QueueShutDown 后退出循环；写入异常时也退出（WebSocket 已断开）。
+        所有 _emit() 调用通过 _write_queue，确保 FIFO 排序和无并发 WebSocket 写入。
+        收到 QueueShutDown 后退出循环；写入异常时只记录日志，不退出（与原版
+        asyncio.Lock 实现一致），避免瞬态错误导致写循环永久退出、后续所有事件
+        （如 modal_request modal=None、task_stopped、line_complete）丢失，
+        进而引发权限模态框不消失、Ctrl+X 看似无效等连锁问题。
         """
         while True:
             try:
@@ -1775,8 +1778,10 @@ class WebBackendHost:
                 payload = event.model_dump_json()
                 await self._websocket.send_text(payload)
             except Exception:
-                log.exception("写入 WebSocket 失败")
-                break  # WebSocket 断开，退出写循环
+                # 不 break：瞬态写入失败不应终止写循环，否则后续事件全部丢失。
+                # 真正的连接断开由 _read_requests 的 WebSocketDisconnect 处理，
+                # 它会入队 shutdown 请求并调用 _shutdown 关闭队列。
+                log.debug("WebSocket 写入失败，跳过本次发送")
 
     async def _emit(self, event: BackendEvent) -> None:
         """入队事件给写循环。非阻塞。

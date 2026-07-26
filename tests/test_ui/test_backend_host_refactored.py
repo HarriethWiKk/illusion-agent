@@ -257,3 +257,98 @@ def test_dispatch_stdin_line_invalid_json_is_ignored():
     host._dispatch_stdin_line("not-a-json")
 
     assert host._request_queue.qsize() == 0
+
+
+# === Bug 修复回归测试：权限模态框不消失 + Ctrl+X 不能终止任务 ===
+
+
+@pytest.mark.asyncio
+async def test_resolve_permission_emits_modal_close_event():
+    """_resolve_permission 应同时发 modal_request modal=None 通知前端关闭模态框。
+
+    Bug 1 回归测试：原版 backend_host 在 permission_response 即时处理路径中漏发
+    modal_request modal=None 事件，导致前端 setModal(null) 不触发，权限模态框
+    永远停留在 UI 上。
+    """
+    host = _make_host()
+    future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+    host._permission_requests["req-1"] = future
+
+    host._resolve_permission("req-1", True)
+
+    # future 应被 resolve
+    assert future.done()
+    assert future.result() is True
+    # 应入队 modal_request modal=None 事件
+    assert host._write_queue.qsize() == 1
+    event = host._write_queue.get_nowait()
+    assert event.type == "modal_request"
+    assert event.modal is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_question_emits_modal_close_event():
+    """_resolve_question 应同时发 modal_request modal=None 通知前端关闭模态框。"""
+    host = _make_host()
+    future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    host._question_requests["req-2"] = future
+
+    host._resolve_question("req-2", "user answer")
+
+    assert future.done()
+    assert future.result() == "user answer"
+    assert host._write_queue.qsize() == 1
+    event = host._write_queue.get_nowait()
+    assert event.type == "modal_request"
+    assert event.modal is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stdin_line_stop_creates_background_task():
+    """stop 请求应即时用 _create_background_task 调度 _stop_active_line，不入队。
+
+    Bug 2 回归测试：原版把 stop 入队 _request_queue，但主循环正阻塞在
+    await self._active_line_task，无法从 _request_queue 取 stop 请求，
+    导致 Ctrl+X 永远无法终止任务。
+    """
+    host = _make_host()
+
+    # 模拟有活跃任务
+    async def _dummy_active_line() -> bool:
+        await asyncio.sleep(100)
+        return True
+
+    host._active_line_task = asyncio.create_task(_dummy_active_line())
+    host._busy = True
+
+    # 捕获 _stop_active_line 调度
+    stop_called = asyncio.Event()
+
+    async def _fake_stop() -> None:
+        stop_called.set()
+        # 模拟 _stop_active_line 的 cancel 行为
+        host._active_line_task.cancel()
+        try:
+            await host._active_line_task
+        except asyncio.CancelledError:
+            pass
+
+    host._stop_active_line = _fake_stop  # type: ignore[method-assign]
+
+    try:
+        host._dispatch_stdin_line(json.dumps({"type": "stop"}))
+
+        # stop 不应入队 _request_queue
+        assert host._request_queue.qsize() == 0
+        # _stop_active_line 应被调度执行
+        await asyncio.wait_for(stop_called.wait(), timeout=2.0)
+        # 任务应被 cancel（让事件循环跑一拍让 cancel 生效）
+        await asyncio.sleep(0.01)
+        assert host._active_line_task.done()
+    finally:
+        if not host._active_line_task.done():
+            host._active_line_task.cancel()
+            try:
+                await host._active_line_task
+            except asyncio.CancelledError:
+                pass

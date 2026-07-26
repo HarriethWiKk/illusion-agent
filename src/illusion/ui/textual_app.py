@@ -477,7 +477,10 @@ class illusionTerminalApp(App[None]):
     async def handle_submit(self, event: Input.Submitted) -> None:
         """处理用户提交输入事件。"""
         event.input.value = ""
-        await self._process_line(event.value)
+        # 用 fire-and-forget 方式调度，避免阻塞 App 消息循环；
+        # 否则 _process_line 内的 _open_modal 会因 _done 回调无法刷新而死锁。
+        # _busy 标志已在 _process_line 内部管理并发抑制。
+        self._create_background_task(self._process_line(event.value))
 
     async def _process_line(self, line: str) -> None:
         """处理用户输入的行内容。"""

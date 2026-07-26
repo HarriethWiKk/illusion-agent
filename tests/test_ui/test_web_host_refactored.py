@@ -105,19 +105,30 @@ def test_write_loop_consumes_queue():
     asyncio.run(run())
 
 
-def test_write_loop_breaks_on_send_error():
-    """_write_loop 在 WebSocket 写入失败时退出。"""
+def test_write_loop_survives_send_error():
+    """_write_loop 在 WebSocket 写入失败时不退出，继续处理后续事件。
+
+    原 break 行为会导致瞬态写入错误后所有后续事件（modal_request modal=None、
+    task_stopped、line_complete 等）永久丢失，引发权限模态框不消失、
+    Ctrl+X 看似无效等连锁 bug。正确行为是只记录日志，继续处理下一个事件。
+    真正的连接断开由 _read_requests 的 WebSocketDisconnect 处理。
+    """
 
     async def run() -> None:
         ws = _FakeWebSocket(raise_on_send=True)
         host = _make_host(_websocket=ws)
-        # 入队一个事件
+        # 入队两个事件
         await host._emit(BackendEvent(type="shutdown"))
+        await host._emit(BackendEvent(type="line_complete"))
         # 启动写循环
         host._write_task = asyncio.create_task(host._write_loop())
-        # 写循环应在写入失败后退出
+        # 给写循环时间处理两个事件
         await asyncio.sleep(0.05)
-        assert host._write_task.done()
+        # 写循环不应退出（瞬态错误不应终止）
+        assert not host._write_task.done()
+        # 清理
+        host._write_queue.shutdown()
+        await host._write_task
 
     asyncio.run(run())
 
