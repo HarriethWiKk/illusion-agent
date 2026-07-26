@@ -145,7 +145,6 @@
   "working_directory": null,
   "ui_language": "zh-CN",
   "output_style": "default",
-  "fast_mode": false,
   "effort": "medium",
   "passes": 1,
   "verbose": false
@@ -163,7 +162,6 @@
 | `max_tokens` | int | 16384 | 最大输出 token 数 |
 | `max_turns` | int | 200 | 最大对话轮数 |
 | `ui_language` | string | "zh-CN" | 界面语言 |
-| `fast_mode` | bool | false | 快速模式 |
 | `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
 | `passes` | int | 1 | 推理轮数（1-8） |
 | `verbose` | bool | false | 详细输出 |

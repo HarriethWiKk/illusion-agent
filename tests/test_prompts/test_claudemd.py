@@ -61,7 +61,7 @@ def test_build_runtime_system_prompt_combines_sections(tmp_path: Path, monkeypat
     assert "Memory" in prompt
 
 
-def test_build_runtime_system_prompt_includes_project_context_and_fast_mode(tmp_path: Path, monkeypatch):
+def test_build_runtime_system_prompt_includes_project_context(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -71,9 +71,8 @@ def test_build_runtime_system_prompt_includes_project_context_and_fast_mode(tmp_
         encoding="utf-8",
     )
 
-    prompt = build_runtime_system_prompt(Settings(fast_mode=True), cwd=repo, latest_user_prompt="fix it")
+    prompt = build_runtime_system_prompt(Settings(), cwd=repo, latest_user_prompt="fix it")
 
-    assert "Fast mode is enabled" in prompt
     assert "Issue Context" in prompt
     assert "Need to fix flaky test" in prompt
     assert "Pull Request Comments" in prompt

@@ -10,7 +10,7 @@
 
 ---
 
-IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
+IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, ports core infrastructure modules (async queue, stderr fd-level redirect, cross-platform SIGINT handler) from kimi-cli, references channel connection/rendering patterns (Feishu WS, WeChat iLink, QQ Bot gateway) from hermes-agent, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
 
 ## Core Features
 
@@ -21,8 +21,8 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
 - 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
 - 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
-- 🛠️ **Rich Toolset** - 34 built-in tools + MCP dynamic tool extension
-- ⌨️ **47 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
+- 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
+- ⌨️ **48 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
@@ -55,6 +55,10 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 **Cron Architecture Aligned with OpenClaw**: The scheduled task system uses the same scheduler architecture as OpenClaw, supporting independent session execution, execution history tracking, and consecutive error monitoring.
 
 **cc-switch Proxy Routing**: Local proxy routing through the cc-switch reverse proxy tool, supporting request forwarding to different AI providers.
+
+**Infrastructure Ported from kimi-cli**: Core infrastructure modules including async queue (aioqueue, Queue + shutdown sentinel, Python < 3.13 polyfill), stderr fd-level redirect (stderr_redirect, StderrRedirector), and cross-platform SIGINT handler (signals) are ported from the kimi-cli project, with only docstring and logging adaptations.
+
+**Channel Implementation Inspired by hermes-agent**: The connection/reconnection/rendering patterns of channel modules — Feishu WS long connection and message rendering strategy, WeChat iLink API client, and QQ Bot WS gateway — are referenced from the hermes-agent project.
 
 **Deep Windows Optimization**: Auto-detect Git installation path, unified PowerShell and Bash tool processing, automatic path separator compatibility, out-of-the-box experience for Windows users.
 

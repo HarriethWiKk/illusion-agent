@@ -44,7 +44,6 @@ from illusion.tools.repl_tool import ReplTool
 from illusion.tools.send_message_tool import SendMessageTool
 from illusion.tools.skill_tool import SkillTool
 from illusion.tools.sleep_tool import SleepTool
-from illusion.tools.structured_output_tool import StructuredOutputTool
 from illusion.tools.team_create_tool import TeamCreateTool
 from illusion.tools.team_delete_tool import TeamDeleteTool
 from illusion.tools.task_output_tool import TaskOutputTool
@@ -56,14 +55,12 @@ from illusion.tools.web_search_tool import WebSearchTool
 
 def create_default_tool_registry(
     mcp_manager: Any = None,
-    is_interactive: bool = True,
     channel_tools: list[BaseTool[Any]] | None = None,
 ) -> ToolRegistry:
     """返回默认内置工具注册表
 
     Args:
         mcp_manager: MCP 管理器（可选）
-        is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
         channel_tools: 渠道内置工具列表（可选，渠道启用时由调用方传入）
 
     Returns:
@@ -101,9 +98,6 @@ def create_default_tool_registry(
         TeamCreateTool(),
         TeamDeleteTool(),
     ]
-    # StructuredOutputTool 只在非交互模式下加载
-    if not is_interactive:
-        tools.append(StructuredOutputTool())
     for tool in tools:
         registry.register(tool)
     if mcp_manager is not None:

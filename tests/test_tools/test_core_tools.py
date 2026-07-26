@@ -352,8 +352,6 @@ def test_default_registry_matches_claude_tool_shape():
 
     assert "powershell" in names
     assert "repl" in names
-    # structured_output 只在非交互模式下加载
-    assert "structured_output" not in names
     assert "team_create" in names
     assert "team_delete" in names
 
@@ -365,12 +363,6 @@ def test_default_registry_matches_claude_tool_shape():
     assert "cron_list" not in names
     assert "cron_delete" not in names
     assert "remote_trigger" not in names
-
-
-def test_non_interactive_registry_includes_structured_output():
-    registry = create_default_tool_registry(is_interactive=False)
-    names = {tool.name for tool in registry.list_tools()}
-    assert "structured_output" in names
 
 
 @pytest.mark.asyncio

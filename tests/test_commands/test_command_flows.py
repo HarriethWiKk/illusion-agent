@@ -81,7 +81,6 @@ async def test_command_flow_for_memory_modes_and_tasks(tmp_path: Path, monkeypat
         "/summary 4",
         "/compact 2",
         "/plan on",
-        "/fast on",
         "/output-style set minimal",
         "/language set en",
     ]:
@@ -101,8 +100,6 @@ async def test_command_flow_for_memory_modes_and_tasks(tmp_path: Path, monkeypat
     doctor_result = await doctor_command.handler(doctor_args, context)
     assert "- output_style: minimal" in doctor_result.message
     assert "- ui_language: en" in doctor_result.message
-    assert load_settings().fast_mode is True
-    assert context.app_state.get().fast_mode is True
 
 
 @pytest.mark.asyncio

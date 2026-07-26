@@ -57,7 +57,6 @@ Only top-level flat fields can be set. Nested objects (permission, sandbox, memo
 - ui_language: UI language (e.g., "zh-CN")
 - output_style: Output style ("default" or custom)
 - show_thinking: true/false — Show thinking process
-- fast_mode: true/false — Fast mode
 - effort: Effort level ("low", "medium", "high")
 - passes: Number of passes (integer)
 - max_tokens: Maximum tokens per response (integer)

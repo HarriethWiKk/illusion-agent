@@ -407,7 +407,7 @@ class WebApiDispatcher:
         Args:
             bundle: 运行时 bundle
             key: 设置键名（effort/permission_mode/model/context_window/
-                 ui_language/fast/passes/turns/output_style）
+                 ui_language/passes/turns/output_style）
             value: 设置值
 
         Returns:
@@ -417,7 +417,7 @@ class WebApiDispatcher:
         # 键名 → app_state 字段名映射（settings 字段名可能与 key 不同）
         if key not in (
             "effort", "permission_mode", "model", "context_window",
-            "ui_language", "fast", "passes", "turns", "output_style",
+            "ui_language", "passes", "turns", "output_style",
         ):
             return False, f"不支持的设置键: {key}"
 
@@ -433,10 +433,6 @@ class WebApiDispatcher:
                 checker = PermissionChecker(settings.permission)
                 checker.sync_sandbox_restrictions(settings.sandbox)
                 bundle.engine.set_permission_checker(checker)
-            elif key == "fast":
-                settings.fast_mode = str(value).lower() in ("on", "true", "1")
-                _save_settings(settings)
-                bundle.app_state.set(fast_mode=settings.fast_mode)
             elif key == "turns":
                 # turns: unlimited → None，否则 int；影响 engine.max_turns
                 turns_val: int | None
@@ -552,7 +548,7 @@ class WebApiDispatcher:
         """B 通道精细化指令处理。
 
         复用 CommandRegistry 的 handler 拿到 CommandResult，但渲染层映射到
-        web_query_result（不产生 command_result 事件）。设置类指令（fast/passes/
+        web_query_result（不产生 command_result 事件）。设置类指令（passes/
         turns/output-style/language）内部调用 _apply_setting，触发与 A 通道相同的
         web_setting_changed + state_snapshot 同步。
 
@@ -578,7 +574,6 @@ class WebApiDispatcher:
 
         # 设置类指令：内部走 _apply_setting（与 A 通道共用写入逻辑，DRY）
         setting_commands = {
-            "fast": "fast",
             "passes": "passes",
             "turns": "turns",
             "output-style": "output_style",
@@ -587,7 +582,7 @@ class WebApiDispatcher:
         if command in setting_commands and args:
             key = setting_commands[command]
             tokens = args.split()
-            # 参数解析：language set zh-CN → "zh-CN"；fast/passes/turns/output-style → 首个 token
+            # 参数解析：language set zh-CN → "zh-CN"；passes/turns/output-style → 首个 token
             if command == "language" and len(tokens) >= 2 and tokens[0] == "set":
                 value = " ".join(tokens[1:])
             else:

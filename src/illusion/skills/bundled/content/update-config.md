@@ -136,7 +136,6 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
   "ui_language": "en-US",
   "output_style": "default",
   "show_thinking": true,
-  "fast_mode": false,
   "effort": "medium",
   "passes": 1,
   "verbose": false
@@ -156,7 +155,6 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
 | `ui_language` | string | "en-US" | UI language ("en-US" / "zh-CN") |
 | `output_style` | string | "default" | Output style name |
 | `show_thinking` | bool | true | Show thinking process |
-| `fast_mode` | bool | false | Fast mode |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
 | `verbose` | bool | false | Verbose output |

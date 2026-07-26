@@ -82,7 +82,6 @@ function StatusPanel({status, theme}: {status: Record<string, unknown>; theme: T
 				<Text><Text dimColor>permission:</Text> <Text color={theme.colors.accent}>{String(status.permission_mode ?? 'unknown')}</Text></Text>
 				<Text><Text dimColor>cwd:</Text> <Text color={theme.colors.accent}>{String(status.cwd ?? '.')}</Text></Text>
 				<Text><Text dimColor>language:</Text> <Text color={theme.colors.accent}>{String(status.ui_language ?? 'zh-CN')}</Text></Text>
-				<Text><Text dimColor>fast:</Text> <Text color={theme.colors.accent}>{String(Boolean(status.fast_mode))}</Text></Text>
 				<Text><Text dimColor>effort:</Text> <Text color={theme.colors.accent}>{String(status.effort ?? 'medium')}</Text></Text>
 				<Text><Text dimColor>passes:</Text> <Text color={theme.colors.accent}>{String(status.passes ?? 1)}</Text></Text>
 			</Box>

@@ -12,7 +12,7 @@
 命令实现在各子模块中：
     - session.py: /new, /status, /context, /summary, /compact, /resume, /rewind, /delete
     - git.py: /diff, /branch, /commit
-    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /fast, /thinking, /effort, /passes, /turns, /permissions, /plan
+    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /passes, /turns, /permissions, /plan
     - auth.py: /login, /logout
     - context.py: /issue, /pr_comments
     - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue
@@ -173,7 +173,6 @@ def create_default_command_registry() -> CommandRegistry:
         config_handler,
         doctor_handler,
         effort_handler,
-        fast_handler,
         language_handler,
         output_style_handler,
         passes_handler,
@@ -266,7 +265,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("permissions", "Show or update permission mode", permissions_handler))
     registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
-    registry.register(SlashCommand("fast", "Show or update fast mode", fast_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", turns_handler))

@@ -740,7 +740,6 @@ class ChannelRunner:
                 # 被 merge_cli_overrides 强行覆盖到新 env 的 EnvConfig 上 → "新端点+旧密钥" → 401
                 restore_messages=session.messages if session.messages else None,
                 restore_session_id=session.session_id,
-                is_interactive=False,
                 permission_prompt=self._make_permission_prompt(msg.chat_id),
                 ask_user_prompt=self._make_ask_user_prompt(msg.chat_id),
                 plan_approval_prompt=self._make_plan_approval_prompt(msg.chat_id),

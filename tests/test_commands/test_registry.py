@@ -293,12 +293,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     assert "enabled" in plan_result.message
     assert load_settings().permission.mode == "plan"
 
-    fast_command, fast_args = registry.lookup("/fast on")
-    fast_result = await fast_command.handler(fast_args, context)
-    assert "enabled" in fast_result.message
-    assert load_settings().fast_mode is True
-    assert context.app_state.get().fast_mode is True
-
     thinking_command, thinking_args = registry.lookup("/thinking off")
     thinking_result = await thinking_command.handler(thinking_args, context)
     assert "disabled" in thinking_result.message
@@ -316,25 +310,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     assert "3" in passes_result.message
     assert load_settings().passes == 3
     assert context.app_state.get().passes == 3
-
-
-@pytest.mark.asyncio
-async def test_fast_command_without_args_toggles_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
-    registry = create_default_command_registry()
-    context = _make_context(tmp_path)
-
-    fast_command, fast_args = registry.lookup("/fast")
-    first = await fast_command.handler(fast_args, context)
-    assert "enabled" in first.message
-    assert load_settings().fast_mode is True
-    assert context.app_state.get().fast_mode is True
-
-    fast_command, fast_args = registry.lookup("/fast")
-    second = await fast_command.handler(fast_args, context)
-    assert "disabled" in second.message
-    assert load_settings().fast_mode is False
-    assert context.app_state.get().fast_mode is False
 
 
 @pytest.mark.asyncio

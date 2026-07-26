@@ -29,7 +29,7 @@ const WS_URL = `ws://${window.location.host}/ws`;
 const TOAST_DURATION = 5000;
 
 /** B 通道允许的指令集合（前端识别并走 web_query） */
-const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'fast', 'passes', 'turns', 'output-style', 'language'];
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'passes', 'turns', 'output-style', 'language'];
 
 /**
  * 应用主组件
@@ -136,7 +136,7 @@ export default function App() {
    *
    * 通道隔离原则：
    * - B 通道（web_query）：输入框识别的精细化指令（rewind/compact/context/export/init/
-   *   fast/passes/turns/output-style/language），走 web_query 结构化处理。
+   *   passes/turns/output-style/language），走 web_query 结构化处理。
    * - 文本通道（submit_line）：普通文本，或未被识别的斜杠指令（A 类如 /resume /model
    *   以及已删除指令），全部当普通文本发给 LLM。
    *
@@ -167,20 +167,6 @@ export default function App() {
         });
         return;
       }
-      // /fast（无参数）→ 弹出开关选择框，不走 web_query
-      if (cmdName === 'fast' && !args) {
-        const currentFast = Boolean(session.status?.fast_mode);
-        setInlineOptions({
-          command: 'fast',
-          title: t(lang, 'fast'),
-          options: [
-            { value: 'on', label: t(lang, 'fast_on'), description: t(lang, 'fast_on_desc'), active: currentFast },
-            { value: 'off', label: t(lang, 'fast_off'), description: t(lang, 'fast_off_desc'), active: !currentFast },
-          ],
-        });
-        return;
-      }
-
       if (B_COMMANDS.includes(cmdName)) {
         session.setBusyTrue();
         session.sendRequest({
@@ -209,8 +195,8 @@ export default function App() {
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
     setInlineOptions(null);
-    // language 和 fast 走 web_query 通道（前端弹出选择框后提交）
-    if (command === 'language' || command === 'fast') {
+    // language 走 web_query 通道（前端弹出选择框后提交）
+    if (command === 'language') {
       session.sendRequest({
         type: 'web_query',
         command,

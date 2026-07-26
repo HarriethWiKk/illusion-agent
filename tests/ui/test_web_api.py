@@ -248,7 +248,6 @@ class TestWebSetSetting:
         fake_settings = MagicMock()
         fake_settings.effort = "medium"
         fake_settings.permission.mode.value = "default"
-        fake_settings.fast_mode = False
         fake_settings.ui_language = "zh-CN"
         fake_settings.context_window = 200000
         fake_settings.output_style = "default"
@@ -282,15 +281,6 @@ class TestWebSetSetting:
         req = FrontendRequest(type="web_set_setting", setting_key="permission_mode", setting_value="plan")
         await dispatcher.handle(req)
         assert fake_settings.permission.mode.value == "plan"
-
-    @pytest.mark.asyncio
-    async def test_set_fast_writes_fast_mode(self, dispatcher_setting):
-        """测试设置 fast 写入 settings.fast_mode"""
-        dispatcher, fake_settings = dispatcher_setting
-        from illusion.ui.protocol import FrontendRequest
-        req = FrontendRequest(type="web_set_setting", setting_key="fast", setting_value="on")
-        await dispatcher.handle(req)
-        assert fake_settings.fast_mode is True
 
     @pytest.mark.asyncio
     async def test_set_unknown_key_emits_error(self, dispatcher_setting):
@@ -428,12 +418,12 @@ class TestWebQuery:
 
     @pytest.mark.asyncio
     async def test_query_setting_emits_web_query_result(self, dispatcher_query, monkeypatch):
-        """测试设置类指令(/fast on)走 web_query 后返回 web_query_result"""
+        """测试设置类指令(/passes 3)走 web_query 后返回 web_query_result"""
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
         )
         from illusion.ui.protocol import FrontendRequest
-        req = FrontendRequest(type="web_query", command="fast", args="on", request_id="r1")
+        req = FrontendRequest(type="web_query", command="passes", args="3", request_id="r1")
         await dispatcher_query.handle(req)
         calls = dispatcher_query._host._emit.call_args_list
         result_evts = [c.args[0] for c in calls if c.args[0].type == "web_query_result"]

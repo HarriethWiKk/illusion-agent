@@ -5,7 +5,7 @@ illusion-code/
 ├── src/illusion/           # Main source code
 │   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
-│   ├── commands/           # Slash command system (47 commands)
+│   ├── commands/           # Slash command system (48 commands)
 │   ├── config/             # Configuration system
 │   ├── coordinator/        # Multi-agent coordinator
 │   ├── engine/             # Core conversation engine
@@ -17,7 +17,7 @@ illusion-code/
 │   ├── prompts/            # Prompt system
 │   ├── skills/             # Skill system
 │   ├── tasks/              # Task management
-│   ├── tools/              # Toolset (34 base tools)
+│   ├── tools/              # Toolset (29 base tools + channel tools)
 │   ├── ui/                 # User interface
 │   │   ├── web/            # Web backend (FastAPI + WebSocket)
 │   │   └── ...
@@ -47,17 +47,17 @@ Supports multiple AI providers:
 
 ### Tool System
 
-Provides 34 core tools, covering:
+Provides 29 base tools, covering:
 
 - **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **Command Execution**: `bash`, `powershell`, `repl`
 - **Search**: `glob`, `grep`, `web_fetch`, `web_search`
-- **Task Management**: `task_create`, `task_get`, `task_list`, `task_update`, `task_output`, `task_stop`
+- **Task Management**: `task_output`, `task_stop`
 - **Agent Collaboration**: `agent`, `send_message`, `team_create`, `team_delete`
 - **Mode Switching**: `enter_plan_mode`, `exit_plan_mode`
   - `exit_plan_mode` triggers plan approval: terminal/Web shows an approval card, print mode uses cross-turn approval (exit code 2), channel sends plan content and waits for reply
 - **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
-- **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`, `structured_output`
+- **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`
 - **Interaction**: `ask_user_question`
 - **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
 

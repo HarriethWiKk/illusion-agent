@@ -157,17 +157,30 @@ You can manage sessions directly from Feishu chats:
 
 ## Feishu Built-in Tools
 
-When the Feishu channel is enabled, the agent gains access to Feishu-specific tools:
+When the Feishu channel is enabled, the agent gains access to Feishu-specific tools (9 total):
 
 | Tool | Description |
 |------|-------------|
 | `feishu_doc_read` | Read a Feishu Docx/Wiki document as plain text |
 | `feishu_doc_create` | Create a new Feishu Docx document |
+| `feishu_doc_write` | Write content to a Feishu Docx document |
+| `feishu_doc_delete` | Delete a Feishu Docx document |
 | `feishu_drive_list` | List files in a Feishu Drive folder |
 | `feishu_drive_upload` | Upload a local file to Feishu Drive |
 | `feishu_drive_download` | Download a Feishu Drive file to local |
+| `feishu_drive_mkdir` | Create a folder in Feishu Drive |
+| `feishu_drive_delete` | Delete a file or folder in Feishu Drive |
 
 These tools use the same App credentials and are available to the agent automatically.
+
+Additionally, the following generic channel tools are loaded when channels are enabled:
+
+| Tool | Description | Enable Condition |
+|------|-------------|------------------|
+| `send_media` | Send media files (images/audio/video/files) to the current channel | Any channel enabled |
+| `receive_media` | Receive media files sent by users | Any channel enabled and message has attachments |
+| `list_channel_sessions` | List sessions across all enabled channels | At least 2 channels enabled |
+| `send_to_channel` | Send a message to a session in a specified channel | At least 2 channels enabled |
 
 ## Permission Interaction
 
@@ -327,8 +340,9 @@ src/illusion/channels/
 │   ├── session_map.py   # QQSessionStore (chat_id → session)
 │   └── commands.py      # QQCommandHandler (extends BaseCommandHandler)
 └── tools/
-    ├── feishu_doc.py    # feishu_doc_read / feishu_doc_create
-    ├── feishu_drive.py  # feishu_drive_list / upload / download
+    ├── cross_channel.py # ListChannelSessionsTool / SendToChannelTool (loaded when ≥2 channels enabled)
+    ├── feishu_doc.py    # feishu_doc_read / create / write / delete
+    ├── feishu_drive.py  # feishu_drive_list / upload / download / mkdir / delete
     └── media.py         # SendMediaTool / ReceiveMediaTool (activated by channel config)
 ```
 

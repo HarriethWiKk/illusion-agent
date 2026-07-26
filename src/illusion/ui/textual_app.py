@@ -609,7 +609,6 @@ class illusionTerminalApp(App[None]):
             "[b]Status[/b]",
             f"model: {state.model}{agent_indicator}",
             f"permissions: {state.permission_mode}",
-            f"fast: {'on' if state.fast_mode else 'off'}",
             f"language: {state.ui_language}",
             f"style: {state.output_style}",
             f"tokens: {usage.total_tokens}",

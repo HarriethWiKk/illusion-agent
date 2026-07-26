@@ -3,7 +3,7 @@
 ==================
 
 /config, /language, /output-style, /privacy-settings, /doctor,
-/fast, /thinking, /effort, /passes, /turns, /permissions, /plan
+/thinking, /effort, /passes, /turns, /permissions, /plan
 """
 
 from __future__ import annotations
@@ -137,27 +137,6 @@ async def doctor_handler(_: str, context: CommandContext) -> CommandResult:
         f"- mcp_configured: {'yes' if context.mcp_summary and 'No MCP' not in context.mcp_summary else 'no'}",
     ]
     return CommandResult(message="\n".join(lines))
-
-
-async def fast_handler(args: str, context: CommandContext) -> CommandResult:
-    """显示或更新 fast 模式"""
-    settings = load_settings()
-    current = (
-        context.app_state.get().fast_mode
-        if context.app_state is not None
-        else settings.fast_mode
-    )
-    action = args.strip() or "toggle"
-    if action == "show":
-        return CommandResult(message=f"Fast mode: {'on' if current else 'off'}")
-    enabled = {"on": True, "off": False, "toggle": not current}.get(action)
-    if enabled is None:
-        return CommandResult(message="Usage: /fast [show|on|off|toggle]")
-    settings.fast_mode = enabled
-    save_settings(settings)
-    if context.app_state is not None:
-        context.app_state.set(fast_mode=enabled)
-    return CommandResult(message=f"Fast mode {'enabled' if enabled else 'disabled'}.")
 
 
 async def thinking_handler(args: str, context: CommandContext) -> CommandResult:

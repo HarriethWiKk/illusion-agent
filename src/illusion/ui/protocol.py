@@ -403,7 +403,6 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "base_url": state.base_url,
         "permission_mode": format_permission_mode(state.permission_mode),
         "ui_language": state.ui_language,
-        "fast_mode": state.fast_mode,
         "effort": state.effort,
         "passes": state.passes,
         "mcp_connected": state.mcp_connected,

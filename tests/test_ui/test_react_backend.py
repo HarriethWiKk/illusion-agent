@@ -155,7 +155,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     """Regression: slash commands should not snap model back to persisted defaults.
 
     When the session is launched with CLI overrides (e.g. --api-format openai --model env_1.model_1),
-    issuing a command like /fast triggers a UI state refresh. That refresh must
+    issuing a command like /thinking triggers a UI state refresh. That refresh must
     preserve the effective session settings, not reload ~/.illusion/settings.json
     verbatim.
     """
@@ -192,7 +192,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
         assert host._bundle.app_state.get().model == "gpt-5.4"
 
         # Run a command that triggers sync_app_state.
-        await host._process_line("/fast show")
+        await host._process_line("/thinking show")
 
         # CLI overrides should remain in effect.
         assert host._bundle.app_state.get().model == "gpt-5.4"

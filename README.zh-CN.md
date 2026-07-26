@@ -14,7 +14,7 @@
 
 ## 📖 项目简介
 
-IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，实现了比同类项目更全面的 Markdown 终端渲染能力，并提供了浏览器端的 Web UI 界面。
+IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，从 kimi-cli 移植了核心基础设施模块（异步队列、stderr fd 级重定向、跨平台 SIGINT 处理），参考 hermes-agent 实现了渠道连接/渲染模式（飞书 WS、微信 iLink、QQ Bot 网关），并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，实现了比同类项目更全面的 Markdown 终端渲染能力，并提供了浏览器端的 Web UI 界面。
 
 ### 核心特性
 
@@ -24,8 +24,8 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 - 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
 - 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
-- 🛠️ **丰富的工具集** - 34 内置工具 + MCP 动态工具扩展
-- ⌨️ **47 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
+- 🛠️ **丰富的工具集** - 42 内置工具（29 基础 + 13 渠道）+ MCP 动态工具扩展
+- ⌨️ **48 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
 - 🔐 **完善权限控制** - 三种模式 + 细粒度规则 + Always Allow 一键放行
@@ -83,9 +83,6 @@ illusion web
 
 # 非交互式打印模式
 illusion -p "帮我分析这个项目的结构"
-
-# 指定模型
-illusion -m env_1.model_2
 ```
 
 ### Print 模式说明
@@ -101,6 +98,9 @@ illusion --permission-mode full_auto -p "修复失败的测试"
 
 # 进程以退出码 2 结束后，继续回答待处理的问题 / 权限 / 计划
 illusion -c -p "Y"
+
+# 指定模型和 effort 等级用于 print 模式
+illusion -m env_1.model_2 -e high -p "重构此模块"
 ```
 
 重要细节：

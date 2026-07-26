@@ -14,7 +14,7 @@
 
 ## 📖 Introduction
 
-IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
+IllusionCode is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, ports core infrastructure modules (async queue, stderr fd-level redirect, cross-platform SIGINT handler) from kimi-cli, references channel connection/rendering patterns (Feishu WS, WeChat iLink, QQ Bot gateway) from hermes-agent, and implements flexible proxy routing through cc-switch. On this foundation, IllusionCode provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
 
 ### Core Features
 
@@ -24,8 +24,8 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 🌍 **Bilingual Interface** - Chinese/English auto-switch via `ui_language` setting
 - 📝 **Comprehensive Markdown Rendering** - Tables, code blocks, rich text
 - 🤖 **Multi AI Provider Support** - Anthropic, OpenAI, Copilot, Codex, and any compatible endpoint
-- 🛠️ **Rich Toolset** - 34 built-in tools + MCP dynamic tool extension
-- ⌨️ **47 Slash Commands** - Session, config, project, scheduling
+- 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
+- ⌨️ **48 Slash Commands** - Session, config, project, scheduling
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules
@@ -55,15 +55,15 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 
 - Python >= 3.10
 - Supports Windows, macOS, Linux
-- Node.js 18+（仅源码安装需要，`pip install illusion-code` 无需 Node.js）
+- Node.js 18+ (only for source install; `pip install illusion-code` does not require Node.js)
 
 ### Installation
 
 ```bash
-# Recommended: pip install from PyPI（无需 Node.js）
+# Recommended: pip install from PyPI (no Node.js required)
 pip install illusion-code
 
-# Alternative: from source（需要 Node.js 18+）
+# Alternative: from source (requires Node.js 18+)
 git clone https://github.com/YunTaiHua/illusion-code.git
 cd illusion-code
 pip install .
@@ -83,9 +83,6 @@ illusion web
 
 # Non-interactive print mode
 illusion -p "Analyze the structure of this project"
-
-# Specify model
-illusion -m env_1.model_2
 ```
 
 ### Print Mode Notes
@@ -101,6 +98,9 @@ illusion --permission-mode full_auto -p "Fix the failing tests"
 
 # Resume after the process exits with code 2 (pending question/permission/plan)
 illusion -c -p "Y"
+
+# Specify model and effort for print mode
+illusion -m env_1.model_2 -e high -p "Refactor this module"
 ```
 
 Important details:

@@ -480,7 +480,6 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "permissions": "显示或更新权限模式",
     "plan": "切换计划权限模式",
     "thinking": "显示或更新思考模式",
-    "fast": "显示或更新快速模式",
     "effort": "显示或更新推理强度",
     "passes": "显示或更新推理轮数",
     "turns": "显示或更新最大 agent 轮数",
@@ -585,7 +584,6 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /memory [list|show NAME|add TITLE :: CONTENT|remove NAME]": "用法：/memory [list|show 名称|add 标题 :: 内容|remove 名称]",
     "Usage: /rewind [TURNS] [both|conversation|code]": "用法：/rewind [轮数] [both|conversation|code]",
     "Usage: /config [show|set KEY VALUE]": "用法：/config [show|set 键 值]",
-    "Usage: /fast [show|on|off|toggle]": "用法：/fast [show|on|off|toggle]",
     "Usage: /thinking [show|on|off|toggle]": "用法：/thinking [show|on|off|toggle]",
     "Usage: /effort [show|low|medium|high|xhigh|max]": "用法：/effort [show|low|medium|high|xhigh|max]",
     "Usage: /passes [show|COUNT]": "用法：/passes [数量]",
@@ -601,7 +599,6 @@ _COMMAND_EXACT: dict[str, str] = {
         "用法：/plugin [list|enable 名称|disable 名称|install 路径|uninstall 名称]",
     "Usage: /bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]":
         "用法：/bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]",
-    # 快速模式
     "No conversation content to summarize.": "没有可总结的对话内容。",
     # 删除与规则
     "Saved sessions:": "已保存会话：",
@@ -650,10 +647,6 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Output style: (.+)$", r"输出风格：\1"),
     (r"^Output style set to (.+)$", r"输出风格已设置为 \1"),
     (r"^Unknown output style: (.+)$", r"未知输出风格：\1"),
-    # 快速模式
-    (r"^Fast mode: (on|off)$", r"快速模式：\1"),
-    (r"^Fast mode (enabled|disabled)\.$",
-     lambda m: f"快速模式{'已开启' if m.group(1) == 'enabled' else '已关闭'}。"),
     # 思考模式
     (r"^Thinking mode: (on|off)$", r"思考模式：\1"),
     (r"^Thinking mode (enabled|disabled)\.$",

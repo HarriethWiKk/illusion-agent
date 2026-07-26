@@ -81,7 +81,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   team_create: 'TeamCreate',
   team_delete: 'TeamDelete',
   mcp_auth: 'McpAuth',
-  structured_output: 'StructuredOutput',
 
   // 渠道媒体工具（当前渠道内发/收文件）
   send_media: 'SendMedia',

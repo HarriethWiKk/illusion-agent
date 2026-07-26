@@ -154,12 +154,6 @@ def build_runtime_system_prompt(
             "via text or AskUserQuestion."
         )
 
-    # 快速模式
-    if settings.fast_mode:
-        sections.append(
-            "# Session Mode\nFast mode is enabled. Prefer concise replies, minimal tool use, and quicker progress over exhaustive exploration."
-        )
-
     # 推理设置
     # 对于 Anthropic 格式，effort 通过系统提示词传递
     # 对于 OpenAI 格式，effort 通过 API 参数传递，不在系统提示词中包含

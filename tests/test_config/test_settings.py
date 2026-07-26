@@ -22,7 +22,6 @@ class TestSettings:
         assert s.active_model_name == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
         assert s.max_turns == 200
-        assert s.fast_mode is False
         assert s.permission.mode == "default"
         assert s.sandbox.enabled is False
         assert s.sandbox.filesystem.allow_write == ["."]
@@ -97,12 +96,10 @@ class TestLoadSaveSettings:
             "model": "env_1.model_1",
             "env_1": {"api_format": "anthropic", "model_1": "claude-opus-4-20250514"},
             "verbose": True,
-            "fast_mode": True,
         }))
         s = load_settings(path)
         assert s.active_model_name == "claude-opus-4-20250514"
         assert s.verbose is True
-        assert s.fast_mode is True
         assert s.api_key == ""
 
     def test_save_and_load_roundtrip(self, tmp_path: Path):

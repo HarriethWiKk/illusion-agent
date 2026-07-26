@@ -47,7 +47,7 @@ export function QuestionNavigationBar({
 	const hideArrows = headers.length === 1 && hideSubmitTab;
 
 	return (
-		<Box flexDirection="row" marginBottom={1}>
+		<Box flexDirection="row">
 			{/* 左箭头：已在第一题时灰显 */}
 			{!hideArrows ? (
 				<Text color={currentQuestionIndex === 0 ? theme.colors.muted : undefined}>← </Text>

@@ -130,7 +130,7 @@ class RuntimeBundle:
 
         大多数设置持久化到磁盘（~/.illusion/settings.json），
         但 CLI 选项如 --model/--api-format 在进程生命周期内保持有效。
-        没有此覆盖，发送任何斜杠命令（如 /fast）会从磁盘刷新 UI 状态，
+        没有此覆盖，发送任何斜杠命令（如 /thinking）会从磁盘刷新 UI 状态，
         并将 model/provider " snap back" 到配置文件中的值。
         """
         return load_settings().merge_cli_overrides(**self.settings_overrides)
@@ -262,7 +262,6 @@ async def build_runtime(
     restore_messages: list[dict[str, Any]] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
-    is_interactive: bool = True,
     channel_hint: str | None = None,
     channel_tools: list[Any] | None = None,
     settings_file: str | None = None,
@@ -293,7 +292,6 @@ async def build_runtime(
         ask_user_prompt: 用户问答回调函数
         restore_messages: 恢复的会话消息列表
         effort: 推理强度级别（low/medium/high/xhigh/max）
-        is_interactive: 是否为交互模式（默认True）。非交互模式下会加载StructuredOutputTool。
         verbose: 启用 INFO 级别日志（CLI --verbose）
         debug: 启用 DEBUG 级别日志（CLI --debug）
         bare: 纯净模式，跳过 plugins/MCP auto-discovery（CLI --bare）
@@ -423,7 +421,7 @@ async def build_runtime(
     if not bare or server_configs:
         await mcp_manager.connect_all()
     # 创建工具注册器
-    tool_registry = create_default_tool_registry(mcp_manager, is_interactive=is_interactive, channel_tools=channel_tools)
+    tool_registry = create_default_tool_registry(mcp_manager, channel_tools=channel_tools)
     # 应用 CLI 工具过滤（--allowed-tools / --disallowed-tools）
     if allowed_tools is not None or disallowed_tools is not None:
         filtered = ToolRegistry()
@@ -445,7 +443,6 @@ async def build_runtime(
             cwd=cwd,
             auth_status="missing" if _web_auth_missing else auth_status(settings),
             base_url=settings.base_url or "",
-            fast_mode=settings.fast_mode,
             effort=settings.effort,
             passes=settings.passes,
             mcp_connected=sum(1 for status in mcp_manager.list_statuses() if status.state == "connected"),
@@ -699,7 +696,6 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         cwd=bundle.cwd,
         auth_status=auth_status(settings),
         base_url=settings.base_url or "",
-        fast_mode=settings.fast_mode,
         effort=settings.effort,
         passes=settings.passes,
         mcp_connected=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "connected"),

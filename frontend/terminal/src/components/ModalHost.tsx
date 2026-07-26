@@ -21,6 +21,7 @@ import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
 import {useQuestionState} from '../hooks/useQuestionState.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
+import {MIN_WRAP_WIDTH, stringWidth, WIDTH_SAFETY_EXTRA, wrapText} from '../utils/markdown.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import {QuestionNavigationBar} from './QuestionNavigationBar.js';
 import {QuestionPreviewBox} from './QuestionPreviewBox.js';
@@ -223,7 +224,7 @@ function QuestionModal({
 		const checkbox = (!opts?.rowLayout && isMultiSelect) ? `[${selectedIndices.has(index) ? theme.icons.check : ' '}]` : '';
 		const labelText = `${pointer}${checkbox}${index + 1}. ${optLabel(index)}`;
 		return (
-			<Box key="other" flexDirection="column">
+			<Box key={index} flexDirection="column">
 				<Text
 					color={isCurrent || (isMultiSelect && selectedIndices.has(index)) ? theme.colors.illusionShimmer : theme.colors.illusion}
 					bold={isCurrent && (opts?.rowLayout || !isMultiSelect)}
@@ -577,24 +578,54 @@ function QuestionModal({
 		? (allOptions[optionIndex]?.type === 'option' ? allOptions[optionIndex]?.preview : undefined) ?? null
 		: null;
 
+	// 标题换行计算：header 和 question 同一行
+	// 两阶段拆分：首行按首行宽度（含 header）拆分，续行按续行宽度（仅 pointer）拆分，避免续行提前换行
+	const pointerPart = `${theme.icons.pointer} `;
+	const headerChipPart = currentQuestion.header ? ` ${currentQuestion.header} ` : '';
+	const separatorPart = currentQuestion.header ? ' ' : '';
+	const firstLinePrefix = pointerPart + headerChipPart + separatorPart;
+	const continuationIndent = ' '.repeat(stringWidth(pointerPart));
+	const firstLineWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(firstLinePrefix) - WIDTH_SAFETY_EXTRA);
+	const continuationWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(pointerPart) - WIDTH_SAFETY_EXTRA);
+	const firstBreak = wrapText(currentQuestion.question, firstLineWidth, {hard: true});
+	const firstLine = firstBreak[0] ?? '';
+	const remainingText = firstBreak.slice(1).join('');
+	const continuationLines = remainingText ? wrapText(remainingText, continuationWidth, {hard: true}) : [];
+	const wrappedQuestion = [firstLine, ...continuationLines];
+
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			{/* 话题分割线：把提问与上方对话内容明显隔开，避免用户忽略提问 */}
 			<Text>{'─'.repeat(60)}</Text>
 <Text> </Text>
-			{/* 标题行：header chip + 问题文本 */}
-			<Box>
-				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
-				{currentQuestion.header ? (
-					<>
-						<Text backgroundColor={theme.colors.illusionShimmer} color={theme.colors.foreground} bold>{' '}{currentQuestion.header}{' '}</Text>
-						<Text> </Text>
-						<Text bold>{currentQuestion.question}</Text>
-					</>
-				) : (
-					<Text bold>{currentQuestion.question}</Text>
-				)}
-			</Box>
+			{/* 导航条（仅多问题时显示，置于题目上方） */}
+			{questions.length > 1 ? (
+				<QuestionNavigationBar
+					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
+					currentQuestionIndex={currentQuestionIndex}
+					answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
+					hideSubmitTab={questions.length === 1 && !isMultiSelect}
+				/>
+			) : null}
+			{/* 标题行：header chip + 问题文本（首行计算 header 宽度，续行只缩进 pointer 宽度） */}
+			{wrappedQuestion.map((line, i) => (
+				<Box key={i}>
+					{i === 0 ? (
+						<Text>
+							<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
+							{currentQuestion.header ? (
+								<>
+									<Text backgroundColor={theme.colors.illusionShimmer} color={theme.colors.foreground} bold>{' '}{currentQuestion.header}{' '}</Text>
+									<Text> </Text>
+								</>
+							) : null}
+							<Text bold>{line}</Text>
+						</Text>
+					) : (
+						<Text bold>{continuationIndent}{line}</Text>
+					)}
+				</Box>
+			))}
 			{toolName ? (
 				<Box>
 					<Text dimColor>{`  ${theme.icons.resultPrefix} `}</Text>
@@ -608,29 +639,18 @@ function QuestionModal({
 					<Text dimColor>{reason}</Text>
 				</Box>
 			) : null}
-
-			{/* 导航条（仅多问题时显示） */}
-			{questions.length > 1 ? (
-				<QuestionNavigationBar
-					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
-					currentQuestionIndex={currentQuestionIndex}
-					answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
-					hideSubmitTab={questions.length === 1 && !isMultiSelect}
-				/>
-			) : null}
-
 			{hasOptions ? (
-				<Box flexDirection="column" marginTop={questions.length > 1 ? 0 : 1}>
+				<Box flexDirection="column" marginTop={1}>
 					<Text>{hintText}</Text>
 					{hasPreview ? (
 						// ===== 预览分栏：左选项列表 + 右预览框 =====
-						<Box flexDirection="row" marginTop={1} gap={2}>
+						<Box flexDirection="row" gap={2}>
 							<Box flexDirection="column" width={Math.min(30, Math.floor(terminalWidth * 0.35))}>
 								{allOptions.map((opt, i) => {
 									const isCurrent = i === optionIndex;
 									if (opt.type === 'other') return renderOtherOption(i, isCurrent, {rowLayout: true});
 									return (
-										<Box key={opt.label} flexDirection="row">
+										<Box key={i} flexDirection="row">
 											<Text color={isCurrent ? theme.colors.illusionShimmer : theme.colors.illusion} bold={isCurrent}>
 												{`${isCurrent ? `${theme.icons.pointer} ` : '  '}${i + 1}. ${opt.label}`}
 											</Text>
@@ -658,7 +678,7 @@ function QuestionModal({
 							const previewHint = isCurrent && !isMultiSelect && opt.preview ? ` ${theme.icons.middleDot}preview` : '';
 							const labelText = `${pointer}${checkbox}${i + 1}. ${opt.label}${previewHint}`;
 							return (
-								<Box key={opt.label} flexDirection="column">
+								<Box key={i} flexDirection="column">
 									<Text
 										color={isCurrent || (isMultiSelect && isSelected) ? theme.colors.illusionShimmer : theme.colors.illusion}
 										bold={isCurrent && !isMultiSelect}

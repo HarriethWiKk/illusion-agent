@@ -255,7 +255,6 @@ class Settings(BaseModel):
     ui_language: str = "zh-CN"
     output_style: str = "default"
     show_thinking: bool = True
-    fast_mode: bool = False
     effort: str = "medium"
     passes: int = 1
     verbose: bool = False

@@ -872,8 +872,6 @@ class ReactBackendHost:
             return f"/passes {value}"
         if command == "turns":
             return f"/turns {value}"
-        if command == "fast":
-            return f"/fast {value}"
         if command == "language":
             return f"/language {value}"
         if command == "model":
@@ -1086,21 +1084,6 @@ class ReactBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "最大轮数" if zh else "Max Turns", "command": "turns"},
-                    select_options=options,
-                )
-            )
-            return
-
-        if command == "fast":
-            current = bool(state.fast_mode)
-            options = [
-                {"value": "on", "label": "开" if zh else "On", "description": "偏向更短更快的响应" if zh else "Prefer shorter, faster responses", "active": current},
-                {"value": "off", "label": "关" if zh else "Off", "description": "使用常规响应模式" if zh else "Use normal response mode", "active": not current},
-            ]
-            await self._emit(
-                BackendEvent(
-                    type="select_request",
-                    modal={"kind": "select", "title": "快速模式" if zh else "Fast Mode", "command": "fast"},
                     select_options=options,
                 )
             )

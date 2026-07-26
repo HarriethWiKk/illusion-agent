@@ -520,7 +520,6 @@ async def run_print_mode(
             state=print_state,
         ),
         effort=effort,
-        is_interactive=False,
         permission_mode=permission_mode,
         name=name,
         restore_messages=restore_messages,

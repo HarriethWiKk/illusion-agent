@@ -145,7 +145,6 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
   "working_directory": null,
   "ui_language": "en-US",
   "output_style": "default",
-  "fast_mode": false,
   "effort": "medium",
   "passes": 1,
   "verbose": false
@@ -163,7 +162,6 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 | `max_tokens` | int | 16384 | Maximum output tokens |
 | `max_turns` | int | 200 | Maximum conversation turns |
 | `ui_language` | string | "en-US" | UI language |
-| `fast_mode` | bool | false | Fast mode |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
 | `verbose` | bool | false | Verbose output |

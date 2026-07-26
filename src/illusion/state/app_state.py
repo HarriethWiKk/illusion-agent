@@ -32,7 +32,6 @@ class AppState:
         cwd: 当前工作目录
         auth_status: 认证状态
         base_url: API基础URL
-        fast_mode: 是否启用快速模式
         effort: 推理 Effort 级别 (low/medium/high)
         passes: 推理通过次数
         mcp_connected: 已连接的MCP服务器数量
@@ -50,7 +49,6 @@ class AppState:
     cwd: str = "."  # 当前工作目录
     auth_status: str = "missing"  # 认证状态
     base_url: str = ""  # API基础URL
-    fast_mode: bool = False  # 快速模式标志
     effort: str = "medium"  # 推理 Effort 级别
     passes: int = 1  # 推理通过次数
     mcp_connected: int = 0  # 已连接的MCP服务器数量

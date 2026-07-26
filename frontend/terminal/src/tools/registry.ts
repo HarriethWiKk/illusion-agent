@@ -114,7 +114,6 @@ function ensureInitialized(): void {
 	register(createGenericTool('team_create', 'TeamCreate'));
 	register(createGenericTool('team_delete', 'TeamDelete'));
 	register(createGenericTool('mcp_auth', 'McpAuth'));
-	register(createGenericTool('structured_output', 'StructuredOutput'));
 
 	// 渠道媒体工具（当前渠道内发/收文件）
 	register(createGenericTool('send_media', 'SendMedia'));
