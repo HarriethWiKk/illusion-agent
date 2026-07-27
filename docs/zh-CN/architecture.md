@@ -130,7 +130,6 @@ illusion-code/
 | openai | OpenAI SDK |
 | rich | 富文本输出 |
 | prompt-toolkit | 高级输入处理 |
-| textual | TUI 框架 |
 | typer | CLI 框架 |
 | pydantic | 数据验证 |
 | httpx | HTTP 客户端 |

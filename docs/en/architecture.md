@@ -128,7 +128,6 @@ Built-in 7 specialized Agents:
 | openai | OpenAI SDK |
 | rich | Rich text output |
 | prompt-toolkit | Advanced input processing |
-| textual | TUI framework |
 | typer | CLI framework |
 | pydantic | Data validation |
 | httpx | HTTP client |
