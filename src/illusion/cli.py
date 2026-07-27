@@ -459,17 +459,19 @@ _DEFAULT_MODELS: dict[str, str] = {
 }
 
 
-def _prompt_models_and_env(
+def _prompt_models_and_create_env(
     manager: Any,
     api_format: str,
     format_choice: str,
     endpoint: str,
     auth_field: str,
     credential: str | None,
-    env_key_arg: str | None,
     extra_env_fields: dict[str, str] | None = None,
 ) -> str:
-    """交互式输入多个 model 名并选择 env 保存。
+    """交互式输入多个 model 名并新建 env 保存。
+
+    auth login 始终新建 env，不询问选择已有环境。
+    添加 model 到已有环境请使用 `illusion auth add-model`。
 
     Args:
         manager: AuthManager 实例
@@ -478,7 +480,6 @@ def _prompt_models_and_env(
         endpoint: API 端点 URL
         auth_field: 凭据字段名（api_key/auth_token）
         credential: 凭据值，None 表示不存储（copilot/codex 由内部管理）
-        env_key_arg: --env 参数值，若指定则追加 model 到该 env
         extra_env_fields: 新建 env 时额外的字段（如 copilot 的 {"api_key": ""}）
 
     Returns:
@@ -506,92 +507,41 @@ def _prompt_models_and_env(
         if cont != "y":
             break
 
-    # 2. env 分配
+    # 2. 新建 env_N
     envs = manager.list_envs()
     env_keys = list(envs.keys())
-    target_env_key: str | None = None
-
-    if env_key_arg:
-        # 显式 --env 参数：追加到指定 env
-        if env_key_arg not in env_keys:
-            print(_t("env_not_exist", env_key=env_key_arg), file=sys.stderr)
-            raise typer.Exit(1)
-        target_env_key = env_key_arg
-    elif env_keys:
-        # 交互式选择：复用已有 env 或创建新 env
-        print(_t("existing_envs"))
-        for i, ek in enumerate(env_keys, 1):
-            env_cfg = envs[ek]
-            models = env_cfg.list_models()
-            model_list = ", ".join(models.values()) if models else "(无模型)"
-            print(f"  {i}. {ek} [{env_cfg.api_format}] {env_cfg.base_url} (models: {model_list})")
-        print(f"  {len(env_keys) + 1}. {_t('create_new_env')}")
-        raw = typer.prompt(_t("enter_number"), default="1")
+    existing_env_nums = []
+    for k in env_keys:
         try:
-            idx = int(raw.strip())
-            if 1 <= idx <= len(env_keys):
-                target_env_key = env_keys[idx - 1]
-            elif idx == len(env_keys) + 1:
-                target_env_key = None
-            else:
-                print(_t("invalid_selection"), file=sys.stderr)
-                raise typer.Exit(1)
-        except ValueError:
-            print(_t("invalid_selection"), file=sys.stderr)
-            raise typer.Exit(1)
-
-    # 3. 写入配置
-    if target_env_key:
-        # 追加到已有 env：复用凭据，不重新存储
-        existing_env = envs[target_env_key]
-        env_config = existing_env.model_dump(exclude_none=True)
-        existing_nums = []
-        for k in env_config:
-            if k.startswith("model_"):
-                try:
-                    existing_nums.append(int(k.split("_")[1]))
-                except (ValueError, IndexError):
-                    pass
-        next_num = max(existing_nums, default=0) + 1
-        for i, model_name in enumerate(models_to_add):
-            env_config[f"model_{next_num + i}"] = model_name
-        setattr(manager.settings, target_env_key, env_config)
-    else:
-        # 新建 env_N
-        existing_env_nums = []
-        for k in env_keys:
-            try:
-                existing_env_nums.append(int(k.split("_")[1]))
-            except (ValueError, IndexError):
-                pass
-        next_env_num = max(existing_env_nums, default=0) + 1
-        target_env_key = f"env_{next_env_num}"
-        env_config: dict[str, Any] = {
-            "api_format": api_format,
-            "base_url": endpoint,
-        }
-        if extra_env_fields:
-            env_config.update(extra_env_fields)
-        for i, model_name in enumerate(models_to_add):
-            env_config[f"model_{i + 1}"] = model_name
-        setattr(manager.settings, target_env_key, env_config)
-        # 仅新建 env 时存储凭据
-        if credential is not None:
-            store_env_credential(target_env_key, auth_field, credential)
-        manager.settings.model = f"{target_env_key}.model_1"
+            existing_env_nums.append(int(k.split("_")[1]))
+        except (ValueError, IndexError):
+            pass
+    next_env_num = max(existing_env_nums, default=0) + 1
+    target_env_key = f"env_{next_env_num}"
+    env_config: dict[str, Any] = {
+        "api_format": api_format,
+        "base_url": endpoint,
+    }
+    if extra_env_fields:
+        env_config.update(extra_env_fields)
+    for i, model_name in enumerate(models_to_add):
+        env_config[f"model_{i + 1}"] = model_name
+    setattr(manager.settings, target_env_key, env_config)
+    if credential is not None:
+        store_env_credential(target_env_key, auth_field, credential)
+    manager.settings.model = f"{target_env_key}.model_1"
 
     manager.save_settings()
     return target_env_key
 
 
 @auth_app.command("login")
-def auth_login(
-    env_key: str = typer.Option(None, "--env", help="追加 model 到已有 env"),
-) -> None:
+def auth_login() -> None:
     """交互式配置提供商认证
 
     流程：选择提供商 → 认证 → 保存
     Copilot 使用 GitHub OAuth 设备码流程，其他提供商使用 API 密钥。
+    始终新建 env，添加 model 到已有环境请使用 `illusion auth add-model`。
     """
     from illusion.auth.flows import ApiKeyFlow
     from illusion.auth.manager import AuthManager
@@ -619,12 +569,12 @@ def auth_login(
 
     # --- Copilot 走设备码 OAuth 流程 ---
     if format_choice == "copilot":
-        _copilot_login(manager, env_key)
+        _copilot_login(manager)
         return
 
     # --- Codex 走外部 CLI 凭据读取流程 ---
     if format_choice == "codex":
-        _codex_login(manager, env_key)
+        _codex_login(manager)
         return
 
     # --- 其他提供商走 API 密钥流程 ---
@@ -687,26 +637,24 @@ def auth_login(
         print(_t("api_key_required"), file=sys.stderr)
         raise typer.Exit(1)
 
-    # 5. 输入 model 名 + 选择 env 保存
-    saved_env_key = _prompt_models_and_env(
+    # 5. 输入 model 名 + 新建 env 保存
+    saved_env_key = _prompt_models_and_create_env(
         manager=manager,
         api_format=api_format,
         format_choice=format_choice,
         endpoint=endpoint,
         auth_field=auth_field,
         credential=credential,
-        env_key_arg=env_key,
     )
 
     print(_t("env_saved", env_key=saved_env_key))
 
 
-def _copilot_login(manager: Any, env_key: str | None = None) -> None:
+def _copilot_login(manager: Any) -> None:
     """Copilot 设备码 OAuth 认证流程
 
     Args:
         manager: AuthManager 实例
-        env_key: --env 参数值，若指定则追加 model 到该 env
     """
 
     from illusion.auth.copilot import CopilotAuth
@@ -750,29 +698,27 @@ def _copilot_login(manager: Any, env_key: str | None = None) -> None:
     username = status.get("username") or ""
     print(_t("copilot_auth_success", user=username))
 
-    # 4. 输入 model 名 + 选择 env 保存
-    saved_env_key = _prompt_models_and_env(
+    # 4. 输入 model 名 + 新建 env 保存
+    saved_env_key = _prompt_models_and_create_env(
         manager=manager,
         api_format="copilot",
         format_choice="copilot",
         endpoint=_DEFAULT_ENDPOINTS["copilot"],
         auth_field="api_key",
         credential=None,  # copilot token 由 CopilotAuth 内部管理
-        env_key_arg=env_key,
         extra_env_fields={"api_key": ""},
     )
 
     print(_t("env_saved", env_key=saved_env_key))
 
 
-def _codex_login(manager: Any, env_key: str | None = None) -> None:
+def _codex_login(manager: Any) -> None:
     """Codex OAuth 设备码认证流程
 
     使用 OpenAI Device Code 流程让用户通过浏览器授权 ChatGPT 账号。
 
     Args:
         manager: AuthManager 实例
-        env_key: --env 参数值，若指定则追加 model 到该 env
     """
     from illusion.auth.codex_oauth import CodexOAuth
 
@@ -813,15 +759,14 @@ def _codex_login(manager: Any, env_key: str | None = None) -> None:
     username = status.get("username") or ""
     print(_t("codex_auth_success", user=username))
 
-    # 4. 输入 model 名 + 选择 env 保存
-    saved_env_key = _prompt_models_and_env(
+    # 4. 输入 model 名 + 新建 env 保存
+    saved_env_key = _prompt_models_and_create_env(
         manager=manager,
         api_format="codex",
         format_choice="codex",
         endpoint=_DEFAULT_ENDPOINTS["codex"],
         auth_field="api_key",
         credential=None,  # codex token 由 CodexOAuth 内部管理
-        env_key_arg=env_key,
         extra_env_fields={"api_key": ""},
     )
 
@@ -958,42 +903,85 @@ def auth_switch(
 
 @auth_app.command("add-model")
 def auth_add_model(
-    env_key: str = typer.Argument(..., help="Environment key (e.g. env_1)"),
-    model_name: str = typer.Argument(..., help="Model name to add"),
+    env_key: str = typer.Argument(None, help="环境键名（如 env_1），省略则交互式选择"),
 ) -> None:
-    """在已有的 env_N 中增加模型（model_N）
+    """在已有的 env 中添加 model（支持循环输入多个）
 
     Args:
-        env_key: 环境键名，如 env_1
-        model_name: 要添加的模型名称
+        env_key: 环境键名，如 env_1；省略则交互式选择
     """
     from illusion.auth.manager import AuthManager
 
     _ensure_language()
     manager = AuthManager()
 
-    env = manager.settings.get_env(env_key)
-    if env is None:
-        print(_t("env_not_found", env_key=env_key), file=sys.stderr)
+    envs = manager.list_envs()
+    env_keys = list(envs.keys())
+    if not env_keys:
+        print(_t("no_existing_env"), file=sys.stderr)
         raise typer.Exit(1)
 
-    # 找到下一个可用的 model_N 编号
-    existing = []
-    for k in env.list_models():
+    # 1. 选择 env
+    target_env_key: str | None = None
+    if env_key:
+        if env_key not in env_keys:
+            print(_t("env_not_exist", env_key=env_key), file=sys.stderr)
+            raise typer.Exit(1)
+        target_env_key = env_key
+    else:
+        print(_t("existing_envs"))
+        for i, ek in enumerate(env_keys, 1):
+            env_cfg = envs[ek]
+            models = env_cfg.list_models()
+            model_list = ", ".join(models.values()) if models else "(无模型)"
+            print(f"  {i}. {ek} [{env_cfg.api_format}] {env_cfg.base_url} (models: {model_list})")
+        raw = typer.prompt(_t("enter_number"), default="1")
         try:
-            existing.append(int(k.split("_")[1]))
-        except (ValueError, IndexError):
-            pass
-    next_num = max(existing, default=0) + 1
-    model_key = f"model_{next_num}"
+            idx = int(raw.strip())
+            if 1 <= idx <= len(env_keys):
+                target_env_key = env_keys[idx - 1]
+            else:
+                print(_t("invalid_selection"), file=sys.stderr)
+                raise typer.Exit(1)
+        except ValueError:
+            print(_t("invalid_selection"), file=sys.stderr)
+            raise typer.Exit(1)
 
-    # 写入配置
+    # 2. 循环输入 model 名
+    env = envs[target_env_key]
     env_config = env.model_dump(exclude_none=True)
-    env_config[model_key] = model_name
-    setattr(manager.settings, env_key, env_config)
+    existing_nums = []
+    for k in env_config:
+        if k.startswith("model_"):
+            try:
+                existing_nums.append(int(k.split("_")[1]))
+            except (ValueError, IndexError):
+                pass
+    next_num = max(existing_nums, default=0) + 1
+
+    added_models: list[tuple[str, str]] = []
+    while True:
+        model_input = input(f"{_t('enter_model')}: ").strip()
+        if not model_input:
+            print(_t("model_required"), file=sys.stderr)
+            continue
+        model_key = f"model_{next_num}"
+        env_config[model_key] = model_input
+        added_models.append((model_key, model_input))
+        next_num += 1
+        # 询问是否继续（直接回车默认退出）
+        cont = input(f"{_t('add_another_model')} ").strip().lower()
+        if cont != "y":
+            break
+
+    if not added_models:
+        return
+
+    setattr(manager.settings, target_env_key, env_config)
     manager.save_settings()
 
-    print(_t("model_added", env_key=env_key, model_key=model_key, model_name=model_name))
+    for model_key, model_name in added_models:
+        print(_t("model_added", env_key=target_env_key, model_key=model_key, model_name=model_name))
 
 
 # ---- web 子命令 ----
