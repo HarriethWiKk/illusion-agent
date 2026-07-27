@@ -185,11 +185,13 @@ async def effort_handler(args: str, context: CommandContext) -> CommandResult:
 
 async def max_tokens_handler(args: str, context: CommandContext) -> CommandResult:
     """显示或更新最大输出令牌数"""
+    from illusion.config.i18n import t
+
     settings = load_settings()
     current = context.app_state.get().max_tokens if context.app_state is not None else settings.max_tokens
     value = args.strip() or "show"
     if value == "show":
-        return CommandResult(message=f"Max tokens: {current}")
+        return CommandResult(message=t("max_tokens_show", value=current))
     # 预设档位
     preset = {
         "8k": 8192,
@@ -203,14 +205,14 @@ async def max_tokens_handler(args: str, context: CommandContext) -> CommandResul
     elif value.isdigit():
         tokens = int(value)
     else:
-        return CommandResult(message="Usage: /max-tokens [show|8k|16k|32k|64k|128k|<number>]")
+        return CommandResult(message=t("max_tokens_usage"))
     settings.max_tokens = tokens
     save_settings(settings)
     if context.engine is not None:
         context.engine.max_tokens = tokens
     if context.app_state is not None:
         context.app_state.set(max_tokens=tokens)
-    return CommandResult(message=f"Max tokens set to {tokens}.")
+    return CommandResult(message=t("max_tokens_set", value=tokens))
 
 
 async def passes_handler(args: str, context: CommandContext) -> CommandResult:

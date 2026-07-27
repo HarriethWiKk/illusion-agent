@@ -180,6 +180,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "update_success": {"zh-CN": "更新成功！新版本: {version}", "en-US": "Updated successfully! New version: {version}"},
     "update_failed": {"zh-CN": "更新失败: {error}", "en-US": "Update failed: {error}"},
     "update_network_error": {"zh-CN": "网络连接失败，请检查网络设置", "en-US": "Network error, please check your connection"},
+    # ---- max_tokens 命令反馈 ----
+    "max_tokens_show": {"zh-CN": "最大令牌数: {value}", "en-US": "Max tokens: {value}"},
+    "max_tokens_set": {"zh-CN": "最大令牌数已设置为 {value}", "en-US": "Max tokens set to {value}"},
+    "max_tokens_usage": {"zh-CN": "用法: /max-tokens [show|8k|16k|32k|64k|128k|<数字>]", "en-US": "Usage: /max-tokens [show|8k|16k|32k|64k|128k|<number>]"},
     "update_deps_checking": {"zh-CN": "正在检查依赖更新...", "en-US": "Checking dependency updates..."},
     "update_deps_available": {"zh-CN": "以下依赖可升级:", "en-US": "The following dependencies can be upgraded:"},
     "update_deps_confirm": {"zh-CN": "按回车更新依赖，Ctrl+C 取消", "en-US": "Press Enter to update dependencies, Ctrl+C to cancel"},

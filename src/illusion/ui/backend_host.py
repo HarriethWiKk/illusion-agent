@@ -1071,7 +1071,7 @@ class ReactBackendHost:
                 {
                     "value": key,
                     "label": key.upper(),
-                    "description": f"{tokens} tokens" + (" (" + ("默认" if zh else "default") + ")" if tokens == 16384 else ""),
+                    "description": f"{tokens} tokens",
                     "active": tokens == current,
                 }
                 for key, tokens in presets
