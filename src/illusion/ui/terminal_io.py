@@ -291,12 +291,12 @@ def make_print_mode_permission(
     Returns:
         权限回调函数 (tool_name, reason) -> bool
     """
-    from illusion.ui.permission_store import load_always_allowed_tools
     from illusion.services.session_storage import (
-        load_pending_permission,
         delete_pending_permission,
+        load_pending_permission,
         save_pending_permission,
     )
+    from illusion.ui.permission_store import load_always_allowed_tools
     always_allowed = load_always_allowed_tools(cwd)
 
     async def _prompt(tool_name: str, reason: str) -> bool:

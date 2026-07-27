@@ -7,8 +7,10 @@ SandboxRuntime 是沙箱系统的核心协调器，负责：
 - 处理命令执行后的清理
 """
 from __future__ import annotations
+
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .platforms.base import SandboxPlatform, SandboxPlatformConfig
 from .violation_store import SandboxViolationStore
@@ -18,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 def _detect_platform() -> str:
     """检测当前平台名称"""
-    import sys
     import os
+    import sys
     if sys.platform == "darwin":
         return "macos"
     elif sys.platform == "win32":

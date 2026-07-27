@@ -90,8 +90,8 @@ Important:
                 from illusion.hooks.register_hooks import register_skill_hooks
                 session_id = context.metadata.get("session_id", "")
                 if session_id:
-                    from illusion.hooks.session_hooks import SessionHookStore
                     from illusion.hooks.schemas import HookMatcherDefinition, parse_hook_definition
+                    from illusion.hooks.session_hooks import SessionHookStore
                     # 将 skill.hooks 转换为 HookMatcherDefinition 格式
                     hooks_settings = {}
                     for event_name, matchers_data in skill.hooks.items():

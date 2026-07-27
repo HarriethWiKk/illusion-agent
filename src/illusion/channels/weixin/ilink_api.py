@@ -386,7 +386,7 @@ async def _retry_transient(
     for attempt in range(1, max_attempts + 1):
         try:
             return await func()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if not _is_retryable_upload_error(exc) or attempt == max_attempts:
                 raise
             delay = UPLOAD_BACKOFF_SECONDS[
@@ -507,7 +507,7 @@ async def poll_updates(
             session, base_url=base_url, endpoint=EP_GET_UPDATES,
             payload={"get_updates_buf": sync_buf}, token=token, timeout_ms=timeout_ms,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"ret": 0, "msgs": [], "get_updates_buf": sync_buf}
 
 
@@ -881,7 +881,7 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
                     status_resp = await get_qrcode_status(
                         session, base_url=base_url, qrcode=qrcode_hex,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     await asyncio.sleep(1)
                     continue
                 logger.info("扫码状态响应: %s", status_resp)  # 调试日志
@@ -960,7 +960,7 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
     import io
     import threading
     import webbrowser
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
     import qrcode  # 延迟导入
 

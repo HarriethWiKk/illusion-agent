@@ -518,11 +518,11 @@ def _read_pyproject(path: Path) -> dict[str, Any] | None:
         import tomllib
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except (Exception,):
+    except Exception:
         # Python < 3.11 没有 tomllib
         try:
             import tomli
             with open(path, "rb") as f:
                 return tomli.load(f)
-        except (Exception,):
+        except Exception:
             return None

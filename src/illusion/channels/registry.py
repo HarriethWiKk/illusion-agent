@@ -19,8 +19,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -201,14 +202,14 @@ def _qq_fingerprint_factory(cfg: Any) -> str:
 
 # === 模块加载时注册三个内置渠道 ===
 # 延迟导入配置类和适配器类（它们不依赖 SDK，可安全导入）
-from illusion.channels.config import (  # noqa: E402
+from illusion.channels.config import (
     FeishuChannelConfig,
     QQChannelConfig,
     WeixinChannelConfig,
 )
-from illusion.channels.feishu.adapter import FeishuChannel  # noqa: E402
-from illusion.channels.weixin.adapter import WeixinChannel  # noqa: E402
-from illusion.channels.qq.adapter import QQChannel  # noqa: E402
+from illusion.channels.feishu.adapter import FeishuChannel
+from illusion.channels.qq.adapter import QQChannel
+from illusion.channels.weixin.adapter import WeixinChannel
 
 ChannelRegistry.register(
     ChannelDescriptor(

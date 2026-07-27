@@ -71,7 +71,7 @@ class ListChannelSessionsTool(BaseTool[ListChannelSessionsInput]):
     )
     input_model = ListChannelSessionsInput
 
-    def __init__(self, config: "ChannelsConfig") -> None:
+    def __init__(self, config: ChannelsConfig) -> None:
         """初始化
 
         Args:
@@ -248,7 +248,7 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
     )
     input_model = SendToChannelInput
 
-    def __init__(self, config: "ChannelsConfig") -> None:
+    def __init__(self, config: ChannelsConfig) -> None:
         """初始化
 
         Args:

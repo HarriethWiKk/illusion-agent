@@ -17,13 +17,13 @@ from illusion.engine.messages import (
 from illusion.services.compact.constants import (
     _DEFAULT_CONTEXT_WINDOW,
     AUTOCOMPACT_BUFFER_TOKENS,
+    MANUAL_COMPACT_BUFFER_TOKENS,
+    MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
     MAX_OUTPUT_TOKENS_FOR_SUMMARY,
     TOKEN_ESTIMATION_PADDING,
     WARNING_THRESHOLD_BUFFER_TOKENS,
-    MANUAL_COMPACT_BUFFER_TOKENS,
 )
 from illusion.services.compact.models import AutoCompactState, TokenWarningState
-from illusion.services.compact.constants import MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
 from illusion.services.token_estimation import estimate_tokens
 
 log = logging.getLogger(__name__)

@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import os  # 操作系统相关功能
 import platform  # 平台信息获取
+from collections.abc import Mapping  # 类型注解
 from dataclasses import dataclass  # 数据类装饰器
 from functools import lru_cache  # 缓存装饰器
-from typing import Literal, Mapping  # 类型注解
+from typing import Literal
 
 # 平台名称类型定义
 PlatformName = Literal["macos", "linux", "windows", "wsl", "unknown"]

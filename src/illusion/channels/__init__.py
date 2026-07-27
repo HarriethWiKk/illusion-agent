@@ -16,8 +16,9 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Coroutine, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from illusion.channels.config import load_channels_config
 
@@ -27,12 +28,13 @@ if TYPE_CHECKING:
     from illusion.channels.feishu.streaming import FeishuStreamingCardController
     from illusion.channels.qq.streaming import QQStreamingController
     from illusion.config.settings import Settings
-    from illusion.daemon_ipc import DaemonClient as DaemonClient, DaemonClientRef, DaemonType
+    from illusion.daemon_ipc import DaemonClient as DaemonClient
+    from illusion.daemon_ipc import DaemonClientRef, DaemonType
 
 logger = logging.getLogger(__name__)
 
 
-def _config_fingerprint(cfg: "ChannelsConfig") -> str:
+def _config_fingerprint(cfg: ChannelsConfig) -> str:
     """计算渠道配置指纹（用于检测配置变更后重启守护进程）
 
     遍历 ChannelRegistry，对每个已启用渠道调用其 fingerprint_factory 生成标识。
@@ -60,7 +62,7 @@ def _config_fingerprint(cfg: "ChannelsConfig") -> str:
 
 def maybe_spawn_channel_daemon(
     *, spawn_if_missing: bool = True,
-) -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+) -> tuple[subprocess.Popen[bytes] | None, DaemonClientRef | None]:
     """主程序启动时自动拉起渠道守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 连接 IPC。连接成功且指纹匹配则持有 client；
@@ -74,14 +76,14 @@ def maybe_spawn_channel_daemon(
     Returns:
         tuple: (Popen 实例或 None, DaemonClientRef 实例或 None)
     """
+    from illusion.config.paths import get_channels_data_dir
     from illusion.daemon_ipc import (
         DaemonClient,
-        DaemonType,
         DaemonClientRef,
-        connect_and_register,
+        DaemonType,
         close_client,
+        connect_and_register,
     )
-    from illusion.config.paths import get_channels_data_dir
 
     cfg = load_channels_config()
     if not cfg.has_enabled_channels():
@@ -192,9 +194,9 @@ def maybe_spawn_channel_daemon(
 
 
 def _start_bg_connect(
-    daemon_type: "DaemonType",
+    daemon_type: DaemonType,
     fingerprint: str | None,
-    ref: "DaemonClientRef",
+    ref: DaemonClientRef,
     name: str,
 ) -> None:
     """启动后台线程轮询连接守护进程（不阻塞主程序）
@@ -207,6 +209,7 @@ def _start_bg_connect(
     """
     import threading
     import time
+
     from illusion.daemon_ipc import DaemonClient, connect_and_register
 
     def _bg_connect() -> None:
@@ -236,7 +239,7 @@ def _cleanup_old_channel_files(data_dir: Path) -> None:
             pass
 
 
-def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
+def kill_channel_daemon(proc: subprocess.Popen[bytes] | None) -> None:
     """已废弃的渠道守护进程终止函数（noop）
 
     .. deprecated::
@@ -253,7 +256,6 @@ def kill_channel_daemon(proc: "subprocess.Popen[bytes] | None") -> None:
         DeprecationWarning,
         stacklevel=2,
     )
-    return
 
 
 def is_channel_daemon_running() -> bool:
@@ -306,7 +308,7 @@ class ChannelRunner:
         session_store: 渠道会话存储（按渠道类型自动创建）
     """
 
-    def __init__(self, *, channel: "Channel", settings: "Settings",
+    def __init__(self, *, channel: Channel, settings: Settings,
                  session_data_dir: Path, group_sessions_per_user: bool = True,
                  feishu_config: Any = None) -> None:
         """初始化
@@ -397,7 +399,7 @@ class ChannelRunner:
         self._stop = True
         await self.channel.shutdown()
 
-    async def _handle_message(self, msg: "InboundMessage") -> None:
+    async def _handle_message(self, msg: InboundMessage) -> None:
         """处理单条入站消息
 
         优先匹配待回复的权限/询问，其次处理斜杠命令，最后跑 agent。
@@ -457,7 +459,7 @@ class ChannelRunner:
                 except Exception:  # noqa: BLE001
                     pass
                 raise
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.exception("处理渠道消息异常: %s", exc)
                 try:
                     await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
@@ -482,7 +484,7 @@ class ChannelRunner:
                 return desc.command_handler_factory(self.channel, self.session_store)
         return None
 
-    async def _handle_stop(self, msg: "InboundMessage") -> None:
+    async def _handle_stop(self, msg: InboundMessage) -> None:
         """处理 /stop 命令：中断当前 chat_id 正在运行的 agent 任务
 
         不加 _chat_locks 锁，立即取消正在运行的 agent task。
@@ -507,7 +509,7 @@ class ChannelRunner:
         task.cancel()
         logger.info("/stop 已取消 agent 任务: chat_id=%s", msg.chat_id)
 
-    def _build_channel_tools(self, msg: "InboundMessage") -> list[Any]:
+    def _build_channel_tools(self, msg: InboundMessage) -> list[Any]:
         """构造渠道内置工具列表
 
         按渠道类型和 enabled 状态构造工具。
@@ -523,7 +525,7 @@ class ChannelRunner:
 
         # 媒体工具（所有渠道）
         try:
-            from illusion.channels.tools.media import SendMediaTool, ReceiveMediaTool
+            from illusion.channels.tools.media import ReceiveMediaTool, SendMediaTool
             tools.append(SendMediaTool(
                 self.channel, msg.chat_id, message_id=msg.message_id
             ))
@@ -538,13 +540,17 @@ class ChannelRunner:
         if self._feishu_config is not None:
             try:
                 from illusion.channels.tools.feishu_doc import (
-                    FeishuDocReadTool, FeishuDocCreateTool,
-                    FeishuDocWriteTool, FeishuDocDeleteTool,
+                    FeishuDocCreateTool,
+                    FeishuDocDeleteTool,
+                    FeishuDocReadTool,
+                    FeishuDocWriteTool,
                 )
                 from illusion.channels.tools.feishu_drive import (
-                    FeishuDriveListTool, FeishuDriveUploadTool,
-                    FeishuDriveDownloadTool, FeishuDriveMkdirTool,
                     FeishuDriveDeleteTool,
+                    FeishuDriveDownloadTool,
+                    FeishuDriveListTool,
+                    FeishuDriveMkdirTool,
+                    FeishuDriveUploadTool,
                 )
                 tools.extend([
                     FeishuDocReadTool(self._feishu_config),
@@ -591,7 +597,7 @@ class ChannelRunner:
 
         return tools
 
-    async def _run_agent(self, msg: "InboundMessage") -> None:
+    async def _run_agent(self, msg: InboundMessage) -> None:
         """为单条消息构建 runtime 并跑 agent
 
         统一流程：发送"思考中"提示 → 收集流式文本 → 一次性渲染/发送。
@@ -601,9 +607,10 @@ class ChannelRunner:
             msg: 入站消息
         """
         from illusion.engine.stream_events import (
-            AssistantTextDelta, ErrorEvent,
+            AssistantTextDelta,
+            ErrorEvent,
         )
-        from illusion.ui.runtime import build_runtime, handle_line, close_runtime
+        from illusion.ui.runtime import build_runtime, close_runtime, handle_line
 
         key = self.session_store.build_session_key(msg)
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
@@ -685,7 +692,6 @@ class ChannelRunner:
 
         async def clear_output() -> None:
             """无需清屏，空操作"""
-            pass
 
         # 处理前：启动打字状态（微信需要，飞书空操作）
         await self.channel.start_typing(msg.chat_id)
@@ -878,7 +884,7 @@ class ChannelRunner:
             # 单问题：拍平选项 + 多选提示 + 等待回复
             if len(questions) == 1:
                 q = questions[0]
-                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", lambda: {})()
+                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", dict)()
                 multi = q_dict.get("multiSelect", False)
                 text = f"❓ {question}"
                 try:
@@ -902,7 +908,7 @@ class ChannelRunner:
             # 多问题：逐个询问，合并为 dict 返回
             answers: dict[str, str | list[str]] = {}
             for idx, q in enumerate(questions, 1):
-                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", lambda: {})()
+                q_dict = q if isinstance(q, dict) else getattr(q, "model_dump", dict)()
                 header = q_dict.get("header") or f"Q{idx}"
                 sub_q = q_dict.get("question") or ""
                 multi = q_dict.get("multiSelect", False)
@@ -1000,7 +1006,7 @@ def _get_weixin_channel_class() -> Any:
 
 def _create_session_store(
     *,
-    channel: "Channel",
+    channel: Channel,
     data_dir: Path,
     group_sessions_per_user: bool = True,
 ) -> Any:

@@ -9,7 +9,11 @@ from typing import Any
 
 from illusion.engine.messages import ConversationMessage
 from illusion.services.compact.compact_core import compact_conversation
-from illusion.services.compact.constants import DEFAULT_KEEP_RECENT, DEFAULT_PRESERVE_RECENT, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+from illusion.services.compact.constants import (
+    DEFAULT_KEEP_RECENT,
+    DEFAULT_PRESERVE_RECENT,
+    MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+)
 from illusion.services.compact.microcompact import microcompact_messages
 from illusion.services.compact.models import AutoCompactState
 from illusion.services.compact.token_utils import should_autocompact

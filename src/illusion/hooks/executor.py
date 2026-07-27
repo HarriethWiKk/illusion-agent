@@ -24,7 +24,11 @@ from typing import Any
 
 import httpx
 
-from illusion.api.client import ApiMessageCompleteEvent, ApiMessageRequest, SupportsStreamingMessages
+from illusion.api.client import (
+    ApiMessageCompleteEvent,
+    ApiMessageRequest,
+    SupportsStreamingMessages,
+)
 from illusion.engine.messages import ConversationMessage
 from illusion.hooks.events import HookEvent
 from illusion.hooks.loader import HookRegistry
@@ -310,7 +314,7 @@ class HookExecutor:
                 process.communicate(),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             return HookResult(

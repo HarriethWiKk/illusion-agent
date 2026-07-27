@@ -23,7 +23,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-
 # ---------------------------------------------------------------------------
 # 后端类型字面量
 # ---------------------------------------------------------------------------

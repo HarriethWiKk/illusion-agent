@@ -17,16 +17,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import os
 import platform
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -183,7 +182,7 @@ def get_environment_info(cwd: str | None = None) -> EnvironmentInfo:
         shell=shell,
         cwd=cwd,
         home_dir=str(Path.home()),
-        date=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d"),
+        date=datetime.now(tz=UTC).strftime("%Y-%m-%d"),
         python_version=platform.python_version(),
         is_git_repo=is_git,
         git_branch=branch,

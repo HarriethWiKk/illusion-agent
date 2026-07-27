@@ -44,7 +44,7 @@ from illusion.config.i18n import (
 from illusion.config.settings import load_settings
 
 
-def _resolve_ui_language(context: "CommandContext | None") -> str:
+def _resolve_ui_language(context: CommandContext | None) -> str:
     if context is not None and context.app_state is not None:
         value = str(context.app_state.get().ui_language or "")
         if value:
@@ -151,6 +151,59 @@ def create_default_command_registry() -> CommandRegistry:
     registry = CommandRegistry()
 
     # --- 会话管理 ---
+    # --- 认证 ---
+    from illusion.commands.auth import login_handler, logout_handler
+
+    # --- Bridge ---
+    from illusion.commands.bridge import bridge_handler
+
+    # --- 上下文 ---
+    from illusion.commands.context import issue_handler, pr_comments_handler
+
+    # --- Git ---
+    from illusion.commands.git import (
+        branch_handler,
+        commit_handler,
+        diff_handler,
+    )
+
+    # --- Init ---
+    from illusion.commands.init import run_init
+
+    # --- MCP ---
+    from illusion.commands.mcp import mcp_handler
+
+    # --- 记忆 ---
+    from illusion.commands.memory import memory_handler
+
+    # --- 杂项 ---
+    from illusion.commands.misc import (
+        continue_handler,
+        copy_handler,
+        exit_handler,
+        export_handler,
+        feedback_handler,
+        files_handler,
+        hooks_handler,
+        make_help_handler,
+        reload_plugins_handler,
+        share_handler,
+        skills_handler,
+        update_handler,
+        version_handler,
+    )
+
+    # --- 模型 ---
+    from illusion.commands.model import model_handler
+
+    # --- 插件 ---
+    from illusion.commands.plugin import plugin_handler
+
+    # --- 规则 ---
+    from illusion.commands.rules import rules_handler
+
+    # --- 沙箱 ---
+    from illusion.commands.sandbox import sandbox_handler
     from illusion.commands.session import (
         compact_handler,
         context_handler,
@@ -160,13 +213,6 @@ def create_default_command_registry() -> CommandRegistry:
         rewind_handler,
         status_handler,
         summary_handler,
-    )
-
-    # --- Git ---
-    from illusion.commands.git import (
-        branch_handler,
-        commit_handler,
-        diff_handler,
     )
 
     # --- 设置 ---
@@ -184,53 +230,6 @@ def create_default_command_registry() -> CommandRegistry:
         thinking_handler,
         turns_handler,
     )
-
-    # --- 认证 ---
-    from illusion.commands.auth import login_handler, logout_handler
-
-    # --- 上下文 ---
-    from illusion.commands.context import issue_handler, pr_comments_handler
-
-    # --- 杂项 ---
-    from illusion.commands.misc import (
-        continue_handler,
-        copy_handler,
-        exit_handler,
-        export_handler,
-        feedback_handler,
-        files_handler,
-        hooks_handler,
-        reload_plugins_handler,
-        share_handler,
-        skills_handler,
-        update_handler,
-        version_handler,
-    )
-    from illusion.commands.misc import make_help_handler
-
-    # --- Bridge ---
-    from illusion.commands.bridge import bridge_handler
-
-    # --- MCP ---
-    from illusion.commands.mcp import mcp_handler
-
-    # --- 插件 ---
-    from illusion.commands.plugin import plugin_handler
-
-    # --- 模型 ---
-    from illusion.commands.model import model_handler
-
-    # --- 记忆 ---
-    from illusion.commands.memory import memory_handler
-
-    # --- 沙箱 ---
-    from illusion.commands.sandbox import sandbox_handler
-
-    # --- 规则 ---
-    from illusion.commands.rules import rules_handler
-
-    # --- Init ---
-    from illusion.commands.init import run_init
 
     async def _init_handler(args: str, context: CommandContext) -> CommandResult:
         """智能初始化项目配置"""

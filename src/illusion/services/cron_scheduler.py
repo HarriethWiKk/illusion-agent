@@ -303,7 +303,7 @@ async def _execute_prompt_in_subprocess(
             process.communicate(),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # 超时处理：终止子进程
         if process is not None:  # pyright: ignore[reportPossiblyUnboundVariable]
             try:
@@ -478,14 +478,14 @@ async def execute_job(
                                 "Cron job %s 投递到 %s:%s 失败",
                                 name, channel_name, target_chat_id,
                             )
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         # 单目标异常不中断其他目标
                         logger.warning(
                             "Cron 投递到 %s:%s 异常: %s",
                             channel_name, target_chat_id, exc,
                             exc_info=True,
                         )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Cron 投递整体异常: %s", exc, exc_info=True)
 
     entry = {
@@ -675,7 +675,7 @@ class CronScheduler:
                         timeout=TICK_INTERVAL_SECONDS,
                     )
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
         except asyncio.CancelledError:
             logger.debug("Scheduler loop cancelled")
@@ -808,15 +808,15 @@ def stop_scheduler() -> bool:
 
 # 导出的公共接口
 __all__ = [
+    "TICK_INTERVAL_SECONDS",
     "CronScheduler",
-    "get_scheduler",
+    "append_history",
     "ensure_started",
+    "execute_job",
+    "get_scheduler",
+    "is_scheduler_running",
+    "load_history",
     "scheduler_status",
     "start_daemon",
     "stop_scheduler",
-    "is_scheduler_running",
-    "execute_job",
-    "append_history",
-    "load_history",
-    "TICK_INTERVAL_SECONDS",
 ]

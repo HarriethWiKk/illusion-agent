@@ -16,7 +16,8 @@ from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron import load_cron_jobs
 
 if TYPE_CHECKING:
-    from illusion.daemon_ipc import DaemonClient as DaemonClient, DaemonClientRef, DaemonType
+    from illusion.daemon_ipc import DaemonClient as DaemonClient
+    from illusion.daemon_ipc import DaemonClientRef, DaemonType
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _cleanup_old_pid_files(cron_dir: Path) -> None:
 
 def maybe_spawn_cron_daemon(
     *, spawn_if_missing: bool = True,
-) -> tuple[subprocess.Popen[bytes] | None, "DaemonClientRef | None"]:
+) -> tuple[subprocess.Popen[bytes] | None, DaemonClientRef | None]:
     """主程序启动时自动拉起 cron 守护进程（IPC 版，异步连接）
 
     通过 DaemonClient 尝试连接 IPC。连接成功则持有 client 作为引用；
@@ -48,8 +49,8 @@ def maybe_spawn_cron_daemon(
     """
     from illusion.daemon_ipc import (
         DaemonClient,
-        DaemonType,
         DaemonClientRef,
+        DaemonType,
         connect_and_register,
     )
 
@@ -128,14 +129,15 @@ def maybe_spawn_cron_daemon(
 
 
 def _start_bg_connect(
-    daemon_type: "DaemonType",
+    daemon_type: DaemonType,
     fingerprint: str | None,
-    ref: "DaemonClientRef",
+    ref: DaemonClientRef,
     name: str,
 ) -> None:
     """启动后台线程轮询连接守护进程（不阻塞主程序）"""
     import threading
     import time
+
     from illusion.daemon_ipc import DaemonClient, connect_and_register
 
     def _bg_connect() -> None:
@@ -166,6 +168,7 @@ def kill_cron_daemon_by_pid() -> bool:
         bool: 成功终止返回 True，无运行中的守护进程返回 False
     """
     import asyncio
+
     from illusion.daemon_ipc import DaemonClient, DaemonType
 
     client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid())

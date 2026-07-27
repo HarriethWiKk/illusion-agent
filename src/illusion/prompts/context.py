@@ -39,7 +39,11 @@ def _build_rules_section(cwd: str | Path) -> str | None:
         str | None: rules 章节字符串，如果没有 rules 则返回 None
     """
     # 加载项目级权限配置
-    from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
+    from illusion.permissions.loader import (
+        filter_rules_by_permissions,
+        is_rules_disabled,
+        load_project_permissions,
+    )
     project_permissions = load_project_permissions(cwd)
 
     # 检查是否禁用所有 rules

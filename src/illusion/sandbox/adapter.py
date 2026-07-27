@@ -22,7 +22,8 @@ from __future__ import annotations
 import fnmatch
 import logging
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .runtime import SandboxRuntime
 from .violation_store import SandboxViolationStore

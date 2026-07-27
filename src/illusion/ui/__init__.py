@@ -18,6 +18,6 @@ UI 模块
     >>> await run_print_mode(prompt="帮我写一个 hello world 程序")
 """
 
-from illusion.ui.app import run_repl, run_print_mode
+from illusion.ui.app import run_print_mode, run_repl
 
-__all__ = ["run_repl", "run_print_mode"]
+__all__ = ["run_print_mode", "run_repl"]

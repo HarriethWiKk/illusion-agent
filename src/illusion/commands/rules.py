@@ -12,10 +12,13 @@ from illusion.commands.types import CommandContext, CommandResult
 
 async def rules_handler(args: str, context: CommandContext) -> CommandResult:
     """规则命令处理器"""
-    from illusion.skills.loader import get_project_rules_dir
-
     # 加载项目级权限配置
-    from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
+    from illusion.permissions.loader import (
+        filter_rules_by_permissions,
+        is_rules_disabled,
+        load_project_permissions,
+    )
+    from illusion.skills.loader import get_project_rules_dir
     project_permissions = load_project_permissions(context.cwd)
 
     # 检查是否禁用所有 rules

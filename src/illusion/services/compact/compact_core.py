@@ -8,8 +8,16 @@ import logging
 from typing import Any
 
 from illusion.engine.messages import ConversationMessage, TextBlock
-from illusion.services.compact.compact_prompt import build_compact_summary_message, get_compact_prompt
-from illusion.services.compact.constants import DEFAULT_KEEP_RECENT, DEFAULT_PRESERVE_RECENT, MAX_PTL_RETRIES, MAX_OUTPUT_TOKENS_FOR_SUMMARY
+from illusion.services.compact.compact_prompt import (
+    build_compact_summary_message,
+    get_compact_prompt,
+)
+from illusion.services.compact.constants import (
+    DEFAULT_KEEP_RECENT,
+    DEFAULT_PRESERVE_RECENT,
+    MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+    MAX_PTL_RETRIES,
+)
 from illusion.services.compact.message_ops import (
     _ensure_message_alternation,
     _find_safe_split_index,
@@ -34,7 +42,7 @@ async def compact_conversation(
     suppress_follow_up: bool = True,
 ) -> list[ConversationMessage]:
     """通过调用 LLM 生成摘要来压缩消息。"""
-    from illusion.api.client import ApiMessageRequest, ApiMessageCompleteEvent
+    from illusion.api.client import ApiMessageCompleteEvent, ApiMessageRequest
 
     if len(messages) <= preserve_recent:
         return list(messages)

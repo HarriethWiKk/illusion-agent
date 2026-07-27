@@ -998,11 +998,11 @@ def get_all_agent_definitions() -> list[AgentDefinition]:
 
     # 3. 插件代理 — 延迟加载以避免导入循环
     try:
-        from illusion.plugins.loader import load_plugins  # noqa: PLC0415
-        from illusion.config.settings import load_settings  # noqa: PLC0415
+        from illusion.config.settings import load_settings
+        from illusion.plugins.loader import load_plugins
 
         settings = load_settings()  # 加载设置
-        import os  # noqa: PLC0415
+        import os
 
         cwd = os.getcwd()  # 当前目录
         for plugin in load_plugins(settings, cwd):  # 加载插件

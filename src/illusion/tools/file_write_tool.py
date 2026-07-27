@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
-
 from difflib import unified_diff
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 

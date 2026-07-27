@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
-
 # 任务类型
 TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate", "in_process_agent"]
 # 任务状态

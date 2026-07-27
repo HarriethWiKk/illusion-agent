@@ -169,7 +169,7 @@ class LspManager:
     @staticmethod
     def _handle_work_done_progress(params: Any) -> None:
         """处理 window/workDoneProgress/create 请求。"""
-        return None
+        return
 
     @staticmethod
     def _handle_workspace_folders(params: Any) -> list[Any]:

@@ -44,15 +44,16 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 from uuid import uuid4
 
+from illusion.api.auth_status import auth_status
 from illusion.api.client import AnthropicApiClient, SupportsStreamingMessages
 from illusion.api.effort import EffortMapper
 from illusion.api.openai_client import OpenAICompatibleClient
-from illusion.api.auth_status import auth_status
 from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
 from illusion.commands.registry import CommandRegistry
@@ -71,10 +72,10 @@ from illusion.permissions import PermissionChecker
 from illusion.plugins.loader import load_plugins
 from illusion.plugins.types import LoadedPlugin
 from illusion.prompts import build_runtime_system_prompt
-from illusion.state import AppState, AppStateStore
 from illusion.services.session_storage import save_session_snapshot
-from illusion.tools import ToolRegistry, create_default_tool_registry
+from illusion.state import AppState, AppStateStore
 from illusion.tasks.types import TaskRecord
+from illusion.tools import ToolRegistry, create_default_tool_registry
 
 # 类型别名定义
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]  # 权限确认回调
@@ -172,8 +173,8 @@ class RuntimeBundle:
 
 def _on_task_complete(
     task_id: str,
-    task: "TaskRecord",
-    tracker: "BackgroundAgentTracker",
+    task: TaskRecord,
+    tracker: BackgroundAgentTracker,
 ) -> None:
     """后台任务完成后，通过 bg_agent_tracker 注入通知 XML。
 
@@ -360,8 +361,8 @@ async def build_runtime(
                 extra_headers=copilot_extra_headers(),
             )
         elif settings.api_format == "codex":
-            from illusion.auth.codex_oauth import CodexOAuth
             from illusion.api.codex_client import CodexApiClient
+            from illusion.auth.codex_oauth import CodexOAuth
             resolved_api_client = CodexApiClient(  # type: ignore[assignment]
                 auth_token_resolver=CodexOAuth().get_valid_token,
                 base_url=settings.base_url,
@@ -508,7 +509,7 @@ async def build_runtime(
 
     # 注册 on_task_complete 回调：后台任务完成后通知 bg_agent_tracker
     # 闭包仅捕获 engine._bg_agent_tracker，实际逻辑委托给模块级 _on_task_complete
-    def _on_task_complete_callback(task_id: str, task: "TaskRecord") -> None:
+    def _on_task_complete_callback(task_id: str, task: TaskRecord) -> None:
         _on_task_complete(task_id, task, engine._bg_agent_tracker)
 
     from illusion.tasks.manager import get_task_manager
@@ -733,8 +734,8 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
                 extra_headers=copilot_extra_headers(),
             )
         elif _api_format == "codex":
-            from illusion.auth.codex_oauth import CodexOAuth
             from illusion.api.codex_client import CodexApiClient
+            from illusion.auth.codex_oauth import CodexOAuth
             new_client = CodexApiClient(  # type: ignore[assignment]
                 auth_token_resolver=CodexOAuth().get_valid_token,
                 base_url=settings.base_url,
@@ -927,7 +928,7 @@ async def _render_command_result(
 		replace_transcript_items: 替换转录项列表的回调
 	"""
 	if result.replay_messages and replace_transcript_items is not None:
-		from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+		from illusion.engine.messages import ToolResultBlock, ToolUseBlock
 
 		tool_uses_by_id: dict[str, dict[str, Any]] = {}
 		# 第一遍：收集所有 tool_use_id 和 tool_result 的 tool_use_id
@@ -989,9 +990,9 @@ async def _render_command_result(
 	elif result.clear_screen:
 		await clear_output()
 		if result.replay_messages and render_event is not None:
-			from illusion.engine.stream_events import AssistantTurnComplete
 			from illusion.api.usage import UsageSnapshot
-			from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+			from illusion.engine.messages import ToolResultBlock, ToolUseBlock
+			from illusion.engine.stream_events import AssistantTurnComplete
 
 			await clear_output()
 			# 收集所有 tool_use_id 和 tool_result 的 tool_use_id，用于过滤孤立 tool_use

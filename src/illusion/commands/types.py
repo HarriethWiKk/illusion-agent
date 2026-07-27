@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any,  TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from illusion.engine.query_engine import QueryEngine
 

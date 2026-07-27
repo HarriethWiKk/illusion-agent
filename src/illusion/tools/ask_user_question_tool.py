@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
-
 # 用户提示回调函数类型
 # 回调签名: (question_text: str, questions: list[QuestionItem]) -> str | dict[str, str | list[str]]
 # 返回 str 为兼容旧模式，返回 dict 时多选值为 list[str]
@@ -65,7 +64,7 @@ class QuestionItem(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_preview_multiselect(self) -> "QuestionItem":
+    def _check_preview_multiselect(self) -> QuestionItem:
         """preview 仅支持单选，多选时不能有选项携带 preview。"""
         if self.multiSelect:
             for opt in self.options:

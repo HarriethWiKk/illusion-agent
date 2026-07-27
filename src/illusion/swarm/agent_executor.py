@@ -528,7 +528,12 @@ async def run_agent_in_process(
         AgentResult: 代理执行结果。
     """
     from illusion.engine.query import QueryContext
-    from illusion.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent, ToolExecutionCompleted
+    from illusion.engine.stream_events import (
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ErrorEvent,
+        ToolExecutionCompleted,
+    )
 
     # 解析代理定义
     agent_def = config.agent_definition

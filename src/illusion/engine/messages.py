@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -206,7 +206,7 @@ class ConversationMessage(BaseModel):
     content: list[ContentBlock] = Field(default_factory=list[Any])
 
     @classmethod
-    def from_user_text(cls, text: str) -> "ConversationMessage":
+    def from_user_text(cls, text: str) -> ConversationMessage:
         """从原始文本构造用户消息
         
         Args:

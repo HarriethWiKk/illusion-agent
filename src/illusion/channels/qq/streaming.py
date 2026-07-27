@@ -18,7 +18,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 from illusion.channels.qq.api import (
     STREAM_INPUT_STATE_DONE,

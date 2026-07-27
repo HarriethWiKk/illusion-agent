@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # TaskNotification 数据类
@@ -48,10 +46,10 @@ class TaskNotification:
     summary: str
     """人类可读的状态摘要。"""
 
-    result: Optional[str] = None
+    result: str | None = None
     """代理的最终文本响应。"""
 
-    usage: Optional[dict[str, int]] = None
+    usage: dict[str, int] | None = None
     """使用统计信息。"""
 
 
@@ -100,7 +98,7 @@ def parse_task_notification(xml: str) -> TaskNotification:
         TaskNotification: 解析后的任务通知对象
     """
 
-    def _extract(tag: str) -> Optional[str]:
+    def _extract(tag: str) -> str | None:
         m = re.search(rf"<{tag}>(.*?)</{tag}>", xml, re.DOTALL)
         return m.group(1).strip() if m else None
 
@@ -109,7 +107,7 @@ def parse_task_notification(xml: str) -> TaskNotification:
     summary = _extract("summary") or ""
     result = _extract("result")
 
-    usage: Optional[dict[str, int]] = None
+    usage: dict[str, int] | None = None
     usage_block = re.search(r"<usage>(.*?)</usage>", xml, re.DOTALL)
     if usage_block:
         usage = {}

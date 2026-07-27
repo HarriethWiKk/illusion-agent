@@ -171,7 +171,7 @@ class QQSessionStore:
         safe_key = key.replace("/", "_").replace("\\", "_")
         return self.data_dir / f"{safe_key}.json"
 
-    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+    def list_active(self, limit: int = 5) -> list[SessionInfo]:
         """列出最近活跃的 QQ 会话（按文件 mtime 排序）
 
         QQ 会话文件名为 chat_id（openid）或 chat_id_user_id（群组隔离）。

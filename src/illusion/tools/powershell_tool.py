@@ -27,7 +27,6 @@ from pydantic import BaseModel, Field
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.tools.shell_common import MAX_OUTPUT_LENGTH, CommandExecutor
 
-
 # PowerShell 版本类型
 PowerShellEdition = Literal["core", "desktop"]
 
@@ -315,8 +314,9 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
         # 后台运行模式：注册到 BackgroundTaskManager，返回 task_id
         if arguments.run_in_background:
             import time as _time
+
             from illusion.config.paths import get_tasks_dir
-            from illusion.tasks.manager import get_task_manager, _task_id
+            from illusion.tasks.manager import _task_id, get_task_manager
             from illusion.tasks.types import TaskRecord
 
             manager = get_task_manager()

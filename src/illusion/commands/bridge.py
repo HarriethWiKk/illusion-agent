@@ -8,12 +8,12 @@ Bridge 斜杠命令
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from illusion.commands.types import CommandContext, CommandResult
 from illusion.bridge import get_bridge_manager
 from illusion.bridge.types import WorkSecret
 from illusion.bridge.work_secret import build_sdk_url, decode_work_secret, encode_work_secret
+from illusion.commands.types import CommandContext, CommandResult
 
 
 async def bridge_handler(args: str, context: CommandContext) -> CommandResult:
@@ -45,7 +45,7 @@ async def bridge_handler(args: str, context: CommandContext) -> CommandResult:
     if tokens[0] == "spawn" and len(tokens) >= 2:
         command = args[len("spawn "):]
         handle = await get_bridge_manager().spawn(
-            session_id=f"bridge-{datetime.now(timezone.utc).strftime('%H%M%S')}",
+            session_id=f"bridge-{datetime.now(UTC).strftime('%H%M%S')}",
             command=command,
             cwd=context.cwd,
         )

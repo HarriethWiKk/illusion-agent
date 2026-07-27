@@ -13,4 +13,3 @@ class QQCommandHandler(BaseCommandHandler):
 
     当前无 QQ 专属命令逻辑，完全复用基类的 7 个命令。
     """
-    pass

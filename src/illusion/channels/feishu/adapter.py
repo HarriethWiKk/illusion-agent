@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import asyncio  # 异步
 import logging  # 日志
+from collections.abc import AsyncIterator  # 类型
 from concurrent.futures import ThreadPoolExecutor  # 专用线程池
-from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型
+from typing import TYPE_CHECKING, Any
 
 from illusion.channels.base import Attachment, Channel, InboundMessage  # 基类与消息类型
 from illusion.utils.aioqueue import Queue, QueueShutDown  # 支持关闭语义的异步队列
@@ -56,7 +57,7 @@ class FeishuChannel(Channel):
 
     name = "feishu"  # 渠道名
 
-    def __init__(self, config: "FeishuChannelConfig", settings: "Settings") -> None:
+    def __init__(self, config: FeishuChannelConfig, settings: Settings) -> None:
         """初始化飞书渠道
 
         Args:
@@ -135,7 +136,7 @@ class FeishuChannel(Channel):
         if ws_future is not None:
             try:
                 await asyncio.wait_for(asyncio.shield(ws_future), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("飞书 WS 线程 10s 内未退出，可能卡死")
                 # 强制关闭旧 lark_loop，防止残留导致 "attached to a different loop"
                 if old_lark_loop is not None and not old_lark_loop.is_closed():
@@ -208,7 +209,7 @@ class FeishuChannel(Channel):
             req = _urllib.Request(url, data=payload, headers={"Content-Type": "application/json"})
 
             def _do_request() -> dict[str, Any]:
-                with _urllib.urlopen(req, timeout=10) as resp:  # noqa: S310  飞书 API HTTPS URL
+                with _urllib.urlopen(req, timeout=10) as resp:
                     result: dict[str, Any] = _json.loads(resp.read().decode())
                     return result
 
@@ -239,7 +240,7 @@ class FeishuChannel(Channel):
                     logger.warning("事件循环不可用，丢弃飞书消息")
                     return
                 loop.call_soon_threadsafe(self._queue.put_nowait, msg)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("处理飞书事件异常: %s", exc)
 
     def _normalize(self, event: Any) -> InboundMessage | None:
@@ -474,9 +475,9 @@ class FeishuChannel(Channel):
 
         try:
             from lark_oapi.api.im.v1 import (
-                CreateMessageRequest,
                 CreateImageRequest,
                 CreateImageRequestBody,
+                CreateMessageRequest,
             )
         except ImportError:
             raise NotImplementedError("feishu requires lark_oapi for send_image")
@@ -564,7 +565,7 @@ class FeishuChannel(Channel):
         )
 
     async def download_attachment(
-        self, attachment: "Attachment", save_path: str
+        self, attachment: Attachment, save_path: str
     ) -> str:
         """下载飞书附件到本地
 

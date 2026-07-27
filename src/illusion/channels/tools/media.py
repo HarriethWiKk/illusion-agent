@@ -79,7 +79,7 @@ class SendMediaTool(BaseTool[SendMediaInput]):
     input_model = SendMediaInput
 
     def __init__(
-        self, channel: "Channel", chat_id: str, *, message_id: str = ""
+        self, channel: Channel, chat_id: str, *, message_id: str = ""
     ) -> None:
         """初始化
 
@@ -164,7 +164,7 @@ class ReceiveMediaTool(BaseTool[ReceiveMediaInput]):
     input_model = ReceiveMediaInput
 
     def __init__(
-        self, channel: "Channel", chat_id: str, attachments: list["Attachment"]
+        self, channel: Channel, chat_id: str, attachments: list[Attachment]
     ) -> None:
         """初始化
 

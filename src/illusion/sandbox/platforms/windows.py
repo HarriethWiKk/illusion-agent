@@ -6,12 +6,13 @@
 - Low Integrity Level: 阻止写入高完整性目录
 """
 from __future__ import annotations
+
 import ctypes
 import sys
 from ctypes import wintypes
 from dataclasses import dataclass
-from .base import SandboxPlatform, SandboxPlatformConfig
 
+from .base import SandboxPlatform, SandboxPlatformConfig
 
 # Windows API 常量
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
@@ -97,10 +98,10 @@ class WindowsSandboxPlatform(SandboxPlatform):
             errors.append("Windows 沙箱仅在 Windows 平台可用")
             return errors
         try:
-            import win32job  # noqa: F401
-            import win32security  # noqa: F401
-            import win32process  # noqa: F401
             import win32api  # noqa: F401
+            import win32job  # noqa: F401
+            import win32process  # noqa: F401
+            import win32security  # noqa: F401
         except ImportError:
             errors.append("缺少 pywin32，请安装: pip install pywin32")
         return errors
@@ -120,10 +121,10 @@ class WindowsSandboxPlatform(SandboxPlatform):
         if sys.platform != "win32":
             raise RuntimeError("WindowsSandboxPlatform 仅在 Windows 上可用")
 
-        import win32job
-        import win32security
         import win32api
         import win32con
+        import win32job
+        import win32security
 
         # 1. 创建 Job Object
         job_handle = win32job.CreateJobObject(  # type: ignore[func-returns-value]
@@ -179,4 +180,3 @@ class WindowsSandboxPlatform(SandboxPlatform):
 
     def cleanup_after_command(self) -> None:
         """Job Object 句柄关闭时自动清理"""
-        pass

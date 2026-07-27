@@ -24,9 +24,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from illusion.api.client import (
     ApiMessageCompleteEvent,
@@ -38,7 +39,16 @@ from illusion.api.client import (
 )
 from illusion.api.effort import EffortLevel
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, ContentBlock, MediaBlock, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, _build_tool_result_content
+from illusion.engine.messages import (
+    ContentBlock,
+    ConversationMessage,
+    MediaBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    _build_tool_result_content,
+)
 from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -53,10 +63,8 @@ from illusion.engine.stream_events import (
 )
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
-from illusion.tools.base import ToolExecutionContext
-from illusion.tools.base import ToolRegistry
+from illusion.tools.base import ToolExecutionContext, ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
-
 
 # 权限提示回调类型：工具名称 -> 是否允许
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]
@@ -327,7 +335,7 @@ class BackgroundAgentTracker:
                     await asyncio.wait_for(self._wake_event.wait(), timeout=remaining)
                     # wake_event 被 set：可能是 completion 或 shutdown
                     # 循环顶部会重新检查 _completions 和 _shutdown
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # wait_for 自然超时：可能是真 idle 超时，或活动刷新了
                     # _last_activity 但未 set event。重新循环计算 remaining。
                     # 若 _completions 在此期间到达（notify_completed 会 set event，
@@ -348,7 +356,7 @@ class BackgroundAgentTracker:
                 await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
             else:
                 await self._wake_event.wait()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 超时返回当前 completions（不 drain），tracker 仍可继续使用
             return list(self._completions)
         # 等待期间发生 shutdown：返回当前 completions（不 drain）
@@ -734,7 +742,7 @@ async def run_query(
                 synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
             messages.append(ConversationMessage(role="user", content=synth))
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             # 能到达此 handler 的例外路径：
             #   - 单工具路径 _execute_tool_call 内部工具实现抛出非预期异常
             #     （如 RuntimeError、OSError、文件系统错误），未经 _safe_run

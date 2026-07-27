@@ -13,9 +13,8 @@ MCP 工具适配器
 
 from __future__ import annotations
 
-from typing import Any
-
 import re
+from typing import Any
 
 from pydantic import BaseModel, Field, create_model
 

@@ -4,8 +4,9 @@
 用于监控沙箱运行时的违规行为（如文件写入被拒绝、网络访问被阻止等）。
 """
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass(frozen=True, slots=True)

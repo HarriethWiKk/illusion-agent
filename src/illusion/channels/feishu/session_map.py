@@ -12,11 +12,11 @@
 """
 from __future__ import annotations
 
-from typing import Any
 import json  # JSON 读写
 import time  # 时间处理（list_active 用）
 from dataclasses import dataclass, field  # 数据类
 from pathlib import Path  # 路径处理
+from typing import Any
 from uuid import uuid4  # 会话 ID 生成
 
 from illusion.channels.base import InboundMessage, SessionInfo  # 入站消息类型 / 会话摘要
@@ -231,7 +231,7 @@ class FeishuSessionStore:
         existing.model = model
         self.save(existing, existing.messages)
 
-    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+    def list_active(self, limit: int = 5) -> list[SessionInfo]:
         """列出最近活跃的会话（按文件 mtime 排序）
 
         扫描 data_dir/*.json，反推 chat_id 和 user_id。

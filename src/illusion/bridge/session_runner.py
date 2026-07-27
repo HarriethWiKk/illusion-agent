@@ -53,7 +53,7 @@ class SessionHandle:
         self.process.terminate()  # 发送终止信号
         try:
             await asyncio.wait_for(self.process.wait(), timeout=3)  # 等待进程终止
-        except asyncio.TimeoutError:  # 超时
+        except TimeoutError:  # 超时
             self.process.kill()  # 强制终止
             await self.process.wait()  # 等待进程
 

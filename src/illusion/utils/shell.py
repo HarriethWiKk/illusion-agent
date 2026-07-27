@@ -32,9 +32,9 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Coroutine, Mapping
 from pathlib import Path
-from typing import Any, Coroutine
+from typing import Any
 
 from illusion.config import Settings, load_settings
 from illusion.platforms import PlatformName, get_platform

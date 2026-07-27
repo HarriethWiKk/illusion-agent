@@ -28,9 +28,10 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,12 @@ class DaemonClientRef:
     """
 
     def __init__(self) -> None:
-        self._client: "DaemonClient | None" = None
+        self._client: DaemonClient | None = None
         import threading
 
         self._lock = threading.Lock()
 
-    def set(self, client: "DaemonClient") -> None:
+    def set(self, client: DaemonClient) -> None:
         """设置 client（如果已有则关闭新的）"""
         with self._lock:
             if self._client is None:
@@ -82,7 +83,7 @@ def _default_pipe_name(daemon_type: DaemonType) -> str:
     if _IS_WINDOWS:
         return f"\\\\.\\pipe\\illusion_{daemon_type.value}"
     else:
-        from illusion.config.paths import get_cron_dir, get_channels_data_dir
+        from illusion.config.paths import get_channels_data_dir, get_cron_dir
 
         if daemon_type == DaemonType.CRON:
             return str(get_cron_dir() / "cron_daemon.sock")
@@ -300,7 +301,7 @@ if _IS_WINDOWS:
 
                 try:
                     chunk = await asyncio.wait_for(future, timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # 超时后强制关闭 handle，解除 ReadFile 阻塞
                     # 必须先 CancelIoEx 取消 pending ReadFile，否则 CloseHandle 会阻塞
                     self._closed = True
@@ -374,7 +375,7 @@ else:
                     data = await asyncio.wait_for(self._reader.readline(), timeout=timeout)
                 else:
                     data = await self._reader.readline()
-            except (ConnectionResetError, asyncio.IncompleteReadError, asyncio.TimeoutError):
+            except (TimeoutError, ConnectionResetError, asyncio.IncompleteReadError):
                 return None
             if not data:
                 return None
@@ -712,7 +713,7 @@ class DaemonClient:
                 asyncio.open_unix_connection(self._pipe_name),
                 timeout=5.0,
             )
-        except (FileNotFoundError, ConnectionRefusedError, asyncio.TimeoutError):
+        except (TimeoutError, FileNotFoundError, ConnectionRefusedError):
             return False
         self._conn = _UnixSocketConnection(reader, writer)
         # 让 server accept loop 有时间处理连接：
@@ -755,7 +756,7 @@ class DaemonClient:
         try:
             await self._conn.write_line(json.dumps({"type": "ping"}))
             line = await self._conn.read_line(timeout=timeout)
-        except (OSError, asyncio.TimeoutError):
+        except (TimeoutError, OSError):
             return None
         if line is None:
             return None
@@ -783,7 +784,7 @@ class DaemonClient:
         try:
             await self._conn.write_line(json.dumps({"type": "reload"}))
             line = await self._conn.read_line(timeout=timeout)
-        except (OSError, asyncio.TimeoutError):
+        except (TimeoutError, OSError):
             return None
         if line is None:
             return None
@@ -805,7 +806,7 @@ class DaemonClient:
 # 避免 Unix 上 StreamWriter 绑定到已关闭的 loop 导致 drain() 失败。
 
 
-def connect_and_register(client: "DaemonClient") -> tuple[bool, dict[str, Any] | None]:
+def connect_and_register(client: DaemonClient) -> tuple[bool, dict[str, Any] | None]:
     """在同一个事件循环中完成 connect + register
 
     Args:
@@ -836,7 +837,7 @@ def connect_and_register(client: "DaemonClient") -> tuple[bool, dict[str, Any] |
         loop.close()
 
 
-def close_client(client: "DaemonClient") -> None:
+def close_client(client: DaemonClient) -> None:
     """在独立事件循环中关闭 IPC 连接
 
     Args:
@@ -853,7 +854,7 @@ def close_client(client: "DaemonClient") -> None:
         loop.close()
 
 
-def ping_daemon(client: "DaemonClient", timeout: float = 2.0) -> dict[str, Any] | None:
+def ping_daemon(client: DaemonClient, timeout: float = 2.0) -> dict[str, Any] | None:
     """在独立事件循环中 ping 守护进程
 
     Args:

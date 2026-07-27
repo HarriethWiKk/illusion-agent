@@ -21,13 +21,14 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any
 
 import aiohttp
 
 from illusion.channels.qq.api import (
-    RECONNECT_BACKOFF,
     RATE_LIMIT_DELAY,
+    RECONNECT_BACKOFF,
     ensure_token,
     get_gateway_url,
 )
@@ -163,7 +164,7 @@ class QQWSClient:
                 continue
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            except (TimeoutError, asyncio.CancelledError, Exception):
                 pass
         self._listen_task = None
         self._heartbeat_task = None
@@ -374,7 +375,7 @@ class QQWSClient:
                 # receive 带 30s 超时：正常有消息时立即返回，无消息时
                 # 每 30s 超时一次去发 ping 探活，不会永久阻塞
                 msg = await self._ws.receive(timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # 超时未必是异常（QQ 可能长时间无消息），发 ping 探活
                 if not self._ws or self._ws.closed:
                     raise QQCloseError(0, "连接已关闭")

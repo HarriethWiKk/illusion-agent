@@ -24,8 +24,6 @@ React 终端后端主机模块
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-from collections.abc import Callable, Coroutine
 import contextlib
 import json
 import logging
@@ -33,7 +31,9 @@ import os
 import re
 import sys
 import threading
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from illusion.api.client import SupportsStreamingMessages
@@ -53,9 +53,20 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import TaskRecord, get_task_manager
-from illusion.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem, format_permission_mode
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
-from illusion.ui.runtime import RuntimeBundle, build_runtime, close_runtime, handle_line, start_runtime
+from illusion.ui.protocol import (
+    BackendEvent,
+    FrontendRequest,
+    TranscriptItem,
+    format_permission_mode,
+)
+from illusion.ui.runtime import (
+    RuntimeBundle,
+    build_runtime,
+    close_runtime,
+    handle_line,
+    start_runtime,
+)
 from illusion.utils.aioqueue import Queue, QueueShutDown
 from illusion.utils.signals import install_sigint_handler
 from illusion.utils.stderr_redirect import StderrRedirector
@@ -904,8 +915,9 @@ class ReactBackendHost:
 
     async def _handle_list_sessions(self) -> None:
         """处理列出会话请求。"""
-        from illusion.services.session_storage import list_session_snapshots
         import time as _time
+
+        from illusion.services.session_storage import list_session_snapshots
 
         try:
             assert self._bundle is not None
@@ -1179,8 +1191,9 @@ class ReactBackendHost:
             return
 
         if command == "delete":
-            from illusion.services.session_storage import list_session_snapshots
             import time as _time
+
+            from illusion.services.session_storage import list_session_snapshots
 
             try:
                 sessions = list_session_snapshots(self._bundle.cwd, limit=10)
@@ -1229,10 +1242,13 @@ class ReactBackendHost:
             return
 
         if command == "rules":
-            from illusion.skills.loader import get_project_rules_dir
-
             # 加载项目级权限配置
-            from illusion.permissions.loader import load_project_permissions, is_rules_disabled, filter_rules_by_permissions
+            from illusion.permissions.loader import (
+                filter_rules_by_permissions,
+                is_rules_disabled,
+                load_project_permissions,
+            )
+            from illusion.skills.loader import get_project_rules_dir
             project_permissions = load_project_permissions(self._bundle.cwd)
 
             # 检查是否禁用所有 rules
@@ -1634,4 +1650,4 @@ async def run_backend_host(
     return await host.run()
 
 
-__all__ = ["run_backend_host", "ReactBackendHost", "BackendHostConfig"]
+__all__ = ["BackendHostConfig", "ReactBackendHost", "run_backend_host"]

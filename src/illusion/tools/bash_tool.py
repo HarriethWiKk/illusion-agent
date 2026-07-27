@@ -14,11 +14,10 @@ Bash 命令执行工具
 
 from __future__ import annotations
 
-from typing import Any
-
 import asyncio
 import os
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -394,15 +393,16 @@ class BashTool(BaseTool[BashToolInput]):
 
         # 后台运行模式：注册到 BackgroundTaskManager，返回 task_id
         if arguments.run_in_background:
-            from illusion.tasks.manager import get_task_manager, _task_id
+            from illusion.tasks.manager import _task_id, get_task_manager
 
             manager = get_task_manager()
             task_id = _task_id("local_bash")
 
             # 创建 task record（不通过 create_shell_task，因为进程已启动）
+            import time as _time
+
             from illusion.config.paths import get_tasks_dir
             from illusion.tasks.types import TaskRecord
-            import time as _time
 
             record = TaskRecord(
                 id=task_id,

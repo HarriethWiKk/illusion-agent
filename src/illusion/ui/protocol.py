@@ -32,9 +32,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from illusion.state.app_state import AppState
 from illusion.bridge.manager import BridgeSessionRecord
 from illusion.mcp.types import McpConnectionStatus
+from illusion.state.app_state import AppState
 from illusion.tasks.types import TaskRecord, to_task_display_status
 
 
@@ -153,7 +153,7 @@ class TaskSnapshot(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
     @classmethod
-    def from_record(cls, record: TaskRecord) -> "TaskSnapshot":
+    def from_record(cls, record: TaskRecord) -> TaskSnapshot:
         """从任务记录创建任务快照。
 
         Args:
@@ -291,7 +291,7 @@ class BackendEvent(BaseModel):
         state: AppState,
         tasks: list[TaskRecord],
         commands: list[str],
-    ) -> "BackendEvent":
+    ) -> BackendEvent:
         """创建就绪事件。
 
         Args:
@@ -312,7 +312,7 @@ class BackendEvent(BaseModel):
         )
 
     @classmethod
-    def state_snapshot(cls, state: AppState) -> "BackendEvent":
+    def state_snapshot(cls, state: AppState) -> BackendEvent:
         """创建状态快照事件。
 
         Args:
@@ -324,7 +324,7 @@ class BackendEvent(BaseModel):
         return cls(type="state_snapshot", state=_state_payload(state))
 
     @classmethod
-    def tasks_snapshot(cls, tasks: list[TaskRecord]) -> "BackendEvent":
+    def tasks_snapshot(cls, tasks: list[TaskRecord]) -> BackendEvent:
         """创建任务快照事件。
 
         Args:
@@ -345,7 +345,7 @@ class BackendEvent(BaseModel):
         state: AppState,
         mcp_servers: list[McpConnectionStatus],
         bridge_sessions: list[BridgeSessionRecord],
-    ) -> "BackendEvent":
+    ) -> BackendEvent:
         """创建状态快照事件（包含 MCP 和桥接信息）。
 
         Args:

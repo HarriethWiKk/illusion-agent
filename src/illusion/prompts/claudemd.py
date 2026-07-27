@@ -65,7 +65,7 @@ def discover_claude_md_files(cwd: str | Path) -> list[Path]:
         seen.add(claude_md)
 
     # 检查是否禁用所有 rules
-    from illusion.permissions.loader import is_rules_disabled, filter_rules_by_permissions
+    from illusion.permissions.loader import filter_rules_by_permissions, is_rules_disabled
     if not is_rules_disabled(project_permissions):
         rules_dir = claude_dir / "rules"
         if rules_dir.is_dir():

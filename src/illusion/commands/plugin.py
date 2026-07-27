@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
-from illusion.plugins.loader import load_plugins
 from illusion.plugins.installer import install_plugin_from_path, uninstall_plugin
+from illusion.plugins.loader import load_plugins
 
 
 async def plugin_handler(args: str, context: CommandContext) -> CommandResult:

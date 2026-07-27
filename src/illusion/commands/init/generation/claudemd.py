@@ -10,7 +10,6 @@ CLAUDE.md 生成器
 
 from __future__ import annotations
 
-
 from illusion.commands.init.generation.sections import replace_section, wrap_section
 from illusion.commands.init.types import AnalysisResult, ProjectData
 

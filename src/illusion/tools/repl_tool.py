@@ -69,7 +69,7 @@ class ReplTool(BaseTool[ReplToolInput]):
                 process.communicate(),
                 timeout=arguments.timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 超时后终止进程
             process.kill()
             await process.wait()

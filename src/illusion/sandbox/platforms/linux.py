@@ -4,7 +4,9 @@
 可选使用 seccomp BPF 过滤器阻断 Unix socket 创建。
 """
 from __future__ import annotations
+
 import shutil
+
 from .base import SandboxPlatform, SandboxPlatformConfig
 
 
@@ -65,4 +67,3 @@ class LinuxSandboxPlatform(SandboxPlatform):
 
     def cleanup_after_command(self) -> None:
         """bwrap 自动清理，无需额外操作"""
-        pass

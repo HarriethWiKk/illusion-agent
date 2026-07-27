@@ -145,7 +145,10 @@ Terse command-style prompts produce shallow, generic work.
             ToolResult: 工具执行结果。
         """
         # 延迟导入以避免循环依赖
-        from illusion.coordinator.agent_definitions import get_agent_definition, get_all_agent_definitions
+        from illusion.coordinator.agent_definitions import (
+            get_agent_definition,
+            get_all_agent_definitions,
+        )
         from illusion.swarm.agent_executor import (
             AgentSpawnConfig,
             format_task_notification,
@@ -297,9 +300,9 @@ Terse command-style prompts produce shallow, generic work.
                 async def _run_background() -> None:
                     from illusion.swarm.agent_executor import (
                         AgentExecutionContext,
+                        TeammateMessage,
                         _register_agent,
                         _unregister_agent,
-                        TeammateMessage,
                     )
 
                     bg_ctx = AgentExecutionContext(

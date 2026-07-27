@@ -30,7 +30,7 @@ class BaseCommandHandler:
         session_store: 会话存储
     """
 
-    def __init__(self, channel: "Channel", session_store: Any) -> None:
+    def __init__(self, channel: Channel, session_store: Any) -> None:
         """初始化
 
         Args:
@@ -197,8 +197,8 @@ class BaseCommandHandler:
                 conv_messages.append(ConversationMessage.model_validate(m))
             except (ValueError, TypeError):
                 continue
-        from illusion.config import load_settings
         from illusion.api.usage import UsageSnapshot
+        from illusion.config import load_settings
         settings = load_settings()
         save_session_snapshot(
             cwd=cwd, model=session.model or settings.active_model_name,

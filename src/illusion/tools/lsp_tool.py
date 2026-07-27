@@ -213,7 +213,7 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             # 等待服务器分析完成（最长 10 秒）
             try:
                 await asyncio.wait_for(diag_event.wait(), timeout=10)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
         except Exception:
             pass

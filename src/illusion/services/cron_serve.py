@@ -118,6 +118,6 @@ async def _serve_async(server: Any) -> None:
                 await t
             except asyncio.CancelledError:
                 pass
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("cron serve 等待 task 完成时捕获异常: %s", exc, exc_info=exc)
         await scheduler.stop()

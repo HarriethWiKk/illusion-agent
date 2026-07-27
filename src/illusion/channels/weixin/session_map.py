@@ -10,11 +10,11 @@
 """
 from __future__ import annotations
 
-from typing import Any
 import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from illusion.channels.base import InboundMessage, SessionInfo
@@ -190,7 +190,7 @@ class WeixinSessionStore:
         existing.model = model
         self.save(existing, existing.messages)
 
-    def list_active(self, limit: int = 5) -> list["SessionInfo"]:
+    def list_active(self, limit: int = 5) -> list[SessionInfo]:
         """列出最近活跃的微信会话（按文件 mtime 排序）
 
         微信会话文件名为 u_<wxid>（私聊，无群聊）。chat_id 即 user_id。
@@ -214,7 +214,7 @@ class WeixinSessionStore:
             except (json.JSONDecodeError, ValueError, OSError):
                 continue
             # 微信: u_<wxid>，chat_id = wxid
-            chat_id = name[2:] if name.startswith("u_") else name
+            chat_id = name.removeprefix("u_")
             mtime = path.stat().st_mtime
             last_active = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
             result.append(SessionInfo(

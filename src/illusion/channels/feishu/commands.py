@@ -13,4 +13,3 @@ class FeishuCommandHandler(BaseCommandHandler):
 
     当前无飞书专属命令逻辑，完全复用基类的 7 个命令。
     """
-    pass

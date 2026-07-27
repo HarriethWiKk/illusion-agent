@@ -18,13 +18,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from illusion.channels.base import Attachment, Channel, InboundMessage
 from illusion.channels.qq.api import (
-    MAX_MESSAGE_LENGTH,
-    DEDUP_WINDOW_SECONDS,
     DEDUP_MAX_SIZE,
+    DEDUP_WINDOW_SECONDS,
+    MAX_MESSAGE_LENGTH,
     ensure_token,
     send_c2c_message,
     send_group_message,
@@ -72,7 +73,7 @@ class QQChannel(Channel):
 
     name = "qq"
 
-    def __init__(self, config: "QQChannelConfig", settings: "Settings") -> None:
+    def __init__(self, config: QQChannelConfig, settings: Settings) -> None:
         """初始化 QQ 渠道
 
         Args:
@@ -534,7 +535,7 @@ class QQChannel(Channel):
                             markdown=use_markdown,
                         )
                     break
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     # markdown 权限/格式错误时降级为纯文本重试
                     if use_markdown and attempt == 0:
                         logger.warning("QQ markdown 发送失败，降级为纯文本: %s", exc)
@@ -550,7 +551,6 @@ class QQChannel(Channel):
 
     async def edit_message(self, chat_id: str, message_id: str, text: str) -> None:
         """编辑消息——QQ 不支持编辑，空操作"""
-        pass
 
     async def send_file(self, chat_id: str, file_path: str, *, reply_to: str = "") -> None:
         """发送文件（三步分片上传）
@@ -771,7 +771,7 @@ class QQChannel(Channel):
                 # 下载的附件可能很大，用 to_thread 写盘避免阻塞事件循环
                 await asyncio.to_thread(save_path_obj.write_bytes, data)
                 return str(save_path_obj)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("QQ 附件 file_info 下载失败: %s", exc)
                 raise NotImplementedError(
                     f"QQ 附件下载失败: {exc}"
@@ -806,7 +806,6 @@ class QQChannel(Channel):
 
     async def stop_typing(self, chat_id: str) -> None:
         """停止打字状态指示——QQ API 无停止接口，空操作"""
-        pass
 
     async def shutdown(self) -> None:
         """关闭渠道"""

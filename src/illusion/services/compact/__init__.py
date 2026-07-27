@@ -20,12 +20,20 @@
 """
 
 from illusion.services.compact.auto_compact import auto_compact_if_needed, reactive_compact
-from illusion.services.compact.compact_core import compact_conversation, compact_messages, summarize_messages
-from illusion.services.compact.compact_prompt import build_compact_summary_message, format_compact_summary, get_compact_prompt
+from illusion.services.compact.compact_core import (
+    compact_conversation,
+    compact_messages,
+    summarize_messages,
+)
+from illusion.services.compact.compact_prompt import (
+    build_compact_summary_message,
+    format_compact_summary,
+    get_compact_prompt,
+)
 from illusion.services.compact.constants import (
     AUTOCOMPACT_BUFFER_TOKENS,
-    COMPACTABLE_TOOLS,
     COMPACT_BOUNDARY_PREFIX,
+    COMPACTABLE_TOOLS,
     DEFAULT_GAP_THRESHOLD_MINUTES,
     DEFAULT_KEEP_RECENT,
     DEFAULT_PRESERVE_RECENT,
@@ -59,7 +67,6 @@ from illusion.services.compact.token_utils import (
 
 __all__ = [
     "AUTOCOMPACT_BUFFER_TOKENS",
-    "AutoCompactState",
     "COMPACTABLE_TOOLS",
     "COMPACT_BOUNDARY_PREFIX",
     "DEFAULT_GAP_THRESHOLD_MINUTES",
@@ -71,8 +78,9 @@ __all__ = [
     "MAX_PTL_RETRIES",
     "TIME_BASED_MC_CLEARED_MESSAGE",
     "TOKEN_ESTIMATION_PADDING",
-    "TokenWarningState",
     "WARNING_THRESHOLD_BUFFER_TOKENS",
+    "AutoCompactState",
+    "TokenWarningState",
     "auto_compact_if_needed",
     "build_compact_summary_message",
     "calculate_token_warning_state",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Any,  TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyperclip
 
@@ -130,7 +130,7 @@ def rewind_turns(messages: list[ConversationMessage], turns: int) -> list[Conver
     return updated
 
 
-def coerce_setting_value(settings: "Settings", key: str, raw: str) -> Any:
+def coerce_setting_value(settings: Settings, key: str, raw: str) -> Any:
     """将字符串值强制转换为设置字段的正确类型
 
     Args:

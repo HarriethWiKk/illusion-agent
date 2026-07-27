@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
-from illusion.utils.ripgrep import run_rg, RipgrepError
+from illusion.utils.ripgrep import RipgrepError, run_rg
 
 logger = logging.getLogger(__name__)
 

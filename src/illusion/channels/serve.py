@@ -14,12 +14,9 @@ import logging  # 日志
 import os  # 进程强制退出
 import signal  # 信号处理
 import time  # 时间戳（_EventWatchdog 用）
-from typing import TYPE_CHECKING, Any  # 类型
+from typing import Any  # 类型
 
 from illusion.channels.config import ChannelsConfig, load_channels_config  # 配置
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)  # 日志器
 
@@ -76,8 +73,8 @@ def run_channel_serve() -> None:
     读取 channels.json，启动 DaemonServer 和所有 enabled 渠道。
     连接归零时自动退出。
     """
-    from illusion.config.paths import get_channels_data_dir
     from illusion.config.i18n import t
+    from illusion.config.paths import get_channels_data_dir
 
     cfg = load_channels_config()
     settings = _load_settings_safely()
@@ -202,7 +199,7 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
             # run 正常返回（不应发生，run 是无限循环）——重置退避
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("渠道 runner 异常退出，将重启: %s", exc, exc_info=exc)
             delay = SUPERVISOR_BACKOFF_SECONDS[
                 min(backoff_idx, len(SUPERVISOR_BACKOFF_SECONDS) - 1)
@@ -212,7 +209,7 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=delay)
                 return  # stop_event 触发
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue  # 退避结束，重启 runner
         else:
             backoff_idx = 0
@@ -252,7 +249,7 @@ class _EventWatchdog:
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=30.0)
                 return  # stop_event 触发
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             # 检查事件超时
@@ -291,11 +288,10 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         settings: 主设置
         server: DaemonServer 实例
     """
-    from illusion.config.i18n import t
-    from illusion.config.paths import get_channels_data_dir
-
     from illusion.channels import ChannelRunner
     from illusion.channels.base import Channel
+    from illusion.config.i18n import t
+    from illusion.config.paths import get_channels_data_dir
 
     global _active_runners
 
@@ -385,12 +381,12 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
             asyncio.gather(*tasks, return_exceptions=True),
             timeout=10.0,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("取消看门狗任务超时（10s），跳过等待")
     for r in runners:
         try:
             await asyncio.wait_for(r.shutdown(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("关闭渠道超时（5s），跳过: %s", r)
         except asyncio.CancelledError:
             # 取消信号必须上抛，不能被吞掉

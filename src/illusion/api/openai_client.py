@@ -27,7 +27,8 @@ import asyncio
 import json
 import logging
 import re as _re
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -51,8 +52,8 @@ from illusion.api.errors import (
 )
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import (
-    ConversationMessage,
     ContentBlock,
+    ConversationMessage,
     MediaBlock,
     TextBlock,
     ThinkingBlock,

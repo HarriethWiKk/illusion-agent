@@ -63,7 +63,7 @@ def _backup_dir(session_id: str) -> Path:
 
 def _backup_name(file_path: str, version: int = 1) -> str:
     """生成备份文件名：sha256(路径@vN)[:16]。不同版本生成不同文件名。"""
-    return sha256(f"{file_path}@v{version}".encode("utf-8")).hexdigest()[:16]
+    return sha256(f"{file_path}@v{version}".encode()).hexdigest()[:16]
 
 
 def _backup_path(session_id: str, backup_name: str) -> Path:

@@ -32,8 +32,9 @@ import mimetypes
 import secrets
 import time
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from illusion.channels.base import Attachment, Channel, InboundMessage
 from illusion.utils.aioqueue import Queue  # 支持关闭语义的异步队列
@@ -71,7 +72,7 @@ class WeixinChannel(Channel):
 
     name = "weixin"
 
-    def __init__(self, config: "WeixinChannelConfig", settings: "Settings") -> None:
+    def __init__(self, config: WeixinChannelConfig, settings: Settings) -> None:
         """初始化微信渠道
 
         Args:
@@ -518,7 +519,10 @@ class WeixinChannel(Channel):
             str: 空字符串（微信无 message_id 返回）
         """
         from illusion.channels.weixin.ilink_api import (
-            send_message, _split_text, SESSION_EXPIRED_ERRCODE, RATE_LIMIT_ERRCODE,
+            RATE_LIMIT_ERRCODE,
+            SESSION_EXPIRED_ERRCODE,
+            _split_text,
+            send_message,
         )
 
         chunks = _split_text(text)
@@ -571,7 +575,6 @@ class WeixinChannel(Channel):
             message_id: 未使用
             text: 未使用
         """
-        pass
 
     async def send_file(self, chat_id: str, file_path: str, *, reply_to: str = "") -> None:
         """发送文件（按扩展名路由到 send_image/send_document）
@@ -646,7 +649,7 @@ class WeixinChannel(Channel):
         return await self._send_file(chat_id, video_path, caption)
 
     async def download_attachment(
-        self, attachment: "Attachment", save_path: str
+        self, attachment: Attachment, save_path: str
     ) -> str:
         """下载入站附件到本地路径
 
@@ -667,7 +670,8 @@ class WeixinChannel(Channel):
             NotImplementedError: cryptography 未安装
         """
         from illusion.channels.weixin.ilink_api import (
-            _check_crypto_available, download_and_decrypt_media,
+            _check_crypto_available,
+            download_and_decrypt_media,
         )
 
         if not _check_crypto_available():
@@ -738,8 +742,12 @@ class WeixinChannel(Channel):
         """
         from illusion.channels.weixin.ilink_api import (
             EP_SEND_MESSAGE,
-            _aes128_ecb_encrypt, _aes_padded_size, _api_post,
-            _cdn_upload_url, get_upload_url, upload_ciphertext,
+            _aes128_ecb_encrypt,
+            _aes_padded_size,
+            _api_post,
+            _cdn_upload_url,
+            get_upload_url,
+            upload_ciphertext,
         )
 
         if not self._send_session:
@@ -845,8 +853,12 @@ class WeixinChannel(Channel):
                 plaintext_size/filename/rawfilemd5 关键字参数，返回 media item dict
         """
         from illusion.channels.weixin.ilink_api import (
-            ITEM_FILE, ITEM_IMAGE, ITEM_VIDEO,
-            MEDIA_FILE, MEDIA_IMAGE, MEDIA_VIDEO,
+            ITEM_FILE,
+            ITEM_IMAGE,
+            ITEM_VIDEO,
+            MEDIA_FILE,
+            MEDIA_IMAGE,
+            MEDIA_VIDEO,
         )
 
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -901,7 +913,7 @@ class WeixinChannel(Channel):
         if not ticket:
             return
         try:
-            from illusion.channels.weixin.ilink_api import send_typing, TYPING_START
+            from illusion.channels.weixin.ilink_api import TYPING_START, send_typing
             await send_typing(
                 self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_START,
@@ -919,7 +931,7 @@ class WeixinChannel(Channel):
         if not ticket:
             return
         try:
-            from illusion.channels.weixin.ilink_api import send_typing, TYPING_STOP
+            from illusion.channels.weixin.ilink_api import TYPING_STOP, send_typing
             await send_typing(
                 self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_STOP,
@@ -1039,7 +1051,7 @@ async def _poll_with_retry(
     Raises:
         RuntimeError: 会话过期需重新扫码
     """
-    from illusion.channels.weixin.ilink_api import poll_updates, SESSION_EXPIRED_ERRCODE
+    from illusion.channels.weixin.ilink_api import SESSION_EXPIRED_ERRCODE, poll_updates
 
     result = await poll_updates(session, base_url=base_url, token=token, sync_buf=sync_buf)
 

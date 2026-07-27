@@ -24,7 +24,8 @@ from __future__ import annotations
 import asyncio  # 跨线程调度
 import logging  # 日志
 import time  # 重复日志抑制
-from typing import Any, Callable  # 类型
+from collections.abc import Callable  # 类型
+from typing import Any
 
 logger = logging.getLogger(__name__)  # 日志器
 
@@ -152,8 +153,8 @@ class FeishuWSClient:
         - finally 块清理 pending tasks + stop + close loop
         """
         import lark_oapi as lark  # 延迟导入
-        from lark_oapi.ws.client import Client as WsClient
         import lark_oapi.ws.client as lark_ws_module  # 替换模块级 loop
+        from lark_oapi.ws.client import Client as WsClient
 
         # 安装日志抑制 filter（幂等），避免 lark SDK 循环错误爆炸填充 log 文件
         _install_lark_log_filter()

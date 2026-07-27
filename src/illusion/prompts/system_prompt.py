@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from illusion.prompts.environment import EnvironmentInfo, get_environment_info
 
-
 _BASE_SYSTEM_PROMPT = """\
 You are Illusion Code, Illusion's official CLI for AI coding assistance.
 You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.

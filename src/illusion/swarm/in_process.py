@@ -25,12 +25,12 @@ import uuid
 from dataclasses import dataclass, field
 
 from illusion.swarm.agent_executor import (
+    AgentAbortController,
     AgentExecutionContext,
     AgentSpawnConfig,
-    AgentAbortController,
-    set_agent_context,
     _register_agent,
     _unregister_agent,
+    set_agent_context,
 )
 from illusion.swarm.types import (
     BackendType,
@@ -261,7 +261,7 @@ class InProcessBackend:
             try:
                 # 直接 await task（无 shield），允许取消信号传播
                 await asyncio.wait_for(entry.task, timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[InProcessBackend] %s did not exit within %.1fs — forcing", agent_id, timeout)
                 entry.abort_controller.request_cancel(reason="timeout — forcing", force=True)
                 entry.task.cancel()

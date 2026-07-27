@@ -44,7 +44,7 @@ class FeishuDriveListTool(BaseTool[FeishuDriveListInput]):
     description = "List files in a Feishu/Lark Drive folder."
     input_model = FeishuDriveListInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -116,7 +116,7 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
     description = "Upload a local file to Feishu/Lark Drive."
     input_model = FeishuDriveUploadInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -179,9 +179,9 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         """大文件分片上传"""
         try:
             from lark_oapi.api.drive.v1 import (
-                UploadPrepareFileRequest,
-                UploadPartFileRequest,
                 UploadFinishFileRequest,
+                UploadPartFileRequest,
+                UploadPrepareFileRequest,
             )
         except ImportError:
             return ToolResult(output="lark_oapi drive API not available (chunked)", is_error=True)
@@ -268,7 +268,7 @@ class FeishuDriveDownloadTool(BaseTool[FeishuDriveDownloadInput]):
     description = "Download a Feishu/Lark Drive file to local path."
     input_model = FeishuDriveDownloadInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -333,7 +333,7 @@ class FeishuDriveMkdirTool(BaseTool[FeishuDriveMkdirInput]):
     description = "Create a new folder in Feishu/Lark Drive."
     input_model = FeishuDriveMkdirInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -393,7 +393,7 @@ class FeishuDriveDeleteTool(BaseTool[FeishuDriveDeleteInput]):
     description = "Delete a Feishu/Lark Drive file (move to trash)."
     input_model = FeishuDriveDeleteInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:

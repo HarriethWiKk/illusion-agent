@@ -24,24 +24,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from illusion.commands.session import resume_handler as _resume_handler
-from illusion.commands.session import new_handler as _new_handler
-from illusion.commands.types import CommandContext, CommandResult
 from illusion.commands.registry import create_default_command_registry
+from illusion.commands.session import new_handler as _new_handler
+from illusion.commands.session import resume_handler as _resume_handler
+from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import (
     load_settings as _load_settings,
+)
+from illusion.config.settings import (
     save_settings as _save_settings,
 )
 from illusion.permissions import PermissionMode
 from illusion.services.session_storage import (
     delete_session_by_id as _delete_session_by_id,
+)
+from illusion.services.session_storage import (
     list_session_snapshots as _list_session_snapshots,
 )
-import time as _time
-
 from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
 from illusion.ui.runtime import RuntimeBundle
 
@@ -60,7 +63,7 @@ def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]
     """
     if not replay_messages:
         return []
-    from illusion.engine.messages import ToolUseBlock, ToolResultBlock
+    from illusion.engine.messages import ToolResultBlock, ToolUseBlock
     items: list[dict[str, Any]] = []
     # 保存 tool_use_id -> tool_name 的映射
     tool_name_map: dict[str, str] = {}
@@ -686,12 +689,12 @@ def _collect_resources(bundle: RuntimeBundle) -> dict[str, Any]:
     # rules：从项目规则目录读取，过滤被权限禁用的规则
     rules = []
     try:
-        from illusion.skills.loader import get_project_rules_dir
         from illusion.permissions.loader import (
-            is_rules_disabled,
             filter_rules_by_permissions,
+            is_rules_disabled,
             load_project_permissions,
         )
+        from illusion.skills.loader import get_project_rules_dir
         project_permissions = load_project_permissions(bundle.cwd)
         if not is_rules_disabled(project_permissions):
             rules_dir = get_project_rules_dir(bundle.cwd)

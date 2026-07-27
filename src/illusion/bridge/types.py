@@ -32,7 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 # 默认会话超时时间：24小时（毫秒）
 DEFAULT_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000
 

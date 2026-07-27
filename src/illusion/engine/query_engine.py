@@ -27,20 +27,28 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any,  AsyncIterator
+from typing import Any
 
 from illusion.api.client import SupportsStreamingMessages
-from illusion.api.usage import UsageSnapshot
 from illusion.api.effort import EffortLevel
+from illusion.api.usage import UsageSnapshot
 from illusion.engine.cost_tracker import CostTracker
 from illusion.engine.messages import ConversationMessage, ToolResultBlock
-from illusion.engine.query import AskUserPrompt, BackgroundAgentTracker, PermissionPrompt, PlanApprovalPrompt, QueryContext, run_query
+from illusion.engine.query import (
+    AskUserPrompt,
+    BackgroundAgentTracker,
+    PermissionPrompt,
+    PlanApprovalPrompt,
+    QueryContext,
+    run_query,
+)
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
-from illusion.services.file_history import FileHistoryState, track_edit, make_snapshot
+from illusion.services.file_history import FileHistoryState, make_snapshot, track_edit
 from illusion.tools.base import ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
 
@@ -162,7 +170,7 @@ class QueryEngine:
         return self._max_turns
 
     @property
-    def total_usage(self) -> "UsageSnapshot":
+    def total_usage(self) -> UsageSnapshot:
         """返回跨所有轮次的总使用量。
 
         Returns:

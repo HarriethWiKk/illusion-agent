@@ -24,9 +24,9 @@ from illusion.bridge.types import BridgeConfig, WorkData, WorkSecret
 from illusion.bridge.work_secret import build_sdk_url, decode_work_secret, encode_work_secret
 
 __all__ = [
+    "BridgeConfig",
     "BridgeSessionManager",
     "BridgeSessionRecord",
-    "BridgeConfig",
     "SessionHandle",
     "WorkData",
     "WorkSecret",

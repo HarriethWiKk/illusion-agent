@@ -4,10 +4,12 @@
 Seatbelt 使用 S-expression 格式的配置文件，默认拒绝所有操作。
 """
 from __future__ import annotations
+
 import json
 import os
 import shutil
 import tempfile
+
 from .base import SandboxPlatform, SandboxPlatformConfig
 
 
@@ -52,7 +54,6 @@ class MacOSSandboxPlatform(SandboxPlatform):
 
     def cleanup_after_command(self) -> None:
         """Seatbelt 自动清理，无需额外操作"""
-        pass
 
     def _generate_seatbelt_profile(
         self, config: SandboxPlatformConfig, log_tag: str

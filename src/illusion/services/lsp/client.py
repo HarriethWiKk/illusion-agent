@@ -161,7 +161,7 @@ class LspClient:
 
         try:
             resp = await asyncio.wait_for(fut, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 超时处理：用锁保护 pop，并 cancel Future（而非仅 pop），
             # 否则 reader 线程后续 set_result 会触发 InvalidStateError
             with self._pending_lock:

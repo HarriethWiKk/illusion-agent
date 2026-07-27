@@ -21,11 +21,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 from dataclasses import replace
+from typing import Any
 
 from illusion.state.app_state import AppState
-
 
 # 状态监听器类型别名：接收AppState并返回None的Callable
 Listener = Callable[[AppState], None]

@@ -12,7 +12,11 @@ from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
 from illusion.engine.messages import ConversationMessage
 from illusion.prompts import build_runtime_system_prompt
-from illusion.services import estimate_conversation_tokens, save_session_snapshot, summarize_messages
+from illusion.services import (
+    estimate_conversation_tokens,
+    save_session_snapshot,
+    summarize_messages,
+)
 
 
 async def new_handler(_: str, context: CommandContext) -> CommandResult:
@@ -271,12 +275,12 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
 
 async def delete_handler(args: str, context: CommandContext) -> CommandResult:
     """删除已保存的会话"""
+    from illusion.services.file_history import cleanup_all_file_histories, cleanup_file_history
     from illusion.services.session_storage import (
         delete_all_sessions,
         delete_session_by_id,
         list_session_snapshots,
     )
-    from illusion.services.file_history import cleanup_file_history, cleanup_all_file_histories
 
     tokens = args.strip().split()
 

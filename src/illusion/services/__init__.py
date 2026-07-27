@@ -10,6 +10,7 @@ from __future__ import annotations
 from illusion.services.compact import (
     AutoCompactState,
     TokenWarningState,
+    calculate_token_warning_state,
     compact_conversation,
     compact_messages,
     create_compact_boundary_marker,
@@ -23,7 +24,6 @@ from illusion.services.compact import (
     should_autocompact,
     strip_images_from_messages,
     summarize_messages,
-    calculate_token_warning_state,
 )
 from illusion.services.session_storage import (
     export_session_markdown,

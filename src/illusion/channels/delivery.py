@@ -80,7 +80,7 @@ async def deliver_to_channel(
     chat_id: str,
     text: str,
     *,
-    config: "ChannelsConfig | None" = None,
+    config: ChannelsConfig | None = None,
     markdown: bool | None = None,
     chat_type: str = "",
 ) -> bool:
@@ -120,7 +120,7 @@ async def deliver_to_channel(
 
 
 async def _deliver_feishu(
-    config: "FeishuChannelConfig",
+    config: FeishuChannelConfig,
     chat_id: str,
     text: str,
     *,
@@ -147,6 +147,7 @@ async def _deliver_feishu(
             await send_card(client, chat_id, text)
         else:
             import json
+
             from illusion.channels.feishu.messaging import resolve_receive_id
             try:
                 from lark_oapi.api.im.v1 import CreateMessageRequest
@@ -169,13 +170,13 @@ async def _deliver_feishu(
                 logger.error("飞书纯文本投递失败: code=%s msg=%s", resp.code, resp.msg)
                 return False
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("飞书投递异常: %s", exc)
         return False
 
 
 async def _deliver_qq(
-    config: "QQChannelConfig",
+    config: QQChannelConfig,
     chat_id: str,
     text: str,
     *,
@@ -197,6 +198,7 @@ async def _deliver_qq(
         return False
     try:
         import aiohttp
+
         from illusion.channels.qq.api import (
             ensure_token,
             send_c2c_message,
@@ -248,7 +250,7 @@ async def _deliver_qq(
                             target_label, attempt + 1, md, len(chunk),
                         )
                         return
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         if md and attempt == 0:
                             # markdown 权限/格式错误，自动降级为纯文本
                             logger.info(
@@ -289,13 +291,13 @@ async def _deliver_qq(
                     )
                     await _send_to_target(is_group=False)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("QQ 投递异常: %s", exc)
         return False
 
 
 async def _deliver_weixin(
-    config: "WeixinChannelConfig",
+    config: WeixinChannelConfig,
     chat_id: str,
     text: str,
     *,
@@ -322,11 +324,11 @@ async def _deliver_weixin(
         import uuid
 
         from illusion.channels.weixin.ilink_api import (
+            RATE_LIMIT_ERRCODE,
+            SESSION_EXPIRED_ERRCODE,
             _make_ssl_connector,
             _split_text,
             send_message,
-            SESSION_EXPIRED_ERRCODE,
-            RATE_LIMIT_ERRCODE,
         )
 
         connector = _make_ssl_connector()
@@ -405,7 +407,7 @@ async def _deliver_weixin(
                 # 分片间隔，防限流（对齐 adapter.send_text）
                 await asyncio.sleep(1.5)
             return sent_any
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("微信投递异常: %s", exc)
         return False
 
@@ -425,6 +427,7 @@ def _load_weixin_context_token(user_id: str) -> str:
     """
     try:
         import json
+
         from illusion.config.paths import get_channels_data_dir
 
         token_path = get_channels_data_dir() / "weixin" / "context_tokens.json"
@@ -442,7 +445,7 @@ async def deliver_file_to_channel(
     chat_id: str,
     file_path: str,
     *,
-    config: "ChannelsConfig | None" = None,
+    config: ChannelsConfig | None = None,
     caption: str = "",
 ) -> bool:
     """投递本地文件到指定渠道会话
@@ -483,7 +486,7 @@ async def deliver_file_to_channel(
 
 
 async def _deliver_file_feishu(
-    config: "FeishuChannelConfig", chat_id: str, file_path: str, caption: str,
+    config: FeishuChannelConfig, chat_id: str, file_path: str, caption: str,
 ) -> bool:
     """飞书文件投递：复用 feishu.messaging.send_file
 
@@ -499,13 +502,13 @@ async def _deliver_file_feishu(
         client = build_lark_client(config)
         await send_file(client, config, chat_id, file_path, caption=caption)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("飞书文件投递异常: %s", exc)
         return False
 
 
 async def _deliver_file_qq(
-    config: "QQChannelConfig", chat_id: str, file_path: str, caption: str,
+    config: QQChannelConfig, chat_id: str, file_path: str, caption: str,
 ) -> bool:
     """QQ 文件投递：upload_file + send_media_message
 
@@ -523,6 +526,7 @@ async def _deliver_file_qq(
         return False
     try:
         import aiohttp
+
         from illusion.channels.qq.api import (
             MEDIA_TYPE_FILE,
             ensure_token,
@@ -577,13 +581,13 @@ async def _deliver_file_qq(
             # 回退 C2C
             await _send_with_caption(is_group=False)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("QQ 文件投递异常: %s", exc)
         return False
 
 
 async def _deliver_file_weixin(
-    config: "WeixinChannelConfig", chat_id: str, file_path: str, caption: str,
+    config: WeixinChannelConfig, chat_id: str, file_path: str, caption: str,
 ) -> bool:
     """微信文件投递：AES-128-ECB 加密 → 上传 CDN → 发送含媒体 item 的消息
 
@@ -607,6 +611,7 @@ async def _deliver_file_weixin(
         from pathlib import Path
 
         import aiohttp
+
         from illusion.channels.weixin.ilink_api import (
             EP_SEND_MESSAGE,
             ITEM_FILE,
@@ -750,6 +755,6 @@ async def _deliver_file_weixin(
                 logger.error("微信文件投递失败: errcode=%s resp=%s", errcode, resp)
                 return False
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("微信文件投递异常: %s", exc)
         return False

@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-
 from illusion.commands.helpers import coerce_setting_value
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.paths import (
@@ -20,7 +19,6 @@ from illusion.config.settings import Settings, load_settings, save_settings
 from illusion.output_styles import load_output_styles
 from illusion.permissions import PermissionChecker, PermissionMode
 from illusion.prompts import build_runtime_system_prompt
-
 
 _MODE_LABELS = {"default": "Default", "plan": "Plan Mode", "full_auto": "Auto"}
 

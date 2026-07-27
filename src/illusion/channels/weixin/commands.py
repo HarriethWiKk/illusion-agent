@@ -13,4 +13,3 @@ class WeixinCommandHandler(BaseCommandHandler):
 
     当前无微信专属命令逻辑，完全复用基类的 7 个命令。
     """
-    pass

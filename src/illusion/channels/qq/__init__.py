@@ -32,8 +32,8 @@ def ensure_qq_dependencies() -> None:
     except ImportError:
         pass
 
-    from illusion.config.i18n import t
     from illusion.commands.misc import _run_pip_install
+    from illusion.config.i18n import t
 
     print(t("channel_installing_deps", deps=", ".join(QQ_DEPENDENCIES)))
     ok, output = _run_pip_install(QQ_DEPENDENCIES)

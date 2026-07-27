@@ -8,21 +8,20 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import importlib.metadata
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
-from illusion import __version__
+from typing import Any
 
 import httpx
+
+from illusion import __version__
 from illusion.commands.helpers import copy_to_clipboard, last_message_text
 from illusion.commands.types import CommandContext, CommandResult
-from illusion.config.settings import load_settings
 from illusion.config.paths import get_feedback_log_path
+from illusion.config.settings import load_settings
 from illusion.plugins.loader import load_plugins
 from illusion.services import export_session_markdown
 from illusion.skills.loader import load_skill_registry
@@ -73,7 +72,7 @@ async def feedback_handler(args: str, context: CommandContext) -> CommandResult:
     path = get_feedback_log_path()
     if not args.strip():
         return CommandResult(message=f"Feedback log: {path}\nUsage: /feedback TEXT")
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"[{timestamp}] {args.strip()}\n")
     return CommandResult(message=f"Saved feedback to {path}")
@@ -109,7 +108,7 @@ async def reload_plugins_handler(_: str, context: CommandContext) -> CommandResu
 
 async def skills_handler(args: str, context: CommandContext) -> CommandResult:
     """列出或显示可用技能"""
-    from illusion.skills.loader import get_user_skills_dir, get_project_skills_dir
+    from illusion.skills.loader import get_project_skills_dir, get_user_skills_dir
 
     skill_registry = load_skill_registry(context.cwd)
     skills = skill_registry.list_skills()

@@ -19,8 +19,8 @@
     >>> from illusion.memory import add_memory_entry, find_relevant_memories
 """
 
-from illusion.memory.memdir import load_memory_prompt
 from illusion.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
+from illusion.memory.memdir import load_memory_prompt
 from illusion.memory.paths import (
     get_memory_entrypoint,
     get_project_local_memory_dir,

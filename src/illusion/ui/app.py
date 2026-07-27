@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import sys
-
 from typing import Any
 
 from illusion.api.client import SupportsStreamingMessages
@@ -363,6 +362,10 @@ async def run_print_mode(
         resume: 恢复指定会话 ID（空字符串则报错）
         name: 会话名称
     """
+    import time
+    from pathlib import Path
+
+    from illusion.config.i18n import t as _t
     from illusion.engine.stream_events import (
         AssistantTextDelta,
         AssistantTurnComplete,
@@ -370,14 +373,6 @@ async def run_print_mode(
         StatusEvent,
         ToolExecutionCompleted,
         ToolExecutionStarted,
-    )
-    from illusion.config.i18n import t as _t
-    from illusion.ui.terminal_io import (
-        PENDING_ANSWER_MARKER,
-        PENDING_PLAN_APPROVAL_MARKER,
-        make_print_mode_ask_user,
-        make_print_mode_permission,
-        make_print_mode_plan_approval,
     )
     from illusion.services.session_storage import (
         delete_pending_permission,
@@ -390,8 +385,13 @@ async def run_print_mode(
         load_session_snapshot,
     )
     from illusion.ui.permission_store import add_always_allowed_tool
-    import time
-    from pathlib import Path
+    from illusion.ui.terminal_io import (
+        PENDING_ANSWER_MARKER,
+        PENDING_PLAN_APPROVAL_MARKER,
+        make_print_mode_ask_user,
+        make_print_mode_permission,
+        make_print_mode_plan_approval,
+    )
 
     # 会话恢复
     restore_messages: list[dict[str, Any]] | None = None
@@ -462,8 +462,9 @@ async def run_print_mode(
             if perm_decision["decision"] == "allow":
                 # Y：更新 pending 文件 approved=true，callback 读取后放行并删除
                 # 直接原子写覆盖（approved=true）
-                from illusion.utils.atomic_write import atomic_write_text
                 import json as _json
+
+                from illusion.utils.atomic_write import atomic_write_text
                 _perm_payload = {
                     "session_id": restore_session_id,
                     "tool_name": tool_name,

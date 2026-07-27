@@ -27,12 +27,12 @@ Web 后端主机模块
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -54,20 +54,20 @@ from illusion.engine.stream_events import (
 )
 from illusion.output_styles import load_output_styles
 from illusion.tasks import get_task_manager
+from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
     BackendEvent,
     FrontendRequest,
     TranscriptItem,
     format_permission_mode,
 )
-from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.runtime import (
     RuntimeBundle,
+    _wrap_in_system_reminder,
     build_runtime,
     close_runtime,
     handle_line,
     start_runtime,
-    _wrap_in_system_reminder,
 )
 from illusion.utils.aioqueue import Queue, QueueShutDown
 
@@ -415,7 +415,7 @@ class WebBackendHost:
 
             await self._request_queue.put(request)
 
-    async def _make_render_event(self) -> "Callable[[StreamEvent], Awaitable[None]]":
+    async def _make_render_event(self) -> Callable[[StreamEvent], Awaitable[None]]:
         """创建共享的流式事件渲染器。
 
         返回一个 _render_event 闭包，供 _process_line 和 _submit_line_as_text 共用，
@@ -951,8 +951,9 @@ class WebBackendHost:
 
     async def _handle_list_sessions(self) -> None:
         """处理列出会话请求。"""
-        from illusion.services.session_storage import list_session_snapshots
         import time as _time
+
+        from illusion.services.session_storage import list_session_snapshots
 
         assert self._bundle is not None
         locale = str(
@@ -1306,8 +1307,9 @@ class WebBackendHost:
             return
 
         if command == "delete":
-            from illusion.services.session_storage import list_session_snapshots
             import time as _time
+
+            from illusion.services.session_storage import list_session_snapshots
 
             sessions = list_session_snapshots(self._bundle.cwd, limit=10)
             if not sessions:
@@ -1351,14 +1353,13 @@ class WebBackendHost:
             return
 
         if command == "rules":
-            from illusion.skills.loader import get_project_rules_dir
-
             # 加载项目级权限配置
             from illusion.permissions.loader import (
-                load_project_permissions,
-                is_rules_disabled,
                 filter_rules_by_permissions,
+                is_rules_disabled,
+                load_project_permissions,
             )
+            from illusion.skills.loader import get_project_rules_dir
 
             project_permissions = load_project_permissions(self._bundle.cwd)
 

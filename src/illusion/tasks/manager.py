@@ -30,14 +30,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
-
 import asyncio
 import logging
 import shlex
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from illusion.config.paths import get_tasks_dir
@@ -58,7 +58,7 @@ class BackgroundTaskManager:
         self._input_locks: dict[str, asyncio.Lock] = {}
         self._generations: dict[str, int] = {}
         # 子进程退出时回调，用于通知 bg_agent_tracker（由 runtime.py 注册）
-        self.on_task_complete: Callable[[str, "TaskRecord"], None] | None = None
+        self.on_task_complete: Callable[[str, TaskRecord], None] | None = None
 
     def create_pending_task(
         self,
@@ -323,7 +323,7 @@ class BackgroundTaskManager:
                 async_task.cancel()
                 try:
                     await asyncio.wait_for(async_task, timeout=3)
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                except (TimeoutError, asyncio.CancelledError, Exception):
                     pass
             task.async_task = None
             task.status = "killed"
@@ -346,7 +346,7 @@ class BackgroundTaskManager:
         process.terminate()
         try:
             await asyncio.wait_for(process.wait(), timeout=3)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
 

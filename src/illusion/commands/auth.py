@@ -7,10 +7,10 @@
 
 from __future__ import annotations
 
-from illusion.commands.types import CommandContext, CommandResult
 from illusion.api.auth_status import auth_status
-from illusion.config.settings import load_settings, save_settings
 from illusion.auth.storage import clear_env_credentials
+from illusion.commands.types import CommandContext, CommandResult
+from illusion.config.settings import load_settings, save_settings
 
 
 async def login_handler(args: str, context: CommandContext) -> CommandResult:

@@ -31,8 +31,8 @@ def ensure_feishu_dependencies() -> None:
     except ImportError:
         pass
 
-    from illusion.config.i18n import t
     from illusion.commands.misc import _run_pip_install
+    from illusion.config.i18n import t
 
     print(t("channel_installing_deps", deps=", ".join(FEISHU_DEPENDENCIES)))
     ok, output = _run_pip_install(FEISHU_DEPENDENCIES)

@@ -116,7 +116,7 @@ _RE_HEADING = re.compile(r"^#{1,6}\s*", re.MULTILINE)
 _RE_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
-def build_lark_client(cfg: "FeishuChannelConfig") -> Any:
+def build_lark_client(cfg: FeishuChannelConfig) -> Any:
     """构造飞书 lark 客户端
 
     Args:
@@ -263,7 +263,7 @@ def _strip_markdown_to_plain_text(text: str) -> str:
     return text.strip()
 
 
-async def send_text(client: Any, cfg: "FeishuChannelConfig", chat_id: str,
+async def send_text(client: Any, cfg: FeishuChannelConfig, chat_id: str,
                     text: str, *, reply_to: str = "") -> str:
     """发送文本消息，返回新消息 ID
 
@@ -341,7 +341,7 @@ async def edit_message(client: Any, chat_id: str, message_id: str, text: str) ->
         message_id: 要编辑的消息 ID
         text: 新文本
     """
-    from lark_oapi.api.im.v1 import (  # noqa: F401
+    from lark_oapi.api.im.v1 import (
         UpdateMessageRequest,
     )
 
@@ -448,7 +448,7 @@ async def patch_card(client: Any, message_id: str, text: str) -> None:
 
 async def send_file(
     client: Any,
-    cfg: "FeishuChannelConfig",
+    cfg: FeishuChannelConfig,
     chat_id: str,
     file_path: str,
     *,

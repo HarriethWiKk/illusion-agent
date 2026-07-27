@@ -40,7 +40,7 @@ import json  # JSON 解析和序列化
 import os  # 操作系统相关功能
 import sys  # 系统相关功能
 from pathlib import Path  # 路径操作
-from typing import TYPE_CHECKING, Any, Optional  # 类型注解
+from typing import TYPE_CHECKING, Any  # 类型注解
 
 import typer  # CLI 框架
 
@@ -154,9 +154,10 @@ def mcp_add(
         name: 服务器名称
         config_json: 服务器配置的 JSON 字符串
     """
+    from pydantic import TypeAdapter
+
     from illusion.config import load_settings, save_settings
     from illusion.mcp.types import McpServerConfig
-    from pydantic import TypeAdapter
 
     settings = load_settings()
     try:
@@ -418,7 +419,8 @@ def cron_logs_cmd(
 # ---- auth 子命令 ----
 
 # i18n 从共享模块导入
-from illusion.config.i18n import MESSAGES as _I18N, t as _t  # noqa: E402
+from illusion.config.i18n import MESSAGES as _I18N
+from illusion.config.i18n import t as _t
 
 
 def _ensure_language() -> str:
@@ -832,7 +834,7 @@ def auth_status_cmd() -> None:
 
 @auth_app.command("logout")
 def auth_logout(
-    env_key: Optional[str] = typer.Argument(None, help="Environment to clear (e.g. env_1)"),
+    env_key: str | None = typer.Argument(None, help="Environment to clear (e.g. env_1)"),
 ) -> None:
     """清除环境的已存储凭据
 
@@ -871,7 +873,7 @@ def auth_logout(
 
 @auth_app.command("switch")
 def auth_switch(
-    env_key: Optional[str] = typer.Argument(None, help="Environment to switch to (e.g. env_1)"),
+    env_key: str | None = typer.Argument(None, help="Environment to switch to (e.g. env_1)"),
 ) -> None:
     """切换活动环境
 
@@ -1003,21 +1005,22 @@ def web_start(
     port: int = typer.Option(3000, "--port", "-p", help="Web 服务端口"),
     host: str = typer.Option("127.0.0.1", "--host", help="监听地址"),
     dev: bool = typer.Option(False, "--dev", help="开发模式（启用 CORS，不 serve 静态文件）"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="指定模型"),
-    prompt: Optional[str] = typer.Option(None, "--prompt", help="初始提示词"),
+    model: str | None = typer.Option(None, "--model", "-m", help="指定模型"),
+    prompt: str | None = typer.Option(None, "--prompt", help="初始提示词"),
 ) -> None:
     """启动 Illusion Code Web 界面 / Launch Illusion Code Web UI"""
     import threading
+
     import uvicorn
-    from illusion.ui.web.server import create_app
-    from illusion.ui.web.ws_host import WebHostConfig
 
     # 读取settings.json中的working_directory字段，切换工作目录
     from illusion.config import load_settings
+    from illusion.ui.web.server import create_app
+    from illusion.ui.web.ws_host import WebHostConfig
     settings = load_settings()
     if settings.working_directory:
-        from pathlib import Path
         import os
+        from pathlib import Path
         working_dir = Path(settings.working_directory).expanduser().resolve()
         if working_dir.exists() and working_dir.is_dir():
             os.chdir(working_dir)
@@ -1123,8 +1126,10 @@ def update_cmd(
     asyncio.run(_run())
 
 
-async def _update_cli(args: str) -> "CommandResult":
+async def _update_cli(args: str) -> CommandResult:
     """CLI 更新入口，复用 handler 逻辑"""
+    from pathlib import Path
+
     from illusion.commands.misc import (
         _check_pypi_latest,
         _get_current_version,
@@ -1132,7 +1137,6 @@ async def _update_cli(args: str) -> "CommandResult":
     )
     from illusion.commands.types import CommandResult
     from illusion.config.i18n import t
-    from pathlib import Path
 
     include_deps = "--deps" in args
 
@@ -1292,7 +1296,7 @@ def main(
         rich_help_panel="Permissions",
     ),
     # --- Advanced ---
-    cwd: Optional[str] = typer.Option(
+    cwd: str | None = typer.Option(
         None,
         "--cwd",
         help="Working directory for the session",
@@ -1572,8 +1576,10 @@ def _feishu_login() -> None:
     引导用户完成飞书自建应用的凭据配置，明文存储（按需求不遮掩 App Secret）。
     """
     from illusion.channels.config import (
-        FeishuChannelConfig, FeishuGroupPolicy,
-        load_channels_config, save_channels_config,
+        FeishuChannelConfig,
+        FeishuGroupPolicy,
+        load_channels_config,
+        save_channels_config,
     )
     from illusion.channels.feishu import ensure_feishu_dependencies
     from illusion.config.paths import get_channels_file_path
@@ -1634,10 +1640,12 @@ def _weixin_login() -> None:
 
     安装依赖 → 扫码登录（浏览器投射二维码）→ 保存凭据
     """
-    from illusion.channels.weixin import ensure_weixin_dependencies
     from illusion.channels.config import (
-        WeixinChannelConfig, load_channels_config, save_channels_config,
+        WeixinChannelConfig,
+        load_channels_config,
+        save_channels_config,
     )
+    from illusion.channels.weixin import ensure_weixin_dependencies
     from illusion.config.paths import get_channels_file_path
 
     # 1. 安装依赖（与飞书同模式，首次配置时自动装）
@@ -1645,6 +1653,7 @@ def _weixin_login() -> None:
 
     # 2. 扫码登录（浏览器投射二维码）
     import asyncio
+
     from illusion.channels.weixin.ilink_api import qr_login_with_browser
     creds = asyncio.run(qr_login_with_browser())
     if creds is None:
@@ -1672,8 +1681,10 @@ def _qq_login() -> None:
     引导用户完成 QQ 开放平台机器人应用的凭据配置。
     """
     from illusion.channels.config import (
-        QQChannelConfig, QQGroupPolicy,
-        load_channels_config, save_channels_config,
+        QQChannelConfig,
+        QQGroupPolicy,
+        load_channels_config,
+        save_channels_config,
     )
     from illusion.channels.qq import ensure_qq_dependencies
     from illusion.config.paths import get_channels_file_path
@@ -1858,8 +1869,10 @@ def channel_logout(
 ) -> None:
     """清除指定渠道凭据"""
     from illusion.channels.config import (
-        FeishuChannelConfig, WeixinChannelConfig,
-        load_channels_config, save_channels_config,
+        FeishuChannelConfig,
+        WeixinChannelConfig,
+        load_channels_config,
+        save_channels_config,
     )
 
     _ensure_language()

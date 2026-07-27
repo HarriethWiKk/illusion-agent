@@ -25,7 +25,6 @@ React Launcher React 启动器模块
 """
 
 from __future__ import annotations
-from typing import Any
 
 import asyncio
 import json
@@ -34,6 +33,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _resolve_npm() -> str:

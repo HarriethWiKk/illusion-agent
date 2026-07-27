@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, Protocol
 
 from anthropic import APIError, APIStatusError, AsyncAnthropic
 from anthropic.types import ThinkingBlock as _SDKThinkingBlock
@@ -40,15 +41,15 @@ _sdk_sig_field = _SDKThinkingBlock.model_fields["signature"]
 _sdk_sig_field.annotation = str | None  # type: ignore[assignment]
 _SDKThinkingBlock.model_rebuild()
 
-from illusion.api.effort import EffortLevel  # noqa: E402
-from illusion.api.errors import (  # noqa: E402
+from illusion.api.effort import EffortLevel
+from illusion.api.errors import (
     AuthenticationFailure,
     IllusionCodeApiError,
     RateLimitFailure,
     RequestFailure,
 )
-from illusion.api.usage import UsageSnapshot  # noqa: E402
-from illusion.engine.messages import (  # noqa: E402
+from illusion.api.usage import UsageSnapshot
+from illusion.engine.messages import (
     ConversationMessage,
     _messages_have_media,
     _strip_media_from_messages,

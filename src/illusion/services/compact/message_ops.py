@@ -7,8 +7,8 @@ from __future__ import annotations
 import logging
 
 from illusion.engine.messages import (
-    ConversationMessage,
     ContentBlock,
+    ConversationMessage,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,

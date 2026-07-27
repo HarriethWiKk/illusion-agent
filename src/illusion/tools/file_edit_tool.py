@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
-
 from difflib import unified_diff
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -34,7 +33,6 @@ def mark_file_read(abs_path: str) -> None:
     注意：此函数现在仅用于向后兼容测试代码。
     实际的缓存逻辑已迁移到 FileStateCache。
     """
-    pass
 
 
 def has_file_been_read(abs_path: str) -> bool:

@@ -51,7 +51,7 @@ class FeishuDocReadTool(BaseTool[FeishuDocReadInput]):
     description = "Read the full content of a Feishu/Lark document as plain text or structured blocks."
     input_model = FeishuDocReadInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -160,7 +160,7 @@ class FeishuDocCreateTool(BaseTool[FeishuDocCreateInput]):
     description = "Create a new Feishu/Lark Docx document and return its token/URL."
     input_model = FeishuDocCreateInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -230,7 +230,7 @@ class FeishuDocWriteTool(BaseTool[FeishuDocWriteInput]):
     description = "Append content (text/code/heading) to an existing Feishu/Lark document."
     input_model = FeishuDocWriteInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:
@@ -321,7 +321,7 @@ class FeishuDocDeleteTool(BaseTool[FeishuDocDeleteInput]):
     description = "Delete a Feishu/Lark document (move to trash)."
     input_model = FeishuDocDeleteInput
 
-    def __init__(self, channel_config: "FeishuChannelConfig") -> None:
+    def __init__(self, channel_config: FeishuChannelConfig) -> None:
         """初始化
 
         Args:

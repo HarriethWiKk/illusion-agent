@@ -45,7 +45,6 @@ import locale
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # 输出截断阈值（描述中对外暴露此值，修改时需同步更新工具描述文本）
 MAX_OUTPUT_LENGTH = 30_000
 
@@ -168,7 +167,7 @@ class CommandExecutor:
                 process.communicate(),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             return NormalizedResult(

@@ -28,7 +28,7 @@ def _channel_display_name(name: str) -> str:
     }.get(name, name)
 
 
-def _format_session_list(sessions: "list[SessionInfo]") -> str:
+def _format_session_list(sessions: list[SessionInfo]) -> str:
     """格式化会话列表为提示词文本"""
     if not sessions:
         return "(no active sessions)"
@@ -102,8 +102,8 @@ def _build_current_channel_section(
 
 def _build_other_channels_section(
     current_channel: str | None,
-    channels_config: "ChannelsConfig",
-    active_sessions: "dict[str, list[SessionInfo]] | None",
+    channels_config: ChannelsConfig,
+    active_sessions: dict[str, list[SessionInfo]] | None,
 ) -> str:
     """构建其他 enabled 渠道概览"""
     other_names = [
@@ -139,10 +139,10 @@ def _build_other_channels_section(
 
 def get_channel_hint(
     current_channel: str | None,
-    channels_config: "ChannelsConfig",
+    channels_config: ChannelsConfig,
     *,
     qq_markdown_support: bool | None = None,
-    active_sessions: "dict[str, list[SessionInfo]] | None" = None,
+    active_sessions: dict[str, list[SessionInfo]] | None = None,
 ) -> str | None:
     """获取渠道感知提示词
 
@@ -191,10 +191,10 @@ def get_channel_hint(
 
 def list_active_sessions(
     channel_name: str,
-    channels_config: "ChannelsConfig",
+    channels_config: ChannelsConfig,
     *,
     limit: int = 5,
-) -> "list[SessionInfo]":
+) -> list[SessionInfo]:
     """枚举指定渠道的活跃会话
 
     按 channel_name 构造对应的 SessionStore 并调用 list_active。

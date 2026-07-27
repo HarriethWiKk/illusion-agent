@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod  # 抽象基类支持
+from collections.abc import AsyncIterator  # 类型注解
 from dataclasses import dataclass, field  # 数据类
-from typing import TYPE_CHECKING, Any, AsyncIterator  # 类型注解
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from illusion.config.settings import Settings  # 仅类型检查时导入，避免循环
@@ -104,7 +105,7 @@ class Channel(ABC):
 
     name: str  # 子类设置
 
-    def __init__(self, config: Any, settings: "Settings") -> None:
+    def __init__(self, config: Any, settings: Settings) -> None:
         """初始化渠道
 
         Args:
@@ -207,7 +208,7 @@ class Channel(ABC):
         raise NotImplementedError(f"{self.name} does not support send_document")
 
     async def download_attachment(
-        self, attachment: "Attachment", save_path: str
+        self, attachment: Attachment, save_path: str
     ) -> str:
         """下载入站附件到本地路径
 
@@ -237,7 +238,7 @@ class Channel(ABC):
         Args:
             chat_id: 目标会话
         """
-        pass  # 默认空操作
+        # 默认空操作
 
     async def stop_typing(self, chat_id: str) -> None:
         """停止打字状态指示（可选，微信渠道实现）
@@ -245,7 +246,7 @@ class Channel(ABC):
         Args:
             chat_id: 目标会话
         """
-        pass  # 默认空操作
+        # 默认空操作
 
     def get_bot_id(self) -> str:
         """返回 bot 自身标识（用于自回显检测）

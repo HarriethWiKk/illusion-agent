@@ -13,12 +13,10 @@ import sys
 
 class RipgrepNotFoundError(Exception):
     """rg 不可用时抛出"""
-    pass
 
 
 class RipgrepError(Exception):
     """rg 执行失败时抛出"""
-    pass
 
 # 平台映射表：平台键 -> (rg 目标三元组, 归档格式)
 PLATFORM_MAP = {
@@ -287,7 +285,7 @@ async def run_rg(args: list[str], cwd: str | None = None,
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 双重终止机制：先优雅终止，再强制杀死
             try:
                 process.terminate()
@@ -295,7 +293,7 @@ async def run_rg(args: list[str], cwd: str | None = None,
                 pass  # 进程已退出
             try:
                 await asyncio.wait_for(process.wait(), timeout=5)
-            except (asyncio.TimeoutError, ProcessLookupError, OSError):
+            except (TimeoutError, ProcessLookupError, OSError):
                 # 优雅终止超时或失败，强制杀死
                 try:
                     process.kill()
@@ -303,7 +301,7 @@ async def run_rg(args: list[str], cwd: str | None = None,
                     pass
                 try:
                     await asyncio.wait_for(process.wait(), timeout=3)
-                except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                except (TimeoutError, ProcessLookupError, OSError):
                     pass  # 最终兜底，放弃等待
             raise RipgrepError(f"rg 执行超时（{timeout}秒）")
 

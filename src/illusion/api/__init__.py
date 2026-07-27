@@ -26,8 +26,8 @@ from illusion.api.usage import UsageSnapshot
 __all__ = [
     "AnthropicApiClient",
     "CodexApiClient",
-    "OpenAICompatibleClient",
     "IllusionCodeApiError",
+    "OpenAICompatibleClient",
     "UsageSnapshot",
     "auth_status",
 ]
