@@ -183,6 +183,36 @@ async def effort_handler(args: str, context: CommandContext) -> CommandResult:
     return CommandResult(message=f"Reasoning effort set to {value}.")
 
 
+async def max_tokens_handler(args: str, context: CommandContext) -> CommandResult:
+    """显示或更新最大输出令牌数"""
+    settings = load_settings()
+    current = context.app_state.get().max_tokens if context.app_state is not None else settings.max_tokens
+    value = args.strip() or "show"
+    if value == "show":
+        return CommandResult(message=f"Max tokens: {current}")
+    # 预设档位
+    preset = {
+        "8k": 8192,
+        "16k": 16384,
+        "32k": 32768,
+        "64k": 65536,
+        "128k": 131072,
+    }
+    if value in preset:
+        tokens = preset[value]
+    elif value.isdigit():
+        tokens = int(value)
+    else:
+        return CommandResult(message="Usage: /max-tokens [show|8k|16k|32k|64k|128k|<number>]")
+    settings.max_tokens = tokens
+    save_settings(settings)
+    if context.engine is not None:
+        context.engine.max_tokens = tokens
+    if context.app_state is not None:
+        context.app_state.set(max_tokens=tokens)
+    return CommandResult(message=f"Max tokens set to {tokens}.")
+
+
 async def passes_handler(args: str, context: CommandContext) -> CommandResult:
     """显示或更新推理 pass 数"""
     settings = load_settings()

@@ -174,6 +174,7 @@ def create_default_command_registry() -> CommandRegistry:
         doctor_handler,
         effort_handler,
         language_handler,
+        max_tokens_handler,
         output_style_handler,
         passes_handler,
         permissions_handler,
@@ -266,6 +267,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler))
+    registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", turns_handler))
     registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler))
