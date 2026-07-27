@@ -20,6 +20,7 @@ import TextInput from 'ink-text-input';
 import type {UiLanguage} from '../i18n.js';
 import {t} from '../i18n.js';
 import {useQuestionState} from '../hooks/useQuestionState.js';
+import type {QuestionState} from '../hooks/useQuestionState.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {MIN_WRAP_WIDTH, stringWidth, WIDTH_SAFETY_EXTRA, wrapText} from '../utils/markdown.js';
 import {useTheme} from '../theme/ThemeContext.js';
@@ -153,16 +154,29 @@ function QuestionModal({
 	const hasPreview = !isMultiSelect && allOptions.some((o) => o.type === 'option' && !!o.preview);
 	const otherIdx = allOptions.findIndex((o) => o.type === 'other');
 
-	// 切换问题时重置当前问题的局部交互状态
+	// 切换问题时重置或恢复当前问题的局部交互状态
 	useEffect(() => {
-		setOptionIndex(0);
-		setIsOtherFocused(false);
-		setOtherInput('');
+		const qs = currentQuestion ? state.questionStates[currentQuestion.question] : undefined;
+		const persisted = qs?.selectedValue;
+
+		// 恢复单选 optionIndex（string 型 selectedValue）
+		if (typeof persisted === 'string') {
+			const idx = allOptions.findIndex((o) => o.type === 'option' && o.label === persisted);
+			setOptionIndex(idx >= 0 ? idx : 0);
+		} else {
+			setOptionIndex(0);
+		}
+
+		// 恢复"其他"输入文本
+		setOtherInput(qs?.textInputValue ?? '');
+		setIsOtherFocused(Boolean(qs?.textInputValue));
+
+		// 恢复自由文本多行缓冲
+		setExtraLines(qs?.extraLines ?? []);
+
 		setPreviewStartLine(0);
-		// 恢复当前问题已持久化的多选状态（从 questionStates 回读）
-		const persisted = currentQuestion
-			? state.questionStates[currentQuestion.question]?.selectedValue
-			: undefined;
+
+		// 恢复多选 selectedIndices（从 questionStates 回读）
 		if (Array.isArray(persisted)) {
 			const restored = new Set<number>();
 			persisted.forEach((label) => {
@@ -172,6 +186,11 @@ function QuestionModal({
 			setSelectedIndices(restored);
 		} else {
 			setSelectedIndices(new Set());
+		}
+
+		// 恢复自由文本单行输入（无选项场景）
+		if (qs?.freeTextInput !== undefined && setModalInput) {
+			setModalInput(qs.freeTextInput);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [currentQuestionIndex, allOptions.length]);
@@ -217,6 +236,20 @@ function QuestionModal({
 		commitAnswer(currentQuestion.question, labels, header);
 	};
 
+	/** 更新自由文本多行缓冲并持久化到 questionStates */
+	const updateExtraLines = (next: string[] | ((prev: string[]) => string[])): void => {
+		setExtraLines(next);
+		if (currentQuestion) {
+			// 计算最终值用于持久化
+			const resolved = typeof next === 'function' ? next(extraLines) : next;
+			state.updateQuestionState(
+				currentQuestion.question,
+				{extraLines: resolved},
+				false,
+			);
+		}
+	};
+
 	/** 渲染"其他"选项行（预览模式与普通模式共用） */
 	const renderOtherOption = (index: number, isCurrent: boolean, opts?: {rowLayout?: boolean}) => {
 		const isActive = isOtherFocused;
@@ -234,24 +267,34 @@ function QuestionModal({
 				{isActive ? (
 					<Box paddingLeft={2}>
 						<TextInput
-							value={otherInput}
-							onChange={setOtherInput}
-							placeholder={t(language, 'questionOtherPlaceholder')}
-							focus={true}
-							showCursor={true}
-							onSubmit={(v) => {
-								if (!opts?.rowLayout && isMultiSelect) {
-									setIsOtherFocused(false);
-									return;
-								}
-								const allLines = [...extraLines, v].filter(Boolean);
-								setExtraLines([]);
+						value={otherInput}
+						onChange={(v) => {
+							setOtherInput(v);
+							// 即时持久化到 questionStates（便于切回时不丢失）
+							if (currentQuestion) {
+								state.updateQuestionState(
+									currentQuestion.question,
+									{textInputValue: v},
+									isMultiSelect,
+								);
+							}
+						}}
+						placeholder={t(language, 'questionOtherPlaceholder')}
+						focus={true}
+						showCursor={true}
+						onSubmit={(v) => {
+							if (!opts?.rowLayout && isMultiSelect) {
 								setIsOtherFocused(false);
-								if (allLines.length > 0 && currentQuestion) {
-									commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
-								}
-							}}
-						/>
+								return;
+							}
+							const allLines = [...extraLines, v].filter(Boolean);
+							updateExtraLines([]);
+							setIsOtherFocused(false);
+							if (allLines.length > 0 && currentQuestion) {
+								commitAnswer(currentQuestion.question, allLines.join('\n'), currentQuestion.header ?? 'answer');
+							}
+						}}
+					/>
 					</Box>
 				) : otherInput ? (
 					<Box paddingLeft={2}>
@@ -342,7 +385,7 @@ function QuestionModal({
 			}
 			// Shift+Enter 换行
 			if (key.shift && key.return) {
-				setExtraLines((lines) => [...lines, otherInput]);
+				updateExtraLines((lines) => [...lines, otherInput]);
 				setOtherInput('');
 				return;
 			}
@@ -366,7 +409,7 @@ function QuestionModal({
 		// ---- 无选项的自由文本输入 ----
 		if (!hasOptions) {
 			if (key.shift && key.return) {
-				setExtraLines((lines) => [...lines, modalInput]);
+				updateExtraLines((lines) => [...lines, modalInput]);
 				setModalInput('');
 			}
 			return;
@@ -438,8 +481,12 @@ function QuestionModal({
 	const selectSingle = (index: number, label: string): void => {
 		if (!currentQuestion) return;
 		const header = currentQuestion.header ?? 'answer';
-		// 持久化选中值（便于切回时回显）
-		state.updateQuestionState(currentQuestion.question, {selectedValue: label}, false);
+		// 持久化选中值与"其他"输入文本（便于切回时回显）
+		const updates: Partial<QuestionState> = {selectedValue: label};
+		if (isOtherFocused) {
+			updates.textInputValue = otherInput;
+		}
+		state.updateQuestionState(currentQuestion.question, updates, false);
 		commitAnswer(currentQuestion.question, `${index + 1}. ${label}`, header);
 	};
 
@@ -466,12 +513,17 @@ function QuestionModal({
 			} else {
 				next.add(index);
 			}
-			// 即时持久化（不含"其他"输入文本，提交时再合并）
+			// 即时持久化（含"其他"输入文本，便于切回时回显）
 			if (currentQuestion) {
 				const labels = allOptions
 					.filter((opt, i) => opt.type === 'option' && next.has(i))
 					.map((opt) => opt.label);
-				state.updateQuestionState(currentQuestion.question, {selectedValue: labels}, true);
+				const updates: Partial<QuestionState> = {selectedValue: labels};
+				// 若"其他"被选中，同步保存其输入文本
+				if (otherIdx >= 0 && next.has(otherIdx)) {
+					updates.textInputValue = otherInput;
+				}
+				state.updateQuestionState(currentQuestion.question, updates, true);
 			}
 			return next;
 		});
@@ -481,7 +533,7 @@ function QuestionModal({
 	const handleTextSubmit = (value: string): void => {
 		if (hasOptions || !currentQuestion) return;
 		const allLines = [...extraLines, value];
-		setExtraLines([]);
+		updateExtraLines([]);
 		const header = currentQuestion.header ?? 'answer';
 		commitAnswer(currentQuestion.question, allLines.join('\n'), header);
 	};
@@ -711,9 +763,23 @@ function QuestionModal({
 						</Box>
 					) : null}
 					<Box marginTop={1}>
-						<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
-						<TextInput value={modalInput} onChange={setModalInput} onSubmit={handleTextSubmit} />
-					</Box>
+					<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
+					<TextInput
+						value={modalInput}
+						onChange={(v) => {
+							setModalInput(v);
+							// 持久化自由文本输入到 questionStates（便于切回时不丢失）
+							if (currentQuestion) {
+								state.updateQuestionState(
+									currentQuestion.question,
+									{freeTextInput: v},
+									false,
+								);
+							}
+						}}
+						onSubmit={handleTextSubmit}
+					/>
+				</Box>
 				</>
 			) : null}
 

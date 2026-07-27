@@ -26,7 +26,11 @@ export type QuestionState = {
 	/** 当前选中值（单选为字符串，多选为字符串数组） */
 	selectedValue?: string | string[];
 	/** "其他"选项的文本输入内容 */
-	textInputValue: string;
+	textInputValue?: string;
+	/** 自由文本多行缓冲（Shift+Enter 累积的行） */
+	extraLines?: string[];
+	/** 无选项自由文本单行输入 */
+	freeTextInput?: string;
 };
 
 /**
@@ -85,11 +89,21 @@ function reducer(state: State, action: Action): State {
 			const existing = state.questionStates[action.questionText];
 			const newState: QuestionState = {
 				selectedValue:
-					action.updates.selectedValue ??
-					existing?.selectedValue ??
-					(action.isMultiSelect ? [] : undefined),
+					action.updates.selectedValue !== undefined
+						? action.updates.selectedValue
+						: existing?.selectedValue ?? (action.isMultiSelect ? [] : undefined),
 				textInputValue:
-					action.updates.textInputValue ?? existing?.textInputValue ?? '',
+					action.updates.textInputValue !== undefined
+						? action.updates.textInputValue
+						: existing?.textInputValue,
+				extraLines:
+					action.updates.extraLines !== undefined
+						? action.updates.extraLines
+						: existing?.extraLines,
+				freeTextInput:
+					action.updates.freeTextInput !== undefined
+						? action.updates.freeTextInput
+						: existing?.freeTextInput,
 			};
 			return {
 				...state,
