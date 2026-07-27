@@ -4,7 +4,7 @@
 但 textual_app.py 已作为死代码删除，故仅保留对 agent_executor 的回归测试。
 
 验证的 bug：
-2. Bug 2: agent_executor finally 块漏 cancel query_task，外层 cancel 传播时
+1. Bug 2: agent_executor finally 块漏 cancel query_task，外层 cancel 传播时
    query_task 泄漏，工具继续运行，Ctrl+X 无法终止任务。修复：finally 中显式 cancel query_task。
 """
 from __future__ import annotations
