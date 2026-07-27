@@ -75,6 +75,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "language_set": {"zh-CN": "界面语言已设置为: {lang}", "en-US": "Interface language set to: {lang}"},
     "skip_default": {"zh-CN": "回车跳过，使用默认值", "en-US": "Press Enter to skip, use default"},
     "model_added": {"zh-CN": "已向 {env_key} 添加模型 {model_key}: {model_name}", "en-US": "Added {model_key} to {env_key}: {model_name}"},
+    "add_another_model": {"zh-CN": "继续添加模型？[y/N]", "en-US": "Add another model? [y/N]"},
+    "existing_envs": {"zh-CN": "已有环境:", "en-US": "Existing environments:"},
+    "create_new_env": {"zh-CN": "创建新环境", "en-US": "Create new env"},
+    "env_not_exist": {"zh-CN": "环境 {env_key} 不存在", "en-US": "Environment {env_key} does not exist"},
     # --- 后端事件 ---
     "task_stopped": {"zh-CN": "当前任务已停止。", "en-US": "Current task stopped."},
     "no_active_task": {"zh-CN": "没有正在执行的任务", "en-US": "No active task to stop"},
