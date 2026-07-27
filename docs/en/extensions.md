@@ -33,6 +33,17 @@ IllusionCode provides a layered extension system. Extensions can be configured a
 
 All types support `enabled` field (default `true`). Set to `false` to disable without removing config.
 
+The `type` field is optional. When omitted, the server is treated as `stdio` by default:
+
+```json
+{
+  "command": "python",
+  "args": ["server.py"]
+}
+```
+
+You only need to specify `type` explicitly for non-stdio transports (`http`/`sse`/`ws`).
+
 ### Three Configuration Sources (priority high → low)
 
 #### 1. Plugin MCP
@@ -46,19 +57,19 @@ Scan all `*.json` files in the directory. Supports two formats:
 **Single server** (filename = server name):
 ```json
 {
-  "type": "stdio",
   "command": "python",
   "args": ["server.py"],
   "enabled": true
 }
 ```
 
+Omitting `type` defaults to `stdio`.
+
 **Multi server** (with `mcpServers` key):
 ```json
 {
   "mcpServers": {
     "filesystem": {
-      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"]
     },
@@ -71,6 +82,8 @@ Scan all `*.json` files in the directory. Supports two formats:
 }
 ```
 
+Above, `filesystem` omits `type` and defaults to `stdio`; `remote-api` is explicitly declared as `http`.
+
 Both `mcpServers` and `mcp_servers` key names are supported.
 
 #### 3. Global MCP (`settings.json`)
@@ -81,7 +94,6 @@ In the `mcp_servers` field of `~/.illusion/settings.json`:
 {
   "mcp_servers": {
     "my-server": {
-      "type": "stdio",
       "command": "python",
       "args": ["server.py"],
       "enabled": true
@@ -89,6 +101,8 @@ In the `mcp_servers` field of `~/.illusion/settings.json`:
   }
 }
 ```
+
+Omitting `type` defaults to `stdio`.
 
 CLI management:
 ```bash

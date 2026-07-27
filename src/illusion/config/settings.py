@@ -34,7 +34,7 @@ from typing import Any  # 导入 Any 类型用于泛型
 
 from pydantic import BaseModel, Field, field_validator  # 导入 pydantic 模型基类和验证器
 
-from illusion.mcp.types import McpServerConfig  # 导入 MCP 服务器配置
+from illusion.mcp.types import McpServerConfig, _normalize_server_config_type  # 导入 MCP 服务器配置
 from illusion.permissions.modes import PermissionMode  # 导入权限模式
 from illusion.utils.atomic_write import atomic_write_text  # 导入原子写入工具
 
@@ -259,6 +259,17 @@ class Settings(BaseModel):
     passes: int = 1
     verbose: bool = False
     working_directory: str | None = None  # 固定工作目录
+
+    @field_validator("mcp_servers", mode="before")
+    @classmethod
+    def _default_mcp_type_to_stdio(cls, value: Any) -> Any:
+        """为缺少 type 字段的 MCP 服务器配置补全 ``type: "stdio"``。"""
+        if not isinstance(value, dict):
+            return value
+        return {
+            name: _normalize_server_config_type(cfg)
+            for name, cfg in value.items()
+        }
 
     # --- env_N 配置辅助方法 ---
 

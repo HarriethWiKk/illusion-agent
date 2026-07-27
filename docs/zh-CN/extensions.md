@@ -33,6 +33,17 @@ IllusionCode 提供分层扩展系统。扩展可在三个层级配置（优先�
 
 所有类型支持 `enabled` 字段（默认 `true`）。设为 `false` 可禁用而不删除配置。
 
+`type` 字段为可选。省略时默认按 `stdio` 类型处理：
+
+```json
+{
+  "command": "python",
+  "args": ["server.py"]
+}
+```
+
+仅在使用 `http`/`sse`/`ws` 等非 stdio 类型时才需显式填写 `type`。
+
 ### 三个配置来源（优先级从高到低）
 
 #### 1. 插件 MCP
@@ -46,19 +57,19 @@ IllusionCode 提供分层扩展系统。扩展可在三个层级配置（优先�
 **单服务器**（文件名 = 服务器名）：
 ```json
 {
-  "type": "stdio",
   "command": "python",
   "args": ["server.py"],
   "enabled": true
 }
 ```
 
+省略 `type` 字段时默认按 `stdio` 处理。
+
 **多服务器**（使用 `mcpServers` 键）：
 ```json
 {
   "mcpServers": {
     "filesystem": {
-      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"]
     },
@@ -71,6 +82,8 @@ IllusionCode 提供分层扩展系统。扩展可在三个层级配置（优先�
 }
 ```
 
+上例中 `filesystem` 省略了 `type`，默认按 `stdio` 处理；`remote-api` 显式声明为 `http` 类型。
+
 `mcpServers` 和 `mcp_servers` 两种键名均支持。
 
 #### 3. 全局 MCP（`settings.json`）
@@ -81,7 +94,6 @@ IllusionCode 提供分层扩展系统。扩展可在三个层级配置（优先�
 {
   "mcp_servers": {
     "my-server": {
-      "type": "stdio",
       "command": "python",
       "args": ["server.py"],
       "enabled": true
@@ -89,6 +101,8 @@ IllusionCode 提供分层扩展系统。扩展可在三个层级配置（优先�
   }
 }
 ```
+
+省略 `type` 字段时默认按 `stdio` 处理。
 
 CLI 管理：
 ```bash
@@ -482,7 +496,6 @@ hooks:
 {
   "mcp_servers": {
     "server-name": {
-      "type": "stdio",
       "command": "python",
       "args": ["server.py"],
       "enabled": false  // 禁用此服务器
@@ -490,6 +503,8 @@ hooks:
   }
 }
 ```
+
+省略 `type` 字段时默认按 `stdio` 处理。
 
 ### 项目级禁用
 

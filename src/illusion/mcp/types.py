@@ -28,19 +28,37 @@ MCP 配置和状态模型
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+def _normalize_server_config_type(config: Any) -> Any:
+    """当配置 dict 缺少 type 字段时，默认设为 stdio。
+
+    大部分 MCP 服务器为 stdio 类型，省略 type 字段时按 stdio 处理，
+    避免用户在每个配置中重复填写 ``"type": "stdio"``。
+
+    Args:
+        config: 单个 MCP 服务器配置（dict 或其他形式）
+
+    Returns:
+        补全 type 字段后的配置（返回副本，不修改原始数据）
+    """
+    if isinstance(config, dict) and "type" not in config:
+        return {**config, "type": "stdio"}
+    return config
 
 
 class McpStdioServerConfig(BaseModel):
     """
     STDIO 类型 MCP 服务器配置
-    
+
     通过标准输入输出流与 MCP 服务器通信的配置。
-    
+    此为默认类型：当配置省略 type 字段时按 stdio 处理。
+
     Attributes:
-        type: 服务器类型，固定为 "stdio"
+        type: 服务器类型，固定为 "stdio"（省略时默认 stdio）
         command: 要执行的命令
         args: 命令参数列表
         env: 环境变量字典
@@ -116,6 +134,8 @@ class McpWebSocketServerConfig(BaseModel):
 # MCP 服务器配置联合类型，使用 discriminator 按 type 字段精确分发，
 # 避免 Pydantic smart union 在字段缺失时产生歧义。
 # 支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 四种传输方式。
+# 注意：discriminator 要求 type 字段存在，省略 type 时由上层
+# （McpJsonConfig/Settings/配置加载器）预处理补全为 "stdio"。
 McpServerConfig = Annotated[
     McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig | McpWebSocketServerConfig,
     Field(discriminator="type"),
@@ -125,14 +145,33 @@ McpServerConfig = Annotated[
 class McpJsonConfig(BaseModel):
     """
     MCP 配置文件格式
-    
+
     用于插件和项目文件中的 MCP 服务器配置格式。
-    
+    省略 type 字段的服务器配置默认按 stdio 类型处理。
+
     Attributes:
         mcp_servers: MCP 服务器名称到配置的映射字典
     """
 
     mcpServers: dict[str, McpServerConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_type_to_stdio(cls, data: Any) -> Any:
+        """解析前为缺少 type 字段的服务器配置补全 ``type: "stdio"``。"""
+        if not isinstance(data, dict):
+            return data
+        key = "mcpServers" if "mcpServers" in data else "mcp_servers" if "mcp_servers" in data else None
+        if key is None:
+            return data
+        servers = data[key]
+        if not isinstance(servers, dict):
+            return data
+        data[key] = {
+            name: _normalize_server_config_type(cfg)
+            for name, cfg in servers.items()
+        }
+        return data
 
 
 @dataclass(frozen=True)

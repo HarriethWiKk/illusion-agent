@@ -29,7 +29,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from illusion.config.paths import get_project_mcp_dir
-from illusion.mcp.types import McpServerConfig
+from illusion.mcp.types import McpServerConfig, _normalize_server_config_type
 from illusion.plugins.types import LoadedPlugin
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,8 @@ def load_project_mcp_configs(cwd: str | Path) -> dict[str, object]:
     文件格式支持：
     1. 单个服务器配置（文件名作为服务器名）：
        {"type": "stdio", "command": "python", "args": ["server.py"]}
+       省略 type 字段时默认按 stdio 处理：
+       {"command": "python", "args": ["server.py"]}
 
     2. 多个服务器配置（使用 mcpServers 键）：
        {"mcpServers": {"server1": {...}, "server2": {...}}}
@@ -92,7 +94,8 @@ def _parse_mcp_config_dict(
     支持三种格式：
     1. {"mcpServers": {...}} / {"mcp_servers": {...}}（标准多服务器格式）
     2. {"server-name": {...}, ...}（无包装的多服务器格式，每个 value 必须像 server config）
-    3. {"type": "stdio", ...}（单服务器配置，使用 "_inline" 或文件名作为名称）
+    3. {"type": "stdio", ...}（单服务器配置，使用 "_inline" 或文件名作为名称；
+       省略 type 字段时默认按 stdio 处理）
     """
     from illusion.mcp.types import McpJsonConfig
 
@@ -122,7 +125,9 @@ def _parse_mcp_config_dict(
         if all_values_like_config:
             for name, server_cfg in raw.items():
                 try:
-                    config = server_adapter.validate_python(server_cfg)
+                    config = server_adapter.validate_python(
+                        _normalize_server_config_type(server_cfg)
+                    )
                     if getattr(config, "enabled", True):
                         servers[name] = config
                 except Exception as exc:
@@ -136,7 +141,7 @@ def _parse_mcp_config_dict(
 
     # 格式 3：单服务器配置
     try:
-        config = server_adapter.validate_python(raw)
+        config = server_adapter.validate_python(_normalize_server_config_type(raw))
         if getattr(config, "enabled", True):
             name = Path(str(source)).stem if source else "_inline"
             servers[name] = config
