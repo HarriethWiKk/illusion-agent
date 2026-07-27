@@ -17,6 +17,7 @@ import {Box, Text, useApp, useInput} from 'ink';
 import {getActivityDescription} from './tools/registry.js';
 import {CommandPicker} from './components/CommandPicker.js';
 import {ConversationView} from './components/ConversationView.js';
+import {CustomInputModal} from './components/CustomInputModal.js';
 import {ModalHost} from './components/ModalHost.js';
 import {PromptInput} from './components/PromptInput.js';
 import {SelectModal, type SelectOption} from './components/SelectModal.js';
@@ -129,6 +130,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [pickerIndex, setPickerIndex] = useState(0);
 	const [selectModal, setSelectModal] = useState<SelectModalState>(null);
 	const [selectIndex, setSelectIndex] = useState(0);
+	const [customInputModal, setCustomInputModal] = useState<{prompt: string; command: string} | null>(null);
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
 	const [cursorReset, setCursorReset] = useState(0);
@@ -228,6 +230,16 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			title: req.title,
 			options: req.options.map((o) => ({value: o.value, label: o.label, description: o.description})),
 			onSelect: (value) => {
+				// max-tokens custom 分支：弹出数字输入 modal
+				if (req.command === 'max-tokens' && value === 'custom') {
+					setCustomInputModal({
+						prompt: t(language, 'maxTokensCustomPrompt'),
+						command: 'max-tokens',
+					});
+					setSelectModal(null);
+					session.setSelectRequest(null);
+					return;
+				}
 				session.sendRequest({type: 'apply_select_command', command: req.command, value});
 				session.setBusy(true);
 				setSelectModal(null);
@@ -346,6 +358,18 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /effort 无参数时 → 弹出选择框
+		if (trimmed === '/effort') {
+			session.sendRequest({type: 'select_command', command: 'effort'});
+			return true;
+		}
+
+		// /max-tokens 无参数时 → 弹出选择框
+		if (trimmed === '/max-tokens') {
+			session.sendRequest({type: 'select_command', command: 'max-tokens'});
+			return true;
+		}
+
 		// /context → 显示上下文管理选择器
 		if (trimmed === '/context') {
 			session.sendRequest({type: 'select_command', command: 'context'});
@@ -416,6 +440,11 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// ESC → 清除指令结果
 		if (key.escape && session.commandResult) {
 			session.setCommandResult(null);
+			return;
+		}
+
+		// --- 自定义输入模态框激活时，字符输入交由其内部 TextInput ---
+		if (customInputModal) {
 			return;
 		}
 
@@ -659,15 +688,29 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : null}
 
 			{/* 前端选择模态框（权限选择器等） */}
-			{selectModal ? (
-				<SelectModal
-					title={selectModal.title}
-					options={selectModal.options}
-					selectedIndex={selectIndex}
-				/>
-			) : null}
+		{selectModal ? (
+			<SelectModal
+				title={selectModal.title}
+				options={selectModal.options}
+				selectedIndex={selectIndex}
+			/>
+		) : null}
 
-			{/* 命令选择器 */}
+		{/* 自定义数字输入模态框 */}
+		{customInputModal ? (
+			<CustomInputModal
+				prompt={customInputModal.prompt}
+				language={language}
+				onSubmit={(value) => {
+					session.sendRequest({type: 'apply_select_command', command: customInputModal.command, value});
+					session.setBusy(true);
+					setCustomInputModal(null);
+				}}
+				onCancel={() => setCustomInputModal(null)}
+			/>
+		) : null}
+
+		{/* 命令选择器 */}
 			{showPicker ? (
 				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} totalCommands={session.commands.length} />
 			) : null}
