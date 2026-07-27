@@ -828,17 +828,9 @@ class ReactBackendHost:
         if command == "context" and selected == "__change_window__":
             await self._handle_select_command("context-window")
             return True
-        # 特殊路由：context-window → custom 时弹出输入框
+        # context-window → __custom__ 由前端 CustomInputModal 接管，此处不应到达
         if command == "context-window" and selected == "__custom__":
-            answer = await self._ask_question(
-                "请输入上下文窗口大小（tokens）："
-                if self._bundle and str(self._bundle.app_state.get().ui_language or "").lower().startswith("zh")
-                else "Enter context window size (tokens):"
-            )
-            await self._emit(BackendEvent(type="modal_request", modal=None))
-            answer = str(answer).strip()
-            if answer:
-                return await self._process_line(f"/context set {answer}", transcript_line="/context")
+            await self._emit(BackendEvent(type="error", message="custom input must be handled by frontend"))
             await self._emit(BackendEvent(type="line_complete"))
             return True
         # rewind 两步选择：第一步（选消息）→ 存储目标，弹出模式选择

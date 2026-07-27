@@ -77,6 +77,7 @@ const ZH: Dict = {
 	maxTokensCustom: '自定义',
 	maxTokensCustomPrompt: '输入自定义最大令牌数:',
 	maxTokensInvalid: '请输入有效的正整数',
+	contextWindowCustomPrompt: '输入自定义上下文窗口大小:',
 	customInputSubmit: '确认',
 	customInputCancel: '取消',
 	// ---- 后端退出兜底提示 ----
@@ -137,6 +138,7 @@ const EN: Dict = {
 	maxTokensCustom: 'Custom',
 	maxTokensCustomPrompt: 'Enter custom max tokens:',
 	maxTokensInvalid: 'Please enter a valid positive integer',
+	contextWindowCustomPrompt: 'Enter custom context window size:',
 	customInputSubmit: 'Submit',
 	customInputCancel: 'Cancel',
 	// ---- backend exit fallback hint ----

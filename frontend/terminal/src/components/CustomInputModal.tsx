@@ -57,10 +57,10 @@ export function CustomInputModal({prompt, language, onSubmit, onCancel}: CustomI
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.colors.illusion} paddingX={2} paddingY={1}>
-			<Text color={theme.colors.illusionShimmer} bold>
-				{prompt}
-			</Text>
-			<Box marginTop={1}>
+			<Box>
+				<Text color={theme.colors.illusionShimmer} bold>
+					{prompt}{' '}
+				</Text>
 				<TextInput
 					value={value}
 					onChange={setValue}

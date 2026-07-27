@@ -230,11 +230,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			title: req.title,
 			options: req.options.map((o) => ({value: o.value, label: o.label, description: o.description})),
 			onSelect: (value) => {
-				// max-tokens custom 分支：弹出数字输入 modal
-				if (req.command === 'max-tokens' && value === 'custom') {
+				// max-tokens / context-window custom 分支：弹出数字输入 modal
+				if (
+					(req.command === 'max-tokens' && value === 'custom') ||
+					(req.command === 'context-window' && value === '__custom__')
+				) {
 					setCustomInputModal({
-						prompt: t(language, 'maxTokensCustomPrompt'),
-						command: 'max-tokens',
+						prompt:
+							req.command === 'max-tokens'
+								? t(language, 'maxTokensCustomPrompt')
+								: t(language, 'contextWindowCustomPrompt'),
+						command: req.command,
 					});
 					setSelectModal(null);
 					session.setSelectRequest(null);
@@ -749,29 +755,29 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.illusion}>{t(language, 'connecting')}</Text>
 					</Box>
 				) : null
-			) : session.modal || selectModal || pendingPermissionAck ? null : session.busy ? (
-				<Box marginTop={1}>
-					<Spinner
-						label={session.bgAgentLabel ?? undefined}
-						todoItems={session.todoItems}
-						language={language}
-						toolName={currentToolName}
-						sessionId={String(session.status.session_id ?? '')}
-					/>
-				</Box>
-			) : (
-				<PromptInput
-					busy={session.busy}
-					input={input}
-					setInput={setInput}
-					onSubmit={onSubmit}
-					toolName={session.busy ? currentToolName : undefined}
-					suppressSubmit={showPicker}
-					cursorReset={cursorReset}
-					language={language}
+			) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
+			<Box marginTop={1}>
+				<Spinner
+					label={session.bgAgentLabel ?? undefined}
 					todoItems={session.todoItems}
+					language={language}
+					toolName={currentToolName}
+					sessionId={String(session.status.session_id ?? '')}
 				/>
-			)}
+			</Box>
+		) : (
+			<PromptInput
+				busy={session.busy}
+				input={input}
+				setInput={setInput}
+				onSubmit={onSubmit}
+				toolName={session.busy ? currentToolName : undefined}
+				suppressSubmit={showPicker}
+				cursorReset={cursorReset}
+				language={language}
+				todoItems={session.todoItems}
+			/>
+		)}
 
 			{/* 键盘快捷键提示（仅在后端就绪后显示） */}
 			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
