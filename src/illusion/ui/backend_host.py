@@ -868,6 +868,9 @@ class ReactBackendHost:
             return f"/output-style {value}"
         if command == "effort":
             return f"/effort {value}"
+        if command == "max-tokens":
+            # custom 由前端转为数字字符串
+            return f"/max-tokens {value}"
         if command == "passes":
             return f"/passes {value}"
         if command == "turns":
@@ -1050,6 +1053,40 @@ class ReactBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "推理强度" if zh else "Reasoning Effort", "command": "effort"},
+                    select_options=options,
+                )
+            )
+            return
+
+        if command == "max-tokens":
+            current = int(state.max_tokens or settings.max_tokens)
+            presets = [
+                ("8k", 8192),
+                ("16k", 16384),
+                ("32k", 32768),
+                ("64k", 65536),
+                ("128k", 131072),
+            ]
+            options = [
+                {
+                    "value": key,
+                    "label": key.upper(),
+                    "description": f"{tokens} tokens" + (" (" + ("默认" if zh else "default") + ")" if tokens == 16384 else ""),
+                    "active": tokens == current,
+                }
+                for key, tokens in presets
+            ]
+            # 自定义档位
+            options.append({
+                "value": "custom",
+                "label": "自定义" if zh else "Custom",
+                "description": "手动输入数字" if zh else "Enter custom number",
+                "active": current not in {tokens for _, tokens in presets},
+            })
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": "最大令牌数" if zh else "Max Tokens", "command": "max-tokens"},
                     select_options=options,
                 )
             )
