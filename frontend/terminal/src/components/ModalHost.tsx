@@ -201,7 +201,7 @@ function QuestionModal({
 	 * - 单问题多选：直接以 JSON {header:[labels]} 提交
 	 * - 多问题：写入 answers，由复核页统一提交
 	 */
-	const commitAnswer = (questionText: string, value: string | string[], header: string): void => {
+	const commitAnswer = (questionText: string, value: string | string[], header: string, shouldAdvance: boolean = true): void => {
 		const isSingleQuestion = questions.length === 1;
 		// 单问题直接提交（保持字符串契约）
 		if (isSingleQuestion) {
@@ -212,15 +212,15 @@ function QuestionModal({
 			}
 			return;
 		}
-		// 多问题：记录答案并前进
+		// 多问题：记录答案，按需前进
 		const stored = Array.isArray(value) ? value.join(', ') : value;
-		state.setAnswer(questionText, stored, true);
+		state.setAnswer(questionText, stored, shouldAdvance);
 	};
 
 	/**
 	 * 提交多选答案（收集当前问题所有选中项，含"其他"输入）。
 	 */
-	const commitMultiSelect = (): void => {
+	const commitMultiSelect = (shouldAdvance: boolean = true): void => {
 		if (!currentQuestion) return;
 		const labels = allOptions
 			.filter((opt, i) => opt.type === 'option' && selectedIndices.has(i))
@@ -233,7 +233,7 @@ function QuestionModal({
 		const header = currentQuestion.header ?? 'answer';
 		// 同步持久化到 questionStates（便于切回时不丢失）
 		state.updateQuestionState(currentQuestion.question, {selectedValue: labels}, true);
-		commitAnswer(currentQuestion.question, labels, header);
+		commitAnswer(currentQuestion.question, labels, header, shouldAdvance);
 	};
 
 	/** 更新自由文本多行缓冲并持久化到 questionStates */
@@ -394,17 +394,40 @@ function QuestionModal({
 		}
 
 		// ---- 多问题间导航（左右箭头 / Tab / Shift+Tab）----
-		// 文本输入模式或"其他"聚焦时不导航
-		const wantsPrev = key.leftArrow || (key.tab && key.shift);
-		const wantsNext = key.rightArrow || (key.tab && !key.shift);
-		if (wantsPrev && currentQuestionIndex > 0) {
-			state.prevQuestion();
-			return;
+	// 切换 tab 等同于一次回车：先提交当前问题（不自动前进），再前进/后退
+	// 文本输入模式或"其他"聚焦时不导航
+	const wantsPrev = key.leftArrow || (key.tab && key.shift);
+	const wantsNext = key.rightArrow || (key.tab && !key.shift);
+	if (wantsPrev && currentQuestionIndex > 0) {
+		// 先提交当前问题（若有选项且已选中），不自动前进
+		if (hasOptions && currentQuestion) {
+			if (isMultiSelect) {
+				commitMultiSelect(false);
+			} else {
+				const selected = allOptions[optionIndex];
+				if (selected && selected.type !== 'other') {
+					selectSingle(optionIndex, selected.label, false);
+				}
+			}
 		}
-		if (wantsNext && currentQuestionIndex < questions.length) {
-			state.nextQuestion();
-			return;
+		state.prevQuestion();
+		return;
+	}
+	if (wantsNext && currentQuestionIndex < questions.length) {
+		// 先提交当前问题（若有选项且已选中），不自动前进
+		if (hasOptions && currentQuestion) {
+			if (isMultiSelect) {
+				commitMultiSelect(false);
+			} else {
+				const selected = allOptions[optionIndex];
+				if (selected && selected.type !== 'other') {
+					selectSingle(optionIndex, selected.label, false);
+				}
+			}
 		}
+		state.nextQuestion();
+		return;
+	}
 
 		// ---- 无选项的自由文本输入 ----
 		if (!hasOptions) {
@@ -478,7 +501,7 @@ function QuestionModal({
 	/**
 	 * 单选选中某选项（含 preview 模式下的选中）。
 	 */
-	const selectSingle = (index: number, label: string): void => {
+	const selectSingle = (index: number, label: string, shouldAdvance: boolean = true): void => {
 		if (!currentQuestion) return;
 		const header = currentQuestion.header ?? 'answer';
 		// 持久化选中值与"其他"输入文本（便于切回时回显）
@@ -487,7 +510,7 @@ function QuestionModal({
 			updates.textInputValue = otherInput;
 		}
 		state.updateQuestionState(currentQuestion.question, updates, false);
-		commitAnswer(currentQuestion.question, `${index + 1}. ${label}`, header);
+		commitAnswer(currentQuestion.question, `${index + 1}. ${label}`, header, shouldAdvance);
 	};
 
 	/**
