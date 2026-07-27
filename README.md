@@ -25,7 +25,7 @@ IllusionCode is an open-source AI-powered command-line programming assistant tha
 - 📝 **Comprehensive Markdown Rendering** - Tables, code blocks, rich text
 - 🤖 **Multi AI Provider Support** - Anthropic, OpenAI, Copilot, Codex, and any compatible endpoint
 - 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
-- ⌨️ **48 Slash Commands** - Session, config, project, scheduling
+- ⌨️ **49 Slash Commands** - Session, config, project, scheduling
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules

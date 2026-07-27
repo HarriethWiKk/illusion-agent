@@ -3,7 +3,7 @@
 ==================
 
 /config, /language, /output-style, /privacy-settings, /doctor,
-/thinking, /effort, /passes, /turns, /permissions, /plan
+/thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
 """
 
 from __future__ import annotations
@@ -176,8 +176,9 @@ async def effort_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message="Usage: /effort [show|low|medium|high|xhigh|max]")
     settings.effort = value
     save_settings(settings)
-    context.engine.effort = effort_level
-    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
+    if context.engine is not None:
+        context.engine.effort = effort_level
+        context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
     if context.app_state is not None:
         context.app_state.set(effort=value)
     return CommandResult(message=f"Reasoning effort set to {value}.")
@@ -228,7 +229,8 @@ async def passes_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message="Usage: /passes [show|COUNT]")
     settings.passes = passes
     save_settings(settings)
-    context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
+    if context.engine is not None:
+        context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
     if context.app_state is not None:
         context.app_state.set(passes=passes)
     return CommandResult(message=f"Pass count set to {passes}.")
@@ -239,9 +241,10 @@ async def turns_handler(args: str, context: CommandContext) -> CommandResult:
     settings = load_settings()
     tokens = args.split()
     if not tokens or tokens[0] == "show":
+        engine_turns = context.engine.max_turns if context.engine is not None else settings.max_turns
         return CommandResult(
             message=(
-                f"Max turns (engine): {context.engine.max_turns}\n"
+                f"Max turns (engine): {engine_turns}\n"
                 f"Max turns (config): {settings.max_turns}\n"
                 "Usage: /turns [show|COUNT]"
             )
@@ -259,7 +262,8 @@ async def turns_handler(args: str, context: CommandContext) -> CommandResult:
     turns = max(1, min(turns, 512))
     settings.max_turns = turns
     save_settings(settings)
-    context.engine.set_max_turns(turns)
+    if context.engine is not None:
+        context.engine.set_max_turns(turns)
     return CommandResult(message=f"Max turns set to {turns}.")
 
 
@@ -282,7 +286,8 @@ async def permissions_handler(args: str, context: CommandContext) -> CommandResu
         save_settings(settings)
         checker = PermissionChecker(settings.permission)
         checker.sync_sandbox_restrictions(settings.sandbox)
-        context.engine.set_permission_checker(checker)
+        if context.engine is not None:
+            context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         label = _MODE_LABELS.get(tokens[1], tokens[1])
@@ -299,7 +304,8 @@ async def plan_handler(args: str, context: CommandContext) -> CommandResult:
         save_settings(settings)
         checker = PermissionChecker(settings.permission)
         checker.sync_sandbox_restrictions(settings.sandbox)
-        context.engine.set_permission_checker(checker)
+        if context.engine is not None:
+            context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         return CommandResult(message="Plan mode enabled.")
@@ -308,7 +314,8 @@ async def plan_handler(args: str, context: CommandContext) -> CommandResult:
         save_settings(settings)
         checker = PermissionChecker(settings.permission)
         checker.sync_sandbox_restrictions(settings.sandbox)
-        context.engine.set_permission_checker(checker)
+        if context.engine is not None:
+            context.engine.set_permission_checker(checker)
         if context.app_state is not None:
             context.app_state.set(permission_mode=settings.permission.mode.value)
         return CommandResult(message="Plan mode disabled.")

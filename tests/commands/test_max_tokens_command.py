@@ -1,14 +1,14 @@
 """max-tokens 斜杠指令单元测试"""
 import pytest
 from illusion.commands.settings import max_tokens_handler
-from illusion.commands.types import CommandContext
+from illusion.config.i18n import t
 
 
 @pytest.mark.asyncio
 async def test_max_tokens_show(fake_context):
     """show 子命令返回当前值"""
     result = await max_tokens_handler("show", fake_context)
-    assert "Max tokens" in result.message
+    assert t("max_tokens_show", value=16384) in result.message
 
 
 @pytest.mark.asyncio
@@ -31,4 +31,4 @@ async def test_max_tokens_set_number(fake_context):
 async def test_max_tokens_invalid(fake_context):
     """非法值返回 usage"""
     result = await max_tokens_handler("invalid", fake_context)
-    assert "Usage" in result.message
+    assert t("max_tokens_usage") in result.message

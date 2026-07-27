@@ -76,7 +76,7 @@ export function CustomInputModal({prompt, language, onSubmit, onCancel}: CustomI
 				</Box>
 			) : null}
 			<Box marginTop={1}>
-				<Text color="gray">Esc to cancel, Enter to submit</Text>
+				<Text color="gray">{t(language, 'questionHintCancel')}, {t(language, 'questionHintSubmit')}</Text>
 			</Box>
 		</Box>
 	);

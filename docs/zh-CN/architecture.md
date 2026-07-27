@@ -7,7 +7,7 @@ illusion-code/
 ├── src/illusion/           # 主要源代码
 │   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
 │   ├── auth/               # 认证管理
-│   ├── commands/           # 斜杠命令系统 (48 个命令)
+│   ├── commands/           # 斜杠命令系统 (49 个命令)
 │   ├── config/             # 配置系统
 │   ├── coordinator/        # 多智能体协调器
 │   ├── engine/             # 核心对话引擎

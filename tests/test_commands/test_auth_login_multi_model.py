@@ -1,4 +1,4 @@
-"""auth login 多 model 输入与 auth add-model 测试"""
+"""auth login 多 model 输入与 add model 测试"""
 
 from unittest.mock import MagicMock, patch
 
@@ -154,12 +154,12 @@ def test_default_model_used_when_empty():
     assert env_config["model_1"]  # 非空
 
 
-# ---- auth add-model 测试 ----
+# ---- add model 测试 ----
 
 
 def test_add_model_to_existing_env_interactive():
-    """auth add-model 交互式选择 env 并添加多个 model"""
-    from illusion.cli import auth_add_model
+    """add model 交互式选择 env 并添加多个 model"""
+    from illusion.cli import add_model
 
     existing_env = _make_env_config(models={"model_1": "claude-sonnet-4-6"})
     manager = _make_manager(envs={"env_1": existing_env})
@@ -172,7 +172,7 @@ def test_add_model_to_existing_env_interactive():
         patch("illusion.cli.typer.prompt", return_value="1") as mock_prompt,
     ):
         try:
-            auth_add_model(env_key=None)  # type: ignore
+            add_model(env_key=None)  # type: ignore
         except SystemExit:
             pass
 
@@ -185,8 +185,8 @@ def test_add_model_to_existing_env_interactive():
 
 
 def test_add_model_with_env_key_arg():
-    """auth add-model env_1 直接指定 env"""
-    from illusion.cli import auth_add_model
+    """add model env_1 直接指定 env"""
+    from illusion.cli import add_model
 
     existing_env = _make_env_config(models={"model_1": "existing-model"})
     manager = _make_manager(envs={"env_1": existing_env})
@@ -198,7 +198,7 @@ def test_add_model_with_env_key_arg():
         patch("illusion.cli._ensure_language"),
     ):
         try:
-            auth_add_model(env_key="env_1")  # type: ignore
+            add_model(env_key="env_1")  # type: ignore
         except SystemExit:
             pass
 
@@ -208,8 +208,8 @@ def test_add_model_with_env_key_arg():
 
 
 def test_add_model_env_not_exist():
-    """auth add-model 指定不存在的 env 时报错"""
-    from illusion.cli import auth_add_model
+    """add model 指定不存在的 env 时报错"""
+    from illusion.cli import add_model
     import typer
 
     manager = _make_manager(envs={})
@@ -218,12 +218,12 @@ def test_add_model_env_not_exist():
         patch("illusion.cli._ensure_language"),
         pytest.raises(typer.Exit),
     ):
-        auth_add_model(env_key="env_999")  # type: ignore
+        add_model(env_key="env_999")  # type: ignore
 
 
 def test_add_model_no_existing_env():
     """无已有 env 时报错"""
-    from illusion.cli import auth_add_model
+    from illusion.cli import add_model
     import typer
 
     manager = _make_manager(envs={})
@@ -232,4 +232,4 @@ def test_add_model_no_existing_env():
         patch("illusion.cli._ensure_language"),
         pytest.raises(typer.Exit),
     ):
-        auth_add_model(env_key=None)  # type: ignore
+        add_model(env_key=None)  # type: ignore

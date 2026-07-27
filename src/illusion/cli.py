@@ -10,19 +10,28 @@ IllusionCode CLI 入口模块
     - MCP 服务器管理
     - 插件管理
     - 认证管理
+    - 资源添加（model）
     - Cron 任务调度管理
+    - 渠道管理
+    - Web UI 启动
+    - 自更新
 
 子命令说明：
     - mcp: MCP 服务器管理（list、add、remove）
     - plugin: 插件管理（list、install、uninstall）
     - auth: 认证管理（login、status、logout、switch）
+    - add: 向已有环境添加资源（model）
     - cron: Cron 调度管理（start、stop、status、list、toggle、history、logs）
+    - channel: 渠道管理（login、serve、status、enable、disable、logout）
+    - web: 启动 Web UI
+    - update: 自更新
 
 使用示例：
     >>> illusion                    # 启动交互式会话
     >>> illusion -p "你的提示词"     # 非交互式打印模式
-    >>> illusion auth login         # 认证登录
-    >>> illusion mcp list      # 列出 MCP 服务器
+    >>> illusion auth login         # 认证登录（新建 env）
+    >>> illusion add model          # 向已有 env 添加 model
+    >>> illusion mcp list           # 列出 MCP 服务器
 """
 
 from __future__ import annotations
@@ -83,6 +92,7 @@ plugin_app = typer.Typer(name="plugin", help="插件管理 / Manage plugins")
 auth_app = typer.Typer(name="auth", help="认证管理 / Manage authentication")
 cron_app = typer.Typer(name="cron", help="定时任务管理 / Manage cron scheduler and jobs")
 web_app = typer.Typer(name="web", help="启动 Web 界面 / Launch Web UI")
+add_app = typer.Typer(name="add", help="添加资源 / Add resources (e.g. add model to existing env)")
 
 # 注册子命令到主应用
 app.add_typer(mcp_app)
@@ -90,6 +100,7 @@ app.add_typer(plugin_app)
 app.add_typer(auth_app)
 app.add_typer(cron_app)
 app.add_typer(web_app)
+app.add_typer(add_app)
 
 # 渠道管理子命令应用（飞书等消息渠道）
 channel_app = typer.Typer(name="channel", help="渠道管理 / Manage messaging channels")
@@ -471,7 +482,7 @@ def _prompt_models_and_create_env(
     """交互式输入多个 model 名并新建 env 保存。
 
     auth login 始终新建 env，不询问选择已有环境。
-    添加 model 到已有环境请使用 `illusion auth add-model`。
+    添加 model 到已有环境请使用 `illusion add model`。
 
     Args:
         manager: AuthManager 实例
@@ -541,7 +552,7 @@ def auth_login() -> None:
 
     流程：选择提供商 → 认证 → 保存
     Copilot 使用 GitHub OAuth 设备码流程，其他提供商使用 API 密钥。
-    始终新建 env，添加 model 到已有环境请使用 `illusion auth add-model`。
+    始终新建 env，添加 model 到已有环境请使用 `illusion add model`。
     """
     from illusion.auth.flows import ApiKeyFlow
     from illusion.auth.manager import AuthManager
@@ -901,8 +912,8 @@ def auth_switch(
     print(_t("switched_to", env_key=env_key))
 
 
-@auth_app.command("add-model")
-def auth_add_model(
+@add_app.command("model")
+def add_model(
     env_key: str = typer.Argument(None, help="环境键名（如 env_1），省略则交互式选择"),
 ) -> None:
     """在已有的 env 中添加 model（支持循环输入多个）
@@ -933,7 +944,7 @@ def auth_add_model(
         for i, ek in enumerate(env_keys, 1):
             env_cfg = envs[ek]
             models = env_cfg.list_models()
-            model_list = ", ".join(models.values()) if models else "(无模型)"
+            model_list = ", ".join(models.values()) if models else _t("no_models")
             print(f"  {i}. {ek} [{env_cfg.api_format}] {env_cfg.base_url} (models: {model_list})")
         raw = typer.prompt(_t("enter_number"), default="1")
         try:

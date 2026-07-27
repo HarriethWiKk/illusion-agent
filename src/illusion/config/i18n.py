@@ -80,6 +80,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "create_new_env": {"zh-CN": "创建新环境", "en-US": "Create new env"},
     "env_not_exist": {"zh-CN": "环境 {env_key} 不存在", "en-US": "Environment {env_key} does not exist"},
     "no_existing_env": {"zh-CN": "暂无环境，请先运行 illusion auth login 创建环境", "en-US": "No environments found. Run illusion auth login first"},
+    "no_models": {"zh-CN": "(无模型)", "en-US": "(no models)"},
     # --- 后端事件 ---
     "task_stopped": {"zh-CN": "当前任务已停止。", "en-US": "Current task stopped."},
     "no_active_task": {"zh-CN": "没有正在执行的任务", "en-US": "No active task to stop"},

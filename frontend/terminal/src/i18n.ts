@@ -73,13 +73,9 @@ const ZH: Dict = {
 	questionHintCancel: 'Esc 取消',
 	questionHintQuickSelect: '数字键快捷选择',
 	// ---- max-tokens / 自定义输入模态框 ----
-	maxTokensTitle: '最大令牌数',
-	maxTokensCustom: '自定义',
 	maxTokensCustomPrompt: '输入自定义最大令牌数:',
 	maxTokensInvalid: '请输入有效的正整数',
 	contextWindowCustomPrompt: '输入自定义上下文窗口大小:',
-	customInputSubmit: '确认',
-	customInputCancel: '取消',
 	// ---- 后端退出兜底提示 ----
 	backend_exit_hint: '后端启动失败。请运行 \'illusion auth login\' 配置 API 环境，或检查 settings.json 配置。',
 };
@@ -134,13 +130,9 @@ const EN: Dict = {
 	questionHintCancel: 'Esc to cancel',
 	questionHintQuickSelect: '1-N quick select',
 	// ---- max-tokens / custom input modal ----
-	maxTokensTitle: 'Max Tokens',
-	maxTokensCustom: 'Custom',
 	maxTokensCustomPrompt: 'Enter custom max tokens:',
 	maxTokensInvalid: 'Please enter a valid positive integer',
 	contextWindowCustomPrompt: 'Enter custom context window size:',
-	customInputSubmit: 'Submit',
-	customInputCancel: 'Cancel',
 	// ---- backend exit fallback hint ----
 	backend_exit_hint: 'Backend startup failed. Run \'illusion auth login\' to configure API environment, or check settings.json.',
 };

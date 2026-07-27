@@ -12,16 +12,17 @@
 命令实现在各子模块中：
     - session.py: /new, /status, /context, /summary, /compact, /resume, /rewind, /delete
     - git.py: /diff, /branch, /commit
-    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /passes, /turns, /permissions, /plan
+    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
     - auth.py: /login, /logout
     - context.py: /issue, /pr_comments
-    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue
+    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue, /update
     - bridge.py: /bridge
     - mcp.py: /mcp
     - plugin.py: /plugin
     - model.py: /model
     - memory.py: /memory
     - rules.py: /rules
+    - sandbox.py: /sandbox
     - init/: /init
 
 使用示例：

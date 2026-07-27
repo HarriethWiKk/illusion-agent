@@ -110,7 +110,7 @@ illusion auth login              # 交互式配置提供商（自定义/Anthropi
 illusion auth status             # 查看所有环境的认证状态
 illusion auth logout [env_N]     # 清除环境凭据
 illusion auth switch [env_N]     # 切换活动环境
-illusion auth add-model <env_N> <model_name>  # 向已有环境添加模型
+illusion add model [env_N]       # 向已有环境添加模型（支持循环输入多个）
 
 # MCP 管理
 illusion mcp list                # 列出 MCP 服务器
@@ -134,6 +134,7 @@ illusion channel logout feishu   # 清除飞书渠道凭据
 illusion cron start              # 启动调度器
 illusion cron stop               # 停止调度器
 illusion cron status             # 查看状态
+illusion cron serve              # cron 守护进程主入口（前台运行，守护进程入口）
 illusion cron list               # 列出任务
 illusion cron toggle <name> <true|false>  # 启用/禁用任务
 illusion cron run <name>         # 手动触发执行任务
@@ -154,6 +155,7 @@ illusion update --deps           # 同时更新项目依赖
 | 会话管理 | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | 管理会话状态 |
 | 记忆快照 | `/memory`, `/resume`, `/export`, `/rules` | 记忆与会话管理 |
 | 配置设置 | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | 调整运行配置 |
+| 推理控制 | `/effort`, `/max-tokens`, `/passes`, `/turns` | 推理强度、令牌数、轮次控制 |
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
 | 多智能体 | `/continue` | Agent 协作 |

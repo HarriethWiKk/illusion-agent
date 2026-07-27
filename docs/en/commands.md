@@ -108,7 +108,7 @@ illusion auth login              # Interactive provider setup (Custom/Anthropic/
 illusion auth status             # View credential status for all environments
 illusion auth logout [env_N]     # Clear environment credentials
 illusion auth switch [env_N]     # Switch active environment
-illusion auth add-model <env_N> <model_name>  # Add a model to an existing environment
+illusion add model [env_N]       # Add model(s) to an existing environment (supports multiple input)
 
 # MCP management
 illusion mcp list                # List MCP servers
@@ -132,6 +132,7 @@ illusion channel logout feishu   # Clear channel credentials
 illusion cron start              # Start scheduler
 illusion cron stop               # Stop scheduler
 illusion cron status             # View status
+illusion cron serve              # Run cron daemon in foreground (daemon entry point)
 illusion cron list               # List tasks
 illusion cron toggle <name> <true|false>  # Enable/disable task
 illusion cron run <name>         # Manually trigger task
@@ -152,6 +153,7 @@ In interactive sessions, you can use the following commands:
 | Session Management | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | Manage session state |
 | Memory Snapshots | `/memory`, `/resume`, `/export`, `/rules` | Memory and session management |
 | Configuration | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | Adjust runtime configuration |
+| Reasoning Control | `/effort`, `/max-tokens`, `/passes`, `/turns` | Effort, token limit, turn count control |
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
 | Multi-Agent | `/continue` | Agent collaboration |

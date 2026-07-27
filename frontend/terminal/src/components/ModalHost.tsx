@@ -394,40 +394,50 @@ function QuestionModal({
 		}
 
 		// ---- 多问题间导航（左右箭头 / Tab / Shift+Tab）----
-	// 切换 tab 等同于一次回车：先提交当前问题（不自动前进），再前进/后退
-	// 文本输入模式或"其他"聚焦时不导航
-	const wantsPrev = key.leftArrow || (key.tab && key.shift);
-	const wantsNext = key.rightArrow || (key.tab && !key.shift);
-	if (wantsPrev && currentQuestionIndex > 0) {
-		// 先提交当前问题（若有选项且已选中），不自动前进
-		if (hasOptions && currentQuestion) {
-			if (isMultiSelect) {
-				commitMultiSelect(false);
-			} else {
-				const selected = allOptions[optionIndex];
-				if (selected && selected.type !== 'other') {
-					selectSingle(optionIndex, selected.label, false);
+		// 切换 tab 等同于一次回车：先提交当前问题（不自动前进），再前进/后退
+		// 文本输入模式或"其他"聚焦时不导航
+		const wantsPrev = key.leftArrow || (key.tab && key.shift);
+		const wantsNext = key.rightArrow || (key.tab && !key.shift);
+		if (wantsPrev && currentQuestionIndex > 0) {
+			// 先提交当前问题（不自动前进）：选项题提交选中项，自由文本提交当前输入
+			if (currentQuestion) {
+				if (hasOptions) {
+					if (isMultiSelect) {
+						commitMultiSelect(false);
+					} else {
+						const selected = allOptions[optionIndex];
+						if (selected && selected.type !== 'other') {
+							selectSingle(optionIndex, selected.label, false);
+						}
+					}
+				} else if (modalInput.trim()) {
+					// 自由文本：仅在有内容时提交，避免空答案覆盖
+					handleTextSubmit(modalInput, false);
 				}
 			}
+			state.prevQuestion();
+			return;
 		}
-		state.prevQuestion();
-		return;
-	}
-	if (wantsNext && currentQuestionIndex < questions.length) {
-		// 先提交当前问题（若有选项且已选中），不自动前进
-		if (hasOptions && currentQuestion) {
-			if (isMultiSelect) {
-				commitMultiSelect(false);
-			} else {
-				const selected = allOptions[optionIndex];
-				if (selected && selected.type !== 'other') {
-					selectSingle(optionIndex, selected.label, false);
+		if (wantsNext && currentQuestionIndex < questions.length) {
+			// 先提交当前问题（不自动前进）：选项题提交选中项，自由文本提交当前输入
+			if (currentQuestion) {
+				if (hasOptions) {
+					if (isMultiSelect) {
+						commitMultiSelect(false);
+					} else {
+						const selected = allOptions[optionIndex];
+						if (selected && selected.type !== 'other') {
+							selectSingle(optionIndex, selected.label, false);
+						}
+					}
+				} else if (modalInput.trim()) {
+					// 自由文本：仅在有内容时提交，避免空答案覆盖
+					handleTextSubmit(modalInput, false);
 				}
 			}
+			state.nextQuestion();
+			return;
 		}
-		state.nextQuestion();
-		return;
-	}
 
 		// ---- 无选项的自由文本输入 ----
 		if (!hasOptions) {
@@ -553,12 +563,12 @@ function QuestionModal({
 	};
 
 	/** 自由文本输入的提交处理 */
-	const handleTextSubmit = (value: string): void => {
+	const handleTextSubmit = (value: string, shouldAdvance: boolean = true): void => {
 		if (hasOptions || !currentQuestion) return;
 		const allLines = [...extraLines, value];
 		updateExtraLines([]);
 		const header = currentQuestion.header ?? 'answer';
-		commitAnswer(currentQuestion.question, allLines.join('\n'), header);
+		commitAnswer(currentQuestion.question, allLines.join('\n'), header, shouldAdvance);
 	};
 
 	const toolName = modal.tool_name ? String(modal.tool_name) : null;
@@ -567,12 +577,12 @@ function QuestionModal({
 	// ============ 复核/提交页 ============
 	if (isSubmitView) {
 		const allAnswered = questions.every((q) => q.question && state.answers[q.question] !== undefined);
-	return (
-		<Box flexDirection="column" marginTop={1}>
-			{/* 话题分割线：把提问与上方对话内容明显隔开 */}
-			<Text>{'─'.repeat(60)}</Text>
-<Text> </Text>
-			<QuestionNavigationBar
+		return (
+			<Box flexDirection="column" marginTop={1}>
+				{/* 话题分割线：把提问与上方对话内容明显隔开 */}
+				<Text>{'─'.repeat(60)}</Text>
+				<Text> </Text>
+				<QuestionNavigationBar
 					headers={questions.map((q, i) => q.header ?? `Q${i + 1}`)}
 					currentQuestionIndex={currentQuestionIndex}
 					answeredHeaders={new Set(questions.filter((q) => q.question && state.answers[q.question] !== undefined).map((q) => q.header ?? q.question))}
