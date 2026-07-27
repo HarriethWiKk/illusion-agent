@@ -697,6 +697,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         auth_status=auth_status(settings),
         base_url=settings.base_url or "",
         effort=settings.effort,
+        max_tokens=settings.max_tokens,
         passes=settings.passes,
         mcp_connected=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "connected"),
         mcp_failed=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "failed"),

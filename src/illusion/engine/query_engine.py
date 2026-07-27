@@ -126,6 +126,24 @@ class QueryEngine:
         self._effort = value
 
     @property
+    def max_tokens(self) -> int:
+        """返回当前的最大令牌数。
+
+        Returns:
+            int: 最大令牌数
+        """
+        return self._max_tokens
+
+    @max_tokens.setter
+    def max_tokens(self, value: int) -> None:
+        """设置最大令牌数。
+
+        Args:
+            value: 新的最大令牌数
+        """
+        self._max_tokens = value
+
+    @property
     def messages(self) -> list[ConversationMessage]:
         """返回当前对话历史。
 

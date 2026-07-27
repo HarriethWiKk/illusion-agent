@@ -41,6 +41,7 @@ class AppState:
         show_thinking: 是否显示思考过程
         phase: 会话阶段 (idle/thinking/tool_executing)
         team_context: 当前会话的团队上下文（若已创建团队）
+        max_tokens: 最大输出令牌数
     """
 
     model: str  # 模型名称
@@ -61,3 +62,4 @@ class AppState:
     context_window: int = 0  # 上下文窗口大小（tokens）
     context_tokens: int = 0  # 当前已用 tokens（估算）
     team_context: dict[str, object] | None = None  # 团队上下文
+    max_tokens: int = 16384  # 最大输出令牌数
