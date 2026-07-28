@@ -12,7 +12,7 @@ import os
 from typing import Any
 
 from illusion.config.paths import get_cron_dir, get_logs_dir
-from illusion.services.cron_scheduler import get_scheduler
+from illusion.services.cron_scheduler import get_scheduler, remove_pid, write_pid
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,10 @@ def run_cron_serve() -> None:
         daemon_pid=os.getpid(),
     )
 
+    # 写入 PID 文件，供 is_scheduler_running() 跨进程检测守护进程状态。
+    # 60e2e33 将 PID 管理从 CronScheduler._run_loop 迁移到此处，但当时遗漏了调用。
+    write_pid(os.getpid())
+
     loop: asyncio.AbstractEventLoop | None = None
     try:
         loop = asyncio.new_event_loop()
@@ -76,6 +80,7 @@ def run_cron_serve() -> None:
         if loop is not None:
             loop.run_until_complete(server.stop())
             loop.close()
+        remove_pid()
 
 
 async def _serve_async(server: Any) -> None:
