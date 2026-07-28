@@ -157,7 +157,6 @@ In interactive sessions, you can use the following commands:
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
 | Multi-Agent | `/continue` | Agent collaboration |
-| Self-Update | `/update` | Check for and install IllusionAgent updates |
 
 ### Non-Interactive Mode (Print Mode) Available Parameters
 

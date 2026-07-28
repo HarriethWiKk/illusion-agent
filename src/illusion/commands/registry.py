@@ -15,7 +15,7 @@
     - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
     - auth.py: /login, /logout
     - context.py: /issue, /pr_comments
-    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue, /update
+    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue
     - bridge.py: /bridge
     - mcp.py: /mcp
     - plugin.py: /plugin
@@ -189,7 +189,6 @@ def create_default_command_registry() -> CommandRegistry:
         reload_plugins_handler,
         share_handler,
         skills_handler,
-        update_handler,
         version_handler,
     )
 
@@ -284,7 +283,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
     registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
-    registry.register(SlashCommand("update", "Check for and install IllusionAgent updates", update_handler))
 
     # /help 需要引用 registry 实例
     help_handler = make_help_handler(registry)

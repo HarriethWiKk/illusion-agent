@@ -664,3 +664,9 @@ def test_tasks_command_removed_from_registry() -> None:
     registry = create_default_command_registry()
     lookup = registry.lookup("/tasks")
     assert lookup is None
+
+
+def test_update_command_not_registered() -> None:
+    """update 不再作为斜杠指令注册。"""
+    registry = create_default_command_registry()
+    assert registry.lookup("/update") is None
