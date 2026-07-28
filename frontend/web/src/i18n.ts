@@ -29,7 +29,7 @@ export function normalizeLanguage(raw: unknown): UiLanguage {
 }
 
 const ZH: Record<string, string> = {
-  welcome: '欢迎使用 Illusion Code',
+  welcome: '欢迎使用 Illusion Agent',
   thinking: '思考中...',
   tool_using: '正在使用工具...',
   error_occurred: '发生错误',
@@ -117,7 +117,7 @@ const ZH: Record<string, string> = {
 };
 
 const EN: Record<string, string> = {
-  welcome: 'Welcome to Illusion Code',
+  welcome: 'Welcome to Illusion Agent',
   thinking: 'Thinking...',
   tool_using: 'Using tools...',
   error_occurred: 'An error occurred',

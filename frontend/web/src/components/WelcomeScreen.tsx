@@ -39,7 +39,7 @@ export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
       {/* Logo — 渐变流动文字 */}
       <h1 className="gradient-text text-6xl font-bold tracking-tight animate-blur-in relative z-10"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-        Illusion Code
+        Illusion Agent
       </h1>
 
       {/* 副标题 — 闪光扫过文字 */}

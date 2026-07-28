@@ -1,7 +1,7 @@
 /**
  * @fileoverview 应用程序主组件模块
  *
- * 本模块是 IllusionCode 终端前端的核心入口，负责：
+ * 本模块是 IllusionAgent 终端前端的核心入口，负责：
  * 1. 整体应用布局与组件组合
  * 2. 处理用户输入与键盘事件
  * 3. 管理各种模态对话框（权限确认、计划审批、选择列表等）
@@ -392,7 +392,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		// /version → 显示版本信息（前端处理，不发送到后端）
 		if (trimmed === '/version') {
 			session.setCommandResult({
-				text: `IllusionCode ${VERSION}`,
+				text: `IllusionAgent ${VERSION}`,
 				type: 'info',
 			});
 			return true;

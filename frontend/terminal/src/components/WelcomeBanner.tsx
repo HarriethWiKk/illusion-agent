@@ -42,7 +42,7 @@ export function WelcomeBanner({language}: {language?: string}): React.JSX.Elemen
 				))}
 			</Box>
 			<Box marginTop={1}>
-				<Text color={theme.colors.illusion} bold>{'  Illusion Code · AI Coding Assistant'}</Text>
+				<Text color={theme.colors.illusion} bold>{'  Illusion Agent · AI Coding Assistant'}</Text>
 			</Box>
 			<Box marginTop={1} flexDirection="column">
 				<Text dimColor>{`  ${theme.icons.pointer} `}<Text color={theme.colors.suggestion}>/help</Text>{' view all commands'}</Text>

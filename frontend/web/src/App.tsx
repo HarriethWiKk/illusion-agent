@@ -1,7 +1,7 @@
 /**
  * @fileoverview Web 前端应用主组件
  *
- * 本模块是 IllusionCode Web 前端的核心入口，负责：
+ * 本模块是 IllusionAgent Web 前端的核心入口，负责：
  * 1. 整体应用布局与组件组合
  * 2. WebSocket 会话管理
  * 3. 处理用户提交的命令
