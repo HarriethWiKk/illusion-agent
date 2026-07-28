@@ -224,7 +224,7 @@ async def task_coordinator_code_review():
 
                 ctx = QueryContext(
                     api_client=api, tool_registry=reg, permission_checker=checker,
-                    cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=DEFAULT_MAX_TURNS,
+                    cwd=WORKSPACE, model=MODEL, max_tokens=131072, max_turns=DEFAULT_MAX_TURNS,
                     system_prompt=sys_prompt,
                 )
                 config = TeammateSpawnConfig(

@@ -102,7 +102,7 @@ async def task_hook_blocks_model_adapts():
 
     engine = QueryEngine(
         api_client=api, tool_registry=reg, permission_checker=checker,
-        cwd=WORKSPACE, model=MODEL, max_tokens=2048,
+        cwd=WORKSPACE, model=MODEL, max_tokens=131072,
         system_prompt=(
             "You are a code explorer. You have bash, read_file, glob, and grep tools. "
             "If a tool fails or is blocked, try a different tool to accomplish the same goal. "
@@ -193,7 +193,7 @@ When performing a code review, follow these exact steps:
 
         engine = QueryEngine(
             api_client=api, tool_registry=reg, permission_checker=checker,
-            cwd=WORKSPACE, model=MODEL, max_tokens=2048,
+            cwd=WORKSPACE, model=MODEL, max_tokens=131072,
             system_prompt=(
                 "You are a code reviewer. You have a 'skill' tool that provides review checklists. "
                 "ALWAYS start by invoking the skill tool with the relevant skill name to get instructions, "
@@ -297,7 +297,7 @@ To scan for hardcoded secrets:
 
         engine = QueryEngine(
             api_client=api, tool_registry=reg, permission_checker=checker,
-            cwd=WORKSPACE, model=MODEL, max_tokens=2048,
+            cwd=WORKSPACE, model=MODEL, max_tokens=131072,
             system_prompt=(
                 "You are a security analyst. You have a 'skill' tool that provides scanning procedures. "
                 "Start by loading the 'scan-secrets' skill, then follow its procedure to scan the autoagent/ codebase. "

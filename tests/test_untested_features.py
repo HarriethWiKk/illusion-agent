@@ -706,7 +706,7 @@ async def test_combined_hooks_skills_agent():
 
     ctx = QueryContext(
         api_client=api, tool_registry=reg, permission_checker=checker,
-        cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=DEFAULT_MAX_TURNS,
+        cwd=WORKSPACE, model=MODEL, max_tokens=131072, max_turns=DEFAULT_MAX_TURNS,
         system_prompt="You are a code analyst. Be concise. Use tools to answer questions.",
         hook_executor=hook_exec,
     )

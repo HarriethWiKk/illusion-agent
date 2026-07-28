@@ -23,9 +23,9 @@ async def test_max_tokens_set_preset(fake_context):
 @pytest.mark.asyncio
 async def test_max_tokens_set_number(fake_context):
     """数字直接设置成功"""
-    result = await max_tokens_handler("2048", fake_context)
-    assert "2048" in result.message
-    assert fake_context.engine.max_tokens == 2048
+    result = await max_tokens_handler("131072", fake_context)
+    assert "131072" in result.message
+    assert fake_context.engine.max_tokens == 131072
 
 
 @pytest.mark.asyncio
