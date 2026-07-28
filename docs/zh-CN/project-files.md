@@ -2,7 +2,7 @@
 
 ## AI 指令文件 (CLAUDE.md / ILLUSION.md / AGENTS.md)
 
-`CLAUDE.md`、`ILLUSION.md` 和 `AGENTS.md` 是**等效的** AI 指令文件。IllusionCode 识别这三个名称，行为完全一致。
+`CLAUDE.md`、`ILLUSION.md` 和 `AGENTS.md` 是**等效的** AI 指令文件。IllusionAgent 识别这三个名称，行为完全一致。
 
 ### 发现位置
 

@@ -3,7 +3,7 @@
 ## 🏗️ 项目架构
 
 ```
-illusion-code/
+illusion-agent/
 ├── src/illusion/           # 主要源代码
 │   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
 │   ├── auth/               # 认证管理
@@ -95,7 +95,7 @@ illusion-code/
 | `verification` | 对抗性验证专家 |
 | `worker` | 实现导向的 Worker |
 | `statusline-setup` | Shell PS1 转换器 |
-| `illusion-guide` | Illusion Code / SDK / API 文档专家 |
+| `illusion-guide` | Illusion Agent / SDK / API 文档专家 |
 
 ---
 

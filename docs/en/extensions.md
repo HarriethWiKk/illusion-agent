@@ -13,7 +13,7 @@
 
 ## Overview
 
-IllusionCode provides a layered extension system. Extensions can be configured at three levels (priority high → low):
+IllusionAgent provides a layered extension system. Extensions can be configured at three levels (priority high → low):
 
 1. **Plugin-level** — bundled with plugins, auto-loaded
 2. **Project-level** — in `{cwd}/.illusion/` directory

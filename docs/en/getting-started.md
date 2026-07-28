@@ -5,16 +5,16 @@
 - Python >= 3.10
 - Supports Windows, macOS, Linux
 - Windows users: Auto-detect Git, no manual PATH configuration needed
-- Node.js 18+: Only required for source installs; `pip install illusion-code` does not need Node.js
+- Node.js 18+: Only required for source installs; `pip install illusion-agent` does not need Node.js
 
 ## Installation
 
 ### Recommended: pip install from PyPI
 
-The simplest way to install IllusionCode. Automatically installs both frontends and registers the `illusion` command globally. **No Node.js required** — frontend assets are pre-built and included in the package.
+The simplest way to install IllusionAgent. Automatically installs both frontends and registers the `illusion` command globally. **No Node.js required** — frontend assets are pre-built and included in the package.
 
 ```bash
-pip install illusion-code
+pip install illusion-agent
 ```
 
 No git clone required — everything is included in the package.
@@ -24,8 +24,8 @@ No git clone required — everything is included in the package.
 Clone the repository and install locally. Triggers the hatch build hook to build frontends automatically.
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install .
 ```
 
@@ -36,8 +36,8 @@ Requires Node.js 18+ (for frontend build).
 Editable install from source. Like `pip install .`, it triggers the hatch build hook to build frontends automatically and registers `illusion` globally. Like `uv sync`, source code changes take effect immediately without reinstalling.
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install -e .
 ```
 
@@ -50,8 +50,8 @@ Requires Node.js 18+ (for frontend build).
 `uv sync` creates an editable install within the project directory. It does **not** trigger the hatch build hook, so you must build frontends manually. This is recommended for developers who want to modify the source code.
 
 ```bash
-git clone https://github.com/your-repo/illusion-code.git
-cd illusion-code
+git clone https://github.com/your-repo/illusion-agent.git
+cd illusion-agent
 uv sync
 
 # Build frontends manually (required after uv sync)
@@ -64,7 +64,7 @@ python scripts/build_frontend.py --web        # Web UI only
 >
 > ```bash
 > # Option 1: Use uv run from the project directory
-> cd illusion-code
+> cd illusion-agent
 > uv run illusion
 >
 > # Option 2: Activate the virtual environment
@@ -111,7 +111,7 @@ cd ../..
 
 ### Key differences
 
-| | `pip install illusion-code` | `pip install .` | `pip install -e .` | `uv sync` |
+| | `pip install illusion-agent` | `pip install .` | `pip install -e .` | `uv sync` |
 |---|---|---|---|---|
 | Source | PyPI | Local git clone | Local git clone | Local git clone |
 | Frontend build | Pre-built (included) | Automatic (hatch hook) | Automatic (hatch hook) | Manual |
@@ -169,7 +169,7 @@ illusion -e high
 
 ## Print Mode Details
 
-`-p` / `--print` runs a single prompt non-interactively and exits. It is designed for scripts, CI, and controlling Illusion Code from other agents.
+`-p` / `--print` runs a single prompt non-interactively and exits. It is designed for scripts, CI, and controlling Illusion Agent from other agents.
 
 ### Important rules
 

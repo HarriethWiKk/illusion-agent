@@ -171,7 +171,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 
 ## working_directory
 
-Fixed working directory. If set, illusion-code will automatically switch to this directory on startup.
+Fixed working directory. If set, illusion-agent will automatically switch to this directory on startup.
 
 **Type:** String (optional)
 

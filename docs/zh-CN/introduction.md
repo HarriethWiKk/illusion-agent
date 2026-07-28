@@ -1,4 +1,4 @@
-# IllusionCode
+# IllusionAgent
 
 <div align="center">
 
@@ -14,7 +14,7 @@
 
 ## 📖 项目简介
 
-IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，从 kimi-cli 移植了核心基础设施模块（异步队列、stderr fd 级重定向、跨平台 SIGINT 处理），参考 hermes-agent 实现了渠道连接/渲染模式（飞书 WS、微信 iLink、QQ Bot 网关），并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionCode 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，实现了比同类项目更全面的 Markdown 终端渲染能力，并提供了浏览器端的 Web UI 界面。
+IllusionAgent 是一个开源的 AI 驱动命令行编程助手，集成了众多优秀项目的精华并加以创新。它继承了 Claude Code 的完整提示词体系和工具架构，在 Python 架构设计上借鉴了 OpenHarness 的理念，采用与 OpenClaw 相同的 Cron 任务调度架构，从 kimi-cli 移植了核心基础设施模块（异步队列、stderr fd 级重定向、跨平台 SIGINT 处理），参考 hermes-agent 实现了渠道连接/渲染模式（飞书 WS、微信 iLink、QQ Bot 网关），并通过 cc-switch 反代方案实现了灵活的代理路由。在此基础上，IllusionAgent 针对 Windows 系统进行了深度优化，提供了完整的中英双语界面支持，实现了比同类项目更全面的 Markdown 终端渲染能力，并提供了浏览器端的 Web UI 界面。
 
 ### 核心特性
 
@@ -38,14 +38,14 @@ IllusionCode 是一个开源的 AI 驱动命令行编程助手，集成了众多
 
 <div align="center">
   <p>欢迎界面 & 富文本渲染</p>
-  <img src="../images/image1.png" alt="IllusionCode 欢迎界面" width="48%" />
-  <img src="../images/image2.png" alt="IllusionCode 富文本渲染" width="48%" />
+  <img src="../images/image1.png" alt="IllusionAgent 欢迎界面" width="48%" />
+  <img src="../images/image2.png" alt="IllusionAgent 富文本渲染" width="48%" />
 </div>
 
 <div align="center">
   <p>演示视频</p>
   <a href="https://b23.tv/3mWe9It">
-    <img src="../images/IllusionCode.png" alt="点击观看演示视频" width="720" />
+    <img src="../images/illusion-agent.png" alt="点击观看演示视频" width="720" />
   </a>
   <p><a href="https://b23.tv/3mWe9It">📺 B站观看演示视频</a></p>
 </div>

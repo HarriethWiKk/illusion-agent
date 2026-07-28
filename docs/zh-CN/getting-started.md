@@ -7,7 +7,7 @@
 - Python >= 3.10
 - 支持 Windows、macOS、Linux
 - Windows 用户：自动查找 Git，无需手动配置 PATH
-- Node.js 18+：仅从源码安装时需要；通过 `pip install illusion-code` 安装无需 Node.js 环境
+- Node.js 18+：仅从源码安装时需要；通过 `pip install illusion-agent` 安装无需 Node.js 环境
 
 ### 安装
 
@@ -16,7 +16,7 @@
 最简单的安装方式，自动安装前端并注册 `illusion` 命令到全局 PATH。**无需 Node.js 环境**，前端资源已预构建并包含在包中。
 
 ```bash
-pip install illusion-code
+pip install illusion-agent
 ```
 
 无需克隆仓库，所有内容已包含在包中。
@@ -26,8 +26,8 @@ pip install illusion-code
 克隆仓库后本地安装，hatch build hook 会自动构建前端。
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install .
 ```
 
@@ -38,8 +38,8 @@ pip install .
 从源码进行可编辑安装。与 `pip install .` 相同，会触发 hatch build hook 自动构建前端并全局注册 `illusion` 命令；与 `uv sync` 相同，源码修改立即生效，无需重新安装。
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install -e .
 ```
 
@@ -52,8 +52,8 @@ pip install -e .
 `uv sync` 创建 editable install，不会触发 hatch build hook，需要手动构建前端。适合需要修改源代码的开发者。
 
 ```bash
-git clone https://github.com/your-repo/illusion-code.git
-cd illusion-code
+git clone https://github.com/your-repo/illusion-agent.git
+cd illusion-agent
 uv sync
 
 # 手动构建前端（uv sync 后必须执行）
@@ -66,7 +66,7 @@ python scripts/build_frontend.py --web        # 只构建 Web UI
 >
 > ```bash
 > # 方式一：在项目目录下使用 uv run
-> cd illusion-code
+> cd illusion-agent
 > uv run illusion
 >
 > # 方式二：激活虚拟环境
@@ -113,7 +113,7 @@ cd ../..
 
 #### 四种方式对比
 
-| | `pip install illusion-code` | `pip install .` | `pip install -e .` | `uv sync` |
+| | `pip install illusion-agent` | `pip install .` | `pip install -e .` | `uv sync` |
 |---|---|---|---|---|
 | 来源 | PyPI | 本地 git clone | 本地 git clone | 本地 git clone |
 | 前端构建 | 预构建（已包含） | 自动（hatch hook） | 自动（hatch hook） | 手动 |
@@ -171,7 +171,7 @@ illusion -e high
 
 ## Print 模式详解
 
-`-p` / `--print` 以非交互方式执行单次提示词并立即退出，适用于脚本、CI 或其他智能体控制 Illusion Code 的场景。
+`-p` / `--print` 以非交互方式执行单次提示词并立即退出，适用于脚本、CI 或其他智能体控制 Illusion Agent 的场景。
 
 ### 重要规则
 

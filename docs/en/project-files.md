@@ -2,7 +2,7 @@
 
 ## AI Instruction Files (CLAUDE.md / ILLUSION.md / AGENTS.md)
 
-`CLAUDE.md`, `ILLUSION.md`, and `AGENTS.md` are **equivalent** AI instruction files. IllusionCode recognizes all three names interchangeably.
+`CLAUDE.md`, `ILLUSION.md`, and `AGENTS.md` are **equivalent** AI instruction files. IllusionAgent recognizes all three names interchangeably.
 
 ### Discovery Locations
 

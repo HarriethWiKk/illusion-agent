@@ -171,7 +171,7 @@
 
 ## working_directory
 
-固定工作目录。如果设置此字段，illusion-code启动时会自动切换到该目录。
+固定工作目录。如果设置此字段，illusion-agent启动时会自动切换到该目录。
 
 **类型：** 字符串（可选）
 

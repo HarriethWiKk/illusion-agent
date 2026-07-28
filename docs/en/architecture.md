@@ -1,7 +1,7 @@
 # Project Architecture
 
 ```
-illusion-code/
+illusion-agent/
 ├── src/illusion/           # Main source code
 │   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
@@ -93,7 +93,7 @@ Built-in 7 specialized Agents:
 | `verification` | Adversarial verification expert |
 | `worker` | Implementation-oriented Worker |
 | `statusline-setup` | Shell PS1 converter |
-| `illusion-guide` | Illusion Code / SDK / API documentation expert |
+| `illusion-guide` | Illusion Agent / SDK / API documentation expert |
 
 ---
 

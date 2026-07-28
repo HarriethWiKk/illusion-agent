@@ -159,7 +159,7 @@ illusion update --deps           # 同时更新项目依赖
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
 | 多智能体 | `/continue` | Agent 协作 |
-| 自更新 | `/update` | 检查并安装 IllusionCode 更新 |
+| 自更新 | `/update` | 检查并安装 IllusionAgent 更新 |
 
 ### 非交互模式（打印模式）可用参数
 

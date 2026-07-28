@@ -15,7 +15,7 @@
 
 ---
 
-IllusionCode supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark) and WeChat. This enables **remote work continuation** — start a task on your terminal, then continue it from your phone.
+IllusionAgent supports messaging channels that let you interact with the AI assistant from messaging apps like Feishu (Lark) and WeChat. This enables **remote work continuation** — start a task on your terminal, then continue it from your phone.
 
 ## How It Works
 
