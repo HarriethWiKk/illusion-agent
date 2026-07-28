@@ -69,7 +69,7 @@ class SandboxManager:
             cls._instance = super().__new__(cls)
             cls._instance._runtime = SandboxRuntime()
             cls._instance._initialized = False
-        return cls._instance
+        return cls._instance  # type: ignore[return-value]
 
     def initialize(
         self,

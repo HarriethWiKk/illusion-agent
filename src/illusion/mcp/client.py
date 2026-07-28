@@ -28,7 +28,7 @@ import asyncio
 import logging
 import sys
 from contextlib import AsyncExitStack
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -398,7 +398,7 @@ class McpClientManager:
                 from pathlib import Path
                 log_path = Path(config.log_file)
                 # mkdir + open 是阻塞操作，通过 to_thread 在工作线程中执行
-                def _open_log_file(p: Path):
+                def _open_log_file(p: Path) -> TextIO:
                     p.parent.mkdir(parents=True, exist_ok=True)
                     return open(p, "a", encoding="utf-8")
                 errlog = await asyncio.to_thread(_open_log_file, log_path)

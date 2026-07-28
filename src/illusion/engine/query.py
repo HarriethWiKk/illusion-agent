@@ -719,9 +719,9 @@ async def run_query(
             synth = _synthesize_pending_tool_results(
                 tool_calls,
                 tool_results_list,
-                error_message_fn=lambda name, _denied=denied_tool_name: (
+                error_message_fn=lambda name: (
                     f"Permission denied for {name}"
-                    if name == _denied
+                    if name == denied_tool_name
                     else f"Tool {name} interrupted"
                 ),
             )

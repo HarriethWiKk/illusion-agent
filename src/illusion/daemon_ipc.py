@@ -159,7 +159,7 @@ if _IS_WINDOWS:
         if result != 0:
             return True
         # ConnectNamedPipe 返回 0 时，ERROR_PIPE_CONNECTED 表示客户端已连接
-        return _kernel32.GetLastError() == _ERROR_PIPE_CONNECTED
+        return bool(_kernel32.GetLastError() == _ERROR_PIPE_CONNECTED)
 
     def _win_read_pipe(handle: int, size: int = 65536) -> bytes:
         """从 pipe 读取数据（阻塞）"""

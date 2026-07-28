@@ -30,7 +30,8 @@ class TestSettings:
         s = Settings(env_1={"api_format": "anthropic", "api_key": "sk-test-123"})
         assert s.resolve_api_key() == "sk-test-123"
 
-    def test_resolve_api_key_missing_raises(self):
+    def test_resolve_api_key_missing_raises(self, monkeypatch):
+        monkeypatch.setattr("illusion.auth.storage.load_env_credential", lambda *a, **kw: None)
         s = Settings()
         with pytest.raises(ValueError, match="未找到 API 密钥"):
             s.resolve_api_key()

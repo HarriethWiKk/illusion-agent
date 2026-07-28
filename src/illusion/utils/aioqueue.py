@@ -56,7 +56,7 @@ else:
                 return
             self._shutdown = True
             if immediate:
-                self._queue.clear()
+                self._queue.clear()  # type: ignore[attr-defined]
 
             getters = list(getattr(self, "_getters", []))
             count = max(1, len(getters))
@@ -68,7 +68,7 @@ else:
                 try:
                     super().put_nowait(_SHUTDOWN)
                 except asyncio.QueueFull:
-                    self._queue.clear()
+                    self._queue.clear()  # type: ignore[attr-defined]
                     super().put_nowait(_SHUTDOWN)
 
         async def get(self) -> T:
