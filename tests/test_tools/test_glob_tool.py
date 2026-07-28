@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from illusion.utils.ripgrep import RipgrepError
+from illusion.tools.base import ToolResult
 
 
 @pytest.mark.asyncio
@@ -18,8 +18,8 @@ async def test_glob_tool_basic():
     tool = GlobTool()
     # 模拟 rg 输出
     mock_output = "file1.py\nfile2.py\nsubdir/file3.py\n"
-    with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
-        mock_rg.return_value = (mock_output, "", 0)
+    with patch("illusion.tools.glob_tool.run_rg_checked", new_callable=AsyncMock) as mock_rg:
+        mock_rg.return_value = (mock_output, None)
         arguments = GlobToolInput(
             pattern="**/*.py",
             root="/test",
@@ -37,8 +37,8 @@ async def test_glob_tool_no_matches():
     from illusion.tools.base import ToolExecutionContext
     from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
-    with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
-        mock_rg.return_value = ("", "", 1)
+    with patch("illusion.tools.glob_tool.run_rg_checked", new_callable=AsyncMock) as mock_rg:
+        mock_rg.return_value = ("", None)
         arguments = GlobToolInput(
             pattern="**/*.xyz",
             root="/test",
@@ -54,15 +54,15 @@ async def test_glob_tool_error():
     from illusion.tools.base import ToolExecutionContext
     from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
-    with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
-        mock_rg.side_effect = RipgrepError("test error")
+    with patch("illusion.tools.glob_tool.run_rg_checked", new_callable=AsyncMock) as mock_rg:
+        mock_rg.return_value = (None, "test error")
         arguments = GlobToolInput(
             pattern="**/*.py",
             root="/test",
         )
         context = ToolExecutionContext(cwd=Path.cwd())
-        with pytest.raises(RipgrepError):
-            await tool.execute(arguments, context)
+        result = await tool.execute(arguments, context)
+        assert result.is_error
 
 
 @pytest.mark.asyncio
@@ -73,8 +73,8 @@ async def test_glob_tool_absolute_path():
     tool = GlobTool()
     # 模拟 rg 输出
     mock_output = "file1.py\n"
-    with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
-        mock_rg.return_value = (mock_output, "", 0)
+    with patch("illusion.tools.glob_tool.run_rg_checked", new_callable=AsyncMock) as mock_rg:
+        mock_rg.return_value = (mock_output, None)
         arguments = GlobToolInput(
             pattern="E:/test/**/*.py",
         )
