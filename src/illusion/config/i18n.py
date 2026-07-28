@@ -243,7 +243,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_connected": {"zh-CN": "已连接", "en-US": "connected"},
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
     # --- 飞书侧（用户在飞书中看到）---
-    "feishu_thinking": {"zh-CN": "illusion code 正在思考中...", "en-US": "illusion code is thinking..."},
+    "feishu_thinking": {"zh-CN": "illusion agent 正在思考中...", "en-US": "illusion agent is thinking..."},
     "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /stop /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /stop /sessions /resume /detach /model"},
     "feishu_cmd_cleared": {"zh-CN": "会话已清空，开启新会话。", "en-US": "Session cleared, starting new session."},
     # --- 通用渠道命令文案（不限渠道）---

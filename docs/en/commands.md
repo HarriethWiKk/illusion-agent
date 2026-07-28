@@ -192,7 +192,7 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
   1. **Turn 1**: `illusion -p "do something"` → agent calls ask_user_question during execution → tool persists the question to `pending-question-<session_id>.json`, returns a special marker as tool_result → agent ends the turn → program exits with **exit code 2** (indicating waiting for user answer)
   2. **Turn 2**: `illusion -c -p "<answer>"` → detects pending question → injects the answer as tool_result (replacing the marker) → calls `continue_pending` to resume agent execution
 
-  This design allows illusion code to be controlled by other agents: each `-p` invocation is an atomic request-response, without waiting for interactive input within the same turn. Exit code semantics:
+  This design allows illusion agent to be controlled by other agents: each `-p` invocation is an atomic request-response, without waiting for interactive input within the same turn. Exit code semantics:
   - `0`: Normal completion
   - `1`: Error
   - `2`: Waiting for user answer (answer with `-c -p` next time)
