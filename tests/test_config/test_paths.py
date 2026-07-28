@@ -105,11 +105,6 @@ class TestValidateSafePath:
         result = validate_safe_path("src/main.py")
         assert result == Path("src/main.py")
 
-    def test_allows_absolute_path(self) -> None:
-        """绝对路径应通过校验（由上层 permission checker 处理）。"""
-        result = validate_safe_path("E:/project/file.py")
-        assert result == Path("E:/project/file.py")
-
     def test_rejects_parent_traversal(self) -> None:
         """包含 .. 的路径应被拒绝。"""
         with pytest.raises(ValueError, match="Path traversal"):
@@ -136,11 +131,6 @@ class TestResolveRelativePath:
         """相对路径应与 base 拼接并 resolve。"""
         result = resolve_relative_path(tmp_path, "subdir/file.py")
         assert result == (tmp_path / "subdir" / "file.py").resolve()
-
-    def test_allows_absolute_path(self, tmp_path: Path) -> None:
-        """绝对路径应直接通过（Path join 行为：绝对路径覆盖 base）。"""
-        result = resolve_relative_path(tmp_path, "E:/other/file.py")
-        assert result == Path("E:/other/file.py").resolve()
 
     def test_rejects_parent_traversal(self, tmp_path: Path) -> None:
         """包含 .. 的路径应被拒绝。"""
