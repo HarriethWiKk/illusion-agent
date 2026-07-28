@@ -114,6 +114,15 @@ const ZH: Record<string, string> = {
   regenerate: '重新生成',
   collapse_session_list: '收起会话列表',
   expand_session_list: '展开会话列表',
+  // max-tokens 自定义输入相关
+  maxTokensTitle: '最大令牌数',
+  maxTokensCustomPrompt: '输入自定义最大令牌数:',
+  maxTokensInvalid: '请输入有效的正整数',
+  // context-window 自定义输入相关
+  contextWindowCustomPrompt: '输入自定义上下文窗口大小:',
+  contextWindowInvalid: '请输入有效的正整数',
+  // 通用按钮
+  confirm: '确定',
 };
 
 const EN: Record<string, string> = {
@@ -202,6 +211,15 @@ const EN: Record<string, string> = {
   regenerate: 'Regenerate',
   collapse_session_list: 'Collapse session list',
   expand_session_list: 'Expand session list',
+  // max-tokens custom input
+  maxTokensTitle: 'Max Tokens',
+  maxTokensCustomPrompt: 'Enter custom max tokens:',
+  maxTokensInvalid: 'Please enter a valid positive integer',
+  // context-window custom input
+  contextWindowCustomPrompt: 'Enter custom context window size:',
+  contextWindowInvalid: 'Please enter a valid positive integer',
+  // common buttons
+  confirm: 'Confirm',
 };
 
 /**

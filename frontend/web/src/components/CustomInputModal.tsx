@@ -72,10 +72,9 @@ export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMess
     }
   };
 
-  // 注意：i18n 暂缺 'confirm' 与 'maxTokensInvalid' 两个 key，
-  // 此处先用内联回退文本，待 Task 3.3 在 i18n.ts 中补齐后再切换为 t() 调用。
-  const confirmLabel = lang === 'zh-CN' ? '确认' : 'Confirm';
-  const defaultInvalidMessage = lang === 'zh-CN' ? '请输入正整数' : 'Please enter a positive integer';
+  // 通用 confirm / maxTokensInvalid 文案已由 i18n 提供
+  const confirmLabel = t(lang, 'confirm');
+  const defaultInvalidMessage = t(lang, 'maxTokensInvalid');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onCancel}>

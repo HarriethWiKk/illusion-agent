@@ -21,6 +21,7 @@ import ChatArea from './components/ChatArea';
 import PromptInput from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
+import { CustomInputModal } from './components/CustomInputModal';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -29,7 +30,7 @@ const WS_URL = `ws://${window.location.host}/ws`;
 const TOAST_DURATION = 5000;
 
 /** B 通道允许的指令集合（前端识别并走 web_query） */
-const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'passes', 'turns', 'output-style', 'language'];
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'passes', 'turns', 'output-style', 'language', 'max-tokens'];
 
 /**
  * 应用主组件
@@ -52,6 +53,13 @@ export default function App() {
 
   // 内联选项状态
   const [inlineOptions, setInlineOptions] = useState<SelectRequestPayload | null>(null);
+
+  // 自定义数字输入模态框状态（/max-tokens 与 /context-window 的 custom 分支触发）
+  const [customInputModal, setCustomInputModal] = useState<{
+    prompt: string;
+    command: 'max-tokens' | 'context-window';
+    invalidMessage?: string;
+  } | null>(null);
 
   // 回退确认弹窗状态
   const [rewindConfirm, setRewindConfirm] = useState<{ turns: number } | null>(null);
@@ -136,7 +144,7 @@ export default function App() {
    *
    * 通道隔离原则：
    * - B 通道（web_query）：输入框识别的精细化指令（rewind/compact/context/export/init/
-   *   passes/turns/output-style/language），走 web_query 结构化处理。
+   *   passes/turns/output-style/language/max-tokens），走 web_query 结构化处理。
    * - 文本通道（submit_line）：普通文本，或未被识别的斜杠指令（A 类如 /resume /model
    *   以及已删除指令），全部当普通文本发给 LLM。
    *
@@ -194,6 +202,26 @@ export default function App() {
    * @param value - 选中的值
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
+    // max-tokens custom 分支：切换到数字输入模态框
+    if (command === 'max-tokens' && value === 'custom') {
+      setCustomInputModal({
+        prompt: t(lang, 'maxTokensCustomPrompt'),
+        command: 'max-tokens',
+        invalidMessage: t(lang, 'maxTokensInvalid'),
+      });
+      setInlineOptions(null);
+      return;
+    }
+    // context-window __custom__ 分支：切换到数字输入模态框
+    if (command === 'context-window' && value === '__custom__') {
+      setCustomInputModal({
+        prompt: t(lang, 'contextWindowCustomPrompt'),
+        command: 'context-window',
+        invalidMessage: t(lang, 'contextWindowInvalid'),
+      });
+      setInlineOptions(null);
+      return;
+    }
     setInlineOptions(null);
     // language 走 web_query 通道（前端弹出选择框后提交）
     if (command === 'language') {
@@ -207,7 +235,7 @@ export default function App() {
       // rewind/context 等多步指令仍走 apply_select_command
       session.sendRequest({ type: 'apply_select_command', command, value });
     }
-  }, [session.sendRequest]);
+  }, [session.sendRequest, lang]);
 
   /**
    * 处理内联选项关闭
@@ -215,6 +243,34 @@ export default function App() {
    * 当用户关闭内联选项列表时触发。
    */
   const handleInlineClose = useCallback(() => setInlineOptions(null), []);
+
+  /**
+   * 处理自定义数字输入提交
+   *
+   * 由 CustomInputModal 触发，将用户输入的数字字符串通过 apply_select_command
+   * 通道发回后端（与 rewind/context 等多步指令一致）。
+   *
+   * @param value - 用户输入的数字字符串
+   */
+  const handleCustomSubmit = useCallback((value: string) => {
+    if (customInputModal) {
+      session.sendRequest({
+        type: 'apply_select_command',
+        command: customInputModal.command,
+        value,
+      });
+    }
+    setCustomInputModal(null);
+  }, [customInputModal, session.sendRequest]);
+
+  /**
+   * 处理自定义数字输入取消
+   *
+   * 关闭自定义输入模态框，不做任何提交。
+   */
+  const handleCustomCancel = useCallback(() => {
+    setCustomInputModal(null);
+  }, []);
 
   // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
@@ -487,6 +543,17 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 自定义数字输入模态框（/max-tokens custom 与 /context-window __custom__ 分支） */}
+      {customInputModal && (
+        <CustomInputModal
+          lang={lang}
+          prompt={customInputModal.prompt}
+          invalidMessage={customInputModal.invalidMessage}
+          onSubmit={handleCustomSubmit}
+          onCancel={handleCustomCancel}
+        />
       )}
 
       {/* Toast 通知 */}

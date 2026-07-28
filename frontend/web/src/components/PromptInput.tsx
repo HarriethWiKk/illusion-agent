@@ -18,11 +18,11 @@ import { t, type UiLanguage } from '../i18n';
  * Web 端允许的 B 类指令集合（自动补全只显示这些）
  *
  * A 类指令（new/resume/delete/model/effort/permissions/plan）已完全交由 UI 控件承载，
- * 输入框不识别；其余指令当作普通文本发给 LLM。因此自动补全只列出 B 类 9 个指令。
+ * 输入框不识别；其余指令当作普通文本发给 LLM。因此自动补全只列出 B 类 10 个指令。
  */
 const WEB_COMMANDS = [
   '/rewind', '/compact', '/context', '/export', '/init',
-  '/passes', '/turns', '/output-style', '/language',
+  '/passes', '/turns', '/output-style', '/language', '/max-tokens',
 ];
 
 /**
