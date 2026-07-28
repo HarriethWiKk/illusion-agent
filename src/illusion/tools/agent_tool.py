@@ -96,7 +96,7 @@ Available agent types and the tools they have access to:
 - Explore: Fast read-only codebase exploration (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
 - Plan: Software architect for designing implementation plans (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
 - verification: Verification specialist for checking implementation correctness (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
-- illusion-guide: Documentation lookup for Illusion Code/SDK/API (Tools: Glob, Grep, Read, WebFetch, WebSearch).
+- illusion-guide: Documentation lookup for Illusion Agent/SDK/API (Tools: Glob, Grep, Read, WebFetch, WebSearch).
 - worker: Implementation-focused worker agent. All tools available.
 - statusline-setup: Status line configuration agent (Tools: Read, Edit).
 

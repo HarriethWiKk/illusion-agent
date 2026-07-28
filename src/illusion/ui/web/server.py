@@ -45,7 +45,7 @@ def create_app(
     host_config: WebHostConfig | None = None,
 ) -> FastAPI:
     """创建 FastAPI 应用实例。"""
-    app = FastAPI(title="Illusion Code Web")
+    app = FastAPI(title="Illusion Agent Web")
 
     if dev:
         app.add_middleware(
