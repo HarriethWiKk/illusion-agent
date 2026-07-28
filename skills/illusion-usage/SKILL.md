@@ -1,53 +1,53 @@
 ---
 name: illusion-usage
-description: Dual-purpose guide for agents. Scenario A — agent autonomously drives Illusion Code via non-interactive print mode (-p). Scenario B — agent helps its human master install and use Illusion Code's interactive TUI/Web modes. Invoke when an agent needs to operate Illusion Code, install it for a user, or teach a user how to use it.
+description: Dual-purpose guide for agents. Scenario A — agent autonomously drives Illusion Agent via non-interactive print mode (-p). Scenario B — agent helps its human master install and use Illusion Agent's interactive TUI/Web modes. Invoke when an agent needs to operate Illusion Agent, install it for a user, or teach a user how to use it.
 ---
 
-# Illusion Code Usage: Agent Dual-Role Guide
+# Illusion Agent Usage: Agent Dual-Role Guide
 
 This skill serves two scenarios. **Detect your role first**, then follow the matching track.
 
-> **Live documentation**: ALWAYS fetch the latest docs from GitHub before acting — do not rely on hardcoded commands in this skill. Repo: `https://github.com/YunTaiHua/illusion-code`. Docs: `https://github.com/YunTaiHua/illusion-code/tree/main/docs`. Use `WebFetch`, `web_fetch`, or an equivalent tool to read the URLs in [Reference URLs](#reference-urls) below.
+> **Live documentation**: ALWAYS fetch the latest docs from GitHub before acting — do not rely on hardcoded commands in this skill. Repo: `https://github.com/YunTaiHua/illusion-agent`. Docs: `https://github.com/YunTaiHua/illusion-agent/tree/main/docs`. Use `WebFetch`, `web_fetch`, or an equivalent tool to read the URLs in [Reference URLs](#reference-urls) below.
 
 ## Role Detection
 
 | Your situation | Track to follow |
 |----------------|-----------------|
 | You (the agent) will invoke `illusion -p` as a subprocess to do coding tasks autonomously | **Track A: Agent-Driven Print Mode** |
-| Your human master wants to install/use Illusion Code themselves, and you guide them | **Track B: Human-Friendly TUI & Web** |
+| Your human master wants to install/use Illusion Agent themselves, and you guide them | **Track B: Human-Friendly TUI & Web** |
 | Both — you'll drive it AND teach your master | Read both tracks; Track A for your own use, Track B for your master |
 
 ---
 
 # Track A: Agent-Driven Print Mode
 
-Use print mode when YOU (the agent) operate Illusion Code as a non-interactive subprocess. Every `-p` invocation is an atomic request-response — no waiting for interactive input within the same turn.
+Use print mode when YOU (the agent) operate Illusion Agent as a non-interactive subprocess. Every `-p` invocation is an atomic request-response — no waiting for interactive input within the same turn.
 
 ## A.0 Fetch Current Docs (MANDATORY before install)
 
 Use a web fetch tool to read these in order. This skill only outlines the workflow — concrete flags, file paths, and auth providers may have changed.
 
-1. **README** — `https://github.com/YunTaiHua/illusion-code`
-2. **Getting Started** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/getting-started.md`
-3. **Commands** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/commands.md`
-4. **Settings** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/settings.md`
+1. **README** — `https://github.com/YunTaiHua/illusion-agent`
+2. **Getting Started** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/getting-started.md`
+3. **Commands** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/commands.md`
+4. **Settings** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/settings.md`
 
-> If any URL 404s, fall back to PyPI (`https://pypi.org/project/illusion-code/`) and follow its homepage link. Do NOT assume commands below are current — verify against fetched docs.
+> If any URL 404s, fall back to PyPI (`https://pypi.org/project/illusion-agent/`) and follow its homepage link. Do NOT assume commands below are current — verify against fetched docs.
 
 ## A.1 Installation
 
 **Recommended (no Node.js required)**:
 
 ```bash
-pip install illusion-code
+pip install illusion-agent
 illusion --version
 ```
 
 **From source (developers, requires Node.js 18+)**:
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install .          # or: pip install -e .   (editable)
 ```
 
@@ -243,18 +243,18 @@ illusion -r <session-id> -p "Continue"
 
 # Track B: Human-Friendly TUI & Web
 
-Use this track when your human master wants to install and use Illusion Code themselves. **Default to interactive modes** (TUI/Web) — they are far more user-friendly than print mode for humans. Guide your master step by step, and fetch the latest docs to give accurate instructions.
+Use this track when your human master wants to install and use Illusion Agent themselves. **Default to interactive modes** (TUI/Web) — they are far more user-friendly than print mode for humans. Guide your master step by step, and fetch the latest docs to give accurate instructions.
 
 ## B.0 Fetch Current Docs (MANDATORY before guiding)
 
-Use `WebFetch` / `web_fetch` to read the latest docs before giving any instruction. Repo: `https://github.com/YunTaiHua/illusion-code`.
+Use `WebFetch` / `web_fetch` to read the latest docs before giving any instruction. Repo: `https://github.com/YunTaiHua/illusion-agent`.
 
 Recommended fetch order for guiding humans:
 
-1. **README** — `https://github.com/YunTaiHua/illusion-code` — show your master the project overview and latest features
-2. **Getting Started** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/getting-started.md` (or `docs/zh-CN/getting-started.md` for Chinese) — install steps, first-run guide
-3. **Commands** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/commands.md` (or `docs/zh-CN/commands.md`) — slash commands for interactive sessions
-4. **Settings** — `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/settings.md` — for advanced configuration
+1. **README** — `https://github.com/YunTaiHua/illusion-agent` — show your master the project overview and latest features
+2. **Getting Started** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/getting-started.md` (or `docs/zh-CN/getting-started.md` for Chinese) — install steps, first-run guide
+3. **Commands** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/commands.md` (or `docs/zh-CN/commands.md`) — slash commands for interactive sessions
+4. **Settings** — `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/settings.md` — for advanced configuration
 
 > Match the doc language to your master's preference. Both `en/` and `zh-CN/` directories exist in the docs.
 
@@ -265,7 +265,7 @@ Recommended fetch order for guiding humans:
 Tell your master to run in their terminal:
 
 ```bash
-pip install illusion-code
+pip install illusion-agent
 ```
 
 Then verify:
@@ -279,8 +279,8 @@ illusion --version
 **For developers** (requires Node.js 18+):
 
 ```bash
-git clone https://github.com/YunTaiHua/illusion-code.git
-cd illusion-code
+git clone https://github.com/YunTaiHua/illusion-agent.git
+cd illusion-agent
 pip install -e .
 ```
 
@@ -371,13 +371,13 @@ If your master wants to customize, point them to `~/.illusion/settings.json`:
 
 ## B.6 Guide Channel Setup (Optional, Mobile Access)
 
-If your master wants to use Illusion Code from their phone via messaging apps:
+If your master wants to use Illusion Agent from their phone via messaging apps:
 
 - **Feishu/Lark** — `illusion channel login`, select Feishu
 - **WeChat** — `illusion channel login`, select WeChat (iLink Bot API)
 - **QQ** — `illusion channel login`, select QQ (official Bot API)
 
-Fetch the Channels doc for setup details: `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/channels.md` (or `docs/zh-CN/channels.md`).
+Fetch the Channels doc for setup details: `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/channels.md` (or `docs/zh-CN/channels.md`).
 
 ## B.7 Human-Facing Anti-Patterns
 
@@ -405,16 +405,16 @@ Before your master starts coding:
 
 # Reference URLs (verify they resolve before relying on them)
 
-- Repository: `https://github.com/YunTaiHua/illusion-code`
-- PyPI package: `https://pypi.org/project/illusion-code/`
-- Getting Started (EN): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/getting-started.md`
-- Getting Started (中文): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/zh-CN/getting-started.md`
-- Commands (EN): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/commands.md`
-- Commands (中文): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/zh-CN/commands.md`
-- Settings (EN): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/settings.md`
-- Settings (中文): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/zh-CN/settings.md`
-- Channels (EN): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/channels.md`
-- Channels (中文): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/zh-CN/channels.md`
-- Architecture (EN): `https://github.com/YunTaiHua/illusion-code/blob/main/docs/en/architecture.md`
+- Repository: `https://github.com/YunTaiHua/illusion-agent`
+- PyPI package: `https://pypi.org/project/illusion-agent/`
+- Getting Started (EN): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/getting-started.md`
+- Getting Started (中文): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/zh-CN/getting-started.md`
+- Commands (EN): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/commands.md`
+- Commands (中文): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/zh-CN/commands.md`
+- Settings (EN): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/settings.md`
+- Settings (中文): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/zh-CN/settings.md`
+- Channels (EN): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/channels.md`
+- Channels (中文): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/zh-CN/channels.md`
+- Architecture (EN): `https://github.com/YunTaiHua/illusion-agent/blob/main/docs/en/architecture.md`
 
-If any URL above 404s, the docs may have been reorganized — start from `https://github.com/YunTaiHua/illusion-code` and navigate to the `docs/` directory to find the current paths.
+If any URL above 404s, the docs may have been reorganized — start from `https://github.com/YunTaiHua/illusion-agent` and navigate to the `docs/` directory to find the current paths.

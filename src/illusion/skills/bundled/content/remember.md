@@ -10,7 +10,7 @@ Review the user's memory landscape and produce a clear report of proposed change
 
 ## Memory System Overview
 
-Illusion Code uses a file-based memory system:
+Illusion Agent uses a file-based memory system:
 - **Memory directory**: `~/.illusion/data/memory/<project-name>-<hash>/`
 - **Entry point**: `MEMORY.md` (index file with links to memory files)
 - **Memory files**: Individual `.md` files with optional YAML frontmatter

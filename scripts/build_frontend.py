@@ -99,7 +99,7 @@ def build_web(npm: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build illusion-code frontends")
+    parser = argparse.ArgumentParser(description="Build illusion-agent frontends")
     parser.add_argument("--terminal", action="store_true", help="Build terminal frontend only")
     parser.add_argument("--web", action="store_true", help="Build web frontend only")
     args = parser.parse_args()

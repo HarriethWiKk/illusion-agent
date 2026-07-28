@@ -2,7 +2,7 @@
 发布脚本
 ========
 
-构建并发布 illusion-code 到 PyPI 或 TestPyPI。
+构建并发布 illusion-agent 到 PyPI 或 TestPyPI。
 
 用法：
     python scripts/publish.py              # 发布到 PyPI
@@ -32,7 +32,7 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="构建并发布 illusion-code")
+    parser = argparse.ArgumentParser(description="构建并发布 illusion-agent")
     parser.add_argument("--test", action="store_true", help="发布到 TestPyPI")
     parser.add_argument("--dry-run", action="store_true", help="只构建+校验，不上传")
     parser.add_argument("--skip-tests", action="store_true", help="跳过测试")

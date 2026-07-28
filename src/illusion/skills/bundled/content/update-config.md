@@ -1,11 +1,11 @@
 ---
 name: update-config
-description: Configure Illusion Code via settings.json, permissions.json, project-level directories, and instruction files. Use for permissions, hooks, env vars, MCP servers, skills, plugins, sandbox, and other settings. Examples: "allow npm commands", "set DEBUG=true", "add a hook to format code after writes", "disable a skill for this project".
+description: Configure Illusion Agent via settings.json, permissions.json, project-level directories, and instruction files. Use for permissions, hooks, env vars, MCP servers, skills, plugins, sandbox, and other settings. Examples: "allow npm commands", "set DEBUG=true", "add a hook to format code after writes", "disable a skill for this project".
 ---
 
 # Update Config Skill
 
-Modify Illusion Code configuration across three layers: global `settings.json`, project-level `.illusion/` directory, and AI instruction files.
+Modify Illusion Agent configuration across three layers: global `settings.json`, project-level `.illusion/` directory, and AI instruction files.
 
 ## CRITICAL: Read Before Write
 
@@ -572,7 +572,7 @@ Instruction files provide project-specific context to the AI. They are merged in
 2. **`.claude/` directory**: `{cwd}/.claude/CLAUDE.md`
 3. **`.illusion/` directory**: `{cwd}/.illusion/CLAUDE.md`, `{cwd}/.illusion/AGENTS.md`, `{cwd}/.illusion/ILLUSION.md`
 
-All three names (`CLAUDE.md`, `ILLUSION.md`, `AGENTS.md`) are **equivalent** — IllusionCode recognizes them interchangeably.
+All three names (`CLAUDE.md`, `ILLUSION.md`, `AGENTS.md`) are **equivalent** — IllusionAgent recognizes them interchangeably.
 
 ### Usage
 
