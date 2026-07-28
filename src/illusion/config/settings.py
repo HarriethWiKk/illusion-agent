@@ -2,7 +2,7 @@
 Settings 模型和加载逻辑模块
 ===========================
 
-本模块提供 IllusionCode 的设置管理功能，包括：
+本模块提供 IllusionAgent 的设置管理功能，包括：
 - Settings: 主设置模型（env_N 分组格式）
 - EnvConfig: 环境/提供商组配置
 - 各种设置加载和保存函数
@@ -232,7 +232,7 @@ class EnvConfig(BaseModel):
 
 
 class Settings(BaseModel):
-    """IllusionCode 主设置模型（env_N 分组格式）"""
+    """IllusionAgent 主设置模型（env_N 分组格式）"""
 
     model_config = {"extra": "allow"}  # 允许 env_N 动态字段
 

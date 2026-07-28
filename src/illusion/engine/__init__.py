@@ -2,7 +2,7 @@
 核心引擎模块
 ============
 
-本模块提供 IllusionCode 核心引擎的导出接口。
+本模块提供 IllusionAgent 核心引擎的导出接口。
 
 主要组件：
     - ConversationMessage: 对话消息模型

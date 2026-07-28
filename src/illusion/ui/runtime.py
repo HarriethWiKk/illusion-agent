@@ -276,7 +276,7 @@ async def build_runtime(
     mcp_config: list[str] | None = None,
     name: str | None = None,
 ) -> RuntimeBundle:
-    """构建 IllusionCode 会话的共享运行时。
+    """构建 IllusionAgent 会话的共享运行时。
 
     初始化所有运行时对象，包括 API 客户端、插件、工具注册器、引擎等。
 

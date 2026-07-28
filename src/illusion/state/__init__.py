@@ -2,7 +2,7 @@
 状态管理模块
 ============
 
-本模块提供 IllusionCode 应用状态管理功能。
+本模块提供 IllusionAgent 应用状态管理功能。
 
 主要组件：
     - AppState: 应用状态

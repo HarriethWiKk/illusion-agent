@@ -2,7 +2,7 @@
 命令注册模块
 ============
 
-本模块提供 IllusionCode 斜杠命令注册功能。
+本模块提供 IllusionAgent 斜杠命令注册功能。
 
 主要组件：
     - CommandContext: 命令上下文

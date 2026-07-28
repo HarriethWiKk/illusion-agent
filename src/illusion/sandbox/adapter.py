@@ -254,7 +254,7 @@ class SandboxManager:
 # --- 向后兼容的旧 API ---
 
 def build_sandbox_runtime_config(settings: Any) -> dict[str, Any]:
-    """将 IllusionCode 设置转换为沙箱运行时配置（向后兼容）"""
+    """将 IllusionAgent 设置转换为沙箱运行时配置（向后兼容）"""
     manager = SandboxManager()
     return manager._settings_to_config(settings.sandbox)
 

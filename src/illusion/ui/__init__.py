@@ -2,7 +2,7 @@
 UI 模块
 =======
 
-本模块提供 IllusionCode 用户界面的核心功能。
+本模块提供 IllusionAgent 用户界面的核心功能。
 
 主要组件：
     - run_repl: 运行交互式 REPL（默认的 React 终端界面）

@@ -2,7 +2,7 @@
 MCP 工具适配器
 =============
 
-本模块提供将 MCP（Model Context Protocol）工具暴露为普通 IllusionCode 工具的功能。
+本模块提供将 MCP（Model Context Protocol）工具暴露为普通 IllusionAgent 工具的功能。
 
 主要组件：
     - McpToolAdapter: 将一个 MCP 工具作为普通工具暴露
@@ -24,7 +24,7 @@ from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
 class McpToolAdapter(BaseTool[Any]):
-    """将一个 MCP 工具作为普通 IllusionCode 工具暴露。
+    """将一个 MCP 工具作为普通 IllusionAgent 工具暴露。
 
     用于集成 MCP 服务器提供的工具。
     """

@@ -2,7 +2,7 @@
 认证模块
 ========
 
-本模块提供 IllusionCode 统一的认证管理功能。
+本模块提供 IllusionAgent 统一的认证管理功能。
 
 主要组件：
     - AuthManager: 认证管理器

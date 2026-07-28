@@ -1,7 +1,7 @@
 """QQ 渠道模块
 ================
 
-提供 IllusionCode 的 QQ（QQ 开放平台 Bot API v2）消息渠道实现。
+提供 IllusionAgent 的 QQ（QQ 开放平台 Bot API v2）消息渠道实现。
 
 子模块：
     - api: QQ Bot REST API 客户端（token/收发/上传）

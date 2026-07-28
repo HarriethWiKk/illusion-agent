@@ -2,7 +2,7 @@
 App 应用程序模块
 =============
 
-本模块实现 IllusionCode 交互式会话入口点。
+本模块实现 IllusionAgent 交互式会话入口点。
 
 主要功能：
     - REPL 交互模式（默认的 React 终端界面）
@@ -283,7 +283,7 @@ async def run_repl(
     continue_session: bool = False,
     resume: str | None = None,
 ) -> None:
-    """运行默认的 IllusionCode 交互式应用程序（React TUI）。
+    """运行默认的 IllusionAgent 交互式应用程序（React TUI）。
 
     Args:
         prompt: 初始提示词

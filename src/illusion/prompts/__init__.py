@@ -2,7 +2,7 @@
 提示词模块
 ==========
 
-本模块提供 IllusionCode 系统提示词构建功能。
+本模块提供 IllusionAgent 系统提示词构建功能。
 
 主要组件：
     - build_system_prompt: 构建系统提示词

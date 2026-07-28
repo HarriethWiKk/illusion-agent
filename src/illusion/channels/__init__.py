@@ -1,7 +1,7 @@
 """消息渠道模块
 ================
 
-提供 IllusionCode 的消息渠道能力（飞书等）。
+提供 IllusionAgent 的消息渠道能力（飞书等）。
 
 主要导出：
     - ChannelRunner: 渠道消息接入 agent 的运行器

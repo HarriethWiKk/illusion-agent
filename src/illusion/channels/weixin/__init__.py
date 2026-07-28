@@ -1,7 +1,7 @@
 """微信渠道模块
 ================
 
-提供 IllusionCode 的微信（个人微信 iLink Bot）消息渠道实现。
+提供 IllusionAgent 的微信（个人微信 iLink Bot）消息渠道实现。
 
 子模块：
     - ilink_api: iLink Bot API 客户端（扫码/收发/打字）

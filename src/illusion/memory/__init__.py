@@ -2,7 +2,7 @@
 记忆模块
 ========
 
-本模块提供 IllusionCode 记忆/上下文管理功能。
+本模块提供 IllusionAgent 记忆/上下文管理功能。
 
 主要组件：
     - add_memory_entry: 添加记忆条目

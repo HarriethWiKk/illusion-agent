@@ -2,7 +2,7 @@
 插件模块
 ========
 
-本模块提供 IllusionCode 插件系统的加载和管理功能。
+本模块提供 IllusionAgent 插件系统的加载和管理功能。
 
 主要组件：
     - PluginManifest: 插件清单

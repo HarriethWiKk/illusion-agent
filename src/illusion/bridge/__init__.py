@@ -2,7 +2,7 @@
 桥接模块
 ========
 
-本模块提供 IllusionCode 桥接会话管理功能。
+本模块提供 IllusionAgent 桥接会话管理功能。
 
 主要组件：
     - BridgeSessionManager: 桥接会话管理器

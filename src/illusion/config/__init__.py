@@ -2,7 +2,7 @@
 配置系统模块
 ============
 
-本模块提供 IllusionCode 的配置管理、路径解析和 API 密钥处理功能。
+本模块提供 IllusionAgent 的配置管理、路径解析和 API 密钥处理功能。
 
 主要组件：
     - Settings: 应用设置

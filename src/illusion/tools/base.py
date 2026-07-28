@@ -2,7 +2,7 @@
 工具抽象模块
 ============
 
-本模块提供 IllusionCode 工具系统的抽象基类和注册表。
+本模块提供 IllusionAgent 工具系统的抽象基类和注册表。
 
 主要组件：
     - BaseTool: 所有工具的抽象基类
@@ -68,7 +68,7 @@ ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
 
 
 class BaseTool(ABC, Generic[ToolInputT]):
-    """所有 IllusionCode 工具的基类
+    """所有 IllusionAgent 工具的基类
     
     Attributes:
         name: 工具名称

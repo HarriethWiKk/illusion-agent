@@ -127,7 +127,7 @@ class WebHostConfig:
 class WebBackendHost:
     """Web 后端主机。
 
-    通过 WebSocket 协议与 Web 前端通信，驱动 IllusionCode 运行时。
+    通过 WebSocket 协议与 Web 前端通信，驱动 IllusionAgent 运行时。
     处理所有前端请求并发送后端事件。
 
     Attributes:

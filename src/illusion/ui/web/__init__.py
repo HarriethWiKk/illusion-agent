@@ -1,5 +1,5 @@
 """
-IllusionCode Web 前端模块
+IllusionAgent Web 前端模块
 ========================
 
 本模块提供基于 FastAPI + WebSocket 的 Web 界面后端支持。

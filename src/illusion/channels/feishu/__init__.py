@@ -1,7 +1,7 @@
 """飞书渠道模块
 ================
 
-提供 IllusionCode 的飞书（Feishu / Lark）消息渠道实现。
+提供 IllusionAgent 的飞书（Feishu / Lark）消息渠道实现。
 
 子模块：
     - adapter: WS 长连接与事件分发

@@ -2,7 +2,7 @@
 安全凭据存储模块
 ================
 
-本模块为 IllusionCode 提供安全的凭据存储功能。
+本模块为 IllusionAgent 提供安全的凭据存储功能。
 
 默认后端：~/.illusion/credentials.json，权限 600
 
