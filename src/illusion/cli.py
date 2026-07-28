@@ -1112,7 +1112,7 @@ def web_start(
 def update_cmd(
     deps: bool = typer.Option(False, "--deps", help="同时更新依赖 / Also update dependencies"),
 ) -> None:
-    """检查并更新 IllusionCode
+    """检查并更新 IllusionAgent
 
     查询 PyPI 获取最新版本，对比后交互式确认更新。
     """
