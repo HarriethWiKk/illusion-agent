@@ -2,9 +2,9 @@
 
 <div align="center">
 
-**AI-Powered Command-Line Programming Assistant**
+**Where fantasy meets functionality.**
 
-*The best of many worlds, unified into one intelligent coding tool*
+*The best of many worlds, refined into one intelligent agent*
 
 [中文版](README.zh-CN.md) | English
 
@@ -14,22 +14,34 @@
 
 ## 📖 Introduction
 
-IllusionAgent is an open-source AI-powered command-line programming assistant that brings together the best ideas from many projects and adds its own innovations. It inherits Claude Code's complete prompt system and tool architecture, draws inspiration from OpenHarness's Python architecture design, uses the same Cron task scheduling architecture as OpenClaw, ports core infrastructure modules (async queue, stderr fd-level redirect, cross-platform SIGINT handler) from kimi-cli, references channel connection/rendering patterns (Feishu WS, WeChat iLink, QQ Bot gateway) from hermes-agent, and implements flexible proxy routing through cc-switch. On this foundation, IllusionAgent provides deep Windows optimization, full bilingual (Chinese/English) interface support, more comprehensive Markdown terminal rendering than comparable projects, and a browser-based Web UI for a modern chat experience.
+IllusionAgent is an open-source AI agent platform. It unifies a multi-provider
+LLM gateway, a bilingual (Chinese/English) CLI, a browser-based Web UI, and
+a flexible extension ecosystem into a single intelligent agent — at home
+on Windows, macOS, and Linux.
+
+Whether you prefer the discipline of the terminal or the ease of the browser,
+IllusionAgent resonates with your workflow: 42 built-in tools, 49 slash
+commands, 7 specialized sub-agents, MCP server support, hooks, plugins, and
+a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
+
+> Standing on the shoulders of giants — Claude Code prompts, OpenHarness
+> architecture, OpenClaw scheduling, kimi-cli infrastructure, hermes-agent
+> channels, cc-switch routing.
 
 ### Core Features
 
-- 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, independently usable alongside the terminal
-- 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support
-- 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component
-- 🌍 **Bilingual Interface** - Chinese/English auto-switch via `ui_language` setting
-- 📝 **Comprehensive Markdown Rendering** - Tables, code blocks, rich text
 - 🤖 **Multi AI Provider Support** - Anthropic, OpenAI, Copilot, Codex, and any compatible endpoint
+- 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents
 - 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
 - ⌨️ **49 Slash Commands** - Session, config, project, scheduling
-- 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents
+- 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, independently usable alongside the terminal
+- 🌍 **Bilingual Interface** - Chinese/English auto-switch via `ui_language` setting
+- 📝 **Comprehensive Markdown Rendering** - Tables, code blocks, rich text
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
 - 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules
 - 🎯 **Reasoning Effort Control** - low/medium/high/xhigh/max levels
+- 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support
+- 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component
 
 ### Interface Preview
 
