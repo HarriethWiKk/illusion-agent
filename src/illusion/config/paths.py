@@ -45,6 +45,34 @@ def _sanitize_path_component(value: str) -> str:
     return sanitized or "default"
 
 
+def validate_safe_path(candidate: str) -> Path:
+    """校验用户输入的路径安全性，拒绝路径穿越攻击。
+
+    安全策略：
+        - 拒绝包含 ``..`` 的路径（防止跳出工作目录的路径穿越攻击）
+        - 拒绝 ``~`` 开头的路径（防止 ``expanduser()`` 展开到用户家目录）
+
+    注意：绝对路径不在此层拒绝。原 ``_resolve_path`` 实现允许绝对路径直接通过，
+    现有测试和工具行为依赖此特性。绝对路径的访问控制由 permission checker
+    在更上层统一处理。
+
+    Args:
+        candidate: 用户输入的原始路径字符串
+
+    Returns:
+        Path: 原样返回的 Path 对象（不展开、不解析），由调用方自行 join
+
+    Raises:
+        ValueError: 路径包含 ``..`` 或以 ``~`` 开头
+    """
+    p = Path(candidate)
+    if ".." in p.parts:
+        raise ValueError(f"Path traversal not allowed: {candidate!r}")
+    if candidate.startswith("~"):
+        raise ValueError(f"Home directory paths not allowed: {candidate!r}")
+    return p
+
+
 def get_config_dir() -> Path:
     """返回配置目录，必要时创建
 

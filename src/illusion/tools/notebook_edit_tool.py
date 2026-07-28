@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from illusion.config.paths import validate_safe_path
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.atomic_write import atomic_write_text
 from illusion.utils.file_state_cache import FileState, FileStateCache
@@ -71,7 +72,10 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
         context: ToolExecutionContext,
     ) -> ToolResult:
         # 解析文件路径
-        path = _resolve_path(context.cwd, arguments.notebook_path)
+        try:
+            path = _resolve_path(context.cwd, arguments.notebook_path)
+        except ValueError as exc:
+            return ToolResult(output=str(exc), is_error=True)
 
         # 验证 .ipynb 扩展名
         if path.suffix.lower() != ".ipynb":
@@ -189,11 +193,16 @@ class NotebookEditTool(BaseTool[NotebookEditToolInput]):
 
 
 def _resolve_path(base: Path, candidate: str) -> Path:
-    """解析相对路径为绝对路径。"""
-    path = Path(candidate).expanduser()
-    if not path.is_absolute():
-        path = base / path
-    return path.resolve()
+    """解析相对路径为绝对路径，并拒绝路径穿越攻击。
+
+    安全策略：拒绝包含 ``..``、绝对路径、``~`` 开头的输入。
+    通过校验后与 base 拼接并 resolve 为绝对路径。
+
+    Raises:
+        ValueError: 路径包含 ``..``、为绝对路径、或以 ``~`` 开头
+    """
+    safe_path = validate_safe_path(candidate)
+    return (base / safe_path).resolve()
 
 
 def _resolve_cell_index(cells: list[dict[str, Any]], cell_id: str | None) -> int | None:

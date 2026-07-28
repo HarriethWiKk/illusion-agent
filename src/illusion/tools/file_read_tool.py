@@ -24,6 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from illusion.config.paths import validate_safe_path
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.file_state_cache import FileState, FileStateCache
 
@@ -108,7 +109,10 @@ Usage:
         context: ToolExecutionContext,
     ) -> ToolResult:
         # 解析文件路径
-        path = _resolve_path(context.cwd, arguments.file_path)
+        try:
+            path = _resolve_path(context.cwd, arguments.file_path)
+        except ValueError as exc:
+            return ToolResult(output=str(exc), is_error=True)
         # 检查文件是否存在
         if not await asyncio.to_thread(path.exists):
             return ToolResult(output=f"File not found: {path}", is_error=True)
@@ -355,16 +359,13 @@ def _human_size(size: int) -> str:
 
 
 def _resolve_path(base: Path, candidate: str) -> Path:
-    """解析相对路径为绝对路径。
+    """解析相对路径为绝对路径，并拒绝路径穿越攻击。
 
-    参数：
-        base: 基础目录
-        candidate: 候选路径（可能是相对路径）
+    安全策略：拒绝包含 ``..``、绝对路径、``~`` 开头的输入。
+    通过校验后与 base 拼接并 resolve 为绝对路径。
 
-    返回：
-        解析后的绝对路径
+    Raises:
+        ValueError: 路径包含 ``..``、为绝对路径、或以 ``~`` 开头
     """
-    path = Path(candidate).expanduser()
-    if not path.is_absolute():
-        path = base / path
-    return path.resolve()
+    safe_path = validate_safe_path(candidate)
+    return (base / safe_path).resolve()

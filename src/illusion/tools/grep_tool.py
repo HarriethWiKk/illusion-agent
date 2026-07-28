@@ -5,6 +5,7 @@ Grep 工具 - 使用 ripgrep 搜索文件内容。
 """
 
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -149,6 +150,18 @@ Usage:
 
         # 搜索模式（以 - 开头的模式用 -e 前缀）
         pattern = arguments.pattern
+
+        # 预校验正则表达式，避免无效正则触发 RipgrepError 异常链导致后端崩溃。
+        # rg.exe 对无效正则返回非零退出码，会被包装为 RipgrepError 抛出，
+        # 单工具路径下该异常会逃逸 _safe_run 保护，最终让进程崩溃。
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            return ToolResult(
+                output=f"Invalid regex pattern: {exc}",
+                is_error=True,
+            )
+
         if pattern.startswith("-"):
             args.extend(["-e", pattern])
         else:
