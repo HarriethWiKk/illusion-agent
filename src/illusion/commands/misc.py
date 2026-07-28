@@ -37,10 +37,10 @@ async def version_handler(_: str, context: CommandContext) -> CommandResult:
     """显示版本号"""
     del context
     try:
-        version = importlib.metadata.version("illusion-code")
+        version = importlib.metadata.version("illusion-agent")
     except importlib.metadata.PackageNotFoundError:
         version = __version__
-    return CommandResult(message=f"IllusionCode {version}")
+    return CommandResult(message=f"IllusionAgent {version}")
 
 
 async def copy_handler(args: str, context: CommandContext) -> CommandResult:
@@ -197,14 +197,14 @@ async def files_handler(args: str, context: CommandContext) -> CommandResult:
 
 
 def _check_pypi_latest() -> str | None:
-    """查询 PyPI 获取 illusion-code 最新版本号
+    """查询 PyPI 获取 illusion-agent 最新版本号
 
     Returns:
         str | None: 最新版本号，查询失败返回 None
     """
     try:
         resp = httpx.get(
-            "https://pypi.org/pypi/illusion-code/json",
+            "https://pypi.org/pypi/illusion-agent/json",
             timeout=10,
             follow_redirects=True,
         )
@@ -215,13 +215,13 @@ def _check_pypi_latest() -> str | None:
 
 
 def _get_current_version() -> str:
-    """获取当前安装的 illusion-code 版本号
+    """获取当前安装的 illusion-agent 版本号
 
     Returns:
         str: 当前版本号
     """
     try:
-        return importlib.metadata.version("illusion-code")
+        return importlib.metadata.version("illusion-agent")
     except importlib.metadata.PackageNotFoundError:
         return __version__
 
@@ -281,7 +281,7 @@ def _run_pip_install(pkgs: list[str]) -> tuple[bool, str]:
 
 
 async def update_handler(args: str, context: CommandContext) -> CommandResult:
-    """检查并更新 IllusionCode"""
+    """检查并更新 IllusionAgent"""
     from illusion.config.i18n import t
 
     del context
@@ -298,7 +298,7 @@ async def update_handler(args: str, context: CommandContext) -> CommandResult:
         # PyPI 查询失败，降级为直接升级
         print(t("update_network_error"))
         print(t("update_installing"))
-        ok, output = _run_pip_upgrade(["illusion-code"])
+        ok, output = _run_pip_upgrade(["illusion-agent"])
         if ok:
             new_ver = _get_current_version()
             return CommandResult(message=t("update_success", version=new_ver))
@@ -320,7 +320,7 @@ async def update_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message="Cancelled.")
 
         print(t("update_installing"))
-        ok, output = _run_pip_upgrade(["illusion-code"])
+        ok, output = _run_pip_upgrade(["illusion-agent"])
         if ok:
             print(t("update_success", version=latest))
         else:

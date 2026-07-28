@@ -1,8 +1,8 @@
 """
-IllusionCode 程序入口模块
+IllusionAgent 程序入口模块
 ========================
 
-本模块作为 IllusionCode 的入口点，支持通过 `python -m illusion` 运行。
+本模块作为 IllusionAgent 的入口点，支持通过 `python -m illusion` 运行。
 
 使用示例：
     >>> python -m illusion                    # 启动交互式会话

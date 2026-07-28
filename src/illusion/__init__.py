@@ -1,8 +1,8 @@
 """
-IllusionCode 核心模块
+IllusionAgent 核心模块
 ====================
 
-IllusionCode 是一个 AI 驱动的编程助手，提供交互式会话和命令行工具。
+IllusionAgent 是一个 AI 驱动的编程助手，提供交互式会话和命令行工具。
 
 主要子模块：
     - api: API 客户端集成

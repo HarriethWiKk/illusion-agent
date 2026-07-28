@@ -1,8 +1,8 @@
 """
-IllusionCode CLI 入口模块
+IllusionAgent CLI 入口模块
 ========================
 
-本模块提供 IllusionCode 命令行界面，使用 typer 构建。
+本模块提供 IllusionAgent 命令行界面，使用 typer 构建。
 
 主要功能：
     - 交互式会话模式
@@ -73,7 +73,7 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="illusion",
     help=(
-        "Illusion Code - AI 驱动的编程助手\n"
+        "Illusion Agent - AI 驱动的编程助手\n"
         "默认启动交互式会话，使用 -p/--print 进入非交互模式"
     ),
     add_completion=False,
@@ -1008,7 +1008,7 @@ def web_start(
     model: str | None = typer.Option(None, "--model", "-m", help="指定模型"),
     prompt: str | None = typer.Option(None, "--prompt", help="初始提示词"),
 ) -> None:
-    """启动 Illusion Code Web 界面 / Launch Illusion Code Web UI"""
+    """启动 Illusion Agent Web 界面 / Launch Illusion Agent Web UI"""
     import threading
 
     import uvicorn
@@ -1088,7 +1088,7 @@ def web_start(
     app = create_app(dev=dev, host_config=config)
 
     url = f"http://{host}:{port}"
-    typer.echo(f"Illusion Code Web UI: {url}")
+    typer.echo(f"Illusion Agent Web UI: {url}")
     if not dev:
         import webbrowser
         threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
@@ -1147,7 +1147,7 @@ async def _update_cli(args: str) -> CommandResult:
     if latest is None:
         print(t("update_network_error"))
         print(t("update_installing"))
-        ok, output = _run_pip_upgrade(["illusion-code"])
+        ok, output = _run_pip_upgrade(["illusion-agent"])
         if ok:
             new_ver = _get_current_version()
             return CommandResult(message=t("update_success", version=new_ver))
@@ -1167,7 +1167,7 @@ async def _update_cli(args: str) -> CommandResult:
             return CommandResult(message="Cancelled.")
 
         print(t("update_installing"))
-        ok, output = _run_pip_upgrade(["illusion-code"])
+        ok, output = _run_pip_upgrade(["illusion-agent"])
         if ok:
             print(t("update_success", version=latest))
         else:

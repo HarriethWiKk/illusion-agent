@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "illusion-code"
+name = "illusion-agent"
 version = "0.3.2"
 description = "Open-source Python port of Claude Code - an AI-powered CLI coding assistant"
 readme = "README.md"
@@ -63,16 +63,16 @@ weixin = [
     "qrcode>=7.4.0",
 ]
 all = [
-    "illusion-code[feishu,weixin]",
+    "illusion-agent[feishu,weixin]",
 ]
 
 [project.scripts]
 illusion = "illusion.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/YunTaiHua/illusion-code"
-Repository = "https://github.com/YunTaiHua/illusion-code"
-Issues = "https://github.com/YunTaiHua/illusion-code/issues"
+Homepage = "https://github.com/YunTaiHua/illusion-agent"
+Repository = "https://github.com/YunTaiHua/illusion-agent"
+Issues = "https://github.com/YunTaiHua/illusion-agent/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/illusion"]
