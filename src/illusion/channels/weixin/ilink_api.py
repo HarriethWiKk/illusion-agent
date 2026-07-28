@@ -976,7 +976,7 @@ def _serve_qr_in_browser(qr_hex: str) -> dict[str, Any]:
     def _build_html() -> str:
         return f"""<html><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="5">
-<title>微信扫码登录 - IllusionCode</title>
+<title>微信扫码登录 - IllusionAgent</title>
 <style>
   body {{ font-family: sans-serif; text-align: center; padding: 40px; background: #f5f5f5; }}
   .card {{ background: white; border-radius: 12px; padding: 30px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}

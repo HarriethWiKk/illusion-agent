@@ -2,7 +2,7 @@
 ILLUSION.md 生成器
 ==================
 
-生成项目级 ILLUSION.md 指令文件，为 illusion-code 提供项目特定的 AI 指导。
+生成项目级 ILLUSION.md 指令文件，为 illusion-agent 提供项目特定的 AI 指导。
 """
 
 from __future__ import annotations

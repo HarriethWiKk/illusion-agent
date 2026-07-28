@@ -237,10 +237,10 @@ def create_default_command_registry() -> CommandRegistry:
         return await run_init(context)
 
     # --- 注册所有命令 ---
-    registry.register(SlashCommand("exit", "Exit IllusionCode", exit_handler))
+    registry.register(SlashCommand("exit", "Exit IllusionAgent", exit_handler))
     registry.register(SlashCommand("clear", "Clear conversation and start a new session", new_handler))
     registry.register(SlashCommand("new", "Start a new conversation session", new_handler))
-    registry.register(SlashCommand("version", "Show the installed IllusionCode version", version_handler))
+    registry.register(SlashCommand("version", "Show the installed IllusionAgent version", version_handler))
     registry.register(SlashCommand("status", "Show session status", status_handler))
     registry.register(SlashCommand("context", "Show active system prompt or manage context window", context_handler))
     registry.register(SlashCommand("summary", "Summarize conversation history", summary_handler))
@@ -253,7 +253,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("copy", "Copy the latest response or provided text", copy_handler))
     registry.register(SlashCommand("rewind", "Remove the latest conversation turn(s)", rewind_handler))
     registry.register(SlashCommand("files", "List files in the current workspace", files_handler))
-    registry.register(SlashCommand("init", "Initialize project IllusionCode files", _init_handler))
+    registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
     registry.register(SlashCommand("bridge", "Inspect bridge helpers and spawn bridge sessions", bridge_handler))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
     registry.register(SlashCommand("logout", "Clear the stored API key", logout_handler))
@@ -284,7 +284,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
     registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
-    registry.register(SlashCommand("update", "Check for and install IllusionCode updates", update_handler))
+    registry.register(SlashCommand("update", "Check for and install IllusionAgent updates", update_handler))
 
     # /help 需要引用 registry 实例
     help_handler = make_help_handler(registry)

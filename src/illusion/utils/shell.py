@@ -233,7 +233,7 @@ def _resolve_windows_bash() -> str | None:
     该位置可能在未配置 WSL 的机器上失败或输出无法读取的内容。
     
     解析优先级：
-        1. ILLUSION_CODE_GIT_BASH_PATH 环境变量覆盖
+        1. ILLUSION_AGENT_GIT_BASH_PATH 环境变量覆盖
         2. 通过 PATH 找到的 bash（排除 system32 shim）
         3. 从 git 可执行文件位置解析 bash
         4. 在已知的 Git for Windows 安装路径中查找
@@ -242,7 +242,7 @@ def _resolve_windows_bash() -> str | None:
         str | None: bash 可执行文件路径，未找到则返回 None
     """
     # 1. 通过环境变量显式指定
-    env_bash = os.environ.get("ILLUSION_CODE_GIT_BASH_PATH")
+    env_bash = os.environ.get("ILLUSION_AGENT_GIT_BASH_PATH")
     if env_bash and Path(env_bash).exists():
         return env_bash
 

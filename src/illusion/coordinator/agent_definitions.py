@@ -2,7 +2,7 @@
 代理定义加载系统模块
 ==================
 
-本模块提供 IllusionCode 代理定义加载和管理功能。
+本模块提供 IllusionAgent 代理定义加载和管理功能。
 
 主要功能：
     - 内置代理定义
@@ -170,7 +170,7 @@ class AgentDefinition(BaseModel):
 
 # 共享代理前缀
 _SHARED_AGENT_PREFIX = (
-    "You are an agent for Illusion Code. "
+    "You are an agent for Illusion Agent. "
     "Given the user's message, you should use the tools available to complete the task. "
     "Complete the task fully — don't gold-plate, but don't leave it half-done."
 )
@@ -196,7 +196,7 @@ _GENERAL_PURPOSE_SYSTEM_PROMPT = (
 )
 
 # 探索代理系统提示词
-_EXPLORE_SYSTEM_PROMPT = """You are a file search specialist for Illusion Code. You excel at thoroughly navigating and exploring codebases.
+_EXPLORE_SYSTEM_PROMPT = """You are a file search specialist for Illusion Agent. You excel at thoroughly navigating and exploring codebases.
 
 Your strengths:
 - Rapidly finding files using glob patterns
@@ -218,7 +218,7 @@ NOTE: You are meant to be a fast agent that returns output as quickly as possibl
 Complete the user's search request efficiently and report your findings clearly."""
 
 # 计划代理系统提示词
-_PLAN_SYSTEM_PROMPT = """You are a software architect and planning specialist for Illusion Code. Your role is to explore the codebase and design implementation plans.
+_PLAN_SYSTEM_PROMPT = """You are a software architect and planning specialist for Illusion Agent. Your role is to explore the codebase and design implementation plans.
 
 You will be provided with a set of requirements and optionally a perspective on how to approach the design process.
 
@@ -390,7 +390,7 @@ _WORKER_SYSTEM_PROMPT = (
 )
 
 # 状态行设置代理系统提示词
-_STATUSLINE_SYSTEM_PROMPT = """You are a status line setup agent for Illusion Code. Your job is to create or update the statusLine command in the user's Illusion Code settings.
+_STATUSLINE_SYSTEM_PROMPT = """You are a status line setup agent for Illusion Agent. Your job is to create or update the statusLine command in the user's Illusion Agent settings.
 
 When asked to convert the user's shell PS1 configuration, follow these steps:
 1. Read the user's shell configuration files in this order of preference:
@@ -503,19 +503,19 @@ Guidelines:
 - Return a summary of what was configured, including the name of the script file if used
 - If the script includes git commands, they should skip optional locks
 - IMPORTANT: At the end of your response, inform the parent agent that this "statusline-setup" agent must be used for further status line changes.
-  Also ensure that the user is informed that they can ask Illusion Code to continue to make changes to the status line.
+  Also ensure that the user is informed that they can ask Illusion Agent to continue to make changes to the status line.
 """
 
-# Illusion Code指南代理系统提示词
-_ILLUSION_CODE_GUIDE_SYSTEM_PROMPT = """You are the Illusion Code guide agent. Your primary responsibility is helping users understand and use Illusion Code effectively.
+# Illusion Agent指南代理系统提示词
+_ILLUSION_AGENT_GUIDE_SYSTEM_PROMPT = """You are the Illusion Agent guide agent. Your primary responsibility is helping users understand and use Illusion Agent effectively.
 
 **Your expertise:**
 
-1. **Illusion Code** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
+1. **Illusion Agent** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
 
 **Documentation sources:**
 
-- **Illusion Code docs** (https://github.com/YunTaiHua/illusion-code/tree/main/docs/en): Fetch the relevant topic file:
+- **Illusion Agent docs** (https://github.com/YunTaiHua/illusion-agent/tree/main/docs/en): Fetch the relevant topic file:
   - Getting started: `getting-started.md`
   - Commands & slash commands: `commands.md`
   - Settings & credentials: `settings.md`
@@ -565,7 +565,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         name="statusline-setup",  # 状态行设置
-        description="Use this agent to configure the user's Illusion Code status line setting.",  # 使用说明
+        description="Use this agent to configure the user's Illusion Agent status line setting.",  # 使用说明
         tools=["read_file", "edit_file"],  # 允许的工具
         system_prompt=_STATUSLINE_SYSTEM_PROMPT,  # 系统提示词
         color="orange",  # 颜色
@@ -574,16 +574,16 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         base_dir="built-in",  # 基础目录
     ),
     AgentDefinition(
-        name="illusion-guide",  # Illusion Code指南
+        name="illusion-guide",  # Illusion Agent指南
         description=(
             'Use this agent when the user asks questions ("Can Illusion...", "Does Illusion...", '
-            '"How do I...") about Illusion Code (the CLI tool) - features, hooks, slash '
+            '"How do I...") about Illusion Agent (the CLI tool) - features, hooks, slash '
             "commands, MCP servers, settings, IDE integrations, keyboard shortcuts. "
             "**IMPORTANT:** Before spawning a new agent, check if there is already a running "
             "or recently completed illusion-guide agent that you can continue via SendMessage."
         ),
         tools=["glob", "grep", "read_file", "web_fetch", "web_search"],  # 允许的工具
-        system_prompt=_ILLUSION_CODE_GUIDE_SYSTEM_PROMPT,  # 系统提示词
+        system_prompt=_ILLUSION_AGENT_GUIDE_SYSTEM_PROMPT,  # 系统提示词
         permission_mode="dontAsk",  # 权限模式
         subagent_type="illusion-guide",  # 代理类型
         source="builtin",  # 来源

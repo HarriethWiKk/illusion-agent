@@ -70,7 +70,7 @@ async def run_init(context: CommandContext) -> CommandResult:
 
     # Phase 5: Report
     if not created and not updated:
-        return CommandResult(message="Project already initialized for IllusionCode.")
+        return CommandResult(message="Project already initialized for IllusionAgent.")
 
     return _build_report(created, updated, analysis, data)
 
@@ -209,7 +209,7 @@ def _build_report(
 ) -> CommandResult:
     """生成初始化报告"""
     lines = [
-        "✨ **Illusion Code project initialization complete.**\n",
+        "✨ **Illusion Agent project initialization complete.**\n",
     ]
 
     if created:

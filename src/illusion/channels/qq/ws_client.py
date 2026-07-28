@@ -259,7 +259,7 @@ class QQWSClient:
                 # 致命错误码：sleep 长时间后继续（不放弃，网络恢复后可能就好了）
                 # 偏离 hermes-agent：hermes-agent 对致命错误码（bot banned 4915、
                 # offline 4914、intent not authorized 4014 等）return 退出循环并
-                # _set_fatal_error(retryable=False) 标记不可恢复。illusion-code
+                # _set_fatal_error(retryable=False) 标记不可恢复。illusion-agent
                 # 无 _set_fatal_error 机制，return 会让 _listen_task 静默退出，
                 # _EventWatchdog 300s 后才触发 supervisor 重启，重启后又命中相同
                 # fatal code → supervisor 级 thrashing（每 300s 重启一次）比当前
@@ -488,8 +488,8 @@ class QQWSClient:
                 "shard": [0, 1],
                 "properties": {
                     "$os": "windows",
-                    "$browser": "illusion-code",
-                    "$device": "illusion-code",
+                    "$browser": "illusion-agent",
+                    "$device": "illusion-agent",
                 },
             },
         }

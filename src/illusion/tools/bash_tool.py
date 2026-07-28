@@ -381,7 +381,7 @@ class BashTool(BaseTool[BashToolInput]):
                 return ToolResult(
                     output=(
                         "Bash is not available on this Windows machine. "
-                        "Install Git for Windows or set ILLUSION_CODE_GIT_BASH_PATH, "
+                        "Install Git for Windows or set ILLUSION_AGENT_GIT_BASH_PATH, "
                         "or use the powershell tool for command execution."
                     ),
                     is_error=True,

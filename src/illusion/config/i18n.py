@@ -461,7 +461,7 @@ MESSAGES: dict[str, dict[str, str]] = {
 # --- 命令描述翻译 ---
 COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "help": "显示可用命令及用法说明",
-    "exit": "退出 IllusionCode",
+    "exit": "退出 IllusionAgent",
     "clear": "清空当前对话并开启新会话",
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
@@ -477,7 +477,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "copy": "复制最新回复或指定文本",
     "rewind": "移除最新对话轮次",
     "files": "列出当前工作区文件",
-    "init": "初始化项目 IllusionCode 文件",
+    "init": "初始化项目 IllusionAgent 文件",
     "bridge": "查看 bridge 辅助信息并创建 bridge 会话",
     "login": "查看认证状态或保存 API Key",
     "logout": "清除已保存 API Key",
@@ -506,7 +506,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "privacy-settings": "显示本地隐私与存储设置",
     "delete": "清理选定的会话",
     "rules": "查看选定的规则",
-    "update": "检查并更新 IllusionCode",
+    "update": "检查并更新 IllusionAgent",
 }
 
 # --- 斜杠命令输出翻译 ---
@@ -534,7 +534,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "No plugins discovered.": "未发现插件。",
     "No skills available.": "没有可用技能。",
     # 项目初始化
-    "Project already initialized for IllusionCode.": "项目已完成 IllusionCode 初始化。",
+    "Project already initialized for IllusionAgent.": "项目已完成 IllusionAgent 初始化。",
     "## Files created": "## 已创建文件",
     "## Files updated": "## 已更新文件",
     "## Project analysis": "## 项目分析",
@@ -637,7 +637,7 @@ _COMMAND_EXACT: dict[str, str] = {
 # replacement 可以是字符串（含 \1 等反向引用）或 lambda(match) -> str
 _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] = [
     # 版本
-    (r"^IllusionCode (.+)$", r"IllusionCode 版本 \1"),
+    (r"^IllusionAgent (.+)$", r"IllusionAgent 版本 \1"),
     # 上下文窗口
     (r"^Context window: (\d[\d,]*) tokens$", r"上下文窗口：\1 tokens"),
     (r"^Context window set to (\d[\d,]*) tokens$", r"上下文窗口已设置为 \1 tokens"),
@@ -724,7 +724,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Saved feedback to (.+)$", r"已保存反馈到 \1"),
     # 初始化
     (r"^Initialized project files:$", r"已初始化项目文件："),
-    (r"^\*\*Illusion Code project initialization complete\.\*\*$", r"✨ **Illusion Code 项目初始化完成**"),
+    (r"^\*\*Illusion Agent project initialization complete\.\*\*$", r"✨ **Illusion Agent 项目初始化完成**"),
     (r"^- \*\*Languages\*\*: (.+)$", r"- **检测到语言**: \1"),
     (r"^- \*\*Frameworks\*\*: (.+)$", r"- **检测到框架**: \1"),
     (r"^- \*\*Package Manager\*\*: (.+)$", r"- **包管理器**: \1"),

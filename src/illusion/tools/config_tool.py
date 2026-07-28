@@ -2,7 +2,7 @@
 配置工具
 ========
 
-本模块提供读取和更新 IllusionCode 配置设置的功能。
+本模块提供读取和更新 IllusionAgent 配置设置的功能。
 
 主要组件：
     - ConfigTool: 读取或更新配置的工具，使用示例：
@@ -35,15 +35,15 @@ class ConfigToolInput(BaseModel):
 
 
 class ConfigTool(BaseTool[ConfigToolInput]):
-    """读取或更新 IllusionCode 配置设置。
+    """读取或更新 IllusionAgent 配置设置。
 
-    用于查看或更改 IllusionCode 设置。当用户请求配置更改、询问当前设置时使用此工具。
+    用于查看或更改 IllusionAgent 设置。当用户请求配置更改、询问当前设置时使用此工具。
     """
 
     name = "config"
-    description = """Get or set Illusion Code configuration settings.
+    description = """Get or set Illusion Agent configuration settings.
 
-View or change Illusion Code settings (stored in ~/.illusion/settings.json). Use when the user requests configuration changes or asks about current settings.
+View or change Illusion Agent settings (stored in ~/.illusion/settings.json). Use when the user requests configuration changes or asks about current settings.
 
 ## Usage
 - **Show all settings:** action="show" — dumps the entire config as JSON

@@ -64,7 +64,7 @@ _POLL_INTERVAL = 5
 _POLL_TIMEOUT = 900  # 15 分钟
 
 # User-Agent
-_CODEX_USER_AGENT = f"illusion-code ({platform.system().lower()} {platform.machine() or 'unknown'})"
+_CODEX_USER_AGENT = f"illusion-agent ({platform.system().lower()} {platform.machine() or 'unknown'})"
 
 
 def _request_json(

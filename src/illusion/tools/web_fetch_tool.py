@@ -140,7 +140,7 @@ Usage notes:
         # 发起 HTTP 请求（手动处理重定向以检测跨主机跳转）
         try:
             async with httpx.AsyncClient(follow_redirects=False, timeout=20.0) as client:
-                response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
+                response = await client.get(url, headers={"User-Agent": "IllusionAgent/0.1"})
                 # 检测跨主机重定向（限制最大次数，防止恶意服务器触发无限循环）
                 max_redirects = 10
                 redirect_count = 0
@@ -153,7 +153,7 @@ Usage notes:
                     # 如果是相对路径或同主机，跟随
                     if not redirect_parsed.netloc or redirect_parsed.netloc == current_parsed.netloc:
                         url = location if redirect_parsed.netloc else f"{current_parsed.scheme}://{current_parsed.netloc}{location}"
-                        response = await client.get(url, headers={"User-Agent": "IllusionCode/0.1"})
+                        response = await client.get(url, headers={"User-Agent": "IllusionAgent/0.1"})
                         redirect_count += 1
                     else:
                         return ToolResult(

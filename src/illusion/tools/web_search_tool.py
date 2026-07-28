@@ -92,7 +92,7 @@ IMPORTANT - Use the correct year in search queries:
                 response = await client.get(
                     endpoint,
                     params={"q": arguments.query},
-                    headers={"User-Agent": "IllusionCode/0.1"},
+                    headers={"User-Agent": "IllusionAgent/0.1"},
                 )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
