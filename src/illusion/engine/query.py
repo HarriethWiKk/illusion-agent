@@ -40,7 +40,7 @@ from illusion.api.client import (
     SupportsStreamingMessages,
 )
 from illusion.api.effort import EffortLevel
-from illusion.api.errors import IllusionCodeApiError
+from illusion.api.errors import IllusionAgentApiError
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import (
     ContentBlock,
@@ -528,7 +528,7 @@ async def run_query(
                 if isinstance(event, ApiMessageCompleteEvent):
                     final_message = event.message
                     usage = event.usage
-        except IllusionCodeApiError as exc:
+        except IllusionAgentApiError as exc:
             error_msg = str(exc)
             error_lower = error_msg.lower()
 

@@ -46,7 +46,7 @@ from illusion.api.compat import (
 )
 from illusion.api.errors import (
     AuthenticationFailure,
-    IllusionCodeApiError,
+    IllusionAgentApiError,
     RateLimitFailure,
     RequestFailure,
 )
@@ -597,7 +597,7 @@ class OpenAICompatibleClient:
                 async for event in self._stream_once(request):
                     yield event
                 return
-            except IllusionCodeApiError as exc:
+            except IllusionAgentApiError as exc:
                 if (
                     not media_stripped
                     and _messages_have_media(request.messages)
@@ -921,7 +921,7 @@ class OpenAICompatibleClient:
         包括：JSON 解析错误、400/404 错误中与 content/image 相关的消息、
         空响应（某些模型遇到 image_url 直接返回空内容）。
 
-        注意：错误可能已被 _translate_error 转为 IllusionCodeApiError，
+        注意：错误可能已被 _translate_error 转为 IllusionAgentApiError，
         此时 status_code 属性丢失，需从消息字符串中判断。
         """
         error_msg = str(exc).lower()
@@ -1181,14 +1181,14 @@ class OpenAICompatibleClient:
         return isinstance(exc, (ConnectionError, TimeoutError, OSError))
 
     @staticmethod
-    def _translate_error(exc: Exception) -> IllusionCodeApiError:
+    def _translate_error(exc: Exception) -> IllusionAgentApiError:
         """转换错误为统一异常类型
         
         Args:
             exc: 原始异常
         
         Returns:
-            IllusionCodeApiError: 统一异常类型
+            IllusionAgentApiError: 统一异常类型
         """
         status = getattr(exc, "status_code", None)
         msg = str(exc)

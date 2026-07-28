@@ -43,7 +43,7 @@ from illusion.api.client import (
 from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
 from illusion.api.errors import (
     AuthenticationFailure,
-    IllusionCodeApiError,
+    IllusionAgentApiError,
     RateLimitFailure,
     RequestFailure,
 )
@@ -288,7 +288,7 @@ def _format_error_message(status_code: int, payload: str) -> str:
     return f"Codex request failed with status {status_code}"
 
 
-def _translate_status_error(status_code: int, message: str) -> IllusionCodeApiError:
+def _translate_status_error(status_code: int, message: str) -> IllusionAgentApiError:
     """转换状态码错误为统一异常类型
 
     Args:
@@ -296,7 +296,7 @@ def _translate_status_error(status_code: int, message: str) -> IllusionCodeApiEr
         message: 错误消息
 
     Returns:
-        IllusionCodeApiError: 统一异常类型
+        IllusionAgentApiError: 统一异常类型
     """
     if status_code in {401, 403}:
         return AuthenticationFailure(message)
@@ -581,8 +581,8 @@ class CodexApiClient:
         return isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
 
     @staticmethod
-    def _translate_error(exc: Exception) -> IllusionCodeApiError:
-        if isinstance(exc, IllusionCodeApiError):
+    def _translate_error(exc: Exception) -> IllusionAgentApiError:
+        if isinstance(exc, IllusionAgentApiError):
             return exc
         if isinstance(exc, httpx.HTTPStatusError):
             status = exc.response.status_code

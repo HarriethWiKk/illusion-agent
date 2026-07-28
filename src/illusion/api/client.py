@@ -44,7 +44,7 @@ _SDKThinkingBlock.model_rebuild()
 from illusion.api.effort import EffortLevel
 from illusion.api.errors import (
     AuthenticationFailure,
-    IllusionCodeApiError,
+    IllusionAgentApiError,
     RateLimitFailure,
     RequestFailure,
 )
@@ -179,7 +179,7 @@ def _is_media_related_error(exc: Exception) -> bool:
     - 400 invalid_request_error
     - 404 "No endpoints found that support image input"
 
-    注意：错误可能已被 _translate_api_error 转为 IllusionCodeApiError，
+    注意：错误可能已被 _translate_api_error 转为 IllusionAgentApiError，
     此时 status_code 属性丢失，需从消息字符串中判断。
     """
     error_msg = str(exc).lower()
@@ -309,7 +309,7 @@ class AnthropicApiClient:
                 async for event in self._stream_once(request):
                     yield event
                 return  # 成功
-            except IllusionCodeApiError as exc:
+            except IllusionAgentApiError as exc:
                 # 如果消息包含图片且错误可能是模型不支持图片导致的，尝试降级
                 if (
                     not media_stripped
@@ -493,14 +493,14 @@ def _is_effort_unsupported_error(exc: Exception) -> bool:
     return (has_effort_keyword and has_unsupported_keyword) or has_variant_error
 
 
-def _translate_api_error(exc: APIError) -> IllusionCodeApiError:
+def _translate_api_error(exc: APIError) -> IllusionAgentApiError:
     """转换 API 错误为统一异常类型
 
     Args:
         exc: Anthropic API 错误
 
     Returns:
-        IllusionCodeApiError: 统一异常类型
+        IllusionAgentApiError: 统一异常类型
     """
     name = exc.__class__.__name__
     # 认证错误

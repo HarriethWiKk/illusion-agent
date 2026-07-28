@@ -2,14 +2,14 @@
 API 错误类型模块
 ================
 
-本模块定义 IllusionCode API 相关的自定义异常类型。
+本模块定义 IllusionAgent API 相关的自定义异常类型。
 
 主要功能：
     - 定义基础 API 异常类
     - 提供认证失败、速率限制、请求失败等具体异常
 
 类说明：
-    - IllusionCodeApiError: 所有 API 异常的基类
+    - IllusionAgentApiError: 所有 API 异常的基类
     - AuthenticationFailure: 认证失败异常
     - RateLimitFailure: 速率限制异常
     - RequestFailure: 请求失败异常
@@ -25,7 +25,7 @@ API 错误类型模块
 from __future__ import annotations
 
 
-class IllusionCodeApiError(RuntimeError):
+class IllusionAgentApiError(RuntimeError):
     """API 异常基类
     
     所有上游 API 失败异常的基类，继承自 RuntimeError。
@@ -33,7 +33,7 @@ class IllusionCodeApiError(RuntimeError):
     """
 
 
-class AuthenticationFailure(IllusionCodeApiError):
+class AuthenticationFailure(IllusionAgentApiError):
     """认证失败异常
     
     当上游服务拒绝提供的凭据时抛出此异常。
@@ -41,7 +41,7 @@ class AuthenticationFailure(IllusionCodeApiError):
     """
 
 
-class RateLimitFailure(IllusionCodeApiError):
+class RateLimitFailure(IllusionAgentApiError):
     """速率限制异常
     
     当上游服务因请求频率超限而拒绝请求时抛出此异常。
@@ -49,7 +49,7 @@ class RateLimitFailure(IllusionCodeApiError):
     """
 
 
-class RequestFailure(IllusionCodeApiError):
+class RequestFailure(IllusionAgentApiError):
     """请求失败异常
     
     用于通用的请求或传输失败情况。
