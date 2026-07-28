@@ -182,6 +182,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "update_success": {"zh-CN": "更新成功！新版本: {version}", "en-US": "Updated successfully! New version: {version}"},
     "update_failed": {"zh-CN": "更新失败: {error}", "en-US": "Update failed: {error}"},
     "update_network_error": {"zh-CN": "网络连接失败，请检查网络设置", "en-US": "Network error, please check your connection"},
+    "update_locked_by_running_process": {"zh-CN": "更新失败：检测到 IllusionAgent 正在运行，请先关闭所有会话后重试", "en-US": "Update failed: IllusionAgent appears to be running. Please close all sessions and retry."},
     # ---- max_tokens 命令反馈 ----
     "max_tokens_show": {"zh-CN": "最大令牌数: {value}", "en-US": "Max tokens: {value}"},
     "max_tokens_set": {"zh-CN": "最大令牌数已设置为 {value}", "en-US": "Max tokens set to {value}"},

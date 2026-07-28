@@ -1126,6 +1126,21 @@ def update_cmd(
     asyncio.run(_run())
 
 
+# 文件占用类错误关键词（小写匹配）
+_LOCK_KEYWORDS = (
+    "permission denied",
+    "access is denied",
+    "being used by another process",
+    "permissionerror",
+)
+
+
+def _is_locked_by_running_process(output: str) -> bool:
+    """检测 pip 输出是否表明文件被运行中的进程锁定。"""
+    lower = output.lower()
+    return any(keyword in lower for keyword in _LOCK_KEYWORDS)
+
+
 async def _update_cli(args: str) -> CommandResult:
     """CLI 更新入口，复用 handler 逻辑"""
     from pathlib import Path
@@ -1151,6 +1166,8 @@ async def _update_cli(args: str) -> CommandResult:
         if ok:
             new_ver = _get_current_version()
             return CommandResult(message=t("update_success", version=new_ver))
+        if _is_locked_by_running_process(output):
+            return CommandResult(message=t("update_locked_by_running_process"))
         return CommandResult(message=t("update_failed", error=output[:200]))
 
     if latest == current:
@@ -1171,6 +1188,8 @@ async def _update_cli(args: str) -> CommandResult:
         if ok:
             print(t("update_success", version=latest))
         else:
+            if _is_locked_by_running_process(output):
+                return CommandResult(message=t("update_locked_by_running_process"))
             return CommandResult(message=t("update_failed", error=output[:200]))
 
     if include_deps:
@@ -1206,6 +1225,8 @@ async def _update_cli(args: str) -> CommandResult:
                 ok, output = _run_pip_upgrade(pkg_names)
                 if ok:
                     return CommandResult(message=t("update_deps_success"))
+                if _is_locked_by_running_process(output):
+                    return CommandResult(message=t("update_locked_by_running_process"))
                 return CommandResult(message=t("update_failed", error=output[:200]))
 
     return CommandResult(message="")
