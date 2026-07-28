@@ -823,8 +823,8 @@ class WebBackendHost:
             await self._handle_select_command("context-window")
             return True
         # context-window → __custom__ 由前端 CustomInputModal 接管，此处不应到达
+        # 防御性处理：静默忽略并提示前端关闭选择框
         if command == "context-window" and selected == "__custom__":
-            await self._emit(BackendEvent(type="error", message="custom input must be handled by frontend"))
             await self._emit(BackendEvent(type="line_complete"))
             return True
         # rewind 两步选择：第一步（选消息）→ 存储目标，弹出模式选择

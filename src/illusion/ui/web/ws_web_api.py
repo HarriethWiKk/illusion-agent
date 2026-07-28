@@ -570,8 +570,8 @@ class WebApiDispatcher:
         args = request.args or ""
         request_id = request.request_id or ""
 
-        # rewind/context 需要多步选择，仍走 select_request 机制（保留旧 _handle_select_command）
-        if command in ("rewind", "context"):
+        # rewind/context/max-tokens 需要多步选择，仍走 select_request 机制（保留旧 _handle_select_command）
+        if command in ("rewind", "context", "max-tokens"):
             await self._host._handle_select_command(command)  # type: ignore[attr-defined]
             return
 
