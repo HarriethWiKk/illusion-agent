@@ -48,7 +48,7 @@ def test_export_session_markdown(tmp_path: Path, monkeypatch):
 
     assert path.exists()
     content = path.read_text(encoding="utf-8")
-    assert "IllusionCode Session Transcript" in content
+    assert "IllusionAgent Session Transcript" in content
     assert "hello" in content
     assert "world" in content
 

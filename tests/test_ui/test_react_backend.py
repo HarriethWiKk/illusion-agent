@@ -81,7 +81,7 @@ async def test_backend_host_processes_command(tmp_path, monkeypatch):
     assert any(event.type == "transcript_item" and event.item and event.item.role == "user" for event in events)
     assert any(
         event.type == "command_result"
-        and "IllusionCode" in event.command_result_data.get("message", "")
+        and "IllusionAgent" in event.command_result_data.get("message", "")
         for event in events
         if event.command_result_data
     )

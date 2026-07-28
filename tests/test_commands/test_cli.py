@@ -9,7 +9,7 @@ def test_cli_help():
     runner = CliRunner()
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "Illusion Code" in result.output
+    assert "Illusion Agent" in result.output
 
 
 def test_continue_flag_passed_to_backend_command(monkeypatch):

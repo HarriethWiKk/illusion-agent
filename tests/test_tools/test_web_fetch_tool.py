@@ -21,12 +21,12 @@ class _Handler(BaseHTTPRequestHandler):
         if query:
             body = (
                 "<html><body>"
-                '<a class="result__a" href="https://example.com/docs">IllusionCode Docs</a>'
+                '<a class="result__a" href="https://example.com/docs">IllusionAgent Docs</a>'
                 f'<div class="result__snippet">Search query was {query} and docs were found.</div>'
                 "</body></html>"
             )
         else:
-            body = "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
+            body = "<html><body><h1>IllusionAgent Test</h1><p>web fetch works</p></body></html>"
         encoded = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -52,7 +52,7 @@ def _make_mock_response(html: str) -> MagicMock:
 @pytest.mark.asyncio
 async def test_web_fetch_tool_reads_html(tmp_path, monkeypatch):
     mock_resp = _make_mock_response(
-        "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
+        "<html><body><h1>IllusionAgent Test</h1><p>web fetch works</p></body></html>"
     )
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_resp)
@@ -104,6 +104,6 @@ async def test_web_search_tool_reads_results(tmp_path):
         thread.join(timeout=1)
 
     assert result.is_error is False
-    assert "IllusionCode Docs" in result.output
+    assert "IllusionAgent Docs" in result.output
     assert "https://example.com/docs" in result.output
     assert "illusion docs" in result.output

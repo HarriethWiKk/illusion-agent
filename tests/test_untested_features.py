@@ -1,4 +1,4 @@
-"""Comprehensive integration tests for all previously untested IllusionCode features.
+"""Comprehensive integration tests for all previously untested IllusionAgent features.
 
 Run with: python -m pytest tests/test_untested_features.py -v --tb=short -x
 Or standalone: python tests/test_untested_features.py
@@ -359,7 +359,7 @@ async def test_memory_lifecycle():
 
         # Add entries
         p1 = add_memory_entry(tmpdir, "user-preference", "User prefers Python over JavaScript")
-        p2 = add_memory_entry(tmpdir, "project-goal", "Building an AI agent framework called IllusionCode")
+        p2 = add_memory_entry(tmpdir, "project-goal", "Building an AI agent framework called IllusionAgent")
         print(f"  Added: {p1.name}, {p2.name}")
 
         # List

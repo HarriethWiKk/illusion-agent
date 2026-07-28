@@ -303,7 +303,7 @@ def _setup_git_repo(cwd: Path) -> None:
         cwd=cwd, check=True, capture_output=True, text=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "IllusionCode Tests"],
+        ["git", "config", "user.name", "IllusionAgent Tests"],
         cwd=cwd, check=True, capture_output=True, text=True,
     )
     (cwd / "demo.txt").write_text("hello\n", encoding="utf-8")

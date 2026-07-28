@@ -207,7 +207,7 @@ def _setup_git_repo(cwd: Path) -> None:
         text=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "IllusionCode Tests"],
+        ["git", "config", "user.name", "IllusionAgent Tests"],
         cwd=cwd,
         check=True,
         capture_output=True,

@@ -345,7 +345,7 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 
     version_command, version_args = registry.lookup("/version")
     version_result = await version_command.handler(version_args, context)
-    assert "IllusionCode" in version_result.message or "illusion" in version_result.message
+    assert "IllusionAgent" in version_result.message or "illusion" in version_result.message
 
     context_command, context_args = registry.lookup("/context")
     context_result = await context_command.handler(context_args, context)
