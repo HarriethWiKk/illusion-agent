@@ -15,9 +15,9 @@ MCP 资源读取工具
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from mcp.shared.exceptions import McpError
 
 from illusion.mcp.client import McpClientManager
+from illusion.mcp.types import MCP_TOOL_EXCEPTIONS
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -59,6 +59,6 @@ Parameters:
         # 读取资源
         try:
             output = await self._manager.read_resource(arguments.server, arguments.uri)
-        except (ValueError, McpError) as exc:
+        except MCP_TOOL_EXCEPTIONS as exc:
             return ToolResult(output=str(exc), is_error=True)
         return ToolResult(output=output)

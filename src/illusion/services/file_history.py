@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 
-from illusion.config.paths import get_config_dir
+from illusion.config.paths import get_config_dir, resolve_relative_path
 
 
 @dataclass
@@ -71,14 +71,6 @@ def _backup_path(session_id: str, backup_name: str) -> Path:
     return _backup_dir(session_id) / backup_name
 
 
-def _resolve_path(file_path: str, cwd: str) -> str:
-    """将路径转为绝对路径。"""
-    p = Path(file_path)
-    if p.is_absolute():
-        return str(p)
-    return str(Path(cwd) / file_path)
-
-
 def track_edit(state: FileHistoryState, file_path: str) -> None:
     """在工具修改文件前备份（copy-on-write）。
 
@@ -90,7 +82,7 @@ def track_edit(state: FileHistoryState, file_path: str) -> None:
         state: 文件历史状态
         file_path: 即将被修改的文件路径
     """
-    abs_path = _resolve_path(file_path, state.cwd)
+    abs_path = str(resolve_relative_path(Path(state.cwd), file_path))
     tracking_key = abs_path  # 使用绝对路径作为 key
 
     # 检查是否已在当前快照中跟踪

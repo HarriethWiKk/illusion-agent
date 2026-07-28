@@ -4,14 +4,10 @@ Glob 工具 - 使用 ripgrep 列出匹配的文件。
 核心原则：让 rg 去碰文件系统，Python 只处理结果。
 """
 
-import logging
-
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
-from illusion.utils.ripgrep import RipgrepError, run_rg
-
-logger = logging.getLogger(__name__)
+from illusion.utils.ripgrep import run_rg_checked
 
 
 class GlobToolInput(BaseModel):
@@ -135,37 +131,30 @@ class GlobTool(BaseTool[GlobToolInput]):
         # 搜索路径
         args.append(path)
 
-        try:
-            stdout, stderr, returncode = await run_rg(args, cwd=str(context.cwd))
+        # 使用 run_rg_checked 避免 RipgrepError 在单工具路径下逃逸 _safe_run
+        # 导致后端崩溃；rg 的所有失败统一转为 ToolResult(is_error=True)。
+        stdout, error_msg = await run_rg_checked(args, cwd=str(context.cwd))
+        if error_msg is not None:
+            return ToolResult(output=error_msg, is_error=True)
 
-            # 退出码 1 表示无匹配
-            if returncode == 1:
-                return ToolResult(output="(no matches)")
+        # 退出码 1 表示无匹配（run_rg_checked 返回空字符串）
+        if not stdout:
+            return ToolResult(output="(no matches)")
 
-            # 其他非零退出码表示错误
-            if returncode != 0:
-                raise RipgrepError(f"rg 执行失败（退出码 {returncode}）: {stderr}")
+        # 解析结果
+        lines = stdout.strip().split("\n")
+        if not lines or (len(lines) == 1 and not lines[0]):
+            return ToolResult(output="(no matches)")
 
-            # 解析结果
-            lines = stdout.strip().split("\n")
-            if not lines or (len(lines) == 1 and not lines[0]):
-                return ToolResult(output="(no matches)")
+        # 规范化路径：移除 rg 在 Windows 上添加的 .\ 或 ./ 前缀
+        lines = [
+            line[2:] if line.startswith((".\\", "./")) else line
+            for line in lines
+        ]
 
-            # 规范化路径：移除 rg 在 Windows 上添加的 .\ 或 ./ 前缀
-            lines = [
-                line[2:] if line.startswith((".\\", "./")) else line
-                for line in lines
-            ]
+        # 限制结果数量
+        limit = arguments.limit
+        if limit and len(lines) > limit:
+            lines = lines[:limit]
 
-            # 限制结果数量
-            limit = arguments.limit
-            if limit and len(lines) > limit:
-                lines = lines[:limit]
-
-            return ToolResult(output="\n".join(lines))
-
-        except RipgrepError:
-            raise
-        except (OSError, ValueError) as e:
-            logger.error(f"glob 执行失败: {e}")
-            raise RipgrepError(f"glob 执行失败: {e}")
+        return ToolResult(output="\n".join(lines))

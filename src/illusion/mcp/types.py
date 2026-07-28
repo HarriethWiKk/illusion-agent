@@ -30,7 +30,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
+from mcp.shared.exceptions import McpError
 from pydantic import BaseModel, Field, model_validator
+
+# MCP 工具调用时需要捕获的异常类型，统一在此定义避免散落在各工具中。
+# ValueError: 配置/参数错误（如服务器未找到、URI 格式错误）
+# McpError: MCP 协议层错误（服务器返回的错误响应）
+MCP_TOOL_EXCEPTIONS: tuple[type[BaseException], ...] = (ValueError, McpError)
 
 
 def _normalize_server_config_type(config: Any) -> Any:

@@ -17,10 +17,9 @@ import re
 from typing import Any
 
 from pydantic import BaseModel, Field, create_model
-from mcp.shared.exceptions import McpError
 
 from illusion.mcp.client import McpClientManager
-from illusion.mcp.types import McpToolInfo
+from illusion.mcp.types import MCP_TOOL_EXCEPTIONS, McpToolInfo
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 
@@ -49,7 +48,7 @@ class McpToolAdapter(BaseTool[Any]):
                 self._tool_info.name,
                 arguments.model_dump(mode="json"),
             )
-        except (ValueError, McpError) as exc:
+        except MCP_TOOL_EXCEPTIONS as exc:
             return ToolResult(output=str(exc), is_error=True)
         return ToolResult(output=output)
 

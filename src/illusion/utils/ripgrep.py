@@ -313,3 +313,40 @@ async def run_rg(args: list[str], cwd: str | None = None,
         raise
     except OSError as e:
         raise RipgrepError(f"rg 执行失败: {e}")
+
+
+async def run_rg_checked(
+    args: list[str], cwd: str | None = None, timeout: float = 20.0
+) -> tuple[str | None, str | None]:
+    """运行 rg 并返回 (stdout, error_msg)，不抛出异常。
+
+    将 :func:`run_rg` 的结果封装为不抛异常的接口，供工具层直接使用，
+    避免 RipgrepError 在单工具路径下逃逸 _safe_run 导致后端崩溃。
+
+    Args:
+        args: rg 命令行参数
+        cwd: 工作目录
+        timeout: 超时时间（秒）
+
+    Returns:
+        (stdout, None): rg 成功执行（stdout 可能为空字符串表示无匹配）
+        (None, error_msg): rg 执行失败、超时或返回非零退出码，
+            error_msg 为人类可读的错误信息
+    """
+    try:
+        stdout, stderr, returncode = await run_rg(args, cwd=cwd, timeout=timeout)
+    except RipgrepError as exc:
+        return None, str(exc)
+    except RipgrepNotFoundError as exc:
+        return None, str(exc)
+    except (OSError, ValueError) as exc:
+        return None, f"rg 执行失败: {exc}"
+
+    # 退出码 1 表示无匹配，返回空 stdout（调用方自行处理）
+    if returncode == 1:
+        return "", None
+    # 其他非零退出码表示错误
+    if returncode != 0:
+        return None, f"rg 执行失败（退出码 {returncode}）: {stderr}"
+
+    return stdout, None

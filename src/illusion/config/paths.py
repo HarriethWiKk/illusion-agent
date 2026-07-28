@@ -52,7 +52,7 @@ def validate_safe_path(candidate: str) -> Path:
         - 拒绝包含 ``..`` 的路径（防止跳出工作目录的路径穿越攻击）
         - 拒绝 ``~`` 开头的路径（防止 ``expanduser()`` 展开到用户家目录）
 
-    注意：绝对路径不在此层拒绝。原 ``_resolve_path`` 实现允许绝对路径直接通过，
+    注意：绝对路径不在此层拒绝。``resolve_relative_path`` 允许绝对路径直接通过，
     现有测试和工具行为依赖此特性。绝对路径的访问控制由 permission checker
     在更上层统一处理。
 
@@ -71,6 +71,26 @@ def validate_safe_path(candidate: str) -> Path:
     if candidate.startswith("~"):
         raise ValueError(f"Home directory paths not allowed: {candidate!r}")
     return p
+
+
+def resolve_relative_path(base: Path, candidate: str) -> Path:
+    """解析相对路径为绝对路径，并拒绝路径穿越攻击。
+
+    安全策略：通过 :func:`validate_safe_path` 拒绝包含 ``..`` 和以 ``~``
+    开头的路径，通过校验后与 ``base`` 拼接并 resolve 为绝对路径。
+
+    Args:
+        base: 基础目录（通常是 ``context.cwd``）
+        candidate: 候选路径（必须是相对路径，不得含 ``..``）
+
+    Returns:
+        解析后的绝对路径
+
+    Raises:
+        ValueError: 路径包含 ``..`` 或以 ``~`` 开头
+    """
+    safe_path = validate_safe_path(candidate)
+    return (base / safe_path).resolve()
 
 
 def get_config_dir() -> Path:
