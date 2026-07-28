@@ -1,7 +1,13 @@
 """沙箱适配器测试 — 测试新的 SandboxManager API"""
 from unittest.mock import patch
+
+from illusion.config.settings import (
+    SandboxFilesystemSettings,
+    SandboxNetworkSettings,
+    SandboxSettings,
+    Settings,
+)
 from illusion.sandbox.adapter import SandboxManager
-from illusion.config.settings import SandboxSettings, SandboxNetworkSettings, SandboxFilesystemSettings, Settings
 
 
 def test_manager_singleton():

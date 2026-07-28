@@ -5,8 +5,10 @@
 - effort 选项选择测试
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from illusion.ui.backend_host import ReactBackendHost
 
 
@@ -24,4 +26,3 @@ class TestBackendHostEffort:
     async def test_effort_options(self, mock_host):
         """测试 effort 选项列表"""
         # 这个测试需要完整的 BackendHost，暂时跳过
-        pass

@@ -14,7 +14,6 @@ class TestI18nEffort:
     def test_effort_command_translation(self):
         """测试 /effort 命令翻译"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass
 
     def test_effort_usage_translation(self):
         """测试 /effort 用法翻译"""

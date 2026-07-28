@@ -10,7 +10,6 @@ from illusion.swarm.worktree import (
     validate_worktree_slug,
 )
 
-
 # ---------------------------------------------------------------------------
 # validate_worktree_slug — valid cases
 # ---------------------------------------------------------------------------

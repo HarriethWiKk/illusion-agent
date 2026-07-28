@@ -19,7 +19,11 @@ from illusion.tools import create_default_tool_registry
 class FakeApiClient:
     async def stream_message(self, request):
         del request
-        raise AssertionError("stream_message should not be called in command flow tests")
+        # /compact 命令会调用此方法生成摘要；测试中模拟 API 不可用，
+        # compact_handler 会捕获 RuntimeError 并回退到简单 compact。
+        # 必须是 async generator（含 yield）才能被 async for 接受。
+        raise RuntimeError("stream_message is not available in command flow tests")
+        yield  # pragma: no cover - 使函数成为 async generator
 
 
 def _build_context(tmp_path: Path) -> CommandContext:
@@ -136,7 +140,7 @@ async def test_resume_followed_by_session_tag_uses_restored_session_id(tmp_path:
     context = _build_context(tmp_path)
 
     from illusion.api.usage import UsageSnapshot
-    from illusion.services.session_storage import save_session_snapshot, load_session_by_id
+    from illusion.services.session_storage import load_session_by_id, save_session_snapshot
 
     context.engine.load_messages([
         ConversationMessage(role="user", content=[TextBlock(text="first")]),

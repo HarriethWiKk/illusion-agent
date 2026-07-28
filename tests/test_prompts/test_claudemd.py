@@ -5,8 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from illusion.config.paths import get_project_issue_file, get_project_pr_comments_file
-from illusion.prompts import build_runtime_system_prompt, discover_claude_md_files, load_claude_md_prompt
 from illusion.config.settings import Settings
+from illusion.prompts import (
+    build_runtime_system_prompt,
+    discover_claude_md_files,
+    load_claude_md_prompt,
+)
 
 
 def test_discover_claude_md_files(tmp_path: Path):

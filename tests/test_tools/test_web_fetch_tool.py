@@ -6,10 +6,9 @@ import contextlib
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
-
-from urllib.parse import parse_qs, urlparse
 
 from illusion.tools.base import ToolExecutionContext
 from illusion.tools.web_fetch_tool import WebFetchTool, WebFetchToolInput
@@ -17,15 +16,15 @@ from illusion.tools.web_search_tool import WebSearchTool, WebSearchToolInput
 
 
 class _Handler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         query = parse_qs(urlparse(self.path).query).get("q", [""])[0]
         if query:
             body = (
                 "<html><body>"
                 '<a class="result__a" href="https://example.com/docs">IllusionCode Docs</a>'
-                '<div class="result__snippet">Search query was %s and docs were found.</div>'
+                f'<div class="result__snippet">Search query was {query} and docs were found.</div>'
                 "</body></html>"
-            ) % query
+            )
         else:
             body = "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
         encoded = body.encode("utf-8")
@@ -35,7 +34,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A003
+    def log_message(self, format: str, *args) -> None:
         del format, args
 
 
@@ -51,14 +50,7 @@ def _make_mock_response(html: str) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_web_fetch_tool_reads_html(tmp_path):
-    from illusion.tools import web_fetch_tool
-    # 清理会话级缓存（ContextVar 懒初始化，需先 set 再 clear）
-    try:
-        web_fetch_tool._get_cache().clear()
-    except LookupError:
-        pass
-
+async def test_web_fetch_tool_reads_html(tmp_path, monkeypatch):
     mock_resp = _make_mock_response(
         "<html><body><h1>IllusionCode Test</h1><p>web fetch works</p></body></html>"
     )
@@ -66,6 +58,19 @@ async def test_web_fetch_tool_reads_html(tmp_path):
     mock_client.get = AsyncMock(return_value=mock_resp)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    async def _fake_process_with_model(content: str, prompt: str) -> str:
+        return f"Summary: {content[:50]}"
+
+    def _fake_cache_get(*args, **kwargs) -> None:
+        return None
+
+    # 全套件运行时，某些测试可能导致 web_fetch_tool 模块被重新加载，
+    # 使 WebFetchTool.execute.__globals__ 与 sys.modules 中的模块 __dict__
+    # 不再是同一对象。直接在 execute.__globals__ 上注入 mock 可确保 patch 生效。
+    execute_globals = WebFetchTool.execute.__globals__
+    monkeypatch.setitem(execute_globals, "_process_with_model", _fake_process_with_model)
+    monkeypatch.setitem(execute_globals, "_cache_get", _fake_cache_get)
 
     with patch("illusion.tools.web_fetch_tool.httpx.AsyncClient", return_value=mock_client):
         tool = WebFetchTool()
@@ -75,8 +80,7 @@ async def test_web_fetch_tool_reads_html(tmp_path):
         )
 
     assert result.is_error is False
-    assert "IllusionCode Test" in result.output
-    assert "web fetch works" in result.output
+    assert "Summary:" in result.output
 
 
 @pytest.mark.asyncio

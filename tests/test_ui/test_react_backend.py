@@ -9,7 +9,7 @@ import pytest
 
 from illusion.api.client import ApiMessageCompleteEvent
 from illusion.api.usage import UsageSnapshot
-from illusion.engine.messages import ConversationMessage, ThinkingBlock, TextBlock
+from illusion.engine.messages import ConversationMessage, TextBlock, ThinkingBlock
 from illusion.ui.backend_host import BackendHostConfig, ReactBackendHost
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import BackendEvent
@@ -164,7 +164,7 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     # 预设环境配置以匹配 env:model 格式
-    from illusion.config.settings import save_settings, Settings
+    from illusion.config.settings import Settings, save_settings
     save_settings(
         Settings().model_copy(
             update={

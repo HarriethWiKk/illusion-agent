@@ -1,7 +1,8 @@
 """Linux 平台沙箱实现测试"""
 from unittest.mock import patch
-from illusion.sandbox.platforms.linux import LinuxSandboxPlatform
+
 from illusion.sandbox.platforms.base import SandboxPlatformConfig
+from illusion.sandbox.platforms.linux import LinuxSandboxPlatform
 
 
 def test_linux_platform_is_available_with_bwrap():

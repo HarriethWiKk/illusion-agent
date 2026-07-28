@@ -36,9 +36,9 @@ RESULTS: dict[str, tuple[bool, float]] = {}
 def _make_registry(extra_tools=None):
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
+    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.file_write_tool import FileWriteTool
-    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
 
@@ -81,8 +81,10 @@ def make_openai_engine(system_prompt, extra_tools=None):
 
 def collect(events):
     from illusion.engine.stream_events import (
-        AssistantTextDelta, AssistantTurnComplete,
-        ToolExecutionStarted, ToolExecutionCompleted,
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ToolExecutionCompleted,
+        ToolExecutionStarted,
     )
     r = {"text": "", "tools": [], "errors": [], "turns": 0, "in_tok": 0, "out_tok": 0}
     for ev in events:
@@ -155,11 +157,11 @@ async def task_memory_research_autoagent():
     print("  Task 2: PR#12 — Research AutoAgent → save to memory → search → use")
     print("=" * 70)
 
-    from illusion.memory.search import find_relevant_memories
-    from illusion.memory.scan import scan_memory_files
-    import illusion.memory.paths as mp
     import illusion.memory.manager as mm
+    import illusion.memory.paths as mp
     import illusion.memory.scan as ms
+    from illusion.memory.scan import scan_memory_files
+    from illusion.memory.search import find_relevant_memories
 
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir) / "memory"
@@ -329,10 +331,11 @@ async def task_session_resume_autoagent():
     print("  Task 4: PR#16 — Research AutoAgent → save → resume → continue")
     print("=" * 70)
 
-    from illusion.services.session_storage import (
-        save_session_snapshot, load_session_snapshot,
-    )
     from illusion.engine.messages import ConversationMessage
+    from illusion.services.session_storage import (
+        load_session_snapshot,
+        save_session_snapshot,
+    )
 
     with tempfile.TemporaryDirectory() as session_dir:
         # Phase 1: Original 3-turn research session
@@ -414,12 +417,16 @@ async def task_cron_autoagent_maintenance():
     print("  Task 5: PR#16 — Cron scheduler for AutoAgent maintenance")
     print("=" * 70)
 
-    from illusion.services.cron import (
-        load_cron_jobs, upsert_cron_job, delete_cron_job,
-        get_cron_job, set_job_enabled,
-        mark_job_run, next_run_time,
-    )
     import illusion.services.cron as cron_mod
+    from illusion.services.cron import (
+        delete_cron_job,
+        get_cron_job,
+        load_cron_jobs,
+        mark_job_run,
+        next_run_time,
+        set_job_enabled,
+        upsert_cron_job,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         registry_path = Path(tmpdir) / "cron_jobs.json"
@@ -502,16 +509,16 @@ async def task_full_dev_workflow():
     print("  Task 6: ALL PRs — Full development workflow on AutoAgent")
     print("=" * 70)
 
-    from illusion.tools.skill_tool import SkillTool
-    from illusion.memory.scan import scan_memory_files
-    from illusion.memory.search import find_relevant_memories
-    from illusion.services.session_storage import save_session_snapshot, load_session_snapshot
-    from illusion.services.cron import upsert_cron_job, load_cron_jobs, validate_cron_expression
-    from illusion.engine.messages import ConversationMessage
-    import illusion.memory.paths as mp
     import illusion.memory.manager as mm
+    import illusion.memory.paths as mp
     import illusion.memory.scan as ms
     import illusion.services.cron as cron_mod
+    from illusion.engine.messages import ConversationMessage
+    from illusion.memory.scan import scan_memory_files
+    from illusion.memory.search import find_relevant_memories
+    from illusion.services.cron import load_cron_jobs, upsert_cron_job, validate_cron_expression
+    from illusion.services.session_storage import load_session_snapshot, save_session_snapshot
+    from illusion.tools.skill_tool import SkillTool
 
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir) / "memory"
@@ -646,7 +653,7 @@ async def main():
             elapsed = time.time() - t0
             RESULTS[name] = (ok, elapsed)
             print(f"\n  >>> {'PASS' if ok else 'FAIL'} ({elapsed:.1f}s)")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
             RESULTS[name] = (False, time.time() - t0)
             print(f"\n  >>> EXCEPTION ({time.time()-t0:.1f}s): {e}")
             import traceback

@@ -1,6 +1,7 @@
 """commands 测试公共 fixture"""
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture

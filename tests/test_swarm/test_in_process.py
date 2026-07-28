@@ -8,14 +8,13 @@ from pathlib import Path
 import pytest
 
 from illusion.swarm.agent_executor import (
-    AgentExecutionContext,
     AgentAbortController,
+    AgentExecutionContext,
     get_agent_context,
     set_agent_context,
 )
 from illusion.swarm.in_process import InProcessBackend
 from illusion.swarm.types import TeammateMessage, TeammateSpawnConfig
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -202,8 +201,9 @@ async def test_run_agent_calls_run_agent_in_process_when_query_context_provided(
     tmp_path, monkeypatch
 ):
     """当 TeammateSpawnConfig 提供 query_context 和 parent_registry 时，_run_agent 应调用 run_agent_in_process。"""
-    from illusion.swarm.agent_executor import AgentResult, TaskNotification
     from types import SimpleNamespace
+
+    from illusion.swarm.agent_executor import AgentResult, TaskNotification
 
     # mock run_agent_in_process
     call_log: dict = {}

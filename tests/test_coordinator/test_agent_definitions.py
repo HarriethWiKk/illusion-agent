@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-
 import pytest
+from pydantic import ValidationError
 
 from illusion.coordinator.agent_definitions import (
     AgentDefinition,
@@ -11,7 +11,6 @@ from illusion.coordinator.agent_definitions import (
     get_builtin_agent_definitions,
     load_agents_dir,
 )
-
 
 # ---------------------------------------------------------------------------
 # AgentDefinition model
@@ -44,7 +43,7 @@ def test_agent_definition_with_tools():
 
 
 def test_agent_definition_invalid_source():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         AgentDefinition(name="bad", description="desc", source="unknown")
 
 
@@ -104,7 +103,7 @@ def test_parse_frontmatter_missing_delimiter_returns_empty():
 
 def test_parse_frontmatter_unclosed_returns_empty():
     content = "---\nname: agent\ndescription: desc\nbody"
-    fm, body = _parse_agent_frontmatter(content)
+    fm, _body = _parse_agent_frontmatter(content)
     assert fm == {}
 
 

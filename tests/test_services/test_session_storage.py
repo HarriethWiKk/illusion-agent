@@ -109,9 +109,9 @@ def test_save_load_delete_pending_plan_approval(tmp_path, monkeypatch):
     """测试 pending plan approval 的保存、加载、删除"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     from illusion.services.session_storage import (
-        save_pending_plan_approval,
-        load_pending_plan_approval,
         delete_pending_plan_approval,
+        load_pending_plan_approval,
+        save_pending_plan_approval,
     )
 
     plan = "# My Plan\n\nStep 1: Do X\nStep 2: Do Y"
@@ -141,9 +141,9 @@ def test_save_load_delete_pending_permission(tmp_path, monkeypatch):
     """测试 pending-permission 持久化函数"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     from illusion.services.session_storage import (
-        save_pending_permission,
-        load_pending_permission,
         delete_pending_permission,
+        load_pending_permission,
+        save_pending_permission,
     )
     cwd = str(tmp_path / "project")
     session_id = "test-session-001"

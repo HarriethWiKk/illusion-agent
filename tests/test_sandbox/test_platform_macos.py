@@ -1,7 +1,8 @@
 """macOS Seatbelt 沙箱测试"""
 from unittest.mock import patch
-from illusion.sandbox.platforms.macos import MacOSSandboxPlatform
+
 from illusion.sandbox.platforms.base import SandboxPlatformConfig
+from illusion.sandbox.platforms.macos import MacOSSandboxPlatform
 
 
 def test_macos_platform_available():

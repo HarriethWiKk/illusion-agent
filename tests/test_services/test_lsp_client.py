@@ -20,7 +20,6 @@ import pytest
 from illusion.services.lsp.client import LspClient
 from illusion.services.lsp.manager import LspManager
 
-
 # ─── 1. start() / stop() 异步化 ──────────────────────────────────
 
 

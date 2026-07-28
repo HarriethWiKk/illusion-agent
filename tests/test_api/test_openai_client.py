@@ -13,8 +13,8 @@ from illusion.api.openai_client import (
 )
 from illusion.engine.messages import (
     ConversationMessage,
-    ThinkingBlock,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -380,13 +380,15 @@ class TestExtractExtraContent:
 
     def test_attribute_access(self):
         class FakeDelta:
-            extra_content = {"google": {"thought_signature": "sig_123"}}
+            def __init__(self) -> None:
+                self.extra_content = {"google": {"thought_signature": "sig_123"}}
 
         assert _extract_extra_content(FakeDelta()) == {"google": {"thought_signature": "sig_123"}}
 
     def test_model_extra_fallback(self):
         class FakeDelta:
-            model_extra = {"extra_content": {"google": {"thought_signature": "sig_abc"}}}
+            def __init__(self) -> None:
+                self.model_extra = {"extra_content": {"google": {"thought_signature": "sig_abc"}}}
 
         assert _extract_extra_content(FakeDelta()) == {"google": {"thought_signature": "sig_abc"}}
 

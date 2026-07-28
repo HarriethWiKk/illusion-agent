@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from illusion.bridge import WorkSecret, build_sdk_url, decode_work_secret, encode_work_secret, spawn_session
+from illusion.bridge import (
+    WorkSecret,
+    build_sdk_url,
+    decode_work_secret,
+    encode_work_secret,
+    spawn_session,
+)
 
 
 def test_work_secret_roundtrip():

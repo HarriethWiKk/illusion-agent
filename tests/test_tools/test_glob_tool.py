@@ -2,9 +2,10 @@
 Glob 工具测试
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from illusion.utils.ripgrep import RipgrepError
 
@@ -12,8 +13,8 @@ from illusion.utils.ripgrep import RipgrepError
 @pytest.mark.asyncio
 async def test_glob_tool_basic():
     """测试 glob 工具基本功能"""
-    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
     # 模拟 rg 输出
     mock_output = "file1.py\nfile2.py\nsubdir/file3.py\n"
@@ -33,8 +34,8 @@ async def test_glob_tool_basic():
 @pytest.mark.asyncio
 async def test_glob_tool_no_matches():
     """测试 glob 工具无匹配"""
-    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
     with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
         mock_rg.return_value = ("", "", 1)
@@ -50,8 +51,8 @@ async def test_glob_tool_no_matches():
 @pytest.mark.asyncio
 async def test_glob_tool_error():
     """测试 glob 工具错误处理"""
-    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
     with patch("illusion.tools.glob_tool.run_rg", new_callable=AsyncMock) as mock_rg:
         mock_rg.side_effect = RipgrepError("test error")
@@ -67,8 +68,8 @@ async def test_glob_tool_error():
 @pytest.mark.asyncio
 async def test_glob_tool_absolute_path():
     """测试 glob 工具绝对路径处理"""
-    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
     # 模拟 rg 输出
     mock_output = "file1.py\n"

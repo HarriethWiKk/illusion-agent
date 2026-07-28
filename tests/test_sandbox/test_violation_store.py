@@ -1,5 +1,5 @@
 """违规事件存储测试"""
-from illusion.sandbox.violation_store import SandboxViolationStore, SandboxViolation
+from illusion.sandbox.violation_store import SandboxViolation, SandboxViolationStore
 
 
 def test_violation_store_add_and_get():

@@ -12,7 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from illusion.memory.manager import is_memory_enabled, list_memory_files, add_memory_entry, remove_memory_entry
+from illusion.memory.manager import (
+    add_memory_entry,
+    is_memory_enabled,
+    list_memory_files,
+    remove_memory_entry,
+)
 
 
 class TestIsMemoryEnabled:

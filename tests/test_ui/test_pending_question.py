@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -66,8 +65,8 @@ async def test_make_print_mode_ask_user_persists_and_returns_marker(tmp_path, mo
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.terminal_io import PENDING_ANSWER_MARKER, make_print_mode_ask_user
     from illusion.services.session_storage import load_pending_question
+    from illusion.ui.terminal_io import PENDING_ANSWER_MARKER, make_print_mode_ask_user
 
     state: dict = {}
     callback = make_print_mode_ask_user(
@@ -229,8 +228,8 @@ async def test_make_print_mode_plan_approval_persists_and_returns_marker(tmp_pat
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
     from illusion.services.session_storage import load_pending_plan_approval
+    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
 
     state: dict = {}
     callback = make_print_mode_plan_approval(
@@ -259,8 +258,8 @@ async def test_make_print_mode_plan_approval_no_session_id_skips_persist(tmp_pat
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
     from illusion.services.session_storage import load_pending_plan_approval
+    from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER, make_print_mode_plan_approval
 
     state: dict = {}
     callback = make_print_mode_plan_approval(
@@ -282,8 +281,8 @@ async def test_make_print_mode_plan_approval_no_session_id_skips_persist(tmp_pat
 async def test_make_print_mode_permission_persists_and_returns_false(tmp_path, monkeypatch):
     """测试 make_print_mode_permission：未授权工具应持久化并返回 False"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
-    from illusion.ui.terminal_io import make_print_mode_permission
     from illusion.services.session_storage import load_pending_permission
+    from illusion.ui.terminal_io import make_print_mode_permission
 
     cwd = str(tmp_path / "project")
     session_id = "test-perm-001"
@@ -307,8 +306,8 @@ async def test_make_print_mode_permission_persists_and_returns_false(tmp_path, m
 async def test_make_print_mode_permission_approved_pending_returns_true(tmp_path, monkeypatch):
     """测试 make_print_mode_permission：pending 文件 approved=true 时应放行并删除"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.services.session_storage import load_pending_permission, save_pending_permission
     from illusion.ui.terminal_io import make_print_mode_permission
-    from illusion.services.session_storage import save_pending_permission, load_pending_permission
 
     cwd = str(tmp_path / "project")
     session_id = "test-perm-002"
@@ -318,7 +317,6 @@ async def test_make_print_mode_permission_approved_pending_returns_true(tmp_path
     save_pending_permission(cwd=cwd, session_id=session_id, tool_name="write_file", reason="test")
     # 手动更新 approved 为 true（模拟 app.py 解析 Y 后的更新）
     from illusion.services.session_storage import _pending_permission_path
-    import json
     path = _pending_permission_path(cwd, session_id)
     data = json.loads(path.read_text(encoding="utf-8"))
     data["approved"] = True

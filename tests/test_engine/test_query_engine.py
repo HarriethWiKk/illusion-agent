@@ -21,11 +21,11 @@ from illusion.engine.stream_events import (
     ToolExecutionCompleted,
     ToolExecutionStarted,
 )
-from illusion.permissions import PermissionChecker, PermissionMode
-from illusion.tools import create_default_tool_registry
-from illusion.hooks import HookExecutionContext, HookExecutor, HookEvent
+from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor
 from illusion.hooks.loader import HookRegistry
 from illusion.hooks.schemas import PromptHookDefinition
+from illusion.permissions import PermissionChecker, PermissionMode
+from illusion.tools import create_default_tool_registry
 
 
 @dataclass

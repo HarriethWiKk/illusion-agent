@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from illusion.api.client import ApiMessageRequest, ApiMessageCompleteEvent, ApiTextDeltaEvent
+from illusion.api.client import ApiMessageCompleteEvent, ApiMessageRequest, ApiTextDeltaEvent
 from illusion.api.codex_client import CodexApiClient, _convert_messages_to_codex, _resolve_codex_url
-from illusion.engine.messages import ConversationMessage, ThinkingBlock, TextBlock, ToolResultBlock, ToolUseBlock
+from illusion.engine.messages import (
+    ConversationMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
+
+if TYPE_CHECKING:
+    # typing.Self 仅用于类型注解（from __future__ import annotations 使其不在运行时求值），
+    # 通过 TYPE_CHECKING 守卫以兼容 Python 3.10
+    from typing import Self
 
 
 class _FakeStreamResponse:
@@ -16,7 +27,7 @@ class _FakeStreamResponse:
         self._lines = lines or []
         self._body = body.encode("utf-8")
 
-    async def __aenter__(self) -> "_FakeStreamResponse":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -35,7 +46,7 @@ class _FakeAsyncClient:
         self._response = response
         self._sink = sink
 
-    async def __aenter__(self) -> "_FakeAsyncClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

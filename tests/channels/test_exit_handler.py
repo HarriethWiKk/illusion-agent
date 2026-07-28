@@ -42,8 +42,9 @@ def test_confirm_exit_function_removed():
 
 def test_exit_handler_no_dangerous_imports():
     """exit_handler 不应再导入 stop_channel_daemon_by_pid / is_channel_daemon_running"""
-    from illusion.channels import exit_handler
     import inspect
+
+    from illusion.channels import exit_handler
 
     source = inspect.getsource(exit_handler)
     # 不应包含对 stop_channel_daemon_by_pid / is_channel_daemon_running / load_channels_config 的调用

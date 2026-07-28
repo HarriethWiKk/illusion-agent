@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from illusion.permissions.loader import load_project_permissions
 
 

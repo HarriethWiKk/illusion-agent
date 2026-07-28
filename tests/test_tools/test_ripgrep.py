@@ -2,10 +2,11 @@
 ripgrep 模块测试
 """
 
-import pytest
-import sys
 import platform
+import sys
 from unittest.mock import patch
+
+import pytest
 
 from illusion.utils.ripgrep import get_platform_key, get_rg_binary_name
 
@@ -97,34 +98,37 @@ def test_find_rg_from_cache(monkeypatch, tmp_path):
 def test_find_rg_from_path(monkeypatch):
     """测试从系统 PATH 获取 rg 路径"""
     monkeypatch.delenv("ILLUSION_RIPGREP_PATH", raising=False)
-    with patch("illusion.utils.ripgrep.get_cache_dir", return_value="/nonexistent"):
-        with patch("shutil.which", return_value="/usr/bin/rg"):
-            from illusion.utils.ripgrep import find_rg_path
-            result = find_rg_path()
-            assert result == "/usr/bin/rg"
+    with patch("illusion.utils.ripgrep.get_cache_dir", return_value="/nonexistent"), patch(
+        "shutil.which", return_value="/usr/bin/rg"
+    ):
+        from illusion.utils.ripgrep import find_rg_path
+        result = find_rg_path()
+        assert result == "/usr/bin/rg"
 
 
 def test_find_rg_not_found(monkeypatch):
     """测试 rg 不可用时抛出异常"""
     monkeypatch.delenv("ILLUSION_RIPGREP_PATH", raising=False)
-    with patch("illusion.utils.ripgrep.get_cache_dir", return_value="/nonexistent"):
-        with patch("shutil.which", return_value=None):
-            from illusion.utils.ripgrep import find_rg_path, RipgrepNotFoundError
-            with pytest.raises(RipgrepNotFoundError):
-                find_rg_path()
+    with patch("illusion.utils.ripgrep.get_cache_dir", return_value="/nonexistent"), patch(
+        "shutil.which", return_value=None
+    ):
+        from illusion.utils.ripgrep import RipgrepNotFoundError, find_rg_path
+        with pytest.raises(RipgrepNotFoundError):
+            find_rg_path()
 
 
 # Task 3: rg 自动下载功能测试
 
 def test_download_rg_creates_cache_dir(monkeypatch, tmp_path):
     """测试下载功能创建缓存目录"""
+    import urllib.error
     import urllib.request
     monkeypatch.setattr("illusion.utils.ripgrep.get_cache_dir", lambda: str(tmp_path / "cache"))
-    # 模拟下载失败
+    # 模拟下载失败（urllib.request.urlretrieve 实际抛出 URLError/OSError）
     def mock_urlretrieve(url, filename):
-        raise Exception("模拟网络错误")
+        raise urllib.error.URLError("模拟网络错误")
     monkeypatch.setattr(urllib.request, "urlretrieve", mock_urlretrieve)
-    from illusion.utils.ripgrep import download_rg, RipgrepNotFoundError
+    from illusion.utils.ripgrep import RipgrepNotFoundError, download_rg
     with pytest.raises(RipgrepNotFoundError):
         download_rg()
     # 验证缓存目录已创建
@@ -174,10 +178,16 @@ def test_extract_tar(tmp_path):
 @pytest.mark.asyncio
 async def test_ensure_ripgrep_from_cache(monkeypatch, tmp_path):
     """测试 ensure_ripgrep 从缓存获取 rg"""
+    import asyncio
+
     rg_name = "rg.exe" if sys.platform == "win32" else "rg"
     rg_path = str(tmp_path / rg_name)
-    with open(rg_path, "w") as f:
-        f.write("")
+
+    def _create_rg_file():
+        with open(rg_path, "w") as f:
+            f.write("")
+
+    await asyncio.to_thread(_create_rg_file)
     monkeypatch.setattr("illusion.utils.ripgrep.find_rg_path", lambda: rg_path)
     from illusion.utils.ripgrep import ensure_ripgrep
     result = await ensure_ripgrep()
@@ -202,6 +212,7 @@ async def test_ensure_ripgrep_download(monkeypatch, tmp_path):
 async def test_run_rg_success(monkeypatch):
     """测试 run_rg 成功执行"""
     import asyncio
+
     from illusion.utils.ripgrep import run_rg
 
     # 模拟 rg 执行
@@ -228,7 +239,7 @@ async def test_run_rg_success(monkeypatch):
 
     monkeypatch.setattr("asyncio.create_subprocess_exec", mock_exec)
     monkeypatch.setattr("illusion.utils.ripgrep.ensure_ripgrep", mock_ensure)
-    stdout, stderr, returncode = await run_rg(["--version"])
+    stdout, _stderr, returncode = await run_rg(["--version"])
     assert returncode == 0
     assert "test output" in stdout
 
@@ -237,7 +248,8 @@ async def test_run_rg_success(monkeypatch):
 async def test_run_rg_timeout(monkeypatch):
     """测试 run_rg 超时"""
     import asyncio
-    from illusion.utils.ripgrep import run_rg, RipgrepError
+
+    from illusion.utils.ripgrep import RipgrepError, run_rg
 
     class MockProcess:
         def __init__(self):

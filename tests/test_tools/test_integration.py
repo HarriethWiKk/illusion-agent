@@ -2,16 +2,17 @@
 集成测试 - 验证 rg 工具正常工作
 """
 
-import pytest
 import os
 from pathlib import Path
+
+import pytest
 
 
 @pytest.mark.asyncio
 async def test_grep_integration():
     """集成测试：grep 工具实际执行"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     # 在当前目录搜索一个常见词
     arguments = GrepToolInput(
@@ -29,8 +30,8 @@ async def test_grep_integration():
 @pytest.mark.asyncio
 async def test_glob_integration():
     """集成测试：glob 工具实际执行"""
-    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.glob_tool import GlobTool, GlobToolInput
     tool = GlobTool()
     # 列出当前目录的 Python 文件
     arguments = GlobToolInput(

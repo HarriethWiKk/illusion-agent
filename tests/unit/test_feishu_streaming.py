@@ -319,7 +319,7 @@ async def test_build_display_text_uses_bold_thinking_label() -> None:
 # FeishuStreamingCardController 测试
 # ---------------------------------------------------------------------------
 
-from illusion.channels.feishu.streaming import FeishuStreamingCardController  # noqa: E402
+from illusion.channels.feishu.streaming import FeishuStreamingCardController
 
 
 @pytest.mark.asyncio

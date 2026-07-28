@@ -6,8 +6,10 @@
 - 无效 effort 级别测试
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from illusion.commands.registry import CommandContext
 
 
@@ -28,28 +30,23 @@ class TestEffortCommand:
     async def test_effort_show(self, mock_context):
         """测试显示当前 effort 级别"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass
 
     @pytest.mark.asyncio
     async def test_effort_set_high(self, mock_context):
         """测试设置 effort 级别为 high"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass
 
     @pytest.mark.asyncio
     async def test_effort_set_xhigh(self, mock_context):
         """测试设置 effort 级别为 xhigh"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass
 
     @pytest.mark.asyncio
     async def test_effort_set_max(self, mock_context):
         """测试设置 effort 级别为 max"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass
 
     @pytest.mark.asyncio
     async def test_effort_set_invalid(self, mock_context):
         """测试设置无效的 effort 级别"""
         # 这个测试需要完整的命令注册表，暂时跳过
-        pass

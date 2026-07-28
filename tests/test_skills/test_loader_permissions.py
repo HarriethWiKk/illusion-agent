@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from illusion.skills.loader import load_skill_registry
 
 

@@ -2,9 +2,10 @@
 Grep 工具测试
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from illusion.utils.ripgrep import RipgrepError
 
@@ -12,8 +13,8 @@ from illusion.utils.ripgrep import RipgrepError
 @pytest.mark.asyncio
 async def test_grep_tool_files_with_matches():
     """测试 grep 工具 files_with_matches 模式"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     # 模拟 rg 输出
     mock_output = "file1.py\nfile2.py\n"
@@ -33,8 +34,8 @@ async def test_grep_tool_files_with_matches():
 @pytest.mark.asyncio
 async def test_grep_tool_content():
     """测试 grep 工具 content 模式"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     # 模拟 rg 输出
     mock_output = "file1.py:1:test line\nfile2.py:2:another test\n"
@@ -54,8 +55,8 @@ async def test_grep_tool_content():
 @pytest.mark.asyncio
 async def test_grep_tool_count():
     """测试 grep 工具 count 模式"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     # 模拟 rg 输出
     mock_output = "file1.py:5\nfile2.py:3\n"
@@ -75,8 +76,8 @@ async def test_grep_tool_count():
 @pytest.mark.asyncio
 async def test_grep_tool_no_matches():
     """测试 grep 工具无匹配"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     with patch("illusion.tools.grep_tool.run_rg", new_callable=AsyncMock) as mock_rg:
         mock_rg.return_value = ("", "", 1)
@@ -92,8 +93,8 @@ async def test_grep_tool_no_matches():
 @pytest.mark.asyncio
 async def test_grep_tool_error():
     """测试 grep 工具错误处理"""
-    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     from illusion.tools.base import ToolExecutionContext
+    from illusion.tools.grep_tool import GrepTool, GrepToolInput
     tool = GrepTool()
     with patch("illusion.tools.grep_tool.run_rg", new_callable=AsyncMock) as mock_rg:
         mock_rg.side_effect = RipgrepError("test error")

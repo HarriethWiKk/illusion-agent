@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from illusion.services.cron_serve import run_cron_serve, _serve_async
+from illusion.services.cron_serve import _serve_async, run_cron_serve
 
 
 @pytest.fixture(autouse=True)
@@ -52,12 +51,14 @@ def test_run_cron_serve_starts_server_and_serve():
     async def _fake_serve(server):
         serve_called["n"] += 1
 
-    with patch("illusion.daemon_ipc.DaemonServer.start", _fake_start):
-        with patch("illusion.daemon_ipc.DaemonServer.stop", _fake_stop):
-            with patch("illusion.services.cron_serve._serve_async", _fake_serve):
-                with patch("illusion.services.cron_serve._setup_logging"):
-                    with patch("illusion.services.cron_spawn._cleanup_old_pid_files"):
-                        run_cron_serve()
+    with (
+        patch("illusion.daemon_ipc.DaemonServer.start", _fake_start),
+        patch("illusion.daemon_ipc.DaemonServer.stop", _fake_stop),
+        patch("illusion.services.cron_serve._serve_async", _fake_serve),
+        patch("illusion.services.cron_serve._setup_logging"),
+        patch("illusion.services.cron_spawn._cleanup_old_pid_files"),
+    ):
+        run_cron_serve()
 
     assert serve_called["n"] == 1
 
@@ -99,9 +100,11 @@ async def test_serve_async_stops_scheduler_on_exception():
     mock_scheduler.start = AsyncMock()
     mock_scheduler.stop = AsyncMock()
 
-    with patch("illusion.services.cron_serve.get_scheduler", return_value=mock_scheduler):
-        with pytest.raises(RuntimeError):
-            await _serve_async(server)
+    with (
+        patch("illusion.services.cron_serve.get_scheduler", return_value=mock_scheduler),
+        pytest.raises(RuntimeError),
+    ):
+        await _serve_async(server)
 
     mock_scheduler.start.assert_called_once()
     mock_scheduler.stop.assert_called_once()

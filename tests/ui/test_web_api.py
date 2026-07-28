@@ -3,8 +3,9 @@
 验证 Web 专属请求分发器能正确路由 web_* 请求。
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from illusion.ui.web.ws_web_api import WebApiDispatcher
 

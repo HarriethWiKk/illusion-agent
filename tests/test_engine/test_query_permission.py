@@ -1,8 +1,5 @@
 """测试 PermissionDenied 时消息历史一致性"""
-import asyncio
 import pytest
-from illusion.engine.query import run_query, QueryContext, PermissionDenied
-from illusion.engine.stream_events import ErrorEvent, ToolExecutionCompleted
 
 
 @pytest.mark.asyncio
@@ -13,6 +10,7 @@ async def test_permission_denied_adds_synthetic_tool_results(tmp_path):
     # 由于 run_query 是生成器且依赖大量上下文，这里用集成方式验证关键行为：
     # 检查 query.py 源码中 except PermissionDenied 块是否添加了合成 tool_result
     import inspect
+
     from illusion.engine import query as query_module
     source = inspect.getsource(query_module)
     # 验证 except PermissionDenied 块中存在合成 tool_result 逻辑

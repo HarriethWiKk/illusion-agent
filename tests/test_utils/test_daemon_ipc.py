@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import uuid
 from pathlib import Path
 
 import pytest
 
-from illusion.daemon_ipc import DaemonServer, DaemonClient, DaemonType
+from illusion.daemon_ipc import DaemonClient, DaemonServer, DaemonType
 
 
 @pytest.fixture

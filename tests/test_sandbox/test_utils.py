@@ -1,12 +1,12 @@
 """沙箱工具函数测试"""
 from illusion.sandbox.utils import (
-    encode_sandboxed_command,
-    decode_sandboxed_command,
     contains_glob_chars,
-    remove_trailing_glob_suffix,
-    normalize_case_for_comparison,
+    decode_sandboxed_command,
+    encode_sandboxed_command,
     generate_proxy_env_vars,
     get_default_write_paths,
+    normalize_case_for_comparison,
+    remove_trailing_glob_suffix,
 )
 
 

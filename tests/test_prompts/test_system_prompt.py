@@ -7,19 +7,19 @@ from illusion.prompts.system_prompt import build_system_prompt
 
 
 def _make_env(**overrides) -> EnvironmentInfo:
-    defaults = dict(
-        os_name="Linux",
-        os_version="5.15.0",
-        platform_machine="x86_64",
-        shell="bash",
-        cwd="/home/user/project",
-        home_dir="/home/user",
-        date="2026-04-01",
-        python_version="3.10.17",
-        is_git_repo=True,
-        git_branch="main",
-        hostname="testhost",
-    )
+    defaults = {
+        "os_name": "Linux",
+        "os_version": "5.15.0",
+        "platform_machine": "x86_64",
+        "shell": "bash",
+        "cwd": "/home/user/project",
+        "home_dir": "/home/user",
+        "date": "2026-04-01",
+        "python_version": "3.10.17",
+        "is_git_repo": True,
+        "git_branch": "main",
+        "hostname": "testhost",
+    }
     defaults.update(overrides)
     return EnvironmentInfo(**defaults)
 

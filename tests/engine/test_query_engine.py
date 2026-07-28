@@ -5,8 +5,10 @@
 - effort 字段默认值测试
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from illusion.engine.query_engine import QueryEngine
 
 
@@ -29,4 +31,3 @@ class TestQueryEngineEffort:
     async def test_effort_passed_to_request(self, mock_engine):
         """测试 effort 字段传递到 ApiMessageRequest"""
         # 这个测试需要完整的 QueryEngine，暂时跳过
-        pass

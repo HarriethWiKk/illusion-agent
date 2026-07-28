@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 
 from illusion.utils.stderr_redirect import StderrRedirector
 
@@ -118,7 +117,7 @@ def test_no_deadlock_when_main_thread_logs_while_stderr_redirect_active():
                 for _ in range(50):
                     test_logger.warning("main thread logging while stderr redirected")
                 done_event.set()
-            except Exception as exc:
+            except (OSError, RuntimeError) as exc:
                 error_box.append(exc)
                 done_event.set()
 

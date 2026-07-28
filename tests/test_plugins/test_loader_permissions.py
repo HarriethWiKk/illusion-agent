@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-
 from illusion.plugins.loader import load_plugins
 
 

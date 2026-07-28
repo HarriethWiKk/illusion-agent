@@ -27,7 +27,7 @@ class TestShellErrorCode:
 
 class TestOutputNormalizer:
     def test_decode_utf8(self):
-        assert OutputNormalizer.decode_output("你好".encode("utf-8")) == "你好"
+        assert OutputNormalizer.decode_output("你好".encode()) == "你好"
 
     def test_decode_empty(self):
         assert OutputNormalizer.decode_output(b"") == ""

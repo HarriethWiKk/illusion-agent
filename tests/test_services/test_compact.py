@@ -21,8 +21,8 @@ from illusion.services import (
     summarize_messages,
 )
 from illusion.services.compact import (
-    _ensure_message_alternation,
     COMPACT_BOUNDARY_PREFIX,
+    _ensure_message_alternation,
 )
 
 

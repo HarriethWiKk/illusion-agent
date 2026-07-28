@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-
-
 from illusion.swarm.agent_executor import (
     AgentAbortController,
     AgentExecutionContext,
@@ -21,7 +19,6 @@ from illusion.swarm.agent_executor import (
     set_agent_context,
 )
 from illusion.tools.base import ToolRegistry
-
 
 # ---------------------------------------------------------------------------
 # AgentAbortController
@@ -212,8 +209,9 @@ class TestTeammateMessage:
 class TestResolveAgentTools:
     def _make_registry(self, *names: str) -> ToolRegistry:
         """Create a ToolRegistry with dummy tools."""
-        from illusion.tools.base import BaseTool
         from pydantic import BaseModel
+
+        from illusion.tools.base import BaseTool
 
         class DummyInput(BaseModel):
             pass

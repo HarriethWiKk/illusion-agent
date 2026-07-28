@@ -9,12 +9,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-
 
 # ─── 模式 1 + 2：模块级 executor 检查 ──────────────────────────────
 
@@ -178,13 +178,8 @@ def test_cancelled_error_propagates_through_split_except():
 
     async def _simulate_cleanup():
         """模拟拆分后的 except 块行为"""
-        try:
-            # 模拟清理过程中触发 CancelledError
-            raise asyncio.CancelledError()
-        except asyncio.CancelledError:
-            raise  # 必须上抛
-        except Exception:  # noqa: BLE001
-            pass  # 其他异常静默
+        # 模拟清理过程中触发 CancelledError
+        raise asyncio.CancelledError()
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(_simulate_cleanup())
@@ -194,12 +189,8 @@ def test_regular_exception_swallowed_in_split_except():
     """拆分后的 except 块正确吞掉普通 Exception（不影响取消信号传播）。"""
 
     async def _simulate_cleanup():
-        try:
+        with contextlib.suppress(RuntimeError):
             raise RuntimeError("cleanup failed")
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001
-            pass  # 普通异常静默
 
     # 不应抛异常
     asyncio.run(_simulate_cleanup())

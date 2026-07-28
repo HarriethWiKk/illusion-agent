@@ -92,8 +92,8 @@ def test_serve_dependency_check_uses_registry(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", _mock_import)
 
-    from illusion.channels.config import ChannelsConfig, FeishuChannelConfig
     from illusion.channels import serve
+    from illusion.channels.config import ChannelsConfig, FeishuChannelConfig
 
     cfg = ChannelsConfig(feishu=FeishuChannelConfig(enabled=True, app_id="x"))
 
@@ -140,6 +140,7 @@ def test_config_fingerprint_uses_registry():
 def test_get_command_handler_uses_registry():
     """_get_command_handler 遍历 registry 的 command_handler_factory"""
     from unittest.mock import MagicMock
+
     from illusion.channels import ChannelRunner
 
     # 用 mock channel 验证飞书路径
@@ -161,6 +162,7 @@ def test_create_session_store_uses_registry():
     """_create_session_store 遍历 registry 的 session_store_factory"""
     from pathlib import Path
     from unittest.mock import MagicMock
+
     from illusion.channels import _create_session_store
     from illusion.channels.feishu.adapter import FeishuChannel
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
 # 直接加载脚本模块
 script_path = Path(__file__).parent.parent.parent / "scripts" / "sync_version.py"
 spec = importlib.util.spec_from_file_location("sync_version", script_path)

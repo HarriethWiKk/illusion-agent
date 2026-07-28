@@ -11,9 +11,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-
-from illusion.hooks.loader import load_hook_registry
 from illusion.hooks.events import HookEvent
+from illusion.hooks.loader import load_hook_registry
 
 
 class TestLoadHookRegistryPermissions:

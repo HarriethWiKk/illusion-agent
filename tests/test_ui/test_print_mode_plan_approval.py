@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from illusion.ui.app import _parse_plan_approval, _inject_plan_approval_to_tool_result
+from illusion.ui.app import _inject_plan_approval_to_tool_result, _parse_plan_approval
 from illusion.ui.terminal_io import PENDING_PLAN_APPROVAL_MARKER
 
 

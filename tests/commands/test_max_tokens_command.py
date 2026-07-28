@@ -1,5 +1,6 @@
 """max-tokens 斜杠指令单元测试"""
 import pytest
+
 from illusion.commands.settings import max_tokens_handler
 from illusion.config.i18n import t
 

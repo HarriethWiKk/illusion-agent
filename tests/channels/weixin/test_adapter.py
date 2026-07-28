@@ -287,7 +287,8 @@ def test_normalize_skips_item_without_credentials():
 def test_aes128_ecb_encrypt_decrypt_roundtrip():
     """AES-128-ECB 加解密往返。"""
     from illusion.channels.weixin.ilink_api import (
-        _aes128_ecb_decrypt, _aes128_ecb_encrypt,
+        _aes128_ecb_decrypt,
+        _aes128_ecb_encrypt,
     )
 
     key = b"0123456789abcdef"

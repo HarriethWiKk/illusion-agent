@@ -14,9 +14,7 @@ class TestAnthropicClientEffort:
     def test_effort_added_to_params(self):
         """测试 effort 字段添加到请求参数"""
         # 这个测试需要模拟 Anthropic SDK，暂时跳过
-        pass
 
     def test_effort_not_added_when_none(self):
         """测试 effort 为 None 时不添加到请求参数"""
         # 这个测试需要模拟 Anthropic SDK，暂时跳过
-        pass

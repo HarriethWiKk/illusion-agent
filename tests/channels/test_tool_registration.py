@@ -9,7 +9,6 @@ from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 class _FakeInput(BaseModel):
     """测试用输入。"""
-    pass
 
 
 class _FakeTool(BaseTool):

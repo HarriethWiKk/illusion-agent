@@ -1,7 +1,6 @@
 """端到端集成测试（后端重构验证）。"""
 from __future__ import annotations
 
-import asyncio
 import pytest
 
 

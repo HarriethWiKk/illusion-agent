@@ -3,7 +3,7 @@
 验证 web_* 请求类型与事件类型的协议定义正确。
 """
 
-from illusion.ui.protocol import FrontendRequest, BackendEvent
+from illusion.ui.protocol import BackendEvent, FrontendRequest
 
 
 class TestWebFrontendRequest:

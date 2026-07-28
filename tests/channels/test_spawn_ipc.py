@@ -24,6 +24,13 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
 
 
+class _FakeConn:
+    """模拟 IPC 连接对象，提供 async close 方法"""
+
+    async def close(self) -> None:
+        pass
+
+
 def test_daemon_running_connects_client(monkeypatch: pytest.MonkeyPatch):
     """守护进程已运行时：连接成功，持有 DaemonClient"""
     from illusion.channels.config import ChannelsConfig, FeishuChannelConfig
@@ -31,7 +38,7 @@ def test_daemon_running_connects_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("illusion.channels.load_channels_config", lambda: cfg)
 
     async def _fake_connect(self):
-        self._conn = object()  # 模拟真实 connect 设置 _conn
+        self._conn = _FakeConn()  # 模拟真实 connect 设置 _conn
         return True
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.connect", _fake_connect)
 
@@ -54,7 +61,7 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("illusion.channels.load_channels_config", lambda: cfg)
 
     async def _fake_connect(self):
-        self._conn = object()
+        self._conn = _FakeConn()
         return True
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.connect", _fake_connect)
 
@@ -83,7 +90,7 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
         return _FakeProc()
     monkeypatch.setattr("subprocess.Popen", _fake_popen)
 
-    proc, client = maybe_spawn_channel_daemon()
+    proc, _client = maybe_spawn_channel_daemon()
     # 验证 spawn 发生（指纹不匹配时应 spawn 新进程）
     assert proc is not None, "指纹不匹配时应 spawn 新进程"
     assert len(spawn_calls) >= 1, "应调用 subprocess.Popen 至少一次"

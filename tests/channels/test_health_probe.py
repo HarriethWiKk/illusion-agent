@@ -23,8 +23,8 @@ async def test_default_health_probe_returns_true():
 @pytest.mark.asyncio
 async def test_feishu_health_probe_success():
     """飞书 health_probe 成功（tenant_access_token API 返回 code=0）"""
-    from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
+    from illusion.channels.feishu.adapter import FeishuChannel
 
     cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="test_secret")
     channel = FeishuChannel.__new__(FeishuChannel)
@@ -46,8 +46,8 @@ async def test_feishu_health_probe_success():
 @pytest.mark.asyncio
 async def test_feishu_health_probe_auth_failure():
     """飞书 health_probe 失败（API 返回 code!=0，如 app_secret 错误）"""
-    from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
+    from illusion.channels.feishu.adapter import FeishuChannel
 
     cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="wrong_secret")
     channel = FeishuChannel.__new__(FeishuChannel)
@@ -69,8 +69,8 @@ async def test_feishu_health_probe_auth_failure():
 @pytest.mark.asyncio
 async def test_feishu_health_probe_network_failure():
     """飞书 health_probe 失败（网络不可达，urlopen 抛异常）"""
-    from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
+    from illusion.channels.feishu.adapter import FeishuChannel
 
     cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="test_secret")
     channel = FeishuChannel.__new__(FeishuChannel)
@@ -86,8 +86,8 @@ async def test_feishu_health_probe_network_failure():
 @pytest.mark.asyncio
 async def test_feishu_health_probe_no_client():
     """飞书 health_probe 在 _client 为 None 时返回 False"""
-    from illusion.channels.feishu.adapter import FeishuChannel
     from illusion.channels.config import FeishuChannelConfig
+    from illusion.channels.feishu.adapter import FeishuChannel
 
     cfg = FeishuChannelConfig(enabled=True, app_id="test_id", app_secret="test_secret")
     channel = FeishuChannel.__new__(FeishuChannel)

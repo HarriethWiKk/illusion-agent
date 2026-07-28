@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -15,14 +16,15 @@ def test_read_line_timeout_closes_handle():
         pytest.skip("仅 Windows 测试")
 
     async def run():
+        import os
+
         from illusion.daemon_ipc import (
-            _WindowsPipeConnection,
             _win_close_handle,
             _win_connect_pipe,
             _win_connect_to_pipe,
             _win_create_pipe,
+            _WindowsPipeConnection,
         )
-        import os
 
         pipe_name = f"\\\\.\\pipe\\test_{os.getpid()}_{asyncio.get_event_loop().time()}"
         server_handle = _win_create_pipe(pipe_name)
@@ -44,10 +46,8 @@ def test_read_line_timeout_closes_handle():
             finally:
                 _win_close_handle(client_handle)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 _win_close_handle(server_handle)
-            except Exception:  # noqa: BLE001
-                pass
 
     asyncio.run(run())
 
@@ -58,8 +58,9 @@ def test_stop_does_not_leak_threads():
         pytest.skip("仅 Windows 测试")
 
     async def run():
-        from illusion.daemon_ipc import _WindowsPipeConnection, _win_create_pipe
         import os
+
+        from illusion.daemon_ipc import _win_create_pipe, _WindowsPipeConnection
 
         pipe_name = f"\\\\.\\pipe\\test_stop_{os.getpid()}_{asyncio.get_event_loop().time()}"
         server_handle = _win_create_pipe(pipe_name)
@@ -71,12 +72,10 @@ def test_stop_does_not_leak_threads():
             # executor 应已关闭
             assert conn._read_executor._shutdown
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 from illusion.daemon_ipc import _win_close_handle
 
                 _win_close_handle(server_handle)
-            except Exception:  # noqa: BLE001
-                pass
 
     asyncio.run(run())
 

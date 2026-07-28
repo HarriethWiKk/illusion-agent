@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from illusion.services.lsp.config import LspServerConfig, load_lsp_config
 
 

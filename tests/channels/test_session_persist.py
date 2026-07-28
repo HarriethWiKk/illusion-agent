@@ -69,4 +69,4 @@ async def test_run_agent_persists_session_before_build_runtime(
     session_files = list(tmp_path.glob("*.json"))
     assert len(session_files) == 1, "会话索引应在 build_runtime 前落盘"
     data = json.loads(session_files[0].read_text(encoding="utf-8"))
-    assert "session_id" in data and data["session_id"], "落盘的 session_id 非空"
+    assert data.get("session_id"), "落盘的 session_id 非空"

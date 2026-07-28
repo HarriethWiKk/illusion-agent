@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 
@@ -9,8 +10,12 @@ import pytest
 
 import illusion.commands.helpers as helpers_module
 from illusion.commands.registry import CommandContext, create_default_command_registry
-from illusion.config.paths import get_feedback_log_path, get_project_issue_file, get_project_pr_comments_file
-from illusion.config.settings import load_settings, save_settings, Settings
+from illusion.config.paths import (
+    get_feedback_log_path,
+    get_project_issue_file,
+    get_project_pr_comments_file,
+)
+from illusion.config.settings import Settings, load_settings, save_settings
 from illusion.engine.messages import ConversationMessage, TextBlock
 from illusion.engine.query_engine import QueryEngine
 from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig
@@ -554,25 +559,30 @@ async def test_new_command_clears_messages_and_requests_new_session(tmp_path: Pa
     assert result.reset_session is True
 
 
-@pytest.mark.asyncio
-async def test_git_commands_report_repository_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+def _setup_git_repo(cwd: Path) -> None:
+    """初始化一个临时 git 仓库并创建一个 demo 文件。"""
+    subprocess.run(["git", "init"], cwd=cwd, check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "config", "user.email", "illusion@example.com"],
-        cwd=tmp_path,
+        cwd=cwd,
         check=True,
         capture_output=True,
         text=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "illusion Tests"],
-        cwd=tmp_path,
+        cwd=cwd,
         check=True,
         capture_output=True,
         text=True,
     )
-    (tmp_path / "demo.txt").write_text("hello\n", encoding="utf-8")
+    (cwd / "demo.txt").write_text("hello\n", encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_git_commands_report_repository_state(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    await asyncio.to_thread(_setup_git_repo, tmp_path)
 
     registry = create_default_command_registry()
     context = _make_context(tmp_path)

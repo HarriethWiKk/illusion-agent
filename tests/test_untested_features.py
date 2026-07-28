@@ -9,8 +9,6 @@ or the hardcoded key below.
 
 from __future__ import annotations
 
-import pytest
-
 import asyncio
 import json
 import os
@@ -18,6 +16,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -48,9 +48,9 @@ def make_engine(system_prompt="You are a helpful assistant. Be concise.", cwd=No
     from illusion.permissions.modes import PermissionMode
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
+    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.file_write_tool import FileWriteTool
-    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
 
@@ -67,8 +67,10 @@ def make_engine(system_prompt="You are a helpful assistant. Be concise.", cwd=No
 
 def collect(events):
     from illusion.engine.stream_events import (
-        AssistantTextDelta, AssistantTurnComplete,
-        ToolExecutionStarted, ToolExecutionCompleted,
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ToolExecutionCompleted,
+        ToolExecutionStarted,
     )
     r = {"text": "", "tools": [], "tool_results": [], "turns": 0, "in_tok": 0, "out_tok": 0}
     for ev in events:
@@ -91,7 +93,7 @@ async def run_test(name, coro):
         ok = await coro
         RESULTS[name] = ok
         print(f"  >>> {'PASS' if ok else 'FAIL'}")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, KeyError, AttributeError, TypeError) as e:
         RESULTS[name] = False
         print(f"  >>> EXCEPTION: {e}")
         import traceback
@@ -104,9 +106,9 @@ async def run_test(name, coro):
 async def test_hooks_command_block():
     """Register a pre_tool_use command hook that blocks bash, verify it fires."""
     from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
     from illusion.hooks.loader import HookRegistry
     from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
 
     registry = HookRegistry()
     # Hook: run 'echo BLOCKED' when bash is used — block_on_failure means if exit!=0 it blocks
@@ -149,9 +151,9 @@ async def test_hooks_command_block():
 async def test_hooks_post_tool_use():
     """Register a post_tool_use hook that logs tool output, verify it runs."""
     from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
     from illusion.hooks.loader import HookRegistry
     from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
 
     registry = HookRegistry()
     hook = CommandHookDefinition(
@@ -184,17 +186,21 @@ async def test_hooks_in_agent_loop():
     """Hook that blocks 'rm' commands integrated into real agent loop."""
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
-    from illusion.engine.query import QueryContext, run_query
     from illusion.engine.messages import ConversationMessage
-    from illusion.engine.stream_events import AssistantTextDelta, ToolExecutionStarted, ToolExecutionCompleted
+    from illusion.engine.query import QueryContext, run_query
+    from illusion.engine.stream_events import (
+        AssistantTextDelta,
+        ToolExecutionCompleted,
+        ToolExecutionStarted,
+    )
+    from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
+    from illusion.hooks.loader import HookRegistry
+    from illusion.hooks.schemas import CommandHookDefinition
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
-    from illusion.hooks.events import HookEvent
-    from illusion.hooks.loader import HookRegistry
-    from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -224,9 +230,12 @@ async def test_hooks_in_agent_loop():
             text += event.text
         elif isinstance(event, ToolExecutionStarted):
             tools.append(event.tool_name)
-        elif isinstance(event, ToolExecutionCompleted):
-            if event.is_error and "hook" in event.output.lower():
-                blocked = True
+        elif (
+            isinstance(event, ToolExecutionCompleted)
+            and event.is_error
+            and "hook" in event.output.lower()
+        ):
+            blocked = True
 
     print(f"  Tools: {tools}, text: {text[:100]}")
     print(f"  Hook blocking detected: {blocked}")
@@ -239,8 +248,8 @@ async def test_hooks_in_agent_loop():
 # ====================================================================
 async def test_skills_load():
     """Create skill files, load them, verify registry."""
-    from illusion.skills.registry import SkillRegistry
     from illusion.skills.loader import load_user_skills
+    from illusion.skills.registry import SkillRegistry
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create skill files
@@ -331,9 +340,9 @@ Build and deploy the app to production.
 # ====================================================================
 async def test_memory_lifecycle():
     """Test full memory lifecycle: add → list → search → remove."""
-    from illusion.memory.manager import list_memory_files, add_memory_entry, remove_memory_entry
-    from illusion.memory.search import find_relevant_memories
+    from illusion.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
     from illusion.memory.scan import scan_memory_files
+    from illusion.memory.search import find_relevant_memories
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Monkey-patch memory dir
@@ -384,12 +393,14 @@ async def test_memory_lifecycle():
 # ====================================================================
 async def test_session_storage():
     """Test session save/load/list/export cycle."""
-    from illusion.services.session_storage import (
-        save_session_snapshot, load_session_snapshot,
-        list_session_snapshots, export_session_markdown,
-    )
-    from illusion.engine.messages import ConversationMessage, TextBlock
     from illusion.api.usage import UsageSnapshot
+    from illusion.engine.messages import ConversationMessage, TextBlock
+    from illusion.services.session_storage import (
+        export_session_markdown,
+        list_session_snapshots,
+        load_session_snapshot,
+        save_session_snapshot,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         messages = [
@@ -437,10 +448,12 @@ async def test_session_storage():
 # ====================================================================
 async def test_config_settings():
     """Test settings loading, env var overrides, and path functions."""
-    from illusion.config.settings import Settings, load_settings
     from illusion.config.paths import (
-        get_config_dir, get_sessions_dir, get_tasks_dir,
+        get_config_dir,
+        get_sessions_dir,
+        get_tasks_dir,
     )
+    from illusion.config.settings import Settings, load_settings
 
     # Default settings
     s = Settings()
@@ -487,7 +500,10 @@ async def test_config_settings():
 async def test_commands_registry():
     """Test slash command registration and lookup."""
     from illusion.commands.registry import (
-        CommandRegistry, SlashCommand, CommandResult, CommandContext,
+        CommandContext,
+        CommandRegistry,
+        CommandResult,
+        SlashCommand,
     )
 
     registry = CommandRegistry()
@@ -535,8 +551,8 @@ async def test_commands_registry():
 @pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_web_fetch_real():
     """Agent fetches a real URL and summarizes it."""
-    from illusion.tools.web_fetch_tool import WebFetchTool
     from illusion.tools.bash_tool import BashTool
+    from illusion.tools.web_fetch_tool import WebFetchTool
 
     engine = make_engine(
         "You are a web researcher. Fetch URLs when asked and summarize the content.",
@@ -563,7 +579,9 @@ async def test_worktree_real_git():
         # Init a git repo
         repo = Path(tmpdir) / "test-repo"
         repo.mkdir()
-        os.system(f"cd {repo} && git init && git commit --allow-empty -m 'init' 2>/dev/null")
+        await asyncio.to_thread(
+            os.system, f"cd {repo} && git init && git commit --allow-empty -m 'init' 2>/dev/null"
+        )
 
         wt_base = Path(tmpdir) / "worktrees"
         mgr = WorktreeManager(base_dir=wt_base)
@@ -592,7 +610,7 @@ async def test_worktree_real_git():
 # ====================================================================
 async def test_mcp_types():
     """Test MCP config model validation."""
-    from illusion.mcp.types import McpStdioServerConfig, McpToolInfo, McpConnectionStatus
+    from illusion.mcp.types import McpConnectionStatus, McpStdioServerConfig, McpToolInfo
 
     # Stdio config
     stdio = McpStdioServerConfig(command="npx", args=["-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
@@ -615,8 +633,12 @@ async def test_mcp_types():
 async def test_config_paths():
     """Verify all config path functions return sensible paths."""
     from illusion.config.paths import (
-        get_config_dir, get_config_file_path, get_data_dir,
-        get_logs_dir, get_sessions_dir, get_tasks_dir,
+        get_config_dir,
+        get_config_file_path,
+        get_data_dir,
+        get_logs_dir,
+        get_sessions_dir,
+        get_tasks_dir,
     )
 
     paths = {
@@ -641,19 +663,19 @@ async def test_config_paths():
 @pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_combined_hooks_skills_agent():
     """Combined test: load skills, register hooks, run agent on AutoAgent."""
-    from illusion.skills.registry import SkillRegistry
-    from illusion.skills.types import SkillDefinition
-    from illusion.hooks.events import HookEvent
-    from illusion.hooks.loader import HookRegistry
-    from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
-    from illusion.engine.query import QueryContext, run_query
     from illusion.engine.messages import ConversationMessage
+    from illusion.engine.query import QueryContext, run_query
     from illusion.engine.stream_events import AssistantTextDelta, ToolExecutionStarted
+    from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
+    from illusion.hooks.loader import HookRegistry
+    from illusion.hooks.schemas import CommandHookDefinition
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
+    from illusion.skills.registry import SkillRegistry
+    from illusion.skills.types import SkillDefinition
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
     from illusion.tools.file_read_tool import FileReadTool
@@ -713,21 +735,22 @@ async def test_combined_hooks_skills_agent():
 @pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_full_swarm_autoagent():
     """Spawn 2 in-process teammates working on AutoAgent with team management."""
-    from illusion.swarm.in_process import start_in_process_teammate, TeammateAbortController
-    from illusion.swarm.types import TeammateSpawnConfig
-    from illusion.engine.query import QueryContext
+    import illusion.swarm.mailbox as mb
+    import illusion.swarm.team_lifecycle as tl
+    from illusion.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
+
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
+    from illusion.engine.query import QueryContext
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
+    from illusion.swarm.in_process import TeammateAbortController, start_in_process_teammate
+    from illusion.swarm.types import TeammateSpawnConfig
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
-    from illusion.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
-    import illusion.swarm.mailbox as mb
-    import illusion.swarm.team_lifecycle as tl
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 

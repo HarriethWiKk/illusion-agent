@@ -7,7 +7,7 @@ from illusion.channels.base import InboundMessage
 from illusion.channels.config import FeishuChannelConfig, FeishuGroupPolicy
 
 lark_oapi = pytest.importorskip("lark_oapi")
-from illusion.channels.feishu.adapter import FeishuChannel  # noqa: E402
+from illusion.channels.feishu.adapter import FeishuChannel
 
 
 def _channel(allow_bots=False, require_mention=True, policy_mode="open",

@@ -1,13 +1,11 @@
 """cron 守护进程 spawn 逻辑测试"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from illusion.services.cron_spawn import (
-    kill_cron_daemon_by_pid,
     maybe_spawn_cron_daemon,
 )
 
@@ -31,7 +29,7 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_no_enabled_jobs_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """无启用任务时返回 None"""
     monkeypatch.setattr(
-        "illusion.services.cron_spawn.load_cron_jobs", lambda: []
+        "illusion.services.cron_spawn.load_cron_jobs", list
     )
     proc, client = maybe_spawn_cron_daemon()
     assert proc is None
@@ -41,7 +39,7 @@ def test_no_enabled_jobs_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path:
 def test_no_jobs_at_all_returns_none(monkeypatch: pytest.MonkeyPatch):
     """任务列表为空时返回 None"""
     monkeypatch.setattr(
-        "illusion.services.cron_spawn.load_cron_jobs", lambda: []
+        "illusion.services.cron_spawn.load_cron_jobs", list
     )
     proc, client = maybe_spawn_cron_daemon()
     assert proc is None

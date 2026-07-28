@@ -7,6 +7,7 @@
 """
 
 import pytest
+
 from illusion.api.effort import EffortLevel, EffortMapper
 
 

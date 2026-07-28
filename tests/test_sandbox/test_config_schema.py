@@ -1,10 +1,11 @@
 """沙箱配置 schema 验证测试"""
-from illusion.config.settings import (
-    SandboxSettings,
-    SandboxNetworkSettings,
-)
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
+
+from illusion.config.settings import (
+    SandboxNetworkSettings,
+    SandboxSettings,
+)
 
 
 def test_sandbox_settings_has_new_fields():

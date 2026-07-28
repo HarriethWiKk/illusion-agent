@@ -209,8 +209,9 @@ def test_add_model_with_env_key_arg():
 
 def test_add_model_env_not_exist():
     """add model 指定不存在的 env 时报错"""
-    from illusion.cli import add_model
     import typer
+
+    from illusion.cli import add_model
 
     manager = _make_manager(envs={})
     with (
@@ -223,8 +224,9 @@ def test_add_model_env_not_exist():
 
 def test_add_model_no_existing_env():
     """无已有 env 时报错"""
-    from illusion.cli import add_model
     import typer
+
+    from illusion.cli import add_model
 
     manager = _make_manager(envs={})
     with (

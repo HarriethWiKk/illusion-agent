@@ -116,18 +116,18 @@ def test_parse_mixed_explicit_and_origin_chat_id():
 
 
 # ── 测试 deliver_file_to_channel ──────────────────────────────
-from pathlib import Path  # noqa: E402
-from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest  # noqa: E402
+import pytest
 
-from illusion.channels.config import (  # noqa: E402
+from illusion.channels.config import (
     ChannelsConfig,
     FeishuChannelConfig,
     QQChannelConfig,
     WeixinChannelConfig,
 )
-from illusion.channels.delivery import deliver_file_to_channel  # noqa: E402
+from illusion.channels.delivery import deliver_file_to_channel
 
 
 @pytest.mark.skipif(not _has_lark_oapi, reason="lark_oapi not installed")

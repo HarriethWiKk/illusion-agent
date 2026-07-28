@@ -27,8 +27,8 @@ async def test_permission_mode_override(tmp_path, monkeypatch):
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.runtime import build_runtime, close_runtime
     from illusion.permissions.modes import PermissionMode
+    from illusion.ui.runtime import build_runtime, close_runtime
 
     bundle = await build_runtime(
         api_client=StaticApiClient(),
@@ -50,8 +50,8 @@ async def test_permission_mode_default_when_not_specified(tmp_path, monkeypatch)
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.runtime import build_runtime, close_runtime
     from illusion.permissions.modes import PermissionMode
+    from illusion.ui.runtime import build_runtime, close_runtime
 
     bundle = await build_runtime(api_client=StaticApiClient())
     try:
@@ -70,8 +70,8 @@ async def test_permission_mode_invalid_value_warns(tmp_path, monkeypatch, caplog
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.ui.runtime import build_runtime, close_runtime
     from illusion.permissions.modes import PermissionMode
+    from illusion.ui.runtime import build_runtime, close_runtime
 
     bundle = await build_runtime(
         api_client=StaticApiClient(),

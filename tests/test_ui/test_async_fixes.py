@@ -9,13 +9,11 @@
 """
 from __future__ import annotations
 
-import asyncio
 import inspect
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ─── Step 1: terminal_io.py input 异步化 ──────────────────────────
 

@@ -142,8 +142,8 @@ class TestQueryExceptionHandlers:
         # 确保不再使用 except BaseException
         assert "except BaseException" not in source, \
             "query.py 不应使用 except BaseException（已收窄为具体异常类型）"
-        # 找到通用 Exception handler
-        idx = source.index("except Exception:  # noqa: BLE001")
+        # 找到通用 Exception handler（最后的兜底处理器，无 noqa 注释）
+        idx = source.index("except Exception:")
         block = source[idx:]
         for marker in ["\n        except ", "\n    def ", "\n\nclass ", "\n\nasync def "]:
             pos = block.find(marker, 1)

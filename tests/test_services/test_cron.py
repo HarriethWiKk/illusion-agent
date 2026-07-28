@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -56,9 +56,9 @@ class TestValidation:
         assert not validate_cron_expression("* * * *")  # 只有 4 个字段
 
     def test_next_run_time(self) -> None:
-        base = datetime(2026, 1, 1, 0, 0, 0)
+        base = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         nxt = next_run_time("0 * * * *", base)
-        assert nxt == datetime(2026, 1, 1, 1, 0, 0)
+        assert nxt == datetime(2026, 1, 1, 1, 0, 0, tzinfo=timezone.utc)
 
 
 class TestCRUD:

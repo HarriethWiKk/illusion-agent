@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -100,7 +100,7 @@ class TestJobsDue:
     """到期任务判断测试。"""
 
     def test_due_job(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         past = (now - timedelta(minutes=5)).isoformat()
         jobs = [
             {"name": "j1", "schedule": "* * * * *", "enabled": True, "next_run": past},
@@ -109,7 +109,7 @@ class TestJobsDue:
         assert len(due) == 1
 
     def test_future_job_not_due(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         future = (now + timedelta(hours=1)).isoformat()
         jobs = [
             {"name": "j1", "schedule": "* * * * *", "enabled": True, "next_run": future},
@@ -118,7 +118,7 @@ class TestJobsDue:
         assert len(due) == 0
 
     def test_disabled_job_not_due(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         past = (now - timedelta(minutes=5)).isoformat()
         jobs = [
             {"name": "j1", "schedule": "* * * * *", "enabled": False, "next_run": past},
@@ -127,7 +127,7 @@ class TestJobsDue:
         assert len(due) == 0
 
     def test_invalid_schedule_skipped(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         past = (now - timedelta(minutes=5)).isoformat()
         jobs = [
             {"name": "j1", "schedule": "not valid", "enabled": True, "next_run": past},
@@ -136,7 +136,7 @@ class TestJobsDue:
         assert len(due) == 0
 
     def test_missing_next_run_skipped(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         jobs = [
             {"name": "j1", "schedule": "* * * * *", "enabled": True},
         ]
@@ -145,7 +145,7 @@ class TestJobsDue:
 
     def test_job_in_backoff_period_skipped(self) -> None:
         """连续错误的任务在退避期内应被跳过。"""
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         past = (now - timedelta(minutes=5)).isoformat()
         recent = (now - timedelta(seconds=10)).isoformat()
         jobs = [
@@ -163,7 +163,7 @@ class TestJobsDue:
 
     def test_job_after_backoff_period_is_due(self) -> None:
         """退避期结束后任务应恢复执行。"""
-        now = datetime.now()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         past = (now - timedelta(minutes=5)).isoformat()
         old = (now - timedelta(hours=1)).isoformat()
         jobs = [
@@ -280,8 +280,9 @@ class TestSchedulerClass:
 
 def test_start_daemon_deprecated_returns_pid(monkeypatch: pytest.MonkeyPatch) -> None:
     """start_daemon 标记废弃后仍返回当前进程 PID"""
-    from illusion.services.cron_scheduler import start_daemon
     import warnings
+
+    from illusion.services.cron_scheduler import start_daemon
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)

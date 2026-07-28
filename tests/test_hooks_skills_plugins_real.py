@@ -8,8 +8,6 @@ Run: python tests/test_hooks_skills_plugins_real.py
 
 from __future__ import annotations
 
-import pytest
-
 import asyncio
 import json
 import os
@@ -17,6 +15,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -33,8 +33,10 @@ RESULTS: dict[str, tuple[bool, float]] = {}
 
 def collect(events):
     from illusion.engine.stream_events import (
-        AssistantTextDelta, AssistantTurnComplete,
-        ToolExecutionStarted, ToolExecutionCompleted,
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ToolExecutionCompleted,
+        ToolExecutionStarted,
     )
     r = {"text": "", "tools": [], "tool_errors": [], "turns": 0}
     for ev in events:
@@ -66,6 +68,10 @@ async def task_hook_blocks_model_adapts():
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
     from illusion.engine.query_engine import QueryEngine
+    from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
+    from illusion.hooks.loader import HookRegistry
+    from illusion.hooks.schemas import CommandHookDefinition
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
     from illusion.tools.base import ToolRegistry
@@ -73,10 +79,6 @@ async def task_hook_blocks_model_adapts():
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
-    from illusion.hooks.events import HookEvent
-    from illusion.hooks.loader import HookRegistry
-    from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -146,6 +148,7 @@ async def task_model_invokes_skill_tool():
     print("  Task 2: Model invokes skill tool, then follows skill instructions")
     print("=" * 70)
 
+    import illusion.skills.loader as sl
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
     from illusion.engine.query_engine import QueryEngine
@@ -157,7 +160,6 @@ async def task_model_invokes_skill_tool():
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
     from illusion.tools.skill_tool import SkillTool
-    import illusion.skills.loader as sl
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a skill file that gives specific instructions
@@ -237,6 +239,7 @@ async def task_plugin_skill_in_agent_loop():
     print("  Task 3: Plugin-provided skill used through skill tool in agent loop")
     print("=" * 70)
 
+    import illusion.skills.loader as sl
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
     from illusion.engine.query_engine import QueryEngine
@@ -248,7 +251,6 @@ async def task_plugin_skill_in_agent_loop():
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
     from illusion.tools.skill_tool import SkillTool
-    import illusion.skills.loader as sl
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a plugin with a skill
@@ -340,24 +342,24 @@ async def task_hook_gates_writes_skill_guides():
     print("  Task 4: Hook gates file writes + skill guides refactoring workflow")
     print("=" * 70)
 
+    import illusion.skills.loader as sl
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
     from illusion.engine.query_engine import QueryEngine
+    from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
+    from illusion.hooks.loader import HookRegistry
+    from illusion.hooks.schemas import CommandHookDefinition
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
+    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.file_write_tool import FileWriteTool
-    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
     from illusion.tools.skill_tool import SkillTool
-    from illusion.hooks.events import HookEvent
-    from illusion.hooks.loader import HookRegistry
-    from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
-    import illusion.skills.loader as sl
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create skill
@@ -490,21 +492,21 @@ async def task_swarm_teammates_use_skills():
     print("  Task 5: 2 concurrent teammates each invoke different skills")
     print("=" * 70)
 
-    from illusion.swarm.in_process import start_in_process_teammate, TeammateAbortController
-    from illusion.swarm.types import TeammateSpawnConfig
-    from illusion.engine.query import QueryContext
+    import illusion.skills.loader as sl
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
+    from illusion.engine.query import QueryContext
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
+    from illusion.swarm.in_process import TeammateAbortController, start_in_process_teammate
+    from illusion.swarm.types import TeammateSpawnConfig
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
     from illusion.tools.file_read_tool import FileReadTool
+    from illusion.tools.file_write_tool import FileWriteTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
     from illusion.tools.skill_tool import SkillTool
-    from illusion.tools.file_write_tool import FileWriteTool
-    import illusion.skills.loader as sl
 
     with tempfile.TemporaryDirectory() as tmpdir:
         skills_dir = Path(tmpdir) / "skills"
@@ -608,7 +610,7 @@ async def main():
         try:
             ok = await coro
             RESULTS[name] = (ok, time.time() - t0)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
             RESULTS[name] = (False, time.time() - t0)
             print(f"\n  EXCEPTION: {e}")
             import traceback

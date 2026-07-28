@@ -9,8 +9,8 @@ from types import SimpleNamespace
 from illusion.config.settings import Settings
 from illusion.mcp.config import load_mcp_server_configs
 from illusion.mcp.types import McpResourceInfo, McpStdioServerConfig, McpToolInfo
-from illusion.plugins.types import LoadedPlugin
 from illusion.plugins.schemas import PluginManifest
+from illusion.plugins.types import LoadedPlugin
 from illusion.tools import create_default_tool_registry
 from illusion.tools.base import ToolExecutionContext
 

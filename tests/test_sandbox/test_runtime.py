@@ -1,5 +1,6 @@
 """沙箱运行时测试"""
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from illusion.sandbox.runtime import SandboxRuntime
 
 
@@ -16,13 +17,15 @@ def test_runtime_initializes_with_config():
         "filesystem": {"allow_write": ["."], "deny_write": [], "deny_read": [], "allow_read": []},
         "network": {"allowed_domains": [], "denied_domains": []},
     }
-    with patch("illusion.sandbox.runtime._detect_platform", return_value="linux"):
-        with patch("illusion.sandbox.runtime._get_platform_impl") as mock_impl:
-            mock_platform = MagicMock()
-            mock_platform.check_dependencies.return_value = []
-            mock_impl.return_value = mock_platform
-            runtime.initialize(config)
-            assert runtime.is_enabled() is True
+    with (
+        patch("illusion.sandbox.runtime._detect_platform", return_value="linux"),
+        patch("illusion.sandbox.runtime._get_platform_impl") as mock_impl,
+    ):
+        mock_platform = MagicMock()
+        mock_platform.check_dependencies.return_value = []
+        mock_impl.return_value = mock_platform
+        runtime.initialize(config)
+        assert runtime.is_enabled() is True
 
 
 def test_runtime_wrap_command_disabled():

@@ -1,13 +1,15 @@
 """Windows Job Objects 沙箱测试"""
 import sys
-from illusion.sandbox.platforms.base import SandboxPlatformConfig
+
 import pytest
+
+from illusion.sandbox.platforms.base import SandboxPlatformConfig
 
 
 def test_windows_platform_has_correct_type():
     """验证 Windows 平台类存在且继承正确"""
-    from illusion.sandbox.platforms.windows import WindowsSandboxPlatform
     from illusion.sandbox.platforms.base import SandboxPlatform
+    from illusion.sandbox.platforms.windows import WindowsSandboxPlatform
     assert issubclass(WindowsSandboxPlatform, SandboxPlatform)
 
 

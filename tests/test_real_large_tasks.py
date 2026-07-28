@@ -8,14 +8,14 @@ Run: python tests/test_real_large_tasks.py
 
 from __future__ import annotations
 
-import pytest
-
 import asyncio
 import os
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -42,9 +42,9 @@ def make_engine(system_prompt, cwd=None, hook_executor=None, max_tokens=4096, ma
     from illusion.permissions.modes import PermissionMode
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
+    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.file_write_tool import FileWriteTool
-    from illusion.tools.file_edit_tool import FileEditTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
     from illusion.tools.web_fetch_tool import WebFetchTool
@@ -64,8 +64,10 @@ def make_engine(system_prompt, cwd=None, hook_executor=None, max_tokens=4096, ma
 
 def collect(events):
     from illusion.engine.stream_events import (
-        AssistantTextDelta, AssistantTurnComplete,
-        ToolExecutionStarted, ToolExecutionCompleted,
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ToolExecutionCompleted,
+        ToolExecutionStarted,
     )
     r = {"text": "", "tools": [], "tool_outputs": [], "turns": 0, "in_tok": 0, "out_tok": 0}
     for ev in events:
@@ -94,11 +96,11 @@ async def task_security_audit_with_hooks():
     """Full security audit: agent reads code, fetches OWASP checklist, reports issues.
     Hooks log every tool use. Permission denies dangerous commands."""
 
+    from illusion.api.client import AnthropicApiClient
     from illusion.hooks.events import HookEvent
+    from illusion.hooks.executor import HookExecutionContext, HookExecutor
     from illusion.hooks.loader import HookRegistry
     from illusion.hooks.schemas import CommandHookDefinition
-    from illusion.hooks.executor import HookExecutor, HookExecutionContext
-    from illusion.api.client import AnthropicApiClient
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -169,25 +171,28 @@ async def task_security_audit_with_hooks():
 async def task_coordinator_code_review():
     """Coordinator delegates code review to 2 worker agents, synthesizes results."""
 
-    from illusion.coordinator.coordinator_mode import (
-        get_coordinator_system_prompt, format_task_notification, TaskNotification,
-    )
-    from illusion.coordinator.agent_definitions import get_agent_definition
-    from illusion.swarm.in_process import start_in_process_teammate, TeammateAbortController
-    from illusion.swarm.types import TeammateSpawnConfig
+    import illusion.swarm.mailbox as mb
+    import illusion.swarm.team_lifecycle as tl
     from illusion.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
-    from illusion.engine.query import QueryContext
+
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
+    from illusion.coordinator.agent_definitions import get_agent_definition
+    from illusion.coordinator.coordinator_mode import (
+        TaskNotification,
+        format_task_notification,
+        get_coordinator_system_prompt,
+    )
+    from illusion.engine.query import QueryContext
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
+    from illusion.swarm.in_process import TeammateAbortController, start_in_process_teammate
+    from illusion.swarm.types import TeammateSpawnConfig
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
-    import illusion.swarm.mailbox as mb
-    import illusion.swarm.team_lifecycle as tl
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -298,13 +303,13 @@ async def task_migration_plan_with_memory():
     """Agent analyzes AutoAgent, saves findings to memory, creates migration plan,
     saves session for later resume."""
 
+    import illusion.memory.manager as mm
+    import illusion.memory.paths as mp
     from illusion.coordinator.agent_definitions import get_agent_definition
+    from illusion.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
+    from illusion.services.session_storage import export_session_markdown, save_session_snapshot
     from illusion.skills.registry import SkillRegistry
     from illusion.skills.types import SkillDefinition
-    from illusion.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
-    from illusion.services.session_storage import save_session_snapshot, export_session_markdown
-    import illusion.memory.paths as mp
-    import illusion.memory.manager as mm
 
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir) / "memory"
@@ -414,6 +419,11 @@ async def task_migration_plan_with_memory():
 #           file write/edit, bash (run tests), multi-turn,
 #           agent works in worktree copy, changes don't affect original
 # ====================================================================
+def _run_calc_test(worktree_path):
+    """Run calc.py in the worktree and return combined stdout+stderr output."""
+    return os.popen(f"cd {worktree_path} && python calc.py 2>&1").read()
+
+
 @pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_bugfix_in_worktree():
     """Agent creates a worktree, makes a fix in isolation, verifies it, cleans up."""
@@ -424,7 +434,9 @@ async def task_bugfix_in_worktree():
         # Create a test repo with a "buggy" file
         repo = Path(tmpdir) / "buggy-project"
         repo.mkdir()
-        os.system(f"cd {repo} && git init -q && git checkout -b main 2>/dev/null")
+        await asyncio.to_thread(
+            os.system, f"cd {repo} && git init -q && git checkout -b main 2>/dev/null"
+        )
 
         buggy_code = '''"""Calculator module with a bug."""
 
@@ -458,7 +470,9 @@ if __name__ == "__main__":
     print(f"Tests: {'PASS' if ok else 'FAIL'}")
 '''
         (repo / "calc.py").write_text(buggy_code)
-        os.system(f"cd {repo} && git add -A && git commit -q -m 'initial commit'")
+        await asyncio.to_thread(
+            os.system, f"cd {repo} && git add -A && git commit -q -m 'initial commit'"
+        )
 
         wt_base = Path(tmpdir) / "worktrees"
         mgr = WorktreeManager(base_dir=wt_base)
@@ -494,7 +508,7 @@ if __name__ == "__main__":
         print(f"  Original untouched: {orig_untouched}")
 
         # Run test in worktree
-        test_result = os.popen(f"cd {wt.path} && python calc.py 2>&1").read()
+        test_result = await asyncio.to_thread(_run_calc_test, wt.path)
         test_pass = "PASS" in test_result
         print(f"  Test result: {test_result.strip()}")
 
@@ -517,28 +531,34 @@ if __name__ == "__main__":
 async def task_full_pipeline():
     """Simulate the full research→plan→implement→verify pipeline with coordinator."""
 
-    from illusion.coordinator.coordinator_mode import (
-        get_coordinator_system_prompt, format_task_notification, TaskNotification,
-    )
-    from illusion.swarm.in_process import start_in_process_teammate, TeammateAbortController
-    from illusion.swarm.types import TeammateSpawnConfig
+    import illusion.swarm.mailbox as mb
+    import illusion.swarm.team_lifecycle as tl
     from illusion.swarm.permission_sync import (
-        create_permission_request, write_permission_request,
-        read_pending_permissions, resolve_permission, PermissionResolution,
+        PermissionResolution,
+        create_permission_request,
+        read_pending_permissions,
+        resolve_permission,
+        write_permission_request,
     )
     from illusion.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
-    from illusion.engine.query import QueryContext
+
     from illusion.api.client import AnthropicApiClient
     from illusion.config.settings import PermissionSettings
+    from illusion.coordinator.coordinator_mode import (
+        TaskNotification,
+        format_task_notification,
+        get_coordinator_system_prompt,
+    )
+    from illusion.engine.query import QueryContext
     from illusion.permissions.checker import PermissionChecker
     from illusion.permissions.modes import PermissionMode
+    from illusion.swarm.in_process import TeammateAbortController, start_in_process_teammate
+    from illusion.swarm.types import TeammateSpawnConfig
     from illusion.tools.base import ToolRegistry
     from illusion.tools.bash_tool import BashTool
     from illusion.tools.file_read_tool import FileReadTool
     from illusion.tools.glob_tool import GlobTool
     from illusion.tools.grep_tool import GrepTool
-    import illusion.swarm.mailbox as mb
-    import illusion.swarm.team_lifecycle as tl
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -666,7 +686,8 @@ async def task_refactor_with_session():
     """Refactor code across 3 turns, save session, verify it can be loaded."""
 
     from illusion.services.session_storage import (
-        save_session_snapshot, load_session_snapshot,
+        load_session_snapshot,
+        save_session_snapshot,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -778,7 +799,7 @@ async def main():
             elapsed = time.time() - t0
             RESULTS[name] = (ok, elapsed)
             print(f"\n  >>> {'PASS' if ok else 'FAIL'} ({elapsed:.1f}s)")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, KeyError, AttributeError, TypeError) as e:
             RESULTS[name] = (False, time.time() - t0)
             print(f"\n  >>> EXCEPTION: {e}")
             import traceback

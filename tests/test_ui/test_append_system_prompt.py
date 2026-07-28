@@ -1,13 +1,11 @@
 """--append-system-prompt 追加到系统提示词的测试。"""
 from __future__ import annotations
 
-import pytest
-
 
 def test_append_system_prompt_adds_content():
     """--append-system-prompt 应追加到系统提示词末尾。"""
-    from illusion.prompts import build_runtime_system_prompt
     from illusion.config.settings import Settings
+    from illusion.prompts import build_runtime_system_prompt
     from illusion.ui.runtime import _build_system_prompt_with_append
 
     settings = Settings()
@@ -25,8 +23,8 @@ def test_append_system_prompt_adds_content():
 
 def test_append_system_prompt_none_unchanged():
     """append_system_prompt=None 时系统提示词不应改变。"""
-    from illusion.prompts import build_runtime_system_prompt
     from illusion.config.settings import Settings
+    from illusion.prompts import build_runtime_system_prompt
     from illusion.ui.runtime import _build_system_prompt_with_append
 
     settings = Settings()
@@ -43,8 +41,8 @@ def test_append_system_prompt_none_unchanged():
 
 def test_append_system_prompt_empty_string_unchanged():
     """append_system_prompt='' 时系统提示词不应改变。"""
-    from illusion.prompts import build_runtime_system_prompt
     from illusion.config.settings import Settings
+    from illusion.prompts import build_runtime_system_prompt
     from illusion.ui.runtime import _build_system_prompt_with_append
 
     settings = Settings()

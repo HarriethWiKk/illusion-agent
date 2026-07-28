@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -37,7 +39,6 @@ from illusion.tools.notebook_edit_tool import NotebookEditTool, NotebookEditTool
 from illusion.tools.skill_tool import SkillTool, SkillToolInput
 from illusion.utils import ripgrep
 from illusion.utils.file_state_cache import FileStateCache
-
 
 # ---------------------------------------------------------------------------
 # 源码检查：验证关键路径使用了 asyncio.to_thread / create_subprocess_exec
@@ -294,27 +295,30 @@ async def test_skill_tool_loads_skill(tmp_path: Path, monkeypatch):
     assert "Hello world." in result.output
 
 
-@pytest.mark.asyncio
-async def test_worktree_tools_end_to_end(tmp_path: Path):
-    """EnterWorktreeTool / ExitWorktreeTool 异步化后仍能正确创建与移除工作树。"""
-    import subprocess
-
-    # 准备一个真实的 git 仓库
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+def _setup_git_repo(cwd: Path) -> None:
+    """初始化一个临时 git 仓库并提交一个 demo 文件。"""
+    subprocess.run(["git", "init"], cwd=cwd, check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "config", "user.email", "illusion@example.com"],
-        cwd=tmp_path, check=True, capture_output=True, text=True,
+        cwd=cwd, check=True, capture_output=True, text=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "IllusionCode Tests"],
-        cwd=tmp_path, check=True, capture_output=True, text=True,
+        cwd=cwd, check=True, capture_output=True, text=True,
     )
-    (tmp_path / "demo.txt").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    (cwd / "demo.txt").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=cwd, check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "commit", "-m", "init"],
-        cwd=tmp_path, check=True, capture_output=True, text=True,
+        cwd=cwd, check=True, capture_output=True, text=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_worktree_tools_end_to_end(tmp_path: Path):
+    """EnterWorktreeTool / ExitWorktreeTool 异步化后仍能正确创建与移除工作树。"""
+    # 准备一个真实的 git 仓库
+    await asyncio.to_thread(_setup_git_repo, tmp_path)
 
     enter_result = await EnterWorktreeTool().execute(
         EnterWorktreeToolInput(name="feature-async"),
