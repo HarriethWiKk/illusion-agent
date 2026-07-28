@@ -1,0 +1,121 @@
+/**
+ * @fileoverview 自定义数字输入模态组件
+ *
+ * Web 前端的轻量模态对话框，用于 /max-tokens 与 /context-window
+ * 选择命令的 custom / __custom__ 分支：弹窗接收一个正整数字符串。
+ *
+ * 视觉风格与 ModalCard.tsx、PromptInput.tsx 的内联选项保持一致：
+ * - glass-surface 玻璃拟态卡片
+ * - rounded-2xl 圆角
+ * - bg-primary / bg-primary-hover 主按钮
+ * - glass-option-hover 次按钮
+ *
+ * @module CustomInputModal
+ */
+
+import { useEffect, useRef, useState } from 'react';
+import { t, type UiLanguage } from '../i18n';
+
+/**
+ * CustomInputModal 组件属性接口
+ */
+interface CustomInputModalProps {
+  /** 当前 UI 语言 */
+  lang: UiLanguage;
+  /** 提示文案 */
+  prompt: string;
+  /** 提交回调（value 为数字字符串） */
+  onSubmit: (value: string) => void;
+  /** 取消回调 */
+  onCancel: () => void;
+  /** 校验失败时的错误文案（可选，默认使用通用文案） */
+  invalidMessage?: string;
+}
+
+/**
+ * 自定义数字输入模态组件
+ *
+ * 弹出居中玻璃拟态对话框，要求用户输入一个正整数。
+ * - 挂载时自动聚焦输入框
+ * - Enter 提交，Escape 取消
+ * - 点击遮罩取消
+ * - 仅接受正整数（^\d+$ 且 > 0）
+ *
+ * @param props - 组件属性
+ * @returns 返回模态对话框的 JSX 元素
+ */
+export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMessage }: CustomInputModalProps) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 挂载时自动聚焦
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const handleSubmit = () => {
+    if (/^\d+$/.test(value) && parseInt(value, 10) > 0) {
+      onSubmit(value);
+    } else {
+      setError(true);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
+  // 注意：i18n 暂缺 'confirm' 与 'maxTokensInvalid' 两个 key，
+  // 此处先用内联回退文本，待 Task 3.3 在 i18n.ts 中补齐后再切换为 t() 调用。
+  const confirmLabel = lang === 'zh-CN' ? '确认' : 'Confirm';
+  const defaultInvalidMessage = lang === 'zh-CN' ? '请输入正整数' : 'Please enter a positive integer';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onCancel}>
+      <div
+        className="glass-surface rounded-2xl p-6 w-80 max-w-[90vw] animate-fade-in-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-sm text-content-primary mb-3">{prompt}</div>
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="numeric"
+          className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(false);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+        {error && (
+          <div className="text-xs text-red-500 mt-2">
+            {invalidMessage || defaultInvalidMessage}
+          </div>
+        )}
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            className="px-3 py-1.5 text-sm text-content-secondary glass-option-hover rounded-md cursor-pointer"
+            onClick={onCancel}
+          >
+            {t(lang, 'cancel')}
+          </button>
+          <button
+            className="px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary-hover cursor-pointer"
+            onClick={handleSubmit}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
