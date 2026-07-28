@@ -147,9 +147,12 @@ def _messages_have_media(messages: list[ConversationMessage]) -> bool:
         for block in msg.content:
             if isinstance(block, MediaBlock):
                 return True
-            if isinstance(block, ToolResultBlock) and isinstance(block.content, list):
-                if any(isinstance(b, MediaBlock) for b in block.content):
-                    return True
+            if (
+                isinstance(block, ToolResultBlock)
+                and isinstance(block.content, list)
+                and any(isinstance(b, MediaBlock) for b in block.content)
+            ):
+                return True
     return False
 
 

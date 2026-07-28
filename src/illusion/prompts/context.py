@@ -88,9 +88,11 @@ def _build_skills_section(cwd: str | Path) -> str | None:
     lines = [
         "# Available Skills",
         "",
-        "The following skills are available via the `skill` tool. "
-        "When a user's request matches a skill, invoke it with `skill(name=\"<skill_name>\")` "
-        "to load detailed instructions before proceeding.",
+        (
+            "The following skills are available via the `skill` tool. "
+            "When a user's request matches a skill, invoke it with `skill(name=\"<skill_name>\")` "
+            "to load detailed instructions before proceeding."
+        ),
         "",
     ]
     for skill in skills:

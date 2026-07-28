@@ -15,12 +15,15 @@ MCP 认证配置工具
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings, save_settings
 from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig, McpWebSocketServerConfig
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class McpAuthToolInput(BaseModel):
@@ -93,7 +96,12 @@ class McpAuthTool(BaseTool[McpAuthToolInput]):
             try:
                 mcp_manager.update_server_config(arguments.server_name, updated)
                 await mcp_manager.reconnect_all()
-            except Exception as exc:  # 防御性处理
+            except (OSError, ConnectionError, TimeoutError, RuntimeError) as exc:
+                logger.warning(
+                    "[mcp_auth_tool] Reconnect failed for %s",
+                    arguments.server_name,
+                    exc_info=True,
+                )
                 return ToolResult(
                     output=f"Saved MCP auth for {arguments.server_name}, but reconnect failed: {exc}",
                     is_error=True,

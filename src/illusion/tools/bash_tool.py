@@ -15,6 +15,7 @@ Bash 命令执行工具
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ from illusion.sandbox import SandboxUnavailableError
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.tools.shell_common import CommandExecutor
 from illusion.utils.shell import _resolve_windows_bash, create_shell_subprocess
+
+logger = logging.getLogger(__name__)
 
 
 class BashToolInput(BaseModel):
@@ -152,7 +155,8 @@ def _build_sandbox_config_text() -> str:
         if net:
             parts.append(f"  Network: {_format_sandbox_dict(net)}")
         return "\n".join(parts) + "\n"
-    except Exception:
+    except (OSError, ValueError, ImportError, KeyError) as exc:
+        logger.warning("Failed to load sandbox configuration: %s", exc)
         return "Sandbox configuration is not available.\n"
 
 
@@ -296,8 +300,10 @@ def _build_bash_description() -> str:
         "If your command will create new directories or files, first use this tool to run `ls` to verify the parent directory exists and is the correct location.",
         'Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")',
         "Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.",
-        f"You may specify an optional timeout in milliseconds (up to {_MAX_TIMEOUT_MS}ms / {_MAX_TIMEOUT_MS // 60000} minutes). "
-        f"By default, your command will timeout after {_DEFAULT_TIMEOUT_MS}ms ({_DEFAULT_TIMEOUT_MS // 60000} minutes).",
+        (
+            f"You may specify an optional timeout in milliseconds (up to {_MAX_TIMEOUT_MS}ms / {_MAX_TIMEOUT_MS // 60000} minutes). "
+            f"By default, your command will timeout after {_DEFAULT_TIMEOUT_MS}ms ({_DEFAULT_TIMEOUT_MS // 60000} minutes)."
+        ),
     ]
 
     if background_note is not None:
@@ -328,22 +334,27 @@ def _build_bash_description() -> str:
     sections = [
         "Executes a given bash command and returns its output.",
         "",
-        "The working directory persists between commands, but shell state does not. "
-        "The shell environment is initialized from the user's profile (bash or zsh).",
+        (
+            "The working directory persists between commands, but shell state does not. "
+            "The shell environment is initialized from the user's profile (bash or zsh)."
+        ),
         "",
-        f"IMPORTANT: Avoid using this tool to run {avoid_commands} commands, unless explicitly "
-        "instructed or after you have verified that a dedicated tool cannot accomplish your task. "
-        "Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:",
+        (
+            f"IMPORTANT: Avoid using this tool to run {avoid_commands} commands, unless explicitly "
+            "instructed or after you have verified that a dedicated tool cannot accomplish your task. "
+            "Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:"
+        ),
         "",
         preference_bullets,
-        "While the Bash tool can do similar things, it's better to use the built-in tools as they "
-        "provide a better user experience and make it easier to review tool calls and give permission.",
+        (
+            "While the Bash tool can do similar things, it's better to use the built-in tools as they "
+            "provide a better user experience and make it easier to review tool calls and give permission."
+        ),
         "",
         "# Instructions",
     ]
 
-    for line in instruction_lines:
-        sections.append(line)
+    sections.extend(instruction_lines)
 
     sections.append(_get_sandbox_section())
     sections.append("")
@@ -449,19 +460,20 @@ class BashTool(BaseTool[BashToolInput]):
                     if manager.on_task_complete is not None:
                         try:
                             manager.on_task_complete(task_id, record)
-                        except Exception:
-                            pass
+                        except (OSError, RuntimeError, ValueError, KeyError):
+                            logger.warning("[bash_tool] on_task_complete callback failed for %s", task_id, exc_info=True)
                 except asyncio.CancelledError:
                     # task_stop 取消时，杀掉子进程
                     try:
                         process.kill()
                         await process.wait()
-                    except Exception:
-                        pass
+                    except OSError:
+                        logger.warning("[bash_tool] Failed to kill process for %s", task_id, exc_info=True)
                     record.status = "killed"
                     record.ended_at = _time.time()
                     raise
-                except Exception:
+                except (OSError, RuntimeError):
+                    logger.exception("[bash_tool] Background task %s failed", task_id)
                     record.status = "failed"
                     record.ended_at = _time.time()
 

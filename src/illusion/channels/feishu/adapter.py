@@ -129,8 +129,8 @@ class FeishuChannel(Channel):
             old_lark_loop = getattr(self._ws, '_lark_loop', None)
             try:
                 self._ws.stop()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:
+                logger.warning("停止飞书 WS 客户端失败", exc_info=True)
         # 等待 WS 线程退出（超时 10s）
         ws_future = self._ws_future
         if ws_future is not None:
@@ -142,15 +142,15 @@ class FeishuChannel(Channel):
                 if old_lark_loop is not None and not old_lark_loop.is_closed():
                     try:
                         old_lark_loop.call_soon_threadsafe(old_lark_loop.stop)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception:
+                        logger.warning("强制停止旧 lark_loop 失败", exc_info=True)
             except asyncio.CancelledError:
                 # ws_client.start() 被 stop() 取消时可能传播 CancelledError，
                 # 属正常关闭路径，不应中断 shutdown 流程
                 raise
-            except Exception:  # noqa: BLE001
+            except Exception:
                 # 其他异常属正常关闭路径，不应中断 shutdown 流程
-                pass
+                logger.debug("飞书 WS 清理过程中出现异常", exc_info=True)
             self._ws_future = None
         self._ws = None
 
@@ -175,7 +175,7 @@ class FeishuChannel(Channel):
             if identity is not None and identity.open_id:
                 self._bot_open_id = identity.open_id
                 logger.info("飞书 bot open_id: %s", self._bot_open_id)
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, AttributeError, TypeError, RuntimeError, OSError) as exc:
             logger.warning("获取飞书 bot open_id 失败: %s", exc)
 
     def get_bot_id(self) -> str:
@@ -215,7 +215,7 @@ class FeishuChannel(Channel):
 
             data = await asyncio.to_thread(_do_request)
             return data.get("code") == 0
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError, AttributeError, TypeError):
             return False
 
     def _on_raw_event(self, event: Any) -> None:
@@ -240,8 +240,8 @@ class FeishuChannel(Channel):
                     logger.warning("事件循环不可用，丢弃飞书消息")
                     return
                 loop.call_soon_threadsafe(self._queue.put_nowait, msg)
-        except Exception as exc:
-            logger.exception("处理飞书事件异常: %s", exc)
+        except Exception:
+            logger.exception("处理飞书事件异常")
 
     def _normalize(self, event: Any) -> InboundMessage | None:
         """把强类型飞书事件标准化为 InboundMessage
@@ -323,7 +323,7 @@ class FeishuChannel(Channel):
                 is_bot=is_bot,
                 attachments=attachments,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (AttributeError, KeyError, TypeError, ValueError, IndexError) as exc:
             logger.warning("标准化飞书事件失败: %s", exc)
             return None
 
@@ -354,11 +354,10 @@ class FeishuChannel(Channel):
             for m in mentions:
                 # MentionEvent.id 是 UserId 对象，有 open_id 属性
                 m_id = getattr(m, "id", None)
-                if m_id is not None:
-                    if getattr(m_id, "open_id", None) == self._bot_open_id:
-                        return True
+                if m_id is not None and getattr(m_id, "open_id", None) == self._bot_open_id:
+                    return True
             return False
-        except Exception:  # noqa: BLE001
+        except (AttributeError, TypeError):
             return False
 
     def _admit(self, msg: InboundMessage, *, mentioned_bot: bool) -> bool:
@@ -394,9 +393,7 @@ class FeishuChannel(Channel):
         if policy.mode == "blacklist" and msg.chat_id in policy.blacklist:
             return False
         # 6. @提及门控
-        if self.config.require_mention and not mentioned_bot:
-            return False
-        return True
+        return not self.config.require_mention or mentioned_bot
 
     async def listen(self) -> AsyncIterator[InboundMessage]:
         """异步迭代入站消息

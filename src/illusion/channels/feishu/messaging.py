@@ -536,7 +536,7 @@ async def send_file(
     if caption:
         try:
             await send_text(client, cfg, chat_id, caption)
-        except Exception as exc:  # noqa: BLE001
+        except (RuntimeError, OSError, AttributeError, TypeError, ValueError) as exc:
             logger.warning("飞书 caption 发送失败（继续发文件）: %s", exc)
 
     # 发送文件消息：msg_type 严格按路由结果（audio/media/file）
@@ -727,7 +727,7 @@ async def create_card_entity(client: Any, card_content: str) -> str:
             )
             return ""
         return getattr(resp.data, "card_id", "") or ""
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, OSError, AttributeError, TypeError) as exc:
         logger.warning("CardKit 创建卡片异常: %s", exc)
         return ""
 
@@ -812,7 +812,7 @@ async def stream_card_element_content(
             )
             return False
         return True
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, OSError, AttributeError, TypeError) as exc:
         logger.warning("CardKit 流式更新异常: %s seq=%d", exc, sequence)
         return False
 
@@ -865,7 +865,7 @@ async def set_card_streaming_mode(
             )
             return False
         return True
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, OSError, AttributeError, TypeError) as exc:
         logger.warning(
             "CardKit 流式模式切换异常: %s streaming_mode=%s", exc, streaming_mode,
         )
@@ -908,6 +908,6 @@ async def update_cardkit_card(
             )
             return False
         return True
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, OSError, AttributeError, TypeError) as exc:
         logger.warning("CardKit 全卡更新异常: %s", exc)
         return False

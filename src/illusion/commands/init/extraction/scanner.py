@@ -191,7 +191,7 @@ def _try_git_ls_files(root: Path) -> list[FileInfo]:
             run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(
             ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-            cwd=root, capture_output=True, text=True, timeout=10,
+            cwd=root, capture_output=True, text=True, timeout=10, check=False,
             **run_kwargs,
         )
         if result.returncode != 0:
@@ -265,9 +265,8 @@ def _detect_frameworks(
 
     # 从配置文件检测
     for config_file, framework in _CONFIG_FRAMEWORKS.items():
-        if (root / config_file).exists():
-            if framework not in frameworks:
-                frameworks.append(framework)
+        if (root / config_file).exists() and framework not in frameworks:
+            frameworks.append(framework)
 
     # 从 package.json 依赖检测
     if package_json:
@@ -369,18 +368,14 @@ def _extract_commands(
                 fmt.append("ruff format")
             if "ruff check" not in lint:
                 lint.append("ruff check")
-        if "black" in tool:
-            if "black" not in fmt:
-                fmt.append("black")
-        if "isort" in tool:
-            if "isort" not in fmt:
-                fmt.append("isort")
-        if "mypy" in tool:
-            if "mypy" not in lint:
-                lint.append("mypy")
-        if "pytest" in tool or "pytest.ini_options" in tool:
-            if "pytest" not in test:
-                test.append("pytest")
+        if "black" in tool and "black" not in fmt:
+            fmt.append("black")
+        if "isort" in tool and "isort" not in fmt:
+            fmt.append("isort")
+        if "mypy" in tool and "mypy" not in lint:
+            lint.append("mypy")
+        if ("pytest" in tool or "pytest.ini_options" in tool) and "pytest" not in test:
+            test.append("pytest")
 
         # Poetry scripts
         scripts = tool.get("poetry", {}).get("scripts", {})
@@ -408,9 +403,8 @@ def _extract_commands(
 
     # 格式化工具配置文件
     for config_file, tool_name in _FORMAT_CONFIGS.items():
-        if (root / config_file).exists():
-            if tool_name not in fmt:
-                fmt.append(tool_name)
+        if (root / config_file).exists() and tool_name not in fmt:
+            fmt.append(tool_name)
 
     return build, test, lint, fmt
 
@@ -484,7 +478,7 @@ def _extract_readme_basic(root: Path) -> tuple[str | None, dict[str, str]]:
         desc_lines = []
         for line in lines:
             stripped = line.strip()
-            if not stripped or stripped.startswith("#") or stripped.startswith("![") or stripped.startswith("```"):
+            if not stripped or stripped.startswith(("#", "![", "```")):
                 continue
             if stripped.startswith("<"):
                 continue
@@ -518,11 +512,11 @@ def _read_pyproject(path: Path) -> dict[str, Any] | None:
         import tomllib
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except Exception:
+    except (ModuleNotFoundError, OSError, ValueError):
         # Python < 3.11 没有 tomllib
         try:
             import tomli
             with open(path, "rb") as f:
                 return tomli.load(f)
-        except Exception:
+        except (ModuleNotFoundError, OSError, ValueError):
             return None

@@ -133,7 +133,7 @@ class ListChannelSessionsTool(BaseTool[ListChannelSessionsInput]):
                     "Do NOT proceed to send without user confirmation."
                 )
             return ToolResult(output="\n".join(lines))
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, OSError, ValueError, KeyError, AttributeError, RuntimeError) as exc:
             return ToolResult(
                 output=f"Failed to list sessions: {exc}", is_error=True
             )
@@ -340,7 +340,7 @@ class SendToChannelTool(BaseTool[SendToChannelInput]):
                     output=f"Failed to send to {arguments.channel_name}:{arguments.chat_id}.{error_hint}",
                     is_error=True,
                 )
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, ValueError, RuntimeError) as exc:
             return ToolResult(
                 output=f"Failed to send to channel: {exc}", is_error=True
             )

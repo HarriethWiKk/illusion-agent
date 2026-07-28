@@ -916,7 +916,7 @@ async def qr_login_with_browser() -> WeixinCredentials | None:
                             return None
                         # 更新浏览器中的二维码图片
                         _refresh_qr_server(server_info, qr_url or qrcode_hex)
-                    except Exception as exc:
+                    except (TimeoutError, aiohttp.ClientError, json.JSONDecodeError, RuntimeError, ImportError, OSError) as exc:
                         logger.error("刷新二维码异常: %s", exc)
                         return None
 

@@ -210,7 +210,7 @@ def _check_pypi_latest() -> str | None:
         )
         resp.raise_for_status()
         return str(resp.json()["info"]["version"])
-    except Exception:
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -242,12 +242,13 @@ def _run_pip_upgrade(packages: list[str]) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
         output = result.stdout + result.stderr
         return result.returncode == 0, output.strip()
     except subprocess.TimeoutExpired:
         return False, "pip upgrade timed out"
-    except Exception as exc:
+    except OSError as exc:
         return False, str(exc)
 
 
@@ -269,12 +270,13 @@ def _run_pip_install(pkgs: list[str]) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
         output = result.stdout + result.stderr
         return result.returncode == 0, output.strip()
     except subprocess.TimeoutExpired:
         return False, "pip install timed out"
-    except Exception as exc:
+    except OSError as exc:
         return False, str(exc)
 
 

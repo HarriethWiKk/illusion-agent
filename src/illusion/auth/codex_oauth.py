@@ -126,7 +126,7 @@ def _extract_account_id(token: str) -> str:
         encoded = parts[1]
         padded = encoded + "=" * (-len(encoded) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
-    except Exception:
+    except (ValueError, UnicodeDecodeError):
         return ""
     auth = payload.get(JWT_CLAIM_PATH)
     if isinstance(auth, dict):
@@ -169,8 +169,8 @@ def _extract_identity_from_tokens(
                     or (payload.get("organizations", [{}])[0].get("id") if payload.get("organizations") else None)
                 )
                 email = payload.get("email")
-            except Exception:
-                pass
+            except (ValueError, UnicodeDecodeError) as exc:
+                log.debug("解析 id_token 失败: %s", exc)
 
     # 回退到 access_token
     if not account_id:
@@ -394,7 +394,7 @@ class CodexOAuth:
                 log.warning("轮询请求失败: %s", exc)
                 time.sleep(_POLL_INTERVAL)
                 continue
-            except Exception as exc:
+            except (urllib.error.URLError, OSError, ValueError) as exc:
                 log.warning("轮询请求失败: %s", exc)
                 time.sleep(_POLL_INTERVAL)
                 continue

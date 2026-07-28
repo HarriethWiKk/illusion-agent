@@ -235,8 +235,8 @@ def _cleanup_old_channel_files(data_dir: Path) -> None:
     for name in ("daemon.pid", "daemon.refs", "daemon.refs.lock", "daemon.fingerprint"):
         try:
             (data_dir / name).unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        except OSError as exc:
+            logger.debug("清理旧版文件 %s 失败: %s", name, exc)
 
 
 def kill_channel_daemon(proc: subprocess.Popen[bytes] | None) -> None:
@@ -456,15 +456,15 @@ class ChannelRunner:
                         msg.chat_id, _t("cmd_stop_done"),
                         reply_to=msg.message_id,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.warning("发送 /stop 中断提示失败: chat_id=%s", msg.chat_id, exc_info=True)
                 raise
             except Exception as exc:
-                logger.exception("处理渠道消息异常: %s", exc)
+                logger.exception("处理渠道消息异常")
                 try:
                     await self.channel.send_text(msg.chat_id, f"❌ 处理失败: {str(exc)[:100]}")
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.warning("发送错误提示失败: chat_id=%s", msg.chat_id, exc_info=True)
             finally:
                 # 清理 task 注册（无论正常完成、异常还是取消）
                 self._active_agent_tasks.pop(msg.chat_id, None)
@@ -533,7 +533,7 @@ class ChannelRunner:
                 tools.append(ReceiveMediaTool(
                     self.channel, msg.chat_id, msg.attachments
                 ))
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, AttributeError, TypeError) as exc:
             logger.warning("构造媒体工具失败: %s", exc)
 
         # 飞书文档/云盘工具
@@ -563,7 +563,7 @@ class ChannelRunner:
                     FeishuDriveMkdirTool(self._feishu_config),
                     FeishuDriveDeleteTool(self._feishu_config),
                 ])
-            except Exception as exc:  # noqa: BLE001
+            except (ImportError, AttributeError, TypeError) as exc:
                 logger.warning("构造飞书工具失败: %s", exc)
 
         # 跨渠道文件传输工具（所有渠道）
@@ -582,7 +582,7 @@ class ChannelRunner:
             if other_enabled:
                 tools.append(ListChannelSessionsTool(all_cfg))
                 tools.append(SendToChannelTool(all_cfg))
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, OSError, ValueError, AttributeError, TypeError) as exc:
             logger.warning("构造跨渠道工具失败: %s", exc)
 
         # Cron 工具（注入 origin 信息用于投递）
@@ -592,7 +592,7 @@ class ChannelRunner:
                 origin_channel=self.channel.name,
                 chat_id=msg.chat_id,
             ))
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, AttributeError, TypeError) as exc:
             logger.warning("构造 Cron 工具失败: %s", exc)
 
         return tools
@@ -620,7 +620,7 @@ class ChannelRunner:
         # 而非新建会话。注意：绝不覆盖已有 messages（否则会清空历史）。
         try:
             self.session_store.ensure_indexed(session)
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, AttributeError, TypeError) as exc:
             logger.warning("会话索引提前落盘失败: %s", exc)
 
         # 检测渠道是否支持消息编辑（仅飞书支持卡片 patch）
@@ -753,7 +753,7 @@ class ChannelRunner:
                 channel_tools=self._build_channel_tools(msg),
             )
         except Exception as exc:
-            logger.exception("构建 runtime 失败: %s", exc)
+            logger.exception("构建 runtime 失败")
             await self.channel.send_text(msg.chat_id, f"❌ 启动失败: {str(exc)[:100]}")
             return
 
@@ -801,8 +801,8 @@ class ChannelRunner:
                     if bundle.session_id and session.session_id != bundle.session_id:
                         session.session_id = bundle.session_id
                     self.session_store.save(session, _serialize_messages(list(msgs)))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("渠道会话持久化失败: %s", exc)
+                except Exception:
+                    logger.warning("渠道会话持久化失败", exc_info=True)
             else:
                 logger.warning("无法从 bundle.engine 获取会话历史，跳过持久化")
         except asyncio.CancelledError:
@@ -811,13 +811,13 @@ class ChannelRunner:
             if supports_edit and streaming_controller:
                 try:
                     await streaming_controller.error("已中断")
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.warning("通知流式控制器中断失败: chat_id=%s", msg.chat_id, exc_info=True)
             elif qq_streaming_controller:
                 try:
                     await qq_streaming_controller.abort("已中断")
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.warning("中止 QQ 流式控制器失败: chat_id=%s", msg.chat_id, exc_info=True)
             raise
         except Exception as exc:
             logger.exception("agent 处理异常")
@@ -849,8 +849,8 @@ class ChannelRunner:
             await asyncio.sleep(5)
             try:
                 await self.channel.start_typing(chat_id)
-            except Exception:  # noqa: BLE001
-                pass  # 打字状态失败不影响主流程
+            except Exception:
+                logger.debug("刷新打字状态失败: chat_id=%s", chat_id, exc_info=True)
 
     def _make_permission_prompt(self, chat_id: str) -> Any:
         """构造权限确认回调（渠道自动批准，不影响终端对话）"""
@@ -891,8 +891,8 @@ class ChannelRunner:
                     opts_lines = _format_question_options([q_dict])
                     if opts_lines:
                         text = f"{text}\n\n{opts_lines}"
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.debug("格式化问题选项失败: question=%s", question, exc_info=True)
                 if multi:
                     hint = "（可多选，用逗号分隔）" if self._is_zh() else "(multi-select, separate with commas)"
                     text = f"{text}\n{hint}"
@@ -918,8 +918,8 @@ class ChannelRunner:
                     opts_lines = _format_question_options([q_dict])
                     if opts_lines:
                         text = f"{text}\n\n{opts_lines}"
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.debug("格式化问题选项失败: header=%s", header, exc_info=True)
                 if multi:
                     hint = "（可多选，用逗号分隔）" if self._is_zh() else "(multi-select, separate with commas)"
                     text = f"{text}\n{hint}"
@@ -969,7 +969,7 @@ class ChannelRunner:
             from illusion.config import load_settings
             lang = load_settings().ui_language or "zh-CN"
             return lang.lower().startswith("zh")
-        except Exception:  # noqa: BLE001
+        except (ImportError, OSError, ValueError, AttributeError):
             return True
 
     async def _wait_reply(self, chat_id: str, timeout: float) -> str:

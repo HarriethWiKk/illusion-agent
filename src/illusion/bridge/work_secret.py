@@ -91,7 +91,7 @@ def decode_work_secret(secret: str) -> WorkSecret:
         raise ValueError("Invalid work secret: missing session_ingress_token")
     # 验证 API 基础地址
     if not isinstance(data.get("api_base_url"), str):
-        raise ValueError("Invalid work secret: missing api_base_url")
+        raise TypeError("Invalid work secret: api_base_url must be a string")
     # 创建 WorkSecret 对象
     return WorkSecret(
         version=data["version"],

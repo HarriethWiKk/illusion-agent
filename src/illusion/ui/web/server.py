@@ -65,7 +65,7 @@ def create_app(
             await host.run()
         except WebSocketDisconnect:
             log.info("WebSocket client disconnected")
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError, KeyError) as exc:
             log.warning("WebSocket endpoint error: %s", exc)
             # 尝试向前端发送错误事件
             try:
@@ -76,8 +76,8 @@ def create_app(
                         "type": "error",
                         "message": f"Backend error: {exc}",
                     }))
-            except Exception:
-                pass
+            except (WebSocketDisconnect, RuntimeError, OSError) as send_exc:
+                log.debug("向前端发送错误事件失败: %s", send_exc)
 
     # 注册 env/oauth/settings REST 路由（在 StaticFiles mount 之前）
     from illusion.ui.web.env_routes import register_env_routes

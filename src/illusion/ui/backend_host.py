@@ -476,9 +476,11 @@ class ReactBackendHost:
         即时请求（permission_response / question_response / stop）直接处理，
         其他请求入队 _request_queue 供主循环处理。
         """
+        from pydantic import ValidationError
+
         try:
             req = FrontendRequest.model_validate_json(line)
-        except Exception:
+        except ValidationError:
             log.warning("无法解析 stdin 行: %s", line[:100])
             return
 
@@ -951,7 +953,7 @@ class ReactBackendHost:
             )
         except Exception as exc:
             import logging
-            logging.getLogger(__name__).error("Error listing sessions: %s", exc, exc_info=True)
+            logging.getLogger(__name__).exception("Error listing sessions")
             await self._emit(
                 BackendEvent(
                     type="command_result",
@@ -1229,7 +1231,7 @@ class ReactBackendHost:
                 )
             except Exception as exc:
                 import logging
-                logging.getLogger(__name__).error("Error listing sessions for delete: %s", exc, exc_info=True)
+                logging.getLogger(__name__).exception("Error listing sessions for delete")
                 await self._emit(
                     BackendEvent(
                         type="command_result",

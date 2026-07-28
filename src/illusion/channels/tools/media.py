@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import aiohttp
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -121,7 +122,10 @@ class SendMediaTool(BaseTool[SendMediaInput]):
             )
         except NotImplementedError as exc:
             return ToolResult(output=str(exc), is_error=True)
-        except Exception as exc:  # noqa: BLE001
+        except (
+            aiohttp.ClientError, OSError, RuntimeError, ValueError,
+            AttributeError, TypeError, TimeoutError,
+        ) as exc:
             # 底层 upload_ciphertext/get_upload_url 已含重试；此处仍失败
             # 说明重试用尽，提示 LLM 可再次尝试 send_media
             return ToolResult(
@@ -202,7 +206,10 @@ class ReceiveMediaTool(BaseTool[ReceiveMediaInput]):
             )
         except NotImplementedError as exc:
             return ToolResult(output=str(exc), is_error=True)
-        except Exception as exc:  # noqa: BLE001
+        except (
+            aiohttp.ClientError, OSError, RuntimeError, ValueError,
+            AttributeError, TypeError, TimeoutError,
+        ) as exc:
             return ToolResult(
                 output=f"Failed to download attachment: {exc}", is_error=True
             )

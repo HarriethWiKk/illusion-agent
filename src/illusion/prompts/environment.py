@@ -133,6 +133,7 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
             cwd=cwd,
             timeout=5,
             stdin=subprocess.DEVNULL,
+            check=False,
             **run_kwargs,
         )
         is_git = result.returncode == 0 and result.stdout.strip() == "true"
@@ -150,6 +151,7 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
             cwd=cwd,
             timeout=5,
             stdin=subprocess.DEVNULL,
+            check=False,
             **run_kwargs,
         )
         branch = result.stdout.strip() if result.returncode == 0 else None

@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from typing import TypeVar
+
+T = TypeVar("T")
 
 if sys.version_info >= (3, 13):
     QueueShutDown = asyncio.QueueShutDown  # type: ignore[assignment]
 
-    class Queue[T](asyncio.Queue[T]):
+    class Queue(asyncio.Queue[T]):
         """支持 shutdown 的异步队列（Python 3.13+ 原生实现）。"""
 
 else:
@@ -31,7 +34,7 @@ else:
 
     _SHUTDOWN = _Shutdown()
 
-    class Queue[T](asyncio.Queue[T | _Shutdown]):
+    class Queue(asyncio.Queue[T | _Shutdown]):
         """支持 shutdown 的异步队列（Python < 3.13 哨兵 polyfill）。
 
         通过向队列投入 _Shutdown 哨兵唤醒所有等待中的 getter，getter 收到

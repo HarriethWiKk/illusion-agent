@@ -203,7 +203,7 @@ def download_rg() -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{archive_format}") as tmp:
             tmp_path = tmp.name
             urllib.request.urlretrieve(url, tmp_path)
-    except Exception as e:
+    except OSError as e:
         raise RipgrepNotFoundError(f"下载 rg 失败: {e}")
 
     try:
@@ -311,5 +311,5 @@ async def run_rg(args: list[str], cwd: str | None = None,
 
     except RipgrepError:
         raise
-    except Exception as e:
+    except OSError as e:
         raise RipgrepError(f"rg 执行失败: {e}")

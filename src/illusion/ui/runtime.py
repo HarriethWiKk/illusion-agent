@@ -409,12 +409,14 @@ async def build_runtime(
         server_configs = {}
     # 加载 CLI 指定的额外 MCP 配置（--bare 模式也允许显式指定）
     if mcp_config:
+        from pydantic import ValidationError
+
         from illusion.mcp.config import load_mcp_config_from_string
         for cfg in mcp_config:
             try:
                 extra = load_mcp_config_from_string(cfg)
                 server_configs.update(extra)
-            except Exception as exc:
+            except (OSError, json.JSONDecodeError, ValidationError) as exc:
                 logging.getLogger(__name__).warning(
                     f"Failed to load MCP config from {cfg}: {exc}"
                 )
@@ -758,8 +760,8 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
         logging.getLogger(__name__).warning("API client rebuild failed: %s", exc)
         try:
             bundle.app_state.get().auth_status = "missing"
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError) as exc:
+            logging.getLogger(__name__).debug("设置 auth_status=missing 失败: %s", exc)
         return
 
     bundle.api_client = new_client  # type: ignore[assignment]

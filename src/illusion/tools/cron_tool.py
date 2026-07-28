@@ -29,7 +29,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import subprocess
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -48,6 +50,8 @@ from illusion.services.cron_scheduler import (
     is_scheduler_running,
 )
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+logger = logging.getLogger(__name__)
 
 # 支持的操作列表
 _ACTIONS = ("status", "list", "add", "update", "remove", "run")
@@ -276,8 +280,8 @@ Returns JSON result for each action."""
             pong = ping_daemon(client, timeout=2.0)
             if pong is not None:
                 lines.append(f"Connections: {pong.get('connections', '?')}")
-        except Exception:  # noqa: BLE001
-            pass
+        except (ImportError, OSError, TimeoutError):
+            logger.debug("[cron_tool] IPC ping failed", exc_info=True)
 
         return ToolResult(output="\n".join(lines))
 
@@ -393,9 +397,9 @@ Returns JSON result for each action."""
         try:
             from illusion.services.cron_spawn import maybe_spawn_cron_daemon
             maybe_spawn_cron_daemon()
-        except Exception:  # noqa: BLE001
+        except (ImportError, OSError, subprocess.SubprocessError):
             # spawn 失败不应阻止任务创建
-            pass
+            logger.warning("[cron_tool] Failed to spawn cron daemon", exc_info=True)
 
         kind = "recurring" if (arguments.recurring if arguments.recurring is not None else True) else "one-shot"
         name_display = arguments.name or job_id
@@ -455,17 +459,18 @@ Returns JSON result for each action."""
             upsert_cron_job(job)
             changes.append("prompt updated")
 
-        if arguments.recurring is not None:
-            if arguments.recurring != job.get("recurring", True):
-                job["recurring"] = arguments.recurring
-                upsert_cron_job(job)
-                changes.append(f"recurring={arguments.recurring}")
+        if arguments.recurring is not None and arguments.recurring != job.get("recurring", True):
+            job["recurring"] = arguments.recurring
+            upsert_cron_job(job)
+            changes.append(f"recurring={arguments.recurring}")
 
-        if arguments.delete_after_run is not None:
-            if arguments.delete_after_run != job.get("delete_after_run", False):
-                job["delete_after_run"] = arguments.delete_after_run
-                upsert_cron_job(job)
-                changes.append(f"delete_after_run={arguments.delete_after_run}")
+        if (
+            arguments.delete_after_run is not None
+            and arguments.delete_after_run != job.get("delete_after_run", False)
+        ):
+            job["delete_after_run"] = arguments.delete_after_run
+            upsert_cron_job(job)
+            changes.append(f"delete_after_run={arguments.delete_after_run}")
 
         if changes:
             return ToolResult(

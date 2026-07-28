@@ -9,11 +9,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from illusion.skills.loader import load_skill_registry
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class SkillToolInput(BaseModel):
@@ -113,7 +116,7 @@ Important:
                     store = context.metadata.get("session_hook_store")
                     if store and isinstance(store, SessionHookStore):
                         register_skill_hooks(store, session_id, hooks_settings, skill.name, skill.skill_root)
-            except Exception:
-                pass  # 钩子注册失败不影响技能加载
+            except (ImportError, ValidationError, ValueError, TypeError, AttributeError, KeyError):
+                logger.debug("[skill_tool] Hook registration failed for skill %s", skill.name, exc_info=True)
 
         return ToolResult(output=content)

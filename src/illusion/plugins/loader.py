@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from illusion.config.paths import get_config_dir
 from illusion.mcp.types import McpServerConfig
 from illusion.plugins.schemas import PluginManifest
@@ -95,7 +97,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
         return None
     try:
         manifest = PluginManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, ValidationError) as exc:
         logger.debug("Failed to load plugin manifest from %s: %s", manifest_path, exc)
         return None
     enabled = enabled_plugins.get(manifest.name, manifest.enabled_by_default)

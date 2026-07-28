@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from illusion.api.client import (
     ApiMessageCompleteEvent,
     ApiMessageRequest,
@@ -38,6 +40,7 @@ from illusion.api.client import (
     SupportsStreamingMessages,
 )
 from illusion.api.effort import EffortLevel
+from illusion.api.errors import IllusionCodeApiError
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import (
     ContentBlock,
@@ -525,7 +528,7 @@ async def run_query(
                 if isinstance(event, ApiMessageCompleteEvent):
                     final_message = event.message
                     usage = event.usage
-        except Exception as exc:
+        except IllusionCodeApiError as exc:
             error_msg = str(exc)
             error_lower = error_msg.lower()
 
@@ -676,7 +679,7 @@ async def run_query(
                         return idx, result, hook_ctxs
                     except PermissionDenied:
                         raise
-                    except Exception as exc:
+                    except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
                         return idx, ToolResultBlock(
                             tool_use_id=tc.id,
                             content=f"Tool {tc.name} failed: {exc}",
@@ -716,9 +719,9 @@ async def run_query(
             synth = _synthesize_pending_tool_results(
                 tool_calls,
                 tool_results_list,
-                error_message_fn=lambda name: (
+                error_message_fn=lambda name, _denied=denied_tool_name: (
                     f"Permission denied for {name}"
-                    if name == denied_tool_name
+                    if name == _denied
                     else f"Tool {name} interrupted"
                 ),
             )
@@ -845,7 +848,7 @@ async def _execute_tool_call(
     # 验证工具输入参数
     try:
         parsed_input = tool.input_model.model_validate(tool_input)
-    except Exception as exc:
+    except ValidationError as exc:
         return ToolResultBlock(
             tool_use_id=tool_use_id,
             content=f"Invalid input for {tool_name}: {exc}",

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from croniter import croniter
@@ -62,7 +62,9 @@ def _generate_id() -> str:
 
 def _now_local() -> datetime:
     """返回本地时间（无时区信息），对齐用户本地时间。"""
-    return datetime.now().replace(microsecond=0)
+    # 通过 UTC → 本地时区 → 移除 tzinfo 的路径获取无时区的本地时间，
+    # 避免 datetime.now() 不带 tz 参数（DTZ005）。
+    return datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
 
 
 def _now_iso() -> str:

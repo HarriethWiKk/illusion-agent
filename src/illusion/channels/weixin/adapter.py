@@ -36,6 +36,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
+
 from illusion.channels.base import Attachment, Channel, InboundMessage
 from illusion.utils.aioqueue import Queue  # 支持关闭语义的异步队列
 from illusion.utils.atomic_write import atomic_write_text
@@ -160,7 +162,7 @@ class WeixinChannel(Channel):
                 self._context_tokens[user_id] = ctx_token
                 try:
                     self._save_context_tokens()
-                except Exception as save_exc:  # noqa: BLE001
+                except (OSError, ValueError, AttributeError, TypeError) as save_exc:
                     logger.warning("context_token 持久化失败（不影响消息处理）: %s", save_exc)
 
             # 提取文本和附件（从 item_list）
@@ -214,7 +216,7 @@ class WeixinChannel(Channel):
                 is_bot=is_bot,
                 attachments=attachments,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (KeyError, AttributeError, TypeError, ValueError, IndexError) as exc:
             logger.warning("标准化微信消息失败: %s", exc)
             return None
 
@@ -419,9 +421,7 @@ class WeixinChannel(Channel):
         if msg.is_bot and not self.config.allow_bots:
             return False
         # 3. 群消息直接丢弃
-        if msg.chat_type == "group":
-            return False
-        return True
+        return msg.chat_type != "group"
 
     async def listen(self) -> AsyncIterator[InboundMessage]:
         """长轮询监听消息"""
@@ -475,7 +475,7 @@ class WeixinChannel(Channel):
                     logger.warning("连续失败 %d 次，%ds 退避", consecutive_failures, BACKOFF_DELAY_SECONDS)
                     await asyncio.sleep(BACKOFF_DELAY_SECONDS)
                     consecutive_failures = 0
-            except Exception as exc:  # noqa: BLE001
+            except (aiohttp.ClientError, TimeoutError, OSError, ValueError, KeyError) as exc:
                 consecutive_failures += 1
                 if consecutive_failures < MAX_CONSECUTIVE_FAILURES:
                     logger.warning("长轮询失败 (%d/3): %s，%ds 后重试",
@@ -918,7 +918,7 @@ class WeixinChannel(Channel):
                 self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_START,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, aiohttp.ClientError, RuntimeError, ValueError, OSError) as exc:
             logger.debug("发送打字状态失败: %s", exc)
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -936,7 +936,7 @@ class WeixinChannel(Channel):
                 self._send_session, base_url=self.config.base_url, token=self.config.token,
                 to_user_id=chat_id, typing_ticket=ticket, status=TYPING_STOP,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, aiohttp.ClientError, RuntimeError, ValueError, OSError) as exc:
             logger.debug("停止打字状态失败: %s", exc)
 
     async def _ensure_typing_ticket(self, user_id: str) -> str:
@@ -969,7 +969,7 @@ class WeixinChannel(Channel):
                 self._typing_tickets[user_id] = ticket
                 self._typing_ticket_times[user_id] = time.monotonic()
             return str(ticket)
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, aiohttp.ClientError, RuntimeError, ValueError, KeyError, OSError) as exc:
             logger.debug("获取打字 ticket 失败: %s", exc)
             return ""
 

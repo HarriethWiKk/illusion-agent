@@ -648,9 +648,8 @@ async def run_agent_in_process(
                     return
 
                 # 跟踪文本增量（用于调试）
-                if isinstance(event, AssistantTextDelta):
-                    if not final_text:
-                        logger.debug("[agent_executor] %s: received first text delta", agent_id)
+                if isinstance(event, AssistantTextDelta) and not final_text:
+                    logger.debug("[agent_executor] %s: received first text delta", agent_id)
 
                 # 跟踪 token 使用
                 if usage is not None:
@@ -718,7 +717,7 @@ async def run_agent_in_process(
 
         try:
             logger.warning("[agent_executor] %s: about to await query loop", agent_id)
-            done, pending = await asyncio.wait(
+            done, _ = await asyncio.wait(
                 [query_task, timeout_task, cancel_task, force_cancel_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
@@ -899,7 +898,7 @@ async def run_agent_subprocess(
             model=config.model,
             command=command,
         )
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
         logger.error("[agent_executor] Failed to spawn subprocess agent %s: %s", agent_id, exc)
         return AgentResult(
             agent_id=agent_id,

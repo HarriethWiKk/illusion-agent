@@ -1011,8 +1011,8 @@ def get_all_agent_definitions() -> list[AgentDefinition]:
             for agent_def in getattr(plugin, "agents", []):  # 遍历代理定义
                 if isinstance(agent_def, AgentDefinition):  # 是代理定义
                     agent_map[agent_def.name] = agent_def  # 添加
-    except Exception:
-        pass
+    except (ImportError, OSError, ValueError, TypeError, RuntimeError) as exc:
+        logger.debug("加载插件代理定义失败: %s", exc)
 
     return list(agent_map.values())
 

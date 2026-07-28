@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from illusion.api.errors import IllusionCodeApiError
 from illusion.engine.messages import ConversationMessage
 from illusion.services.compact.compact_core import compact_conversation
 from illusion.services.compact.constants import (
@@ -47,7 +48,7 @@ async def reactive_compact(
             suppress_follow_up=True,
         )
         return result, True
-    except Exception as exc:
+    except IllusionCodeApiError as exc:
         log.error("Reactive compact failed: %s", exc)
         return messages, False
 
@@ -88,7 +89,7 @@ async def auto_compact_if_needed(
         state.consecutive_failures = 0
         state.warning_suppressed = True
         return result, True
-    except Exception as exc:
+    except IllusionCodeApiError as exc:
         state.consecutive_failures += 1
         log.error(
             "Auto-compact failed (attempt %d/%d): %s",

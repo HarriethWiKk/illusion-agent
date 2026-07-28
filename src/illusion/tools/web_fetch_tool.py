@@ -15,17 +15,20 @@
 from __future__ import annotations
 
 import html as _html_module
+import logging
 import re
 import time
 from contextvars import ContextVar
 from urllib.parse import urlparse
 
 import httpx
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 15-minute TTL cache（使用 ContextVar 实现会话隔离，避免跨会话泄漏）
@@ -183,8 +186,9 @@ Usage notes:
         # 使用 AI 模型处理内容
         try:
             ai_response = await _process_with_model(body, arguments.prompt)
-        except Exception:
+        except (RuntimeError, OSError, ValueError, httpx.HTTPError, OpenAIError):
             # 模型调用失败时回退到直接返回内容
+            logger.debug("[web_fetch_tool] AI model processing failed, falling back to raw content", exc_info=True)
             result = (
                 f"URL: {response.url}\n"
                 f"Status: {response.status_code}\n"

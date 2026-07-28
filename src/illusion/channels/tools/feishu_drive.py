@@ -210,10 +210,14 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
         # 每个分片读取是阻塞 I/O，用 to_thread 避免阻塞事件循环
         from typing import BinaryIO
 
+        def _open_binary(file_path: Path) -> BinaryIO:
+            return open(file_path, "rb")
+
         def _read_chunk(fh: BinaryIO, size: int) -> bytes:
             return fh.read(size)
 
-        with open(path, "rb") as f:
+        f = await asyncio.to_thread(_open_binary, path)
+        try:
             for i in range(block_num):
                 chunk = await asyncio.to_thread(_read_chunk, f, block_size)
                 part_body = {
@@ -229,6 +233,8 @@ class FeishuDriveUploadTool(BaseTool[FeishuDriveUploadInput]):
                         output=f"Part {i} failed: code={resp.code} msg={resp.msg}",
                         is_error=True,
                     )
+        finally:
+            await asyncio.to_thread(f.close)
 
         # 3. finish
         finish_body = {

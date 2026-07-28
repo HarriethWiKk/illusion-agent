@@ -83,7 +83,7 @@ def _parse_frontmatter(default_name: str, content: str) -> tuple[str, str]:
                         name = str(data["name"]).strip()
                     if data.get("description"):
                         description = str(data["description"]).strip()
-            except Exception:
+            except yaml.YAMLError:
                 # YAML 解析失败，回退到手动解析
                 for fm_line in lines[1:end_idx]:
                     fm = fm_line.strip()

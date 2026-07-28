@@ -146,7 +146,7 @@ def _load_settings_safely() -> Any:
     try:
         from illusion.config import load_settings
         return load_settings()
-    except Exception as exc:  # noqa: BLE001
+    except (ImportError, OSError, ValueError, AttributeError) as exc:
         logger.warning("加载主设置失败: %s", exc)
         return None
 
@@ -217,8 +217,10 @@ async def _supervise(runner: Any, stop_event: asyncio.Event) -> None:
             watchdog_task.cancel()
             try:
                 await watchdog_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+            except asyncio.CancelledError:
+                logger.debug("watchdog task 被取消")
+            except Exception:
+                logger.debug("watchdog task 退出时出现异常", exc_info=True)
 
 
 class _EventWatchdog:
@@ -260,7 +262,7 @@ class _EventWatchdog:
             # 超时，检查渠道健康
             try:
                 healthy = await channel.health_probe()
-            except Exception:  # noqa: BLE001
+            except (AttributeError, TypeError, RuntimeError, OSError, ValueError):
                 healthy = False
 
             if not healthy:
@@ -272,7 +274,7 @@ class _EventWatchdog:
                 # _supervise 检测到 run 返回后会重启 runner 重建连接
                 try:
                     await channel.shutdown()
-                except Exception as exc:  # noqa: BLE001
+                except (OSError, RuntimeError, AttributeError, TypeError) as exc:
                     logger.warning("看门狗调用 channel.shutdown() 失败: %s", exc)
                 return  # 退出看门狗
             else:
@@ -391,7 +393,7 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         except asyncio.CancelledError:
             # 取消信号必须上抛，不能被吞掉
             raise
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, RuntimeError, AttributeError, TypeError, ValueError) as exc:
             # 单个渠道 shutdown 异常不应中断其他渠道的关闭
             logger.warning("关闭渠道异常: %s", exc)
 
@@ -407,6 +409,6 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
     for h in logging.getLogger().handlers:
         try:
             h.flush()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("flush logging handler 失败", exc_info=True)
     os._exit(0)

@@ -47,7 +47,7 @@ async def compact_conversation(
     if len(messages) <= preserve_recent:
         return list(messages)
 
-    messages, tokens_freed = microcompact_messages(messages, keep_recent=DEFAULT_KEEP_RECENT)
+    messages, _ = microcompact_messages(messages, keep_recent=DEFAULT_KEEP_RECENT)
     messages = strip_images_from_messages(messages)
 
     pre_compact_tokens = estimate_message_tokens(messages)

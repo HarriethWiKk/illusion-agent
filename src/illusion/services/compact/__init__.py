@@ -48,7 +48,6 @@ from illusion.services.compact.constants import (
 from illusion.services.compact.message_ops import (
     _ensure_message_alternation,  # noqa: F401
     _find_safe_split_index,  # noqa: F401
-    _group_messages_by_turn,  # noqa: F401
     _remove_orphaned_tool_results,  # noqa: F401
     create_compact_boundary_marker,
     get_messages_after_compact_boundary,

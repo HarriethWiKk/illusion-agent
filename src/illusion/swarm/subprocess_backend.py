@@ -72,7 +72,7 @@ class SubprocessBackend:
                 model=config.model,
                 command=command,
             )
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
             logger.error("[SubprocessBackend] Failed to spawn agent %s: %s", agent_id, exc)
             return SpawnResult(
                 task_id="",

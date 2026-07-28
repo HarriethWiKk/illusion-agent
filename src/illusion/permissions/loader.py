@@ -20,6 +20,8 @@ import json
 import logging
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from illusion.config.paths import get_project_config_dir
 from illusion.permissions.schemas import ProjectPermissions
 
@@ -47,7 +49,7 @@ def load_project_permissions(cwd: str | Path) -> ProjectPermissions:
     try:
         raw = json.loads(permissions_file.read_text(encoding="utf-8"))
         return ProjectPermissions.model_validate(raw)
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError, ValidationError) as exc:
         logger.warning("Failed to load project permissions from %s: %s", permissions_file, exc)
         return ProjectPermissions()
 

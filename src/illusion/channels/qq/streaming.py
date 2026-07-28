@@ -21,6 +21,8 @@ import time
 from collections.abc import Coroutine
 from typing import Any
 
+import aiohttp
+
 from illusion.channels.qq.api import (
     STREAM_INPUT_STATE_DONE,
     STREAM_INPUT_STATE_GENERATING,
@@ -189,7 +191,7 @@ class QQStreamingController:
                 "QQ 流式会话已启动: stream_msg_id=%s index=%d",
                 self._stream_msg_id, self._index,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (aiohttp.ClientError, RuntimeError, ValueError, KeyError) as exc:
             logger.warning("QQ 流式启动失败，将降级到静态发送: %s", exc)
             self._transition("aborted")
 
@@ -314,7 +316,7 @@ class QQStreamingController:
             )
             self._sent_chunk_count += 1
             self._last_flushed_text = self._accumulated_text
-        except Exception as exc:  # noqa: BLE001
+        except (aiohttp.ClientError, RuntimeError, ValueError, KeyError) as exc:
             logger.warning("QQ 流式 patch 失败（保留会话，继续尝试）: %s", exc)
         finally:
             self._flush_in_progress = False
@@ -371,5 +373,5 @@ class QQStreamingController:
                 "QQ 流式已完成: stream_msg_id=%s 总分片数=%d 文本长度=%d",
                 self._stream_msg_id, self._sent_chunk_count, len(self._accumulated_text),
             )
-        except Exception as exc:  # noqa: BLE001
+        except (aiohttp.ClientError, RuntimeError, ValueError, KeyError) as exc:
             logger.warning("QQ 流式终结分片发送失败: %s", exc)

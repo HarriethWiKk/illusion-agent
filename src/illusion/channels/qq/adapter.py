@@ -21,6 +21,8 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
+
 from illusion.channels.base import Attachment, Channel, InboundMessage
 from illusion.channels.qq.api import (
     DEDUP_MAX_SIZE,
@@ -158,13 +160,13 @@ class QQChannel(Channel):
         try:
             if self._ws_client is not None:
                 await self._ws_client.close()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("清理 QQ WS 客户端失败", exc_info=True)
         try:
             if self._session is not None and not self._session.closed:
                 await self._session.close()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("清理 QQ HTTP session 失败", exc_info=True)
         self._ws_client = None
         self._session = None
 
@@ -186,7 +188,10 @@ class QQChannel(Channel):
                     self._bot_openid = data.get("id", "") or ""
                     if self._bot_openid:
                         logger.info("QQ bot openid: %s", self._bot_openid)
-        except Exception as exc:  # noqa: BLE001
+        except (
+            ImportError, aiohttp.ClientError, ValueError,
+            KeyError, AttributeError, TypeError,
+        ) as exc:
             logger.warning("获取 QQ bot openid 失败: %s", exc)
 
     def get_bot_id(self) -> str:
@@ -271,7 +276,7 @@ class QQChannel(Channel):
                 message_id=msg_id,
                 attachments=self._parse_attachments(raw),
             )
-        except Exception as exc:  # noqa: BLE001
+        except (KeyError, AttributeError, TypeError, ValueError, IndexError) as exc:
             logger.warning("标准化 QQ C2C 消息失败: %s", exc)
             return None
 
@@ -324,7 +329,7 @@ class QQChannel(Channel):
                 message_id=msg_id,
                 attachments=self._parse_attachments(raw),
             )
-        except Exception as exc:  # noqa: BLE001
+        except (KeyError, AttributeError, TypeError, ValueError, IndexError) as exc:
             logger.warning("标准化 QQ 群聊消息失败: %s", exc)
             return None
 
@@ -568,7 +573,7 @@ class QQChannel(Channel):
                 self._session, token, chat_id, file_path,
                 is_group=is_group,
             )
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, aiohttp.ClientError, RuntimeError, OSError, ValueError) as exc:
             logger.warning("QQ 文件发送失败: %s", exc)
 
     async def send_image(
@@ -747,7 +752,7 @@ class QQChannel(Channel):
                 logger.info("QQ 附件下载成功: %s → %s (%d bytes)",
                             attachment.filename, save_path_obj, len(data))
                 return str(save_path_obj)
-            except Exception as exc:  # noqa: BLE001
+            except (aiohttp.ClientError, OSError, ValueError, RuntimeError) as exc:
                 url_error = exc
                 logger.warning("QQ 附件 URL 下载失败: %s (url=%s)",
                                exc, attachment.download_url[:80])
@@ -801,7 +806,7 @@ class QQChannel(Channel):
             from illusion.channels.qq.api import send_typing
             token = await self._get_token()
             await send_typing(self._session, token, chat_id)
-        except Exception as exc:  # noqa: BLE001
+        except (ImportError, aiohttp.ClientError, RuntimeError, ValueError) as exc:
             logger.debug("QQ 打字状态发送失败: %s", exc)
 
     async def stop_typing(self, chat_id: str) -> None:

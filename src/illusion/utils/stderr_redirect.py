@@ -21,7 +21,22 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Iterator
 from typing import IO
+
+
+@contextlib.contextmanager
+def _open_fd_stream(fd: int, encoding: str) -> Iterator[IO[str]]:
+    """打开 fd 的 text stream 并用 with 管理生命周期，供 ExitStack 使用。"""
+    with open(
+        fd,
+        "w",
+        encoding=encoding,
+        errors="replace",
+        closefd=False,
+        buffering=1,  # 行缓冲
+    ) as stream:
+        yield stream
 
 
 class StderrRedirector:
@@ -55,6 +70,8 @@ class StderrRedirector:
         self._saved_root_level: int | None = None
         # 保存每个 handler 的原始 stream，uninstall 时恢复以兼容 pytest logging plugin
         self._saved_streams: dict[int, object] = {}
+        # 管理 install 中打开的原始 fd 副本 stream 的生命周期
+        self._stream_stack: contextlib.ExitStack | None = None
 
     def install(self) -> None:
         """安装 stderr 重定向。
@@ -88,13 +105,10 @@ class StderrRedirector:
             if self._original_fd is not None:
                 # 创建写原始 fd 的 text stream（logging 期望 text mode）
                 # encoding 用 sys.stderr 的 encoding 保持兼容
-                orig_stream = open(
-                    self._original_fd,
-                    "w",
-                    encoding=self._encoding or "utf-8",
-                    errors="replace",
-                    closefd=False,
-                    buffering=1,  # 行缓冲
+                # 使用 ExitStack 管理生命周期：install 时打开，uninstall 时关闭
+                self._stream_stack = contextlib.ExitStack()
+                orig_stream = self._stream_stack.enter_context(
+                    _open_fd_stream(self._original_fd, self._encoding or "utf-8")
                 )
                 # 替换 root 现有 StreamHandler 的 stream，或新建一个
                 replaced = False
@@ -155,8 +169,8 @@ class StderrRedirector:
                 if saved_stream is not None and isinstance(h, logging.StreamHandler):
                     try:
                         h.stream = saved_stream
-                    except Exception:
-                        pass
+                    except (AttributeError, TypeError) as exc:
+                        self._logger.debug("恢复 handler stream 失败: %s", exc)
             self._saved_streams.clear()
             # 关闭我们替换 stream 的 handler（释放原始 fd 副本）
             for h in list(root_logger.handlers):
@@ -173,6 +187,10 @@ class StderrRedirector:
         # 恢复 lastResort 默认值
         from logging import _StderrHandler  # type: ignore
         logging.lastResort = _StderrHandler(logging.WARNING)
+        # 关闭 install 中打开的原始 fd 副本 stream
+        if self._stream_stack is not None:
+            self._stream_stack.close()
+            self._stream_stack = None
 
     def _drain(self) -> None:
         """daemon 线程主循环：逐行读取管道并直接 os.write 到原始 fd。

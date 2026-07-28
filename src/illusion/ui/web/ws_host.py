@@ -36,6 +36,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.auth.manager import AuthManager
@@ -373,7 +374,7 @@ class WebBackendHost:
                 await self._request_queue.put(FrontendRequest(type="shutdown"))
                 await self._shutdown()
                 return
-            except Exception:
+            except (RuntimeError, OSError):
                 self._ws_closed = True
                 self._running = False
                 log.warning("WebSocket read error, shutting down")
@@ -385,7 +386,7 @@ class WebBackendHost:
             try:
                 request = FrontendRequest.model_validate_json(payload)
                 log.info("_read_requests: 解析请求 type=%s", request.type)
-            except Exception as exc:  # 防御性协议处理
+            except ValidationError as exc:  # 防御性协议处理
                 log.warning("_read_requests: 请求解析失败: %s, payload=%s", exc, payload[:200])
                 await self._emit(BackendEvent(type="error", message=f"Invalid request: {exc}"))
                 continue
@@ -1795,7 +1796,7 @@ class WebBackendHost:
             try:
                 payload = event.model_dump_json()
                 await self._websocket.send_text(payload)
-            except Exception:
+            except (WebSocketDisconnect, RuntimeError, OSError, ValueError, TypeError):
                 # 不 break：瞬态写入失败不应终止写循环，否则后续事件全部丢失。
                 # 真正的连接断开由 _read_requests 的 WebSocketDisconnect 处理，
                 # 它会入队 shutdown 请求并调用 _shutdown 关闭队列。

@@ -122,8 +122,8 @@ def _extract_extra_content(tc_delta: Any) -> Any:
     if hasattr(extra, "model_dump"):
         try:
             extra = extra.model_dump()
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            log.debug("model_dump() 失败，保留原始 extra: %s", exc)
     return extra
 
 
@@ -939,11 +939,9 @@ class OpenAICompatibleClient:
             return True
 
         # 400/404 错误且包含图片/内容相关关键词
-        if status in {400, 404}:
-            if any(kw in error_msg for kw in ("image", "media", "content", "param", "unsupported")):
-                return True
-
-        return False
+        return status in {400, 404} and any(
+            kw in error_msg for kw in ("image", "media", "content", "param", "unsupported")
+        )
 
     @staticmethod
     def _is_effort_unsupported_error(exc: Exception) -> bool:
@@ -1180,9 +1178,7 @@ class OpenAICompatibleClient:
         status = getattr(exc, "status_code", None)
         if status and status in {429, 500, 502, 503}:
             return True
-        if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
-            return True
-        return False
+        return isinstance(exc, (ConnectionError, TimeoutError, OSError))
 
     @staticmethod
     def _translate_error(exc: Exception) -> IllusionCodeApiError:

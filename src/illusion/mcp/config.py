@@ -26,7 +26,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from illusion.config.paths import get_project_mcp_dir
 from illusion.mcp.types import McpServerConfig, _normalize_server_config_type
@@ -112,7 +112,7 @@ def _parse_mcp_config_dict(
             for name, config in parsed.mcpServers.items():
                 if getattr(config, "enabled", True):
                     servers[name] = config
-        except Exception as exc:
+        except ValidationError as exc:
             logger.warning("Failed to parse MCP config %s: %s", source or "input", exc)
         return servers
 
@@ -130,7 +130,7 @@ def _parse_mcp_config_dict(
                     )
                     if getattr(config, "enabled", True):
                         servers[name] = config
-                except Exception as exc:
+                except ValidationError as exc:
                     logger.warning(
                         "Failed to parse MCP server '%s' in %s: %s",
                         name,
@@ -145,7 +145,7 @@ def _parse_mcp_config_dict(
         if getattr(config, "enabled", True):
             name = Path(str(source)).stem if source else "_inline"
             servers[name] = config
-    except Exception as exc:
+    except ValidationError as exc:
         logger.warning("Failed to parse MCP config %s: %s", source or "input", exc)
 
     return servers

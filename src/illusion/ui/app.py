@@ -75,11 +75,14 @@ def _inject_answer_to_pending_tool_result(
                 return result
             if isinstance(block_content, list):
                 for sub in block_content:
-                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
-                        if PENDING_ANSWER_MARKER in sub["text"]:
-                            sub["text"] = answer
-                            block["is_error"] = False
-                            return result
+                    if (
+                        isinstance(sub, dict)
+                        and isinstance(sub.get("text"), str)
+                        and PENDING_ANSWER_MARKER in sub["text"]
+                    ):
+                        sub["text"] = answer
+                        block["is_error"] = False
+                        return result
     return result
 
 
@@ -186,11 +189,14 @@ def _inject_plan_approval_to_tool_result(
                 return result
             if isinstance(block_content, list):
                 for sub in block_content:
-                    if isinstance(sub, dict) and isinstance(sub.get("text"), str):
-                        if PENDING_PLAN_APPROVAL_MARKER in sub["text"]:
-                            sub["text"] = replacement
-                            block["is_error"] = not approval["approved"]
-                            return result
+                    if (
+                        isinstance(sub, dict)
+                        and isinstance(sub.get("text"), str)
+                        and PENDING_PLAN_APPROVAL_MARKER in sub["text"]
+                    ):
+                        sub["text"] = replacement
+                        block["is_error"] = not approval["approved"]
+                        return result
     return result
 
 

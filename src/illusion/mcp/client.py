@@ -28,13 +28,14 @@ import asyncio
 import logging
 import sys
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
+from mcp.shared.exceptions import McpError
 from mcp.types import CallToolResult, ReadResourceResult
 
 from illusion.mcp.types import (
@@ -46,6 +47,11 @@ from illusion.mcp.types import (
     McpToolInfo,
     McpWebSocketServerConfig,
 )
+
+if TYPE_CHECKING:
+    # typing.Self 仅用于类型注解（from __future__ import annotations 使其不在运行时求值），
+    # 通过 TYPE_CHECKING 守卫以兼容 Python 3.10
+    from typing import Self
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +187,7 @@ class McpClientManager:
         self._stacks.clear()
         self._sessions.clear()
 
-    async def __aenter__(self) -> McpClientManager:
+    async def __aenter__(self) -> Self:
         """异步上下文管理器入口，自动连接所有服务器。"""
         await self.connect_all()
         return self
@@ -331,9 +337,9 @@ class McpClientManager:
                 )
                 for resource in resource_result.resources
             ]
-        except Exception:
-            # 服务器不支持 resources 能力，忽略错误
-            pass
+        except McpError as exc:
+            # 服务器不支持 resources 能力（返回 JSON-RPC 错误）或请求超时
+            logger.debug("Server %s does not support resources: %s", name, exc)
         # 获取资源模板（部分服务器只暴露模板，不暴露静态资源）
         try:
             template_result = await session.list_resource_templates()
@@ -358,9 +364,9 @@ class McpClientManager:
                         description=getattr(template, "description", "") or "",
                     )
                 )
-        except Exception:
-            # 服务器不支持 resource templates 能力，忽略错误
-            pass
+        except McpError as exc:
+            # 服务器不支持 resource templates 能力（返回 JSON-RPC 错误）或请求超时
+            logger.debug("Server %s does not support resource templates: %s", name, exc)
         # 保存会话和栈
         self._sessions[name] = session
         self._stacks[name] = stack
@@ -391,8 +397,11 @@ class McpClientManager:
             if config.log_file:
                 from pathlib import Path
                 log_path = Path(config.log_file)
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                errlog = open(log_path, "a", encoding="utf-8")
+                # mkdir + open 是阻塞操作，通过 to_thread 在工作线程中执行
+                def _open_log_file(p: Path):
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    return open(p, "a", encoding="utf-8")
+                errlog = await asyncio.to_thread(_open_log_file, log_path)
                 stack.callback(errlog.close)
 
             # 创建 STDIO 客户端连接
@@ -410,8 +419,9 @@ class McpClientManager:
             # 创建客户端会话并完成公共初始化流程
             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
             await self._finalize_session(name, config, session, stack, auth_configured=bool(config.env))
-        except Exception as exc:
+        except (OSError, McpError, ConnectionError, TimeoutError, RuntimeError) as exc:
             # 连接失败，清理资源并更新状态
+            logger.debug("Failed to connect MCP stdio server %s: %s", name, exc)
             await stack.aclose()
             self._statuses[name] = McpConnectionStatus(
                 name=name,
@@ -439,16 +449,20 @@ class McpClientManager:
             await self._finalize_session(
                 name, config, session, stack, auth_configured=headers_configured
             )
-        except (Exception, asyncio.CancelledError) as exc:
+        except (
+            OSError, McpError, ConnectionError, TimeoutError, RuntimeError, asyncio.CancelledError,
+        ) as exc:
             # 远程传输（streamablehttp/sse）内部使用 anyio task group，
             # 连接失败时会通过 cancel scope 取消任务产生 CancelledError（BaseException
             # 子类，绕过 except Exception），需显式捕获以确保标记为 failed。
             # stack.aclose() 可能因跨 task 退出 cancel scope 抛 RuntimeError，
             # 此时传输资源随 session 销毁自动回收。
+            logger.debug("Failed to connect MCP remote server %s: %s", name, exc)
             try:
                 await stack.aclose()
-            except Exception:
-                pass
+            except RuntimeError as close_exc:
+                # 跨 task 退出 cancel scope 时 anyio 抛 RuntimeError，资源随 session 销毁自动回收
+                logger.debug("stack.aclose() during remote connect cleanup raised: %s", close_exc)
             self._statuses[name] = McpConnectionStatus(
                 name=name,
                 state="failed",

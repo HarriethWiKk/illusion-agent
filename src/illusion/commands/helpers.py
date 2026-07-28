@@ -66,7 +66,7 @@ def copy_to_clipboard(text: str) -> tuple[bool, str]:
     try:
         pyperclip.copy(text)
         return True, "clipboard"
-    except Exception:
+    except (pyperclip.PyperclipException, OSError):
         clip_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             clip_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -74,8 +74,8 @@ def copy_to_clipboard(text: str) -> tuple[bool, str]:
             try:
                 subprocess.run(command, input=text, text=True, check=True, capture_output=True, **clip_kwargs)
                 return True, "clipboard"
-            except Exception:
-                continue
+            except (subprocess.SubprocessError, OSError):
+                pass
     fallback = get_data_dir() / "last_copy.txt"
     fallback.write_text(text, encoding="utf-8")
     return False, str(fallback)

@@ -25,8 +25,6 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
-ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
-
 # 进度回调类型：接收进度消息文本，返回 Awaitable。
 # 工具在执行过程中调用此回调上报中间状态，由 query.py 注入，
 # 最终通过 ToolProgressEvent 流式传递给前端。
@@ -64,6 +62,9 @@ class ToolResult:
     output: str
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
 
 
 class BaseTool(ABC, Generic[ToolInputT]):

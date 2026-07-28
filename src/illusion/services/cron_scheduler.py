@@ -35,7 +35,7 @@ import shutil
 import subprocess
 import sys
 import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -309,8 +309,9 @@ async def _execute_prompt_in_subprocess(
             try:
                 process.kill()  # pyright: ignore[reportPossiblyUnboundVariable]
                 await process.wait()  # pyright: ignore[reportPossiblyUnboundVariable]
-            except Exception:
-                pass
+            except (ProcessLookupError, OSError) as kill_exc:
+                # 进程已退出或无法终止 — 超时清理是尽力而为
+                logger.debug("Failed to kill timed-out cron subprocess: %s", kill_exc)
         logger.warning("Cron subprocess timed out after %ds", timeout)
         return {
             "returncode": -1,
@@ -327,7 +328,7 @@ async def _execute_prompt_in_subprocess(
             "stdout": "",
             "stderr": f"illusion command not found: {exc}",
         }
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
         logger.error("Failed to start cron subprocess: %s", exc)
         return {
             "returncode": -1,
@@ -517,7 +518,9 @@ async def execute_job(
 
 def _now_local() -> datetime:
     """返回本地时间。"""
-    return datetime.now().replace(microsecond=0)
+    # 通过 UTC → 本地时区 → 移除 tzinfo 的路径获取无时区的本地时间，
+    # 避免 datetime.now() 不带 tz 参数（DTZ005）。
+    return datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
 
 
 # ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ async def branch_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message=f"Current branch: {current or '(detached HEAD)'}")
     if action == "list":
         ok, branches = run_git_command(context.cwd, "branch", "--format", "%(refname:short)")
-        return CommandResult(message=branches if ok else branches)
+        return CommandResult(message=branches)
     return CommandResult(message="Usage: /branch [show|list]")
 
 
@@ -51,4 +51,4 @@ async def commit_handler(args: str, context: CommandContext) -> CommandResult:
     if not ok:
         return CommandResult(message=output)
     ok, output = run_git_command(context.cwd, "commit", "-m", message)
-    return CommandResult(message=output if ok else output)
+    return CommandResult(message=output)

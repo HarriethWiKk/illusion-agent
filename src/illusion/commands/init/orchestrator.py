@@ -192,11 +192,11 @@ def _atomic_write(path: Path, content: str) -> None:
         try:
             import os
             os.close(tmp_fd)
-        except Exception:
+        except OSError:
             pass
         try:
             Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
+        except OSError:
             pass
         raise
 

@@ -209,7 +209,8 @@ class LspClient:
             try:
                 self._proc.terminate()
                 await asyncio.to_thread(self._proc.wait, timeout=5)
-            except Exception:
+            except (sp.TimeoutExpired, OSError) as exc:
+                logger.debug("LSP graceful shutdown failed, force killing: %s", exc)
                 self._proc.kill()
             self._proc = None
 
@@ -235,8 +236,9 @@ class LspClient:
                 except (BrokenPipeError, OSError):
                     self._connected = False
                     break
-        except Exception:
-            pass
+        except (OSError, RuntimeError) as exc:
+            logger.debug("LSP writer thread exited unexpectedly: %s", exc)
+            self._connected = False
 
     def _reader(self) -> None:
         """专用读取线程。Windows 上 read(n>1) 会阻塞直到读满 n 字节，必须用 read(1)。"""
@@ -268,8 +270,8 @@ class LspClient:
                     except json.JSONDecodeError:
                         continue
                     self._dispatch(msg)
-        except Exception:
-            pass
+        except (OSError, RuntimeError) as exc:
+            logger.debug("LSP reader thread exited unexpectedly: %s", exc)
         finally:
             self._connected = False
             if self._loop:
@@ -295,7 +297,9 @@ class LspClient:
             if handler:
                 try:
                     result = handler(msg.get("params", {}))
-                except Exception:
+                except (TypeError, KeyError, AttributeError) as exc:
+                    # 处理器访问 params 字段失败时回退到 None，避免拖垮读取线程
+                    logger.debug("LSP request handler %s failed: %s", msg["method"], exc)
                     result = None
             else:
                 result = None
@@ -306,8 +310,8 @@ class LspClient:
             for h in self._notify_handlers.get(msg["method"], []):
                 try:
                     h(msg.get("params"))
-                except Exception:
-                    pass
+                except (TypeError, KeyError, AttributeError) as exc:
+                    logger.debug("LSP notification handler %s failed: %s", msg["method"], exc)
 
     def _stderr_drain(self) -> None:
         try:
@@ -316,5 +320,5 @@ class LspClient:
                 line = self._proc.stderr.readline()
                 if not line:
                     break
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.debug("LSP stderr drain thread exited: %s", exc)

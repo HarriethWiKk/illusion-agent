@@ -217,26 +217,23 @@ class PermissionChecker:
         # 检查路径级别规则
         if file_path and self._path_rules:
             for rule in self._path_rules:
-                if fnmatch.fnmatch(file_path, rule.pattern):
-                    if not rule.allow:
-                        return PermissionDecision(
-                            allowed=False,
-                            reason=f"Path {file_path} matches deny rule: {rule.pattern}",
-                        )
+                if fnmatch.fnmatch(file_path, rule.pattern) and not rule.allow:
+                    return PermissionDecision(
+                        allowed=False,
+                        reason=f"Path {file_path} matches deny rule: {rule.pattern}",
+                    )
 
         # 检查沙箱文件系统限制
-        if file_path and self._sandbox_path_rules:
+        if file_path and self._sandbox_path_rules and file_path not in self._session_allowed_paths:
             # 检查会话级允许列表
-            if file_path not in self._session_allowed_paths:
-                for rule in self._sandbox_path_rules:
-                    if fnmatch.fnmatch(file_path, rule.pattern):
-                        if not rule.allow:
-                            return PermissionDecision(
-                                allowed=False,
-                                reason=f"sandbox_restriction: {file_path}",
-                                sandbox_blocked=True,
-                                sandbox_denied_path=file_path,
-                            )
+            for rule in self._sandbox_path_rules:
+                if fnmatch.fnmatch(file_path, rule.pattern) and not rule.allow:
+                    return PermissionDecision(
+                        allowed=False,
+                        reason=f"sandbox_restriction: {file_path}",
+                        sandbox_blocked=True,
+                        sandbox_denied_path=file_path,
+                    )
 
         # 检查命令拒绝模式（例如拒绝 "rm -rf /"）
         if command:

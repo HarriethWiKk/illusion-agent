@@ -199,10 +199,7 @@ def _is_media_related_error(exc: Exception) -> bool:
         return True
 
     # 某些提供商返回的通用错误
-    if "does not support" in error_msg and "image" in error_msg:
-        return True
-
-    return False
+    return "does not support" in error_msg and "image" in error_msg
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -221,9 +218,7 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, APIError):
         return True
     # 连接错误可重试
-    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
-        return True
-    return False
+    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
 
 
 def _get_retry_delay(attempt: int, exc: Exception | None = None) -> float:

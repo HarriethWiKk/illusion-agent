@@ -31,11 +31,10 @@ class MacOSSandboxPlatform(SandboxPlatform):
         profile = self._generate_seatbelt_profile(config, log_tag)
 
         # 写入临时 profile 文件
-        profile_file = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", prefix="illusion-seatbelt-", suffix=".sb", delete=False
-        )
-        profile_file.write(profile)
-        profile_file.close()
+        ) as profile_file:
+            profile_file.write(profile)
 
         shell = shutil.which("bash") or shutil.which("sh") or "/bin/sh"
         cmd_str = shlex.join(command)

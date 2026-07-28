@@ -170,8 +170,8 @@ async def _deliver_feishu(
                 logger.error("飞书纯文本投递失败: code=%s msg=%s", resp.code, resp.msg)
                 return False
         return True
-    except Exception as exc:
-        logger.exception("飞书投递异常: %s", exc)
+    except Exception:
+        logger.exception("飞书投递异常")
         return False
 
 
@@ -284,15 +284,15 @@ async def _deliver_qq(
                 # chat_type 未知：先群组失败回退 C2C（QQ C2C/group openid 格式相同）
                 try:
                     await _send_to_target(is_group=True)
-                except Exception as group_exc:  # noqa: BLE001
+                except (TimeoutError, aiohttp.ClientError, RuntimeError, ValueError, OSError) as group_exc:
                     logger.info(
                         "QQ 群组投递失败，自动降级为 C2C (chat_id=%s): %s",
                         chat_id, group_exc,
                     )
                     await _send_to_target(is_group=False)
         return True
-    except Exception as exc:
-        logger.exception("QQ 投递异常: %s", exc)
+    except Exception:
+        logger.exception("QQ 投递异常")
         return False
 
 
@@ -407,8 +407,8 @@ async def _deliver_weixin(
                 # 分片间隔，防限流（对齐 adapter.send_text）
                 await asyncio.sleep(1.5)
             return sent_any
-    except Exception as exc:
-        logger.exception("微信投递异常: %s", exc)
+    except Exception:
+        logger.exception("微信投递异常")
         return False
 
 
@@ -435,7 +435,7 @@ def _load_weixin_context_token(user_id: str) -> str:
             return ""
         data = json.loads(token_path.read_text(encoding="utf-8"))
         return str(data.get(user_id, ""))
-    except Exception as exc:  # noqa: BLE001
+    except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
         logger.warning("加载微信 context_token 失败 (user=%s): %s", user_id, exc)
         return ""
 
@@ -502,8 +502,8 @@ async def _deliver_file_feishu(
         client = build_lark_client(config)
         await send_file(client, config, chat_id, file_path, caption=caption)
         return True
-    except Exception as exc:
-        logger.exception("飞书文件投递异常: %s", exc)
+    except Exception:
+        logger.exception("飞书文件投递异常")
         return False
 
 
@@ -572,7 +572,7 @@ async def _deliver_file_qq(
             try:
                 await _send_with_caption(is_group=True)
                 return True
-            except Exception as group_exc:  # noqa: BLE001
+            except (TimeoutError, aiohttp.ClientError, RuntimeError, ValueError, OSError) as group_exc:
                 logger.warning(
                     "QQ 群组文件投递失败 (chat_id=%s)，best-effort 尝试 C2C"
                     "（若 chat_id 为 group_openid 则 C2C 也会失败）: %s",
@@ -581,8 +581,8 @@ async def _deliver_file_qq(
             # 回退 C2C
             await _send_with_caption(is_group=False)
         return True
-    except Exception as exc:
-        logger.exception("QQ 文件投递异常: %s", exc)
+    except Exception:
+        logger.exception("QQ 文件投递异常")
         return False
 
 
@@ -755,6 +755,6 @@ async def _deliver_file_weixin(
                 logger.error("微信文件投递失败: errcode=%s resp=%s", errcode, resp)
                 return False
         return True
-    except Exception as exc:
-        logger.exception("微信文件投递异常: %s", exc)
+    except Exception:
+        logger.exception("微信文件投递异常")
         return False

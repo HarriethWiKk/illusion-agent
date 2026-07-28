@@ -185,6 +185,6 @@ Usage:
 
         except RipgrepError:
             raise
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"grep 执行失败: {e}")
             raise RipgrepError(f"grep 执行失败: {e}")

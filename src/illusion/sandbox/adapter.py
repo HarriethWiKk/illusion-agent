@@ -23,7 +23,7 @@ import fnmatch
 import logging
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Self
 
 from .runtime import SandboxRuntime
 from .violation_store import SandboxViolationStore
@@ -64,7 +64,7 @@ class SandboxManager:
     _runtime: SandboxRuntime
     _initialized: bool
 
-    def __new__(cls) -> SandboxManager:
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._runtime = SandboxRuntime()
@@ -140,10 +140,7 @@ class SandboxManager:
         if not command:
             return False
 
-        if self._is_excluded_command(command, sandbox_settings.excluded_commands):
-            return False
-
-        return True
+        return not self._is_excluded_command(command, sandbox_settings.excluded_commands)
 
     def wrap_command(self, command: list[str], shell: str = "bash") -> list[str]:
         """包装命令为沙箱命令

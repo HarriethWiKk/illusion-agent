@@ -7,6 +7,7 @@ Skill 加载模块 — 从内置和用户目录加载 Skills
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ from illusion.config.settings import load_settings
 from illusion.skills.bundled import get_bundled_skills
 from illusion.skills.registry import SkillRegistry
 from illusion.skills.types import SkillDefinition
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_skills_dir() -> Path:
@@ -295,8 +298,8 @@ def parse_skill_markdown(
                         at = extra_fields["allowed_tools"]
                         if isinstance(at, str):
                             extra_fields["allowed_tools"] = [t.strip() for t in at.split(",")]
-            except Exception:
-                pass
+            except yaml.YAMLError as exc:
+                logger.debug("解析 skill frontmatter 失败: %s", exc)
 
     # 回退：从标题和第一段提取
     if not description:
@@ -332,7 +335,7 @@ def _load_yaml_skill(path: Path, source: str) -> SkillDefinition | None:
     """从 YAML 文件加载 skill 定义。"""
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (yaml.YAMLError, OSError):
         return None
     if not isinstance(data, dict):
         return None

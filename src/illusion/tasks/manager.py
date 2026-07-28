@@ -323,8 +323,8 @@ class BackgroundTaskManager:
                 async_task.cancel()
                 try:
                     await asyncio.wait_for(async_task, timeout=3)
-                except (TimeoutError, asyncio.CancelledError, Exception):
-                    pass
+                except (TimeoutError, asyncio.CancelledError) as exc:
+                    logger.debug("清理异步任务失败: %s", exc)
             task.async_task = None
             task.status = "killed"
             task.ended_at = time.time()

@@ -166,6 +166,6 @@ class GlobTool(BaseTool[GlobToolInput]):
 
         except RipgrepError:
             raise
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"glob 执行失败: {e}")
             raise RipgrepError(f"glob 执行失败: {e}")

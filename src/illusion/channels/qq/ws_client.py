@@ -164,8 +164,10 @@ class QQWSClient:
                 continue
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
-            except (TimeoutError, asyncio.CancelledError, Exception):
-                pass
+            except (TimeoutError, asyncio.CancelledError):
+                logger.debug("等待 QQ task 退出时超时或被取消")
+            except Exception:
+                logger.debug("等待 QQ task 退出时出现异常", exc_info=True)
         self._listen_task = None
         self._heartbeat_task = None
         await self._cleanup()
@@ -200,7 +202,7 @@ class QQWSClient:
                 logger.debug("QQ 心跳已发送, seq=%s", self._last_seq)
         except asyncio.CancelledError:
             return
-        except Exception as exc:  # noqa: BLE001
+        except (aiohttp.ClientError, ConnectionError, RuntimeError) as exc:
             logger.warning("QQ 心跳异常: %s", exc)
 
     # ── 监听 ──────────────────────────────────────────────────
@@ -302,7 +304,7 @@ class QQWSClient:
                         await asyncio.sleep(LONG_BACKOFF_SECONDS)
                         backoff_idx = 0
 
-            except Exception as exc:  # noqa: BLE001
+            except (aiohttp.ClientError, json.JSONDecodeError, RuntimeError, OSError) as exc:
                 if not self._running:
                     return
                 logger.warning("QQ WS 监听异常: %s", exc)
@@ -344,7 +346,7 @@ class QQWSClient:
                 self._session = aiohttp.ClientSession(trust_env=True)
             await self._open_ws()
             return True
-        except Exception as exc:  # noqa: BLE001
+        except (aiohttp.ClientError, OSError, RuntimeError, json.JSONDecodeError) as exc:
             logger.warning("QQ WS 重连失败: %s", exc)
             return False
 
@@ -381,11 +383,11 @@ class QQWSClient:
                     raise QQCloseError(0, "连接已关闭")
                 try:
                     await self._ws.ping()
-                    idle_probes += 1
-                    if idle_probes >= max_idle_probes:
-                        raise QQCloseError(0, f"连续 {idle_probes} 次探活无消息，疑似连接僵死")
-                except Exception as exc:  # noqa: BLE001
-                    raise QQCloseError(0, f"ping 探活失败: {exc}")
+                except (aiohttp.ClientError, ConnectionError, RuntimeError, OSError) as exc:
+                    raise QQCloseError(0, f"ping 探活失败: {exc}") from exc
+                idle_probes += 1
+                if idle_probes >= max_idle_probes:
+                    raise QQCloseError(0, f"连续 {idle_probes} 次探活无消息，疑似连接僵死")
                 continue
             if msg.type == aiohttp.WSMsgType.TEXT:
                 idle_probes = 0  # 收到正常消息，重置探活计数

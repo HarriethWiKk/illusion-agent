@@ -53,7 +53,7 @@ async def model_handler(args: str, context: CommandContext) -> CommandResult:
                     try:
                         from illusion.daemon_ipc import notify_channel_daemon_reload
                         notify_channel_daemon_reload()
-                    except Exception:  # noqa: BLE001
+                    except (ImportError, OSError, RuntimeError):
                         pass  # 守护进程未运行或通知失败，静默忽略
                 return CommandResult(
                     message=i18n_t("model_set_to", ref=model_ref, name=model_name),

@@ -474,10 +474,10 @@ async def upload_file(
         length = min(part_block_size, file_size - offset)
 
         # 分片读取是阻塞 I/O，用 to_thread 避免阻塞事件循环
-        def _read_part() -> bytes:
+        def _read_part(_offset: int = offset, _length: int = length) -> bytes:
             with path.open("rb") as fh:
-                fh.seek(offset)
-                return fh.read(length)
+                fh.seek(_offset)
+                return fh.read(_length)
         part_data = await asyncio.to_thread(_read_part)
         part_md5 = hashlib.md5(part_data).hexdigest()
 
@@ -543,7 +543,7 @@ async def _read_qq_json(resp: aiohttp.ClientResponse) -> dict[str, Any]:
     """
     try:
         data = await resp.json(content_type=None)
-    except Exception:
+    except json.JSONDecodeError:
         text = await resp.text()
         raise RuntimeError(
             f"QQ API 非 JSON 响应 (status={resp.status}): {text[:200]}"
@@ -624,7 +624,7 @@ async def _complete_upload(
         try:
             async with session.post(url, headers=headers, json=body) as resp:
                 return await _read_qq_json(resp)
-        except Exception as exc:
+        except (aiohttp.ClientError, RuntimeError, OSError) as exc:
             last_exc = exc
             if attempt < _COMPLETE_UPLOAD_MAX_RETRIES:
                 delay = _COMPLETE_UPLOAD_BASE_DELAY * (2 ** attempt)

@@ -28,14 +28,16 @@ import json
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from typing import Any
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = os.name == "nt"
+
+T = TypeVar("T")
 
 
 class DaemonType(Enum):
@@ -154,12 +156,10 @@ if _IS_WINDOWS:
     def _win_connect_pipe(handle: int) -> bool:
         """等待客户端连接（阻塞）"""
         result = _kernel32.ConnectNamedPipe(handle, None)
-        if result == 0:
-            err = _kernel32.GetLastError()
-            if err == _ERROR_PIPE_CONNECTED:
-                return True  # 客户端已连接
-            return False
-        return True
+        if result != 0:
+            return True
+        # ConnectNamedPipe 返回 0 时，ERROR_PIPE_CONNECTED 表示客户端已连接
+        return _kernel32.GetLastError() == _ERROR_PIPE_CONNECTED
 
     def _win_read_pipe(handle: int, size: int = 65536) -> bytes:
         """从 pipe 读取数据（阻塞）"""
@@ -289,12 +289,16 @@ if _IS_WINDOWS:
                     if not fut.done():
                         fut.set_exception(exc)
 
-                def _read_thread() -> None:
+                def _read_thread(
+                    handle: int = handle,
+                    loop: asyncio.AbstractEventLoop = loop,
+                    future: asyncio.Future[bytes] = future,
+                ) -> None:
                     """读取线程：阻塞读 pipe，通过 call_soon_threadsafe 桥接结果。"""
                     try:
                         data = _win_read_pipe(handle, 4096)
                         loop.call_soon_threadsafe(_set_result, future, data)
-                    except Exception as exc:
+                    except OSError as exc:
                         loop.call_soon_threadsafe(_set_exception, future, exc)
 
                 self._read_executor.submit(_read_thread)
@@ -308,8 +312,8 @@ if _IS_WINDOWS:
                     try:
                         _win_cancel_io(handle)
                         _win_close_handle(handle)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except OSError as exc:
+                        logger.debug("超时关闭 pipe 句柄失败: %s", exc)
                     self._handle = None
                     raise
                 except OSError:
@@ -345,8 +349,8 @@ if _IS_WINDOWS:
                         # CancelIoEx + CloseHandle：避免 pending I/O 时 CloseHandle 阻塞
                         _win_cancel_io(self._handle)
                         _win_close_handle(self._handle)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except OSError as exc:
+                        logger.debug("关闭 pipe 句柄失败: %s", exc)
                     self._handle = None
             # 关闭专用 executor，释放线程资源
             self._read_executor.shutdown(wait=False, cancel_futures=True)
@@ -391,8 +395,8 @@ else:
             self._writer.close()
             try:
                 await self._writer.wait_closed()
-            except Exception:  # noqa: BLE001
-                pass
+            except OSError as exc:
+                logger.debug("关闭 Unix socket 连接失败: %s", exc)
 
 
 # ─── DaemonServer ───
@@ -475,14 +479,14 @@ class DaemonServer:
             if self._pending_pipe_handle is not None:
                 _win_close_handle(self._pending_pipe_handle)
                 self._pending_pipe_handle = None
-            # ⚠️ 用 CancelIoEx + CloseHandle 替代循环连接唤醒 accept loop
+            # 用 CancelIoEx + CloseHandle 替代循环连接唤醒 accept loop
             # CancelIoEx 取消 ConnectNamedPipe，CloseHandle 关闭句柄
             if self._active_pipe_handle is not None:
                 try:
                     _win_cancel_io(self._active_pipe_handle)
                     _win_close_handle(self._active_pipe_handle)
-                except Exception:  # noqa: BLE001
-                    pass
+                except OSError as exc:
+                    logger.debug("停止服务端时关闭活跃 pipe 句柄失败: %s", exc)
                 self._active_pipe_handle = None
             # 保留单次连接作为兜底（handle 可能刚好在两次迭代之间）
             if self._accept_task is not None and not self._accept_task.done():
@@ -490,8 +494,8 @@ class DaemonServer:
                     fake_handle = await asyncio.to_thread(_win_connect_to_pipe, self._pipe_name)
                     if fake_handle is not None:
                         _win_close_handle(fake_handle)
-                except Exception:  # noqa: BLE001
-                    pass
+                except OSError as exc:
+                    logger.debug("唤醒 accept loop 失败: %s", exc)
         if self._accept_task:
             self._accept_task.cancel()
             try:
@@ -529,7 +533,7 @@ class DaemonServer:
                 _win_close_handle(handle)
                 self._active_pipe_handle = None
                 raise
-            except Exception as exc:  # noqa: BLE001
+            except OSError as exc:
                 logger.warning("accept 连接异常: %s", exc)
                 _win_close_handle(handle)
                 self._active_pipe_handle = None
@@ -600,7 +604,7 @@ class DaemonServer:
             if self._on_reload is not None:
                 try:
                     self._on_reload()
-                except Exception as exc:  # noqa: BLE001
+                except (AttributeError, TypeError, RuntimeError) as exc:
                     logger.warning("reload 回调异常: %s", exc)
                     return {"type": "error", "message": str(exc)}
             return {"type": "ok"}
@@ -612,8 +616,8 @@ class DaemonServer:
         if provider is not None:
             try:
                 return provider()
-            except Exception:  # noqa: BLE001
-                pass
+            except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+                logger.debug("获取渠道状态失败: %s", exc)
         return {}
 
     async def wait_for_no_connections(self, grace_seconds: float = 3.0) -> None:
@@ -804,6 +808,37 @@ class DaemonClient:
 # ─── 同步辅助函数 ───
 # 以下函数封装了 DaemonClient 的异步操作，在同一个事件循环中完成，
 # 避免 Unix 上 StreamWriter 绑定到已关闭的 loop 导致 drain() 失败。
+# 当检测到已有 running loop（如被 async 测试或 agent 调用）时，
+# 在独立线程中运行协程，避免 "Cannot run the event loop while another
+# loop is running" RuntimeError。
+
+
+def _run_coro_sync(coro: Awaitable[T]) -> T:
+    """同步运行协程到完成，兼容 sync 和 async 调用上下文
+
+    - 无 running loop：创建新 loop 并 run_until_complete（原有行为）
+    - 有 running loop：在独立线程中 asyncio.run，避免嵌套 loop
+
+    Args:
+        coro: 待运行的协程
+
+    Returns:
+        协程的返回值
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    # 已有 running loop：在新线程中运行，避免嵌套 loop
+    def _runner() -> T:
+        return asyncio.run(coro)  # type: ignore[arg-type]
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(_runner).result()
 
 
 def connect_and_register(client: DaemonClient) -> tuple[bool, dict[str, Any] | None]:
@@ -818,7 +853,6 @@ def connect_and_register(client: DaemonClient) -> tuple[bool, dict[str, Any] | N
         - 连接成功但 register 异常: (True, {"type": "ok"})
         - 连接成功且 register 成功: (True, 响应字典)
     """
-    import asyncio
 
     async def _do() -> tuple[bool, dict[str, Any] | None]:
         connected = await client.connect()
@@ -826,15 +860,11 @@ def connect_and_register(client: DaemonClient) -> tuple[bool, dict[str, Any] | N
             return False, None
         try:
             resp = await client.register()
-        except Exception:  # noqa: BLE001
+        except (OSError, json.JSONDecodeError, RuntimeError):
             resp = {"type": "ok"}
         return True, resp
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_do())
-    finally:
-        loop.close()
+    return _run_coro_sync(_do())
 
 
 def close_client(client: DaemonClient) -> None:
@@ -843,15 +873,14 @@ def close_client(client: DaemonClient) -> None:
     Args:
         client: DaemonClient 实例
     """
-    import asyncio
 
-    loop = asyncio.new_event_loop()
+    async def _do() -> None:
+        await client.close()
+
     try:
-        loop.run_until_complete(client.close())
-    except Exception:  # noqa: BLE001
-        pass
-    finally:
-        loop.close()
+        _run_coro_sync(_do())
+    except OSError as exc:
+        logger.debug("关闭 IPC 连接失败: %s", exc)
 
 
 def ping_daemon(client: DaemonClient, timeout: float = 2.0) -> dict[str, Any] | None:
@@ -864,7 +893,6 @@ def ping_daemon(client: DaemonClient, timeout: float = 2.0) -> dict[str, Any] | 
     Returns:
         dict: pong 响应，失败返回 None
     """
-    import asyncio
 
     async def _do() -> dict[str, Any] | None:
         connected = await client.connect()
@@ -875,11 +903,7 @@ def ping_daemon(client: DaemonClient, timeout: float = 2.0) -> dict[str, Any] | 
         finally:
             await client.close()
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_do())
-    finally:
-        loop.close()
+    return _run_coro_sync(_do())
 
 
 def notify_channel_daemon_reload() -> bool:
@@ -892,7 +916,6 @@ def notify_channel_daemon_reload() -> bool:
     Returns:
         bool: 通知成功返回 True，守护进程未运行或通知失败返回 False
     """
-    import asyncio
 
     async def _do() -> bool:
         client = DaemonClient(
@@ -908,10 +931,7 @@ def notify_channel_daemon_reload() -> bool:
         finally:
             await client.close()
 
-    loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(_do())
-    except Exception:  # noqa: BLE001
+        return _run_coro_sync(_do())
+    except (OSError, RuntimeError):
         return False
-    finally:
-        loop.close()

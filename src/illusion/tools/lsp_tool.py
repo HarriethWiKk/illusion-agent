@@ -8,6 +8,7 @@ LSP 代码智能工具
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from contextvars import ContextVar
 from pathlib import Path
@@ -28,6 +29,8 @@ from illusion.tools.lsp_formatters import (
     resolve_path,
 )
 from illusion.tools.lsp_schemas import LspToolInput
+
+logger = logging.getLogger(__name__)
 
 # 全局 LSP 管理器实例（延迟初始化，线程安全）
 # LspManager 持有子进程，必须保证单例，不能用 ContextVar
@@ -215,8 +218,8 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 await asyncio.wait_for(diag_event.wait(), timeout=10)
             except TimeoutError:
                 pass
-        except Exception:
-            pass
+        except (OSError, RuntimeError):
+            logger.debug("[lsp_tool] Failed to open file %s", file_path, exc_info=True)
 
     async def _go_to_definition(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
@@ -326,7 +329,8 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                                 })
                                 if len(all_results) >= 10:
                                     break
-                except Exception:
+                except (OSError, RuntimeError, TimeoutError):
+                    logger.debug("[lsp_tool] Failed to fetch symbols from %s", file_path, exc_info=True)
                     continue
             if len(all_results) >= 10:
                 break

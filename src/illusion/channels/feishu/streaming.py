@@ -183,7 +183,7 @@ class FeishuStreamingCardController:
             self._transition("streaming")
             self._card_message_ready = True
             self._last_flush_time = time.monotonic()
-        except Exception as exc:  # noqa: BLE001
+        except (RuntimeError, AttributeError, OSError) as exc:
             logger.error("降级路径也失败: %s", exc)
             self._transition("error")
 

@@ -92,7 +92,7 @@ def _install_lark_log_filter() -> None:
         # 检查是否已安装（幂等）
         if not any(isinstance(f, _DuplicateLogFilter) for f in lark_logger.filters):
             lark_logger.addFilter(_duplicate_filter)
-    except Exception as exc:  # noqa: BLE001
+    except (ImportError, AttributeError, TypeError) as exc:
         # 不静默：至少 debug 记录，避免 lark SDK 重命名属性后 filter 静默不安装
         logger.debug("安装 lark 日志 filter 失败: %s", exc)
 
@@ -216,20 +216,20 @@ class FeishuWSClient:
                 )
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("清理 loop pending tasks 失败", exc_info=True)
         try:
             loop.stop()
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("停止 loop 失败", exc_info=True)
         try:
             loop.close()
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.debug("关闭 loop 失败", exc_info=True)
 
     def stop(self) -> None:
         """停止 WS 客户端（线程安全，非阻塞）
@@ -254,16 +254,16 @@ class FeishuWSClient:
                     task.cancel()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001  其他异常静默（best-effort 清理）
-                pass
+            except Exception:
+                logger.debug("取消 lark_loop pending tasks 失败", exc_info=True)
             # 直接停止 loop，让 run_until_complete(_select()) 返回
             # 不用 call_later，避免与 loop.stop() 竞争
             try:
                 lark_loop.stop()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:
+                logger.debug("停止 lark_loop 失败", exc_info=True)
 
         try:
             lark_loop.call_soon_threadsafe(_shutdown_loop)

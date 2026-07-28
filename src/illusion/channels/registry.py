@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -68,7 +68,7 @@ class ChannelRegistry:
     测试结束后用 restore() 恢复，避免污染其他测试。
     """
 
-    _channels: dict[str, ChannelDescriptor] = {}
+    _channels: ClassVar[dict[str, ChannelDescriptor]] = {}
 
     @classmethod
     def register(cls, descriptor: ChannelDescriptor) -> None:

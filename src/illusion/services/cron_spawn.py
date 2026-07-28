@@ -16,7 +16,6 @@ from illusion.config.paths import get_cron_dir, get_logs_dir
 from illusion.services.cron import load_cron_jobs
 
 if TYPE_CHECKING:
-    from illusion.daemon_ipc import DaemonClient as DaemonClient
     from illusion.daemon_ipc import DaemonClientRef, DaemonType
 
 logger = logging.getLogger(__name__)
@@ -27,8 +26,8 @@ def _cleanup_old_pid_files(cron_dir: Path) -> None:
     for name in ("scheduler.pid", "scheduler.refs", "scheduler.refs.lock"):
         try:
             (cron_dir / name).unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        except OSError as exc:
+            logger.debug("Failed to remove stale file %s: %s", name, exc)
 
 
 def maybe_spawn_cron_daemon(
@@ -100,18 +99,20 @@ def maybe_spawn_cron_daemon(
         daemon_cwd = str(cron_dir)
 
     try:
-        log_file = open(log_path, "ab")
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "illusion", "cron", "serve"],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            creationflags=creation_flags,
-            close_fds=True,
-            env=env,
-            cwd=daemon_cwd,
-        )
+        # 使用 with 管理 log_file：Popen 会在子进程中复制文件描述符，
+        # with 块退出后父进程关闭自身句柄，子进程的 stdout 仍然有效。
+        with open(log_path, "ab") as log_file:
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "illusion", "cron", "serve"],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=creation_flags,
+                close_fds=True,
+                env=env,
+                cwd=daemon_cwd,
+            )
     except OSError as exc:
         logger.warning("启动 cron 守护进程失败: %s", exc)
         return None, None
@@ -203,7 +204,7 @@ def kill_cron_daemon_by_pid() -> bool:
                 os.killpg(os.getpgid(daemon_pid), signal.SIGTERM)  # type: ignore[attr-defined]
             except (ProcessLookupError, PermissionError):
                 pass
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("停止 cron 守护进程失败: %s", exc)
         return False
 
@@ -212,8 +213,8 @@ def kill_cron_daemon_by_pid() -> bool:
     if os.name != "nt":
         try:
             (cron_dir / "cron_daemon.sock").unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        except OSError as exc:
+            logger.debug("Failed to remove stale cron daemon socket: %s", exc)
 
     logger.info("Stopped cron daemon (pid=%d)", daemon_pid)
     return True

@@ -31,6 +31,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from illusion.api.client import SupportsStreamingMessages
 from illusion.api.effort import EffortLevel
 from illusion.api.usage import UsageSnapshot
@@ -342,7 +344,7 @@ class QueryEngine:
                     parsed_input = tool.input_model.model_validate(tool_input)
                     if tool.is_read_only(parsed_input):
                         return
-                except Exception:
+                except ValidationError:
                     pass
             for fpath in self._extract_file_paths(tool_name, tool_input):
                 track_edit(self._file_history, fpath)

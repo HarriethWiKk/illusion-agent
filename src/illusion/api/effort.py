@@ -17,6 +17,7 @@ Effort 级别管理模块
 from __future__ import annotations
 
 from enum import Enum
+from typing import ClassVar
 
 
 class EffortLevel(str, Enum):
@@ -51,14 +52,14 @@ class EffortMapper:
     """
 
     # 支持的 effort 级别（默认支持 low/medium/high）
-    SUPPORTED_LEVELS: set[EffortLevel] = {
+    SUPPORTED_LEVELS: ClassVar[set[EffortLevel]] = {
         EffortLevel.LOW,
         EffortLevel.MEDIUM,
         EffortLevel.HIGH,
     }
 
     # 降级映射表：当模型不支持当前级别时，按优先级尝试的级别列表
-    FALLBACK_CHAIN: dict[EffortLevel, list[EffortLevel]] = {
+    FALLBACK_CHAIN: ClassVar[dict[EffortLevel, list[EffortLevel]]] = {
         EffortLevel.LOW: [EffortLevel.HIGH],
         EffortLevel.MEDIUM: [EffortLevel.HIGH],
         EffortLevel.HIGH: [EffortLevel.HIGH],

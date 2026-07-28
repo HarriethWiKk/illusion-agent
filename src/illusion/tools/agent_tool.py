@@ -202,7 +202,7 @@ Terse command-style prompts produce shallow, generic work.
                 logger.info(
                     "[AgentTool] Created worktree for agent at: %s", worktree_info.path
                 )
-            except Exception as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 return ToolResult(
                     output=f"Failed to create isolated worktree: {exc}",
                     is_error=True,

@@ -283,7 +283,7 @@ class CopilotAuth:
                         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                     },
                 )
-            except Exception as exc:
+            except (urllib.error.URLError, ValueError) as exc:
                 log.warning("轮询请求失败: %s", exc)
                 time.sleep(_POLL_INTERVAL)
                 continue

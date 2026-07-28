@@ -154,7 +154,7 @@ def mcp_add(
         name: 服务器名称
         config_json: 服务器配置的 JSON 字符串
     """
-    from pydantic import TypeAdapter
+    from pydantic import TypeAdapter, ValidationError
 
     from illusion.config import load_settings, save_settings
     from illusion.mcp.types import McpServerConfig
@@ -167,7 +167,7 @@ def mcp_add(
         raise typer.Exit(1)
     try:
         cfg: McpServerConfig = TypeAdapter(McpServerConfig).validate_python(raw)
-    except Exception as exc:
+    except ValidationError as exc:
         print(_t("mcp_invalid_config", exc=exc), file=sys.stderr)
         raise typer.Exit(1)
     if not isinstance(settings.mcp_servers, dict):
@@ -244,7 +244,7 @@ def cron_start() -> None:
     """启动 cron 调度器"""
     from illusion.services.cron_spawn import maybe_spawn_cron_daemon
 
-    proc, ref = maybe_spawn_cron_daemon()
+    proc, _ = maybe_spawn_cron_daemon()
     if proc is None:
         # 已有守护进程在运行，或无启用任务
         from illusion.services.cron_scheduler import is_scheduler_running
@@ -677,7 +677,7 @@ def _copilot_login(manager: Any) -> None:
     # 1. 启动设备码流程
     try:
         flow = copilot.start_device_flow()
-    except Exception as exc:
+    except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise typer.Exit(1)
 
@@ -740,7 +740,7 @@ def _codex_login(manager: Any) -> None:
     # 1. 启动设备码流程
     try:
         flow = codex.start_device_flow()
-    except Exception as exc:
+    except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise typer.Exit(1)
 
@@ -1033,7 +1033,7 @@ def web_start(
     try:
         from illusion.channels import maybe_spawn_channel_daemon
         _daemon_proc, _daemon_client = maybe_spawn_channel_daemon()
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError) as exc:
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
@@ -1043,7 +1043,7 @@ def web_start(
     try:
         from illusion.services.cron_spawn import maybe_spawn_cron_daemon
         _cron_proc, _cron_client = maybe_spawn_cron_daemon()
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError) as exc:
         import logging
         logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
 
@@ -1075,7 +1075,7 @@ def web_start(
                 SendToChannelTool,
             )
             pc_channel_tools = [ListChannelSessionsTool(_cfg), SendToChannelTool(_cfg)]
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
         import logging
         logging.getLogger(__name__).warning("PC 渠道感知加载失败: %s", exc)
 
@@ -1362,7 +1362,7 @@ def main(
         _daemon_proc, _daemon_client = maybe_spawn_channel_daemon(
             spawn_if_missing=not backend_only,
         )
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError) as exc:
         import logging
         logging.getLogger(__name__).warning("渠道自动激活失败: %s", exc)
 
@@ -1374,7 +1374,7 @@ def main(
         _cron_proc, _cron_client = maybe_spawn_cron_daemon(
             spawn_if_missing=not backend_only,
         )
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError) as exc:
         import logging
         logging.getLogger(__name__).warning("cron 自动激活失败: %s", exc)
 
@@ -1405,7 +1405,7 @@ def main(
                 SendToChannelTool,
             )
             pc_channel_tools = [ListChannelSessionsTool(_cfg), SendToChannelTool(_cfg)]
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
         import logging
         logging.getLogger(__name__).warning("PC 渠道感知加载失败: %s", exc)
 
@@ -1422,70 +1422,69 @@ def main(
         raise typer.Exit(1)
 
     # 处理 --continue 和 --resume 标志
-    if continue_session or resume is not None:
-        if backend_only:
-            # backend-only 模式：在当前进程加载会话（子进程路径）
-            from illusion.services.session_storage import (
-                list_session_snapshots,
-                load_session_by_id,
-                load_session_snapshot,
-            )
+    if (continue_session or resume is not None) and backend_only:
+        # backend-only 模式：在当前进程加载会话（子进程路径）
+        from illusion.services.session_storage import (
+            list_session_snapshots,
+            load_session_by_id,
+            load_session_snapshot,
+        )
 
-            session_data = None
-            assert cwd is not None
-            if continue_session:
-                session_data = load_session_snapshot(cwd)
-                if session_data is None:
-                    print(_t("session_not_found_prev"), file=sys.stderr)
+        session_data = None
+        assert cwd is not None
+        if continue_session:
+            session_data = load_session_snapshot(cwd)
+            if session_data is None:
+                print(_t("session_not_found_prev"), file=sys.stderr)
+                raise typer.Exit(1)
+            print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
+        elif resume == "" or resume is None:
+            sessions = list_session_snapshots(cwd, limit=10)
+            if not sessions:
+                print(_t("session_no_saved"), file=sys.stderr)
+                raise typer.Exit(1)
+            print(_t("session_saved_list"))
+            for i, s in enumerate(sessions, 1):
+                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
+            choice = typer.prompt(_t("session_enter_id"))
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(sessions):
+                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+                else:
+                    print(_t("invalid_selection"), file=sys.stderr)
                     raise typer.Exit(1)
-                print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
-            elif resume == "" or resume is None:
-                sessions = list_session_snapshots(cwd, limit=10)
-                if not sessions:
-                    print(_t("session_no_saved"), file=sys.stderr)
-                    raise typer.Exit(1)
-                print(_t("session_saved_list"))
-                for i, s in enumerate(sessions, 1):
-                    print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({_t('session_msg_count', n=s['message_count'])})")
-                choice = typer.prompt(_t("session_enter_id"))
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(sessions):
-                        session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
-                    else:
-                        print(_t("invalid_selection"), file=sys.stderr)
-                        raise typer.Exit(1)
-                except ValueError:
-                    session_data = load_session_by_id(cwd, choice)
-                if session_data is None:
-                    print(_t("session_not_found", id=choice), file=sys.stderr)
-                    raise typer.Exit(1)
-            else:
-                session_data = load_session_by_id(cwd, resume)
-                if session_data is None:
-                    print(_t("session_not_found", id=resume), file=sys.stderr)
-                    raise typer.Exit(1)
+            except ValueError:
+                session_data = load_session_by_id(cwd, choice)
+            if session_data is None:
+                print(_t("session_not_found", id=choice), file=sys.stderr)
+                raise typer.Exit(1)
+        else:
+            session_data = load_session_by_id(cwd, resume)
+            if session_data is None:
+                print(_t("session_not_found", id=resume), file=sys.stderr)
+                raise typer.Exit(1)
 
-            # 会话数据直接传入 backend host
-            asyncio.run(
-                run_repl(
-                    prompt=None,
-                    cwd=cwd,
-                    model=session_data.get("model") or model,
-                    backend_only=True,
-                    restore_messages=session_data.get("messages"),
-                    restore_session_id=session_data.get("session_id"),
-                    effort=effort,
-                    channel_hint=pc_channel_hint,
-                    channel_tools=pc_channel_tools,
-                    # 透传其他参数
-                    permission_mode=permission_mode,
-                    name=name,
-                )
+        # 会话数据直接传入 backend host
+        asyncio.run(
+            run_repl(
+                prompt=None,
+                cwd=cwd,
+                model=session_data.get("model") or model,
+                backend_only=True,
+                restore_messages=session_data.get("messages"),
+                restore_session_id=session_data.get("session_id"),
+                effort=effort,
+                channel_hint=pc_channel_hint,
+                channel_tools=pc_channel_tools,
+                # 透传其他参数
+                permission_mode=permission_mode,
+                name=name,
             )
-            return
-        # 非 backend_only 时 fall through 到 print_mode 分支
-        # （Step 2 已拦截 -c/-r 不带 -p 的情况）
+        )
+        return
+    # 非 backend_only 时 fall through 到 print_mode 分支
+    # （Step 2 已拦截 -c/-r 不带 -p 的情况）
 
     # 打印模式处理
     if print_mode is not None:

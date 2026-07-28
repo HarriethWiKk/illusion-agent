@@ -117,9 +117,11 @@ def _build_other_channels_section(
     lines = [
         "",
         "# Other Enabled Channels",
-        "The following channels are also active. Use the `send_to_channel` tool to send "
-        "files OR text messages to users in THESE OTHER channels only — NOT to the current channel. "
-        "For the current channel, use send_media (files) or reply directly (text).",
+        (
+            "The following channels are also active. Use the `send_to_channel` tool to send "
+            "files OR text messages to users in THESE OTHER channels only — NOT to the current channel. "
+            "For the current channel, use send_media (files) or reply directly (text)."
+        ),
         "",
     ]
     for name in other_names:

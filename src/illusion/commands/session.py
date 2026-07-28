@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from illusion.api.errors import IllusionCodeApiError
 from illusion.commands.helpers import rewind_turns
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
@@ -136,7 +137,7 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
             custom_instructions=custom_instructions,
             suppress_follow_up=False,
         )
-    except Exception as exc:
+    except (IllusionCodeApiError, OSError, ValueError, KeyError, RuntimeError) as exc:
         import logging
         logging.getLogger(__name__).warning("LLM compact failed, falling back to simple compact: %s", exc)
         compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)

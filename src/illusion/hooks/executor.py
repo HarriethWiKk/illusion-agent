@@ -382,7 +382,7 @@ class HookExecutor:
                 stop_reason=json_output["stop_reason"],
                 metadata={"status_code": response.status_code},
             )
-        except Exception as exc:
+        except (httpx.HTTPError, KeyError, ValueError, TypeError) as exc:
             return HookResult(
                 hook_type=hook.type,
                 success=False,
