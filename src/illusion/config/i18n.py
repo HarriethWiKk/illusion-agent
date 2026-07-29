@@ -645,7 +645,15 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Context Window: (\d[\d,]*) tokens$", r"上下文窗口：\1 tokens"),
     (r"^Estimated Used: ~(\d[\d,]*) tokens \((\d+)%\)$", r"预估已用：~\1 tokens（\2%）"),
     (r"^Remaining: ~(\d[\d,]*) tokens$", r"剩余：~\1 tokens"),
-    (r"^Actual API Usage: input=(\d[\d,]*) output=(\d[\d,]*)$", r"实际 API 用量：input=\1 output=\2"),
+    # /context usage 新格式（含 ✻ 前缀和 2 空格缩进）
+    (r"^✻ Context Window: (\d[\d,]*) tokens$", r"✻ 上下文窗口：\1 tokens"),
+    (r"^  System Prompt: ~(\d[\d,]*) tokens \((\d+)%\)$", r"  System Prompt: ~\1 tokens（\2%）"),
+    (r"^  System Prompt: ~ tokens$", r"  System Prompt: ~ tokens"),
+    (r"^  Messages: ~(\d[\d,]*) tokens \((\d+)%\)$", r"  Messages: ~\1 tokens（\2%）"),
+    (r"^  Estimated Used: ~(\d[\d,]*) tokens \((\d+)%\)$", r"  预估已用：~\1 tokens（\2%）"),
+    (r"^  Remaining: ~(\d[\d,]*) tokens$", r"  剩余：~\1 tokens"),
+    (r"^  Cumulative API Usage: input=(\d[\d,]*) output=(\d[\d,]*)$", r"  累积 API 用量：input=\1 output=\2"),
+    (r"^  Note: System Prompt includes skills/hooks/rules/memory/channels and other system-level overhead$", r"  注: System Prompt 包含 skills/hooks/rules/memory/channels 等系统级开销"),
     # 模型
     (r"^Model: (.+)$", r"模型：\1"),
     (r"^Model set to (.+)\. Restart session to use it\.$", r"模型已设置为 \1。重启会话后生效。"),
