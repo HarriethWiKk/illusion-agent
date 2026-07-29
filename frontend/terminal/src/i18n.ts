@@ -138,7 +138,7 @@ const EN: Dict = {
 	// ---- backend exit fallback hint ----
 	backend_exit_hint: 'Backend startup failed. Run \'illusion auth login\' to configure API environment, or check settings.json.',
 	// ---- Ctrl+x line context usage summary ({used}/{window}/{pct} are placeholders) ----
-	contextUsageSummary: 'Context {used} / {window} ({pct}%)',
+	contextUsageSummary: '{used} / {window} ({pct}%)',
 };
 
 /**
