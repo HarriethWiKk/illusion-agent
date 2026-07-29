@@ -66,6 +66,7 @@ from illusion.ui.runtime import (
     close_runtime,
     handle_line,
     start_runtime,
+    sync_app_state,
 )
 from illusion.utils.aioqueue import Queue, QueueShutDown
 from illusion.utils.signals import install_sigint_handler
@@ -596,6 +597,8 @@ class ReactBackendHost:
                     )
                 self._brief_assistant_text = None
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+                # 透传最新累积用量与反推值到前端
+                sync_app_state(self._bundle)
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):
@@ -1321,8 +1324,10 @@ class ReactBackendHost:
             from illusion.services.compact import estimate_conversation_tokens
 
             current_window = settings.context_window
-            estimated = estimate_conversation_tokens(self._bundle.engine.messages)
-            percentage = int(estimated * 100 / current_window) if current_window > 0 else 0
+            system_tokens = self._bundle.engine.overhead_tracker.tokens
+            messages_tokens = estimate_conversation_tokens(self._bundle.engine.messages)
+            estimated = (system_tokens or 0) + messages_tokens
+            percentage = round(estimated * 100 / current_window) if current_window > 0 else 0
             options = [
                 {
                     "value": "__change_window__",

@@ -703,7 +703,6 @@ class WebBackendHost:
         self._bundle.engine.set_max_turns(settings.max_turns)
         from illusion.prompts import build_runtime_system_prompt
         from illusion.services.session_storage import save_session_snapshot
-        from illusion.ui.runtime import sync_app_state
 
         system_prompt = build_runtime_system_prompt(
             settings,
@@ -1474,8 +1473,10 @@ class WebBackendHost:
             from illusion.services.compact import estimate_conversation_tokens
 
             current_window = settings.context_window
-            estimated = estimate_conversation_tokens(self._bundle.engine.messages)
-            percentage = int(estimated * 100 / current_window) if current_window > 0 else 0
+            system_tokens = self._bundle.engine.overhead_tracker.tokens
+            messages_tokens = estimate_conversation_tokens(self._bundle.engine.messages)
+            estimated = (system_tokens or 0) + messages_tokens
+            percentage = round(estimated * 100 / current_window) if current_window > 0 else 0
             options = [
                 {
                     "value": "__change_window__",
