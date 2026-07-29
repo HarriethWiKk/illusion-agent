@@ -189,6 +189,11 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             for item in snapshot.get("messages", [])
         ]
         context.engine.load_messages(messages)
+        # 恢复累积 usage（overhead_tracker 不恢复，system prompt 可能已变化需重新反推）
+        usage_dict = snapshot.get("usage")
+        if usage_dict:
+            from illusion.engine.cost_tracker import CostTracker
+            context.engine._cost_tracker = CostTracker.from_snapshot(usage_dict)
         summary = snapshot.get("summary", "")[:60]
         return CommandResult(
             message=f"Restored {len(messages)} messages from session {sid}"
@@ -210,6 +215,11 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             for item in snapshot.get("messages", [])
         ]
         context.engine.load_messages(messages)
+        # 恢复累积 usage
+        usage_dict = snapshot.get("usage")
+        if usage_dict:
+            from illusion.engine.cost_tracker import CostTracker
+            context.engine._cost_tracker = CostTracker.from_snapshot(usage_dict)
         return CommandResult(
             message=f"Restored {len(messages)} messages from the latest session.",
             replay_messages=messages,
