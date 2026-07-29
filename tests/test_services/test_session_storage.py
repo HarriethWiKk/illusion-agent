@@ -250,3 +250,48 @@ def test_checkpoint_store_validates_session_id(tmp_path: Path, monkeypatch):
 
     with pytest.raises(InvalidSessionIdError):
         CheckpointStore(tmp_path / "evil", "../../etc")
+
+
+def test_read_index_does_not_create_session_dir(monkeypatch, tmp_path):
+    """read_index 不应创建 session 目录"""
+    import os
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.services.session_storage import read_index, get_sessions_dir
+
+    # 在隔离的 data 目录下调用 read_index
+    result = read_index(str(tmp_path))
+
+    # read_index 应返回 None（无 index.json）
+    assert result is None
+
+    # session 目录不应被创建
+    sessions_dir = get_sessions_dir()
+    sub_dirs = [p for p in sessions_dir.iterdir() if p.is_dir()]
+    assert len(sub_dirs) == 0, "read_index 不应创建任何 session 子目录"
+
+
+def test_list_session_snapshots_does_not_create_dir(monkeypatch, tmp_path):
+    """list_session_snapshots 不应创建 session 目录"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.services.session_storage import list_session_snapshots, get_sessions_dir
+
+    result = list_session_snapshots(str(tmp_path))
+    assert result == []
+
+    sessions_dir = get_sessions_dir()
+    sub_dirs = [p for p in sessions_dir.iterdir() if p.is_dir()]
+    assert len(sub_dirs) == 0, "list_session_snapshots 不应创建任何 session 子目录"
+
+
+def test_write_meta_still_creates_dir(monkeypatch, tmp_path):
+    """write_meta 应正常创建 session 目录"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.services.session_storage import write_meta, get_project_session_dir
+
+    write_meta(str(tmp_path), "test-session-1", {"session_id": "test-session-1"})
+
+    session_dir = get_project_session_dir(str(tmp_path))
+    assert (session_dir / "test-session-1" / "meta.json").exists()
