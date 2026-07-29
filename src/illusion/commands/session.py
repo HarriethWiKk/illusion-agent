@@ -16,25 +16,17 @@ from illusion.prompts import build_runtime_system_prompt
 from illusion.services import (
     estimate_conversation_tokens,
     get_context_window,
-    save_session_snapshot,
     summarize_messages,
 )
 
 
 async def new_handler(_: str, context: CommandContext) -> CommandResult:
-    """启动新会话"""
-    if context.session_id and context.engine.messages:
-        settings = load_settings()
-        system_prompt = build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint)
-        save_session_snapshot(
-            cwd=context.cwd,
-            model=settings.active_model_name,
-            system_prompt=system_prompt,
-            messages=context.engine.messages,
-            usage=context.engine.total_usage,
-            session_id=context.session_id,
-        )
-    context.engine.clear()
+    """启动新会话。
+
+    不保存当前会话（每轮已 checkpoint），不清空 checkpoint 目录。
+    full_reset 清空所有内存状态，由 runtime 生成新 session_id。
+    """
+    context.engine.full_reset()
     return CommandResult(
         message="Started a new conversation session.",
         clear_screen=True,
@@ -165,8 +157,18 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
 
 
 async def resume_handler(args: str, context: CommandContext) -> CommandResult:
-    """恢复已保存的会话"""
-    from illusion.services.session_storage import list_session_snapshots, load_session_by_id
+    """恢复已保存的会话。
+
+    通过 CheckpointStore.restore() 单遍扫描 context.jsonl 重建完整状态。
+    """
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import (
+        list_session_snapshots,
+        read_index,
+        read_meta,
+        write_index,
+        get_project_session_dir,
+    )
 
     tokens = args.strip().split()
 
@@ -181,65 +183,81 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
                 sid = sessions[turn_num - 1]["session_id"]
             else:
                 return CommandResult(message=f"Invalid turn number: {sid}. Use /resume to see available sessions.")
-        snapshot = load_session_by_id(context.cwd, sid)
-        if snapshot is None:
+
+        # 读 meta.json 验证存在
+        meta = read_meta(context.cwd, sid)
+        if meta is None:
             return CommandResult(message=f"Session not found: {sid}")
-        messages = [
-            ConversationMessage.model_validate(item)
-            for item in snapshot.get("messages", [])
-        ]
-        context.engine.load_messages(messages)
-        # 恢复累积 usage（overhead_tracker 不恢复，system prompt 可能已变化需重新反推）
-        usage_dict = snapshot.get("usage")
-        if usage_dict:
-            from illusion.engine.cost_tracker import CostTracker
-            context.engine._cost_tracker = CostTracker.from_snapshot(usage_dict)
-        # 重置 overhead_tracker：/resume 切换到不同会话，system prompt 上下文已变，
-        # 保留旧会话的实测值会显示 stale 数字，需回到未实测状态等下一轮重新反推
-        context.engine._overhead_tracker.reset()
-        summary = snapshot.get("summary", "")[:60]
+
+        # 构造 CheckpointStore 并 restore
+        session_dir = get_project_session_dir(context.cwd) / sid
+        store = CheckpointStore(session_dir, sid)
+        result = await store.restore()
+
+        # 应用到 engine
+        context.engine.set_checkpoint_store(store)
+        context.engine.set_session_id(sid)
+        context.engine.apply_restore(result)
+
+        # 更新 index.json
+        write_index(context.cwd, sid)
+
+        summary = meta.get("summary", "")[:60]
         return CommandResult(
-            message=f"Restored {len(messages)} messages from session {sid}"
+            message=f"Restored {len(result.messages)} messages from session {sid}"
             + (f" ({summary})" if summary else ""),
-            replay_messages=messages,
-            restored_session_id=str(snapshot.get("session_id") or sid),
+            replay_messages=result.messages,
+            restored_session_id=sid,
             refresh_state=True,
+            clear_screen=True,
         )
 
-    # /resume — 列出会话
+    # /resume — 列出会话或加载 latest
     sessions = list_session_snapshots(context.cwd, limit=10)
     if not sessions:
-        from illusion.services.session_storage import load_session_snapshot
-        snapshot = load_session_snapshot(context.cwd)
-        if snapshot is None:
-            return CommandResult(message="No saved sessions found for this project.")
-        messages = [
-            ConversationMessage.model_validate(item)
-            for item in snapshot.get("messages", [])
-        ]
-        context.engine.load_messages(messages)
-        # 恢复累积 usage
-        usage_dict = snapshot.get("usage")
-        if usage_dict:
-            from illusion.engine.cost_tracker import CostTracker
-            context.engine._cost_tracker = CostTracker.from_snapshot(usage_dict)
-        return CommandResult(
-            message=f"Restored {len(messages)} messages from the latest session.",
-            replay_messages=messages,
-            restored_session_id=str(snapshot.get("session_id", "")),
-            refresh_state=True,
-        )
+        return CommandResult(message="No saved sessions found for this project.")
 
-    import time
-    lines = ["Saved sessions:"]
-    for i, s in enumerate(sessions, 1):
-        ts = time.strftime("%m/%d %H:%M", time.localtime(s["created_at"]))
-        summary = s["summary"][:50] or "(no summary)"
-        turn_count = s.get("turn_count", 0)
-        lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
-    lines.append("")
-    lines.append("Usage: /resume #1 or /resume <session_id>")
-    return CommandResult(message="\n".join(lines))
+    # 无参时读 index.json 获取 latest
+    index = read_index(context.cwd)
+    if index is None:
+        # 无 index 则列出会话供选择
+        import time
+        lines = ["Saved sessions:"]
+        for i, s in enumerate(sessions, 1):
+            ts = time.strftime("%m/%d %H:%M", time.localtime(s.get("updated_at", s.get("created_at", 0))))
+            summary = s["summary"][:50] or "(no summary)"
+            turn_count = s.get("turn_count", 0)
+            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
+        lines.append("")
+        lines.append("Usage: /resume #1 or /resume <session_id>")
+        return CommandResult(message="\n".join(lines))
+
+    # 有 index 直接恢复 latest
+    sid = index.get("latest_session_id", "")
+    if not sid:
+        return CommandResult(message="No latest session in index.")
+
+    meta = read_meta(context.cwd, sid)
+    if meta is None:
+        return CommandResult(message=f"Latest session {sid} not found.")
+
+    session_dir = get_project_session_dir(context.cwd) / sid
+    store = CheckpointStore(session_dir, sid)
+    result = await store.restore()
+    context.engine.set_checkpoint_store(store)
+    context.engine.set_session_id(sid)
+    context.engine.apply_restore(result)
+    write_index(context.cwd, sid)
+
+    summary = meta.get("summary", "")[:60]
+    return CommandResult(
+        message=f"Restored {len(result.messages)} messages from the latest session."
+        + (f" ({summary})" if summary else ""),
+        replay_messages=result.messages,
+        restored_session_id=sid,
+        refresh_state=True,
+        clear_screen=True,
+    )
 
 
 async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
@@ -252,6 +270,8 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
 
     用法：/rewind [TURNS] [both|conversation|code]
     """
+    from illusion.services.checkpoint_store import CheckpointStore
+
     parts = args.strip().split()
     turns = 1
     mode = "both"
@@ -265,13 +285,25 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
             if mode not in ("both", "conversation", "code"):
                 return CommandResult(message="Usage: /rewind [TURNS] [both|conversation|code]")
 
-    # 回退对话
+    store = context.engine.checkpoint_store
+    if store is None or store.next_checkpoint_id == 0:
+        return CommandResult(message="No checkpoint to rewind.")
+
+    target_id = store.next_checkpoint_id - turns
+    if target_id < 0:
+        return CommandResult(
+            message=f"Cannot rewind {turns} turns, only {store.next_checkpoint_id} available."
+        )
+
     removed = 0
-    updated = context.engine.messages
+    restored_messages: list | None = None
+
+    # 回退对话
     if mode in ("both", "conversation"):
-        before = len(context.engine.messages)
-        updated = rewind_turns(context.engine.messages, turns)
-        removed = before - len(updated)
+        result = await store.rewind_to(target_id)
+        context.engine.apply_restore(result)
+        removed = turns  # 简化：回退的 turn 数
+        restored_messages = result.messages
 
     # 回退文件
     reverted_count = 0
@@ -283,10 +315,6 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
             reverted_files = rewind_to(fh, target_index)
             reverted_count = len(reverted_files)
 
-    # 应用对话变更
-    if mode in ("both", "conversation"):
-        context.engine.load_messages(updated)
-
     lines = []
     if removed > 0:
         lines.append(f"Rewound {turns} turn(s); removed {removed} message(s).")
@@ -297,14 +325,14 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
 
     return CommandResult(
         clear_screen=True,
-        replay_messages=list(updated) if mode in ("both", "conversation") else None,
+        replay_messages=restored_messages if mode in ("both", "conversation") else None,
         message="\n".join(lines),
         refresh_state=True,
     )
 
 
 async def delete_handler(args: str, context: CommandContext) -> CommandResult:
-    """删除已保存的会话"""
+    """删除已保存的会话（rmtree 整个 {sid}/ 目录）"""
     from illusion.services.file_history import cleanup_all_file_histories, cleanup_file_history
     from illusion.services.session_storage import (
         delete_all_sessions,
@@ -322,7 +350,7 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
         import time
         lines = ["Saved sessions:"]
         for i, s in enumerate(sessions, 1):
-            ts = time.strftime("%m/%d %H:%M", time.localtime(s["created_at"]))
+            ts = time.strftime("%m/%d %H:%M", time.localtime(s.get("updated_at", s.get("created_at", 0))))
             summary = s["summary"][:50] or "(no summary)"
             turn_count = s.get("turn_count", 0)
             lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
@@ -332,14 +360,12 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message="\n".join(lines))
 
     # /delete all
-    # 注意：此操作仅删除终端侧会话快照，不再跨进程通知渠道守护进程清空渠道会话。
-    # 渠道会话由渠道自身的 /clear、/new 命令管理（信号机制已全链路移除）。
     if tokens[0] in ("all", "__all__"):
         count = delete_all_sessions(context.cwd)
         cleanup_all_file_histories()
-        context.engine.clear()
+        context.engine.full_reset()
         return CommandResult(
-            message=f"Deleted {count} session file(s).",
+            message=f"Deleted {count} session(s).",
             clear_screen=True,
             reset_session=True,
             refresh_state=True,
@@ -347,7 +373,6 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
 
     # /delete <session_id> or /delete #<turn_number>
     sid = tokens[0]
-    # 支持轮次编号引用（如 #1, #2）
     if sid.startswith("#") and sid[1:].isdigit():
         turn_num = int(sid[1:])
         sessions = list_session_snapshots(context.cwd, limit=20)
@@ -358,7 +383,7 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
     if delete_session_by_id(context.cwd, sid):
         cleanup_file_history(sid)
         if sid == context.session_id:
-            context.engine.clear()
+            context.engine.full_reset()
             return CommandResult(
                 message=f"Deleted current session: {sid}",
                 clear_screen=True,
