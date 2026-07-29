@@ -194,6 +194,9 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
         if usage_dict:
             from illusion.engine.cost_tracker import CostTracker
             context.engine._cost_tracker = CostTracker.from_snapshot(usage_dict)
+        # 重置 overhead_tracker：/resume 切换到不同会话，system prompt 上下文已变，
+        # 保留旧会话的实测值会显示 stale 数字，需回到未实测状态等下一轮重新反推
+        context.engine._overhead_tracker.reset()
         summary = snapshot.get("summary", "")[:60]
         return CommandResult(
             message=f"Restored {len(messages)} messages from session {sid}"

@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from hashlib import sha1
@@ -517,16 +518,12 @@ async def save_session_snapshot_async(
         usage: 累积用量
         session_id: 会话 ID
     """
-    import asyncio
     import logging
-    loop = asyncio.get_event_loop()
     try:
-        await loop.run_in_executor(
-            None,
-            lambda: save_session_snapshot(
-                cwd=cwd, model=model, system_prompt=system_prompt,
-                messages=messages, usage=usage, session_id=session_id,
-            )
+        await asyncio.to_thread(
+            save_session_snapshot,
+            cwd=cwd, model=model, system_prompt=system_prompt,
+            messages=messages, usage=usage, session_id=session_id,
         )
     except Exception as e:
         logging.getLogger(__name__).warning("checkpoint 保存失败: %s", e)

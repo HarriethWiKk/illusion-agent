@@ -445,6 +445,7 @@ class QueryEngine:
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
                 if usage.input_tokens > 0:
+                    # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
                     self._overhead_tracker.invalidate(self._system_prompt or "")
                     messages_tokens = estimate_conversation_tokens(self._messages)
                     self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens)
