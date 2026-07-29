@@ -716,14 +716,16 @@ async def run_query(
             denied_tool_name = exc.tool_name  # 捕获到局部变量，避免 lambda 闭包引用 exc
 
             # 为所有未完成的工具合成 tool_result，确保消息历史一致
-            synth = _synthesize_pending_tool_results(
-                tool_calls,
-                tool_results_list,
-                error_message_fn=lambda name, _denied=denied_tool_name: (
+            def _denied_error(name: str, _denied: str = denied_tool_name) -> str:
+                return (
                     f"Permission denied for {name}"
                     if name == _denied
                     else f"Tool {name} interrupted"
-                ),
+                )
+            synth = _synthesize_pending_tool_results(
+                tool_calls,
+                tool_results_list,
+                error_message_fn=_denied_error,
             )
             # 中断前已完成工具的钩子上下文也需追加，避免丢失
             for ctx in all_hook_ctxs:

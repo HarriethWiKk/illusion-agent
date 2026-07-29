@@ -425,8 +425,8 @@ async def run_print_mode(
         if resume == "":
             print(_t("session_resume_requires_id"), file=sys.stderr)
             raise SystemExit(1)
-        meta = read_meta(effective_cwd, resume)
-        if meta is None:
+        meta = read_meta(effective_cwd, resume) or {}
+        if not meta:
             print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
             raise SystemExit(1)
         session_dir = get_project_session_dir(effective_cwd) / resume

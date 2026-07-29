@@ -460,10 +460,11 @@ class WebBackendHost:
                 )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 # 透传最新累积用量与反推值到前端
-                sync_app_state(self._bundle)
-                # 更新会话 meta（CheckpointStore 已在 query_engine 内每轮 append）
-                from illusion.ui.runtime import _update_session_meta
-                _update_session_meta(self._bundle)
+                if self._bundle is not None:
+                    sync_app_state(self._bundle)
+                    # 更新会话 meta（CheckpointStore 已在 query_engine 内每轮 append）
+                    from illusion.ui.runtime import _update_session_meta
+                    _update_session_meta(self._bundle)
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):

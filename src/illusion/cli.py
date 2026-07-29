@@ -1453,10 +1453,11 @@ def main(
             read_meta,
         )
 
-        async def _load_session(sid: str) -> dict:
+        async def _load_session(sid: str) -> dict[str, Any]:
             """用 CheckpointStore 加载会话数据（替代旧 load_session_by_id）。"""
-            meta = read_meta(cwd, sid) or {}
-            session_dir = get_project_session_dir(cwd) / sid
+            _cwd = cwd or "."
+            meta = read_meta(_cwd, sid) or {}
+            session_dir = get_project_session_dir(_cwd) / sid
             store = CheckpointStore(session_dir, sid)
             result = await store.restore()
             return {
