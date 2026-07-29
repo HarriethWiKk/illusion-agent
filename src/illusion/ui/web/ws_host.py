@@ -208,6 +208,8 @@ class WebBackendHost:
             return 1
         assert self._bundle is not None
         await start_runtime(self._bundle)
+        # 首次进入主动 sync，避免 context_window 为 0
+        sync_app_state(self._bundle)
         # 加载总是允许的工具列表
         self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
         # 启动写循环（单一消费者，串行化所有 WebSocket 写入）
