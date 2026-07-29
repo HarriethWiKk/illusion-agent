@@ -14,9 +14,6 @@ def test_apply_restore_from_result() -> None:
         usage_input=500,
         usage_output=50,
         system_overhead=2000,
-        system_overhead_hash="h",
-        system_prompt="sys",
-        system_prompt_hash="h",
         checkpoint_count=1,
     )
     tracker = CostTracker()

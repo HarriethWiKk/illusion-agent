@@ -303,7 +303,6 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    import hashlib
     import time as _time_mod
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
@@ -324,8 +323,6 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
         sid = "sid-old-001"
         session_dir = get_project_session_dir(tmp_path) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"system").hexdigest()
-        await store.append_system_prompt("system", sp_hash)
         await store.append_checkpoint()
         for m in host._bundle.engine.messages:
             await store.append_message(m)
@@ -347,7 +344,6 @@ async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeyp
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    import hashlib
     import time as _time_mod
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
@@ -376,8 +372,6 @@ async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeyp
         sid = "sid-thinking-001"
         session_dir = get_project_session_dir(tmp_path) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"system").hexdigest()
-        await store.append_system_prompt("system", sp_hash)
         await store.append_checkpoint()
         for m in host._bundle.engine.messages:
             await store.append_message(m)
@@ -416,7 +410,6 @@ async def test_backend_rewind_replay_keeps_reasoning_only_assistant(tmp_path, mo
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        import hashlib
         from illusion.services.checkpoint_store import CheckpointStore
 
         turn1_user = ConversationMessage(role="user", content=[TextBlock(text="turn1")])
@@ -427,8 +420,6 @@ async def test_backend_rewind_replay_keeps_reasoning_only_assistant(tmp_path, mo
         # 在 CheckpointStore 中写入与 engine 一致的消息+checkpoint
         store = host._bundle.engine.checkpoint_store
         assert store is not None
-        sp_hash = hashlib.sha256(b"system").hexdigest()
-        await store.append_system_prompt("system", sp_hash)
         await store.append_checkpoint()  # id=0
         await store.append_message(turn1_user)
         await store.append_message(turn1_asst)
@@ -464,7 +455,6 @@ async def test_resume_replay_has_no_session_restored_system_banner(tmp_path, mon
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        import hashlib
         import time as _time_mod
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
@@ -479,8 +469,6 @@ async def test_resume_replay_has_no_session_restored_system_banner(tmp_path, mon
         sid = "sid-banner-001"
         session_dir = get_project_session_dir(tmp_path) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"system").hexdigest()
-        await store.append_system_prompt("system", sp_hash)
         await store.append_checkpoint()
         for m in host._bundle.engine.messages:
             await store.append_message(m)
@@ -516,7 +504,6 @@ async def test_resume_replay_skips_empty_user_transcript_rows(tmp_path, monkeypa
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        import hashlib
         import time as _time_mod
         from illusion.engine.messages import ToolResultBlock
         from illusion.services.checkpoint_store import CheckpointStore
@@ -533,8 +520,6 @@ async def test_resume_replay_skips_empty_user_transcript_rows(tmp_path, monkeypa
         sid = "sid-empty-user-001"
         session_dir = get_project_session_dir(tmp_path) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"system").hexdigest()
-        await store.append_system_prompt("system", sp_hash)
         await store.append_checkpoint()
         for m in host._bundle.engine.messages:
             await store.append_message(m)

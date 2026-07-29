@@ -21,13 +21,12 @@ def store(tmp_path: Path) -> CheckpointStore:
 @pytest.mark.asyncio
 async def test_append_and_restore_basic(store: CheckpointStore) -> None:
     """append 后 restore 能重建所有状态。"""
-    await store.append_system_prompt("You are assistant.", "hash1")
     cid = await store.append_checkpoint()
     assert cid == 0
     user_msg = ConversationMessage.from_user_text("hello")
     await store.append_message(user_msg)
     await store.append_usage(input_tokens=100, output_tokens=5)
-    await store.append_system_overhead(tokens=2000, prompt_hash="hash1")
+    await store.append_system_overhead(tokens=2000)
 
     result = await store.restore()
     assert len(result.messages) == 1
@@ -35,16 +34,12 @@ async def test_append_and_restore_basic(store: CheckpointStore) -> None:
     assert result.usage_input == 100
     assert result.usage_output == 5
     assert result.system_overhead == 2000
-    assert result.system_overhead_hash == "hash1"
-    assert result.system_prompt == "You are assistant."
-    assert result.system_prompt_hash == "hash1"
     assert result.checkpoint_count == 1
 
 
 @pytest.mark.asyncio
 async def test_rewind_to_target_checkpoint(store: CheckpointStore) -> None:
     """rewind_to 截断目标 checkpoint 及之后内容。"""
-    await store.append_system_prompt("sys", "h1")
     # turn 0
     await store.append_checkpoint()  # id=0
     await store.append_message(ConversationMessage.from_user_text("turn0"))
@@ -72,7 +67,6 @@ async def test_rewind_to_target_checkpoint(store: CheckpointStore) -> None:
 @pytest.mark.asyncio
 async def test_rewind_to_first_checkpoint(store: CheckpointStore) -> None:
     """rewind_to(0) 清空所有 checkpoint 之后内容。"""
-    await store.append_system_prompt("sys", "h1")
     await store.append_checkpoint()  # id=0
     await store.append_message(ConversationMessage.from_user_text("msg"))
     await store.append_usage(100, 5)
@@ -81,7 +75,6 @@ async def test_rewind_to_first_checkpoint(store: CheckpointStore) -> None:
     assert result.checkpoint_count == 0
     assert len(result.messages) == 0
     assert result.usage_input == 0
-    assert result.system_prompt == "sys"  # _system_prompt 在 checkpoint 之前，保留
 
 
 @pytest.mark.asyncio
@@ -97,16 +90,6 @@ async def test_restore_empty_store(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_system_prompt_last_write_wins(store: CheckpointStore) -> None:
-    """多次 append_system_prompt 后 restore 取最后一个。"""
-    await store.append_system_prompt("v1", "h1")
-    await store.append_system_prompt("v2", "h2")
-    result = await store.restore()
-    assert result.system_prompt == "v2"
-    assert result.system_prompt_hash == "h2"
-
-
-@pytest.mark.asyncio
 async def test_truncate_all(store: CheckpointStore) -> None:
     """truncate_all 清空文件。"""
     await store.append_checkpoint()
@@ -115,3 +98,50 @@ async def test_truncate_all(store: CheckpointStore) -> None:
     await store.truncate_all()
     assert not store._file.exists()
     assert store.next_checkpoint_id == 0
+
+
+@pytest.mark.asyncio
+async def test_lazy_dir_creation(tmp_path: Path) -> None:
+    """构造 CheckpointStore 时不创建目录，第一次 append 时才创建。"""
+    session_dir = tmp_path / "lazy-sess"
+    assert not session_dir.exists()
+    store = CheckpointStore(session_dir, "lazy")
+    # 构造后目录仍不存在
+    assert not session_dir.exists()
+    # 第一次 append 触发延迟创建
+    await store.append_checkpoint()
+    assert session_dir.exists()
+    assert (session_dir / "context.jsonl").exists()
+
+
+@pytest.mark.asyncio
+async def test_lazy_dir_not_created_on_restore(tmp_path: Path) -> None:
+    """restore 不触发延迟创建（目录不存在时返回空结果）。"""
+    session_dir = tmp_path / "no-create"
+    store = CheckpointStore(session_dir, "nope")
+    result = await store.restore()
+    assert result.messages == []
+    # restore 后目录仍不应被创建
+    assert not session_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_legacy_system_prompt_line_ignored(tmp_path: Path) -> None:
+    """旧文件中的 _system_prompt 行被忽略，不影响 restore。"""
+    session_dir = tmp_path / "legacy"
+    session_dir.mkdir()
+    store = CheckpointStore(session_dir, "legacy")
+    # 手动写入旧格式行（含 _system_prompt）
+    import json
+    (session_dir / "context.jsonl").write_text(
+        json.dumps({"role": "_system_prompt", "content": "old", "hash": "h1"}) + "\n"
+        + json.dumps({"role": "_checkpoint", "id": 0}) + "\n"
+        + json.dumps({"role": "user", "message": ConversationMessage.from_user_text("hi").model_dump(mode="json")}) + "\n"
+        + json.dumps({"role": "_system_overhead", "tokens": 500, "prompt_hash": "h1"}) + "\n",
+        encoding="utf-8",
+    )
+    result = await store.restore()
+    assert len(result.messages) == 1
+    assert result.messages[0].text == "hi"
+    assert result.system_overhead == 500
+    assert result.checkpoint_count == 1

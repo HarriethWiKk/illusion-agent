@@ -7,6 +7,7 @@ from pathlib import Path
 from illusion.engine.messages import ConversationMessage, TextBlock
 from illusion.services.session_storage import (
     export_session_markdown,
+    list_session_snapshots,
     read_meta,
     write_meta,
 )
@@ -168,3 +169,40 @@ def test_save_load_delete_pending_permission(tmp_path, monkeypatch):
     # 删除
     delete_pending_permission(cwd, session_id)
     assert load_pending_permission(cwd, session_id) is None
+
+
+def test_list_session_snapshots_filters_empty(tmp_path: Path, monkeypatch):
+    """list_session_snapshots 过滤 message_count == 0 的空会话。"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    project = tmp_path / "repo"
+    project.mkdir()
+
+    # 空会话（message_count=0）
+    write_meta(cwd=project, session_id="empty1", meta={
+        "session_id": "empty1",
+        "cwd": str(project),
+        "model": "test",
+        "created_at": 1000.0,
+        "updated_at": 1000.0,
+        "summary": "",
+        "message_count": 0,
+        "turn_count": 0,
+    })
+    # 有内容的会话
+    write_meta(cwd=project, session_id="real1", meta={
+        "session_id": "real1",
+        "cwd": str(project),
+        "model": "test",
+        "created_at": 2000.0,
+        "updated_at": 2000.0,
+        "summary": "你好",
+        "message_count": 2,
+        "turn_count": 1,
+    })
+
+    sessions = list_session_snapshots(cwd=project)
+    # 空会话被过滤，只返回有内容的会话
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == "real1"
+    assert sessions[0]["turn_count"] == 1
+    assert sessions[0]["summary"] == "你好"

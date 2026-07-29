@@ -382,7 +382,6 @@ async def task_migration_plan_with_memory():
             print(f"  Memory files saved: {len(mem_files)}")
 
             # Save session (用新 CheckpointStore API 替代旧 save_session_snapshot)
-            import hashlib
             import time as _time_mod
             from illusion.services.checkpoint_store import CheckpointStore
             all_msgs = engine.messages
@@ -390,8 +389,6 @@ async def task_migration_plan_with_memory():
             sid = "migration-plan-001"
             session_dir = get_project_session_dir(tmpdir) / sid
             store = CheckpointStore(session_dir, sid)
-            sp_hash = hashlib.sha256(b"Plan agent").hexdigest()
-            await store.append_system_prompt("Plan agent", sp_hash)
             await store.append_checkpoint()
             for m in all_msgs:
                 await store.append_message(m)
@@ -770,14 +767,11 @@ def handle_create_admin(data):
         print(f"  Turn 3 (verify): {r3['turns']} turns, {len(r3['tools'])} tools")
 
         # Save session (用新 CheckpointStore API 替代旧 save_session_snapshot)
-        import hashlib
         import time as _time_mod2
         from illusion.services.checkpoint_store import CheckpointStore
         sid = "refactor-session"
         session_dir = get_project_session_dir(tmpdir) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"Refactoring expert").hexdigest()
-        await store.append_system_prompt("Refactoring expert", sp_hash)
         await store.append_checkpoint()
         for m in engine.messages:
             await store.append_message(m)

@@ -522,28 +522,16 @@ async def build_runtime(
         ]
         engine.load_messages(restored)
     # 构造 CheckpointStore 并注入 engine
+    # 延迟创建策略：不立即 mkdir/write_index/write_meta，
+    # 只有第一条用户消息真正提交时才在磁盘创建会话目录。
+    # 这样启动后未发消息就退出不会留下"0轮无摘要"的空会话。
     from illusion.services.checkpoint_store import CheckpointStore
-    from illusion.services.session_storage import get_project_session_dir, write_index, write_meta
-    import time as _time_mod
+    from illusion.services.session_storage import get_project_session_dir
     session_dir = get_project_session_dir(cwd) / session_id
-    session_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_store = CheckpointStore(session_dir, session_id)
     engine.set_checkpoint_store(checkpoint_store)
-    # 若有 restore_messages，需要 restore
-    if restore_messages:
-        # resume 场景：restore_messages 已在调用前处理，这里跳过
-        pass
-    # 写 index 和 meta
-    write_index(cwd, session_id)
-    write_meta(cwd, session_id, {
-        "session_id": session_id,
-        "cwd": cwd,
-        "model": settings.active_model_name,
-        "created_at": _time_mod.time(),
-        "updated_at": _time_mod.time(),
-        "summary": "",
-        "message_count": 0,
-    })
+    # resume 场景：restore_messages 已在调用前处理，无需额外操作。
+    # index.json 和 meta.json 的写入由 _update_session_meta 在第一条消息后负责。
 
     return RuntimeBundle(
         api_client=resolved_api_client,
@@ -812,23 +800,48 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
 
 
 def _update_session_meta(bundle: RuntimeBundle) -> None:
-    """更新会话 meta.json（替代旧 save_session_snapshot）。"""
-    from illusion.services.session_storage import write_meta
+    """更新会话 meta.json 和 index.json（替代旧 save_session_snapshot）。
+
+    首次调用时同时写入 index.json（标记 latest session）和 meta.json。
+    后续调用保留 created_at，仅更新其他字段。
+
+    空会话（engine.messages 为空）不写入 meta/index，避免磁盘留下空会话目录。
+    """
+    from illusion.services.session_storage import write_meta, write_index, read_meta
     import time
+    # 空会话不写 meta/index，避免磁盘留下空会话目录
+    # （rewind 到 0、/new 后未发消息等场景会触发）
+    if not bundle.engine.messages:
+        return
     settings = bundle.current_settings()
     summary = ""
     for msg in bundle.engine.messages:
         if msg.role == "user" and msg.text.strip():
             summary = msg.text.strip()[:80]
             break
+    # 计算 turn_count：按真正由用户输入的消息数计算（排除 tool_result 等）
+    # 一轮对话 = 一个用户输入 + 一个或多个 assistant 回复（含工具调用的中间回复）
+    from illusion.engine.messages import ToolResultBlock
+    turn_count = sum(
+        1 for m in bundle.engine.messages
+        if m.role == "user"
+        and not any(isinstance(b, ToolResultBlock) for b in m.content)
+        and m.text.strip()
+    )
+    # 保留原始 created_at（首次调用时不存在则用当前时间）
+    existing = read_meta(bundle.cwd, bundle.session_id) or {}
+    created_at = existing.get("created_at", time.time())
+    # 首次写入 index.json（标记为 latest session）
+    write_index(bundle.cwd, bundle.session_id)
     write_meta(bundle.cwd, bundle.session_id, {
         "session_id": bundle.session_id,
         "cwd": bundle.cwd,
         "model": settings.active_model_name,
-        "created_at": time.time(),
+        "created_at": created_at,
         "updated_at": time.time(),
         "summary": summary,
         "message_count": len(bundle.engine.messages),
+        "turn_count": turn_count,
     })
 
 
@@ -886,30 +899,15 @@ async def handle_line(
         )
         if result.reset_session:
             bundle.session_id = uuid4().hex[:12]
-            # 构造新 CheckpointStore
+            # 构造新 CheckpointStore（延迟创建，不立即 mkdir/write_index/write_meta）
+            # system_prompt 的持久化由 query_engine.submit_message 在第一条消息时负责，
+            # index/meta 由 _update_session_meta 在第一条消息后负责。
+            # 这样 /new 后未发消息就退出不会留下空会话目录。
             from illusion.services.checkpoint_store import CheckpointStore
-            from illusion.services.session_storage import get_project_session_dir, write_index, write_meta
-            import time, hashlib
+            from illusion.services.session_storage import get_project_session_dir
             session_dir = get_project_session_dir(bundle.cwd) / bundle.session_id
-            session_dir.mkdir(parents=True, exist_ok=True)
             new_store = CheckpointStore(session_dir, bundle.session_id)
             bundle.engine.set_checkpoint_store(new_store)
-            # 写 system_prompt 到新 store
-            settings = bundle.current_settings()
-            system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, channel_hint=bundle.channel_hint)
-            sp_hash = hashlib.sha256(system_prompt.encode()).hexdigest()
-            await new_store.append_system_prompt(system_prompt, sp_hash)
-            # 更新 index 和 meta
-            write_index(bundle.cwd, bundle.session_id)
-            write_meta(bundle.cwd, bundle.session_id, {
-                "session_id": bundle.session_id,
-                "cwd": bundle.cwd,
-                "model": settings.active_model_name,
-                "created_at": time.time(),
-                "updated_at": time.time(),
-                "summary": "",
-                "message_count": 0,
-            })
             locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
             prefix = "新会话已开启，任务 ID：" if locale.lower().startswith("zh") else "Started new session. Task ID: "
             suffix = result.message or ""
@@ -919,7 +917,10 @@ async def handle_line(
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
         # 会话指令后刷新状态（context_tokens / usage / overhead）
+        # 同时更新 meta.json（rewind/resume 后 engine.messages 已变化，
+        # 需同步更新 message_count/turn_count，否则会话列表显示旧值）
         if result.refresh_state:
+            _update_session_meta(bundle)
             sync_app_state(bundle)
         # 跨 env 切换模型时重建 API 客户端
         if result.needs_api_rebuild:

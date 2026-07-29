@@ -118,6 +118,7 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
     """列出项目的已保存会话，按最新优先排序。
 
     遍历 {session_id}/meta.json，按 updated_at 降序排序。
+    过滤掉 message_count == 0 的空会话（兜底防御，正常流程不应产生空会话）。
 
     Args:
         cwd: 项目工作目录
@@ -137,6 +138,9 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
         try:
             data = json.loads(meta_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
+            continue
+        # 过滤空会话：无消息的会话不显示在列表中
+        if data.get("message_count", 0) == 0:
             continue
         sessions.append({
             "session_id": data.get("session_id", sub.name),

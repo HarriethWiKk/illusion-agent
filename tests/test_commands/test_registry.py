@@ -485,15 +485,12 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
     context.engine.load_messages(msgs)
 
     # 设置 CheckpointStore（替代旧 push_checkpoint 内存栈）
-    import hashlib
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import get_project_session_dir
     sid = "test-copy-rewind"
     session_dir = get_project_session_dir(tmp_path) / sid
     store = CheckpointStore(session_dir, sid)
     context.engine.set_checkpoint_store(store)
-    sp_hash = hashlib.sha256(b"system").hexdigest()
-    await store.append_system_prompt("system", sp_hash)
     await store.append_checkpoint()  # id=0 (turn 1)
     await store.append_message(msgs[0])
     await store.append_message(msgs[1])
@@ -629,7 +626,6 @@ async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkey
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
-    import hashlib
     import time
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
@@ -645,8 +641,6 @@ async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkey
     sid = "resume-abc123"
     session_dir = get_project_session_dir(tmp_path) / sid
     store = CheckpointStore(session_dir, sid)
-    sp_hash = hashlib.sha256(b"system").hexdigest()
-    await store.append_system_prompt("system", sp_hash)
     await store.append_checkpoint()
     for m in context.engine.messages:
         await store.append_message(m)

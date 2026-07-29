@@ -139,7 +139,6 @@ async def test_resume_followed_by_session_tag_uses_restored_session_id(tmp_path:
     registry = create_default_command_registry()
     context = _build_context(tmp_path)
 
-    import hashlib
     import time
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
@@ -156,8 +155,6 @@ async def test_resume_followed_by_session_tag_uses_restored_session_id(tmp_path:
     sid = "sid-flow-001"
     session_dir = get_project_session_dir(tmp_path) / sid
     store = CheckpointStore(session_dir, sid)
-    sp_hash = hashlib.sha256(b"system").hexdigest()
-    await store.append_system_prompt("system", sp_hash)
     await store.append_checkpoint()
     for m in context.engine.messages:
         await store.append_message(m)

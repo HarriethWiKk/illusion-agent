@@ -1,7 +1,7 @@
 """Checkpoint 持久化存储。
 
-基于单文件 JSONL append-only 模式，5 种 role 行：
-_system_prompt / _checkpoint / _usage / _system_overhead / 普通消息。
+基于单文件 JSONL append-only 模式，4 种 role 行：
+_checkpoint / _usage / _system_overhead / 普通消息。
 rewind 原地重写，restore 单遍扫描重建内存状态。
 
 主要类：
@@ -30,25 +30,19 @@ class RestoreResult:
         usage_input: 最后一个 _usage 的 input_tokens
         usage_output: 最后一个 _usage 的 output_tokens
         system_overhead: 最后一个 _system_overhead 的 tokens
-        system_overhead_hash: 最后一个 _system_overhead 的 prompt_hash
-        system_prompt: 最后一个 _system_prompt 的 content
-        system_prompt_hash: 最后一个 _system_prompt 的 hash
         checkpoint_count: _checkpoint 行数（用于 rewind 计数）
     """
     messages: list[ConversationMessage]
     usage_input: int
     usage_output: int
     system_overhead: int | None
-    system_overhead_hash: str | None
-    system_prompt: str | None
-    system_prompt_hash: str | None
     checkpoint_count: int
 
 
 class CheckpointStore:
     """context.jsonl 的 append-only 持久化存储。
 
-    单文件 JSONL，含 5 种 role：_system_prompt / _checkpoint /
+    单文件 JSONL，含 4 种 role：_checkpoint /
     _usage / _system_overhead / 普通消息。append-only 保证崩溃安全，
     rewind 通过原地重写实现。
 
@@ -59,6 +53,9 @@ class CheckpointStore:
     def __init__(self, session_dir: Path, session_id: str) -> None:
         """初始化 CheckpointStore。
 
+        采用延迟创建策略：构造时不创建目录，第一次 _append_line 时才 mkdir。
+        这样空会话（启动后未发消息）不会在磁盘留下空目录。
+
         Args:
             session_dir: 会话目录（含 context.jsonl）
             session_id: 会话 ID
@@ -68,6 +65,7 @@ class CheckpointStore:
         self._file = session_dir / "context.jsonl"
         self._io_lock = asyncio.Lock()
         self._next_checkpoint_id = 0
+        self._dir_ensured = False  # 延迟创建标志
 
     @property
     def next_checkpoint_id(self) -> int:
@@ -78,16 +76,6 @@ class CheckpointStore:
     def session_id(self) -> str:
         """返回会话 ID。"""
         return self._session_id
-
-    async def append_system_prompt(self, content: str, hash_: str) -> None:
-        """追加 _system_prompt 行。
-
-        Args:
-            content: system prompt 文本
-            hash_: system prompt 的 sha256 哈希
-        """
-        record = {"role": "_system_prompt", "content": content, "hash": hash_}
-        await self._append_line(record)
 
     async def append_checkpoint(self) -> int:
         """追加 _checkpoint 行，返回 checkpoint id。
@@ -115,17 +103,15 @@ class CheckpointStore:
         }
         await self._append_line(record)
 
-    async def append_system_overhead(self, tokens: int, prompt_hash: str) -> None:
+    async def append_system_overhead(self, tokens: int) -> None:
         """追加 _system_overhead 行。
 
         Args:
             tokens: 实测 system overhead tokens
-            prompt_hash: 对应的 system prompt 哈希
         """
         record = {
             "role": "_system_overhead",
             "tokens": tokens,
-            "prompt_hash": prompt_hash,
         }
         await self._append_line(record)
 
@@ -157,9 +143,7 @@ class CheckpointStore:
             if not self._file.exists():
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
-                    system_overhead=None, system_overhead_hash=None,
-                    system_prompt=None, system_prompt_hash=None,
-                    checkpoint_count=0,
+                    system_overhead=None, checkpoint_count=0,
                 )
             # 读所有行
             kept_lines: list[str] = []
@@ -190,6 +174,9 @@ class CheckpointStore:
     async def restore(self) -> RestoreResult:
         """单遍扫描 context.jsonl 重建内存状态。
 
+        兼容旧文件中的 _system_prompt 行（忽略，不解析）和
+        _system_overhead 行的 prompt_hash 字段（忽略）。
+
         Returns:
             RestoreResult: 重建后的内存状态
         """
@@ -197,9 +184,7 @@ class CheckpointStore:
             if not self._file.exists():
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
-                    system_overhead=None, system_overhead_hash=None,
-                    system_prompt=None, system_prompt_hash=None,
-                    checkpoint_count=0,
+                    system_overhead=None, checkpoint_count=0,
                 )
             lines: list[str] = []
             async with aiofiles.open(self._file, encoding="utf-8") as f:
@@ -219,14 +204,19 @@ class CheckpointStore:
             self._next_checkpoint_id = 0
 
     async def _append_line(self, record: dict) -> None:
-        """加锁追加一行 JSON。"""
+        """加锁追加一行 JSON。第一次调用时延迟创建会话目录。"""
         async with self._io_lock:
-            self._session_dir.mkdir(parents=True, exist_ok=True)
+            if not self._dir_ensured:
+                self._session_dir.mkdir(parents=True, exist_ok=True)
+                self._dir_ensured = True
             async with aiofiles.open(self._file, "a", encoding="utf-8") as f:
                 await f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _build_result_from_lines(self, lines: list[str]) -> RestoreResult:
         """从 JSONL 行列表构建 RestoreResult（无锁，内部使用）。
+
+        兼容旧文件中的 _system_prompt 行（忽略）和 _system_overhead 的
+        prompt_hash 字段（忽略）。
 
         Args:
             lines: JSON 字符串列表
@@ -238,9 +228,6 @@ class CheckpointStore:
         usage_input = 0
         usage_output = 0
         system_overhead: int | None = None
-        system_overhead_hash: str | None = None
-        system_prompt: str | None = None
-        system_prompt_hash: str | None = None
         checkpoint_count = 0
 
         for line in lines:
@@ -250,8 +237,8 @@ class CheckpointStore:
                 continue
             role = record.get("role")
             if role == "_system_prompt":
-                system_prompt = record.get("content")
-                system_prompt_hash = record.get("hash")
+                # 兼容旧文件：忽略 _system_prompt 行
+                continue
             elif role == "_checkpoint":
                 checkpoint_count += 1
                 self._next_checkpoint_id = record.get("id", -1) + 1
@@ -260,7 +247,6 @@ class CheckpointStore:
                 usage_output = record.get("output_tokens", 0)
             elif role == "_system_overhead":
                 system_overhead = record.get("tokens")
-                system_overhead_hash = record.get("prompt_hash")
             elif role in ("user", "assistant"):
                 msg_data = record.get("message")
                 if msg_data:
@@ -274,8 +260,5 @@ class CheckpointStore:
             usage_input=usage_input,
             usage_output=usage_output,
             system_overhead=system_overhead,
-            system_overhead_hash=system_overhead_hash,
-            system_prompt=system_prompt,
-            system_prompt_hash=system_prompt_hash,
             checkpoint_count=checkpoint_count,
         )

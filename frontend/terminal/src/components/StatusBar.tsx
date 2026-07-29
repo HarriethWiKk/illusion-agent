@@ -49,11 +49,8 @@ function TokenDisplay({
 }): React.JSX.Element {
 	return (
 		<Text color={color}>
-			<Text dimColor>{fmtTokens(inputTokens)}</Text>
-			<Text dimColor>↓</Text>
-			<Text> </Text>
-			<Text dimColor>{fmtTokens(outputTokens)}</Text>
-			<Text dimColor>↑</Text>
+			{fmtTokens(inputTokens)}↓ {' '}
+			{fmtTokens(outputTokens)}↑
 		</Text>
 	);
 }
@@ -136,16 +133,14 @@ export function StatusBar({
 			) : null}
 			<Box flexDirection="row" alignItems="center">
 				<Text color={theme.colors.illusion}>{model}</Text>
+				<>
+					<Text color={theme.colors.illusion}>{SEP}</Text>
+					<Text color={theme.colors.illusion}>{mode}</Text>
+				</>
 				{(inputTokens > 0 || outputTokens > 0) ? (
 					<>
 						<Text color={theme.colors.illusion}>{SEP}</Text>
 						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} />
-					</>
-				) : null}
-				{mode !== 'default' ? (
-					<>
-						<Text color={theme.colors.illusion}>{SEP}</Text>
-						<Text color={theme.colors.illusion}>{mode}</Text>
 					</>
 				) : null}
 				{taskCount > 0 ? (

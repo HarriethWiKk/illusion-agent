@@ -415,12 +415,9 @@ async def test_session_storage():
 
         # Save (用新 CheckpointStore API 替代旧 save_session_snapshot)
         sid = "test-session-123"
-        import hashlib
         import time as _time_mod
         session_dir = get_project_session_dir(tmpdir) / sid
         store = CheckpointStore(session_dir, sid)
-        sp_hash = hashlib.sha256(b"Test prompt").hexdigest()
-        await store.append_system_prompt("Test prompt", sp_hash)
         await store.append_checkpoint()
         for m in messages:
             await store.append_message(m)

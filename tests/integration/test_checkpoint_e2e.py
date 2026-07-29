@@ -16,11 +16,10 @@ async def test_cross_restart_rewind(tmp_path: Path) -> None:
     session_dir.mkdir()
     # 模拟第一轮（写入）
     store1 = CheckpointStore(session_dir, "abc")
-    await store1.append_system_prompt("sys", "h1")
     await store1.append_checkpoint()  # id=0
     await store1.append_message(ConversationMessage.from_user_text("turn0"))
     await store1.append_usage(100, 5)
-    await store1.append_system_overhead(2000, "h1")
+    await store1.append_system_overhead(2000)
     await store1.append_checkpoint()  # id=1
     await store1.append_message(ConversationMessage.from_user_text("turn1"))
     await store1.append_usage(200, 10)
@@ -47,7 +46,6 @@ async def test_resume_after_rewind(tmp_path: Path) -> None:
     session_dir = tmp_path / "sess-abc"
     session_dir.mkdir()
     store = CheckpointStore(session_dir, "abc")
-    await store.append_system_prompt("sys", "h1")
     await store.append_checkpoint()
     await store.append_message(ConversationMessage.from_user_text("msg1"))
     await store.append_usage(100, 5)

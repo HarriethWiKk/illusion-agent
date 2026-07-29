@@ -249,14 +249,15 @@ class QueryEngine:
     def apply_restore(self, result: RestoreResult) -> None:
         """从 CheckpointStore.restore() 结果恢复所有状态。
 
+        system_prompt 不从持久化恢复——下一轮 handle_line 会通过
+        build_runtime_system_prompt 重新构建。
+
         Args:
             result: restore 结果
         """
         self._messages = list(result.messages)
         self._cost_tracker.apply_restore(result)
         self._overhead_tracker.apply_restore(result)
-        if result.system_prompt:
-            self._system_prompt = result.system_prompt
 
     @property
     def checkpoint_store(self) -> CheckpointStore | None:
@@ -369,6 +370,10 @@ class QueryEngine:
             >>> async for event in engine.submit_message("你好"):
             ...     print(event)
         """
+        # system_prompt 不再持久化：system_prompt 不含 tools 描述，
+        # hash 无法完整代表系统级开销变化。改为每轮反推自校正
+        # （update_from_usage 无条件覆盖），resume 后用持久化的 overhead
+        # 值显示，第一轮 API 调用后用实测值覆盖。
         # append checkpoint 到 JSONL（替代旧 push_checkpoint）
         if self._checkpoint_store is not None:
             await self._checkpoint_store.append_checkpoint()
@@ -453,28 +458,37 @@ class QueryEngine:
             on_before_tool_execute=_on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
-        async for event, usage in run_query(context, self._messages):
-            if usage is not None:
-                self._cost_tracker.add(usage)  # 累加使用量
-                # 持久化累积 usage
-                if self._checkpoint_store is not None:
-                    await self._checkpoint_store.append_usage(
-                        self._cost_tracker.total.input_tokens,
-                        self._cost_tracker.total.output_tokens,
-                    )
-                # 反推 system overhead（每轮矫正 skills/hooks 变化）
-                if usage.input_tokens > 0:
-                    # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
-                    self._overhead_tracker.invalidate(self._system_prompt or "")
-                    messages_tokens = estimate_conversation_tokens(self._messages)
-                    if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
-                        # 持久化实测 overhead
-                        if self._checkpoint_store is not None:
-                            await self._checkpoint_store.append_system_overhead(
-                                self._overhead_tracker.tokens or 0,
-                                self._overhead_tracker.system_prompt_hash or "",
-                            )
-            yield event
+        # 记录循环前的消息数量，用于循环结束后持久化新增消息
+        # run_query 内部会直接 append assistant/tool 消息到 self._messages，
+        # 这些消息必须持久化，否则 resume 后只看到用户消息，丢失 LLM 回复
+        messages_before = len(self._messages)
+        try:
+            async for event, usage in run_query(context, self._messages):
+                if usage is not None:
+                    self._cost_tracker.add(usage)  # 累加使用量
+                    # 持久化累积 usage
+                    if self._checkpoint_store is not None:
+                        await self._checkpoint_store.append_usage(
+                            self._cost_tracker.total.input_tokens,
+                            self._cost_tracker.total.output_tokens,
+                        )
+                    # 反推 system overhead（每轮无条件覆盖，接受自然波动）
+                    if usage.input_tokens > 0:
+                        messages_tokens = estimate_conversation_tokens(self._messages)
+                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
+                            # 持久化实测 overhead
+                            if self._checkpoint_store is not None:
+                                await self._checkpoint_store.append_system_overhead(
+                                    self._overhead_tracker.tokens or 0,
+                                )
+                yield event
+        finally:
+            # 持久化 run_query 期间新增的所有消息（assistant 回复、tool 结果、
+            # hook 注入的 user 消息等）。使用 finally 确保即使异常/中断也能
+            # 保存已生成的消息，避免 resume 后对话历史缺失。
+            if self._checkpoint_store is not None:
+                for msg in self._messages[messages_before:]:
+                    await self._checkpoint_store.append_message(msg)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
@@ -511,26 +525,33 @@ class QueryEngine:
             compact_state=self._compact_state,
             file_state_cache=self._file_state_cache,
         )
-        async for event, usage in run_query(context, self._messages):
-            if usage is not None:
-                self._cost_tracker.add(usage)  # 累加使用量
-                # 持久化累积 usage（continue_pending 不 append checkpoint）
-                if self._checkpoint_store is not None:
-                    await self._checkpoint_store.append_usage(
-                        self._cost_tracker.total.input_tokens,
-                        self._cost_tracker.total.output_tokens,
-                    )
-                if usage.input_tokens > 0:
-                    # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
-                    self._overhead_tracker.invalidate(self._system_prompt or "")
-                    messages_tokens = estimate_conversation_tokens(self._messages)
-                    if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
-                        if self._checkpoint_store is not None:
-                            await self._checkpoint_store.append_system_overhead(
-                                self._overhead_tracker.tokens or 0,
-                                self._overhead_tracker.system_prompt_hash or "",
-                            )
-            yield event
+        # 记录循环前的消息数量，用于循环结束后持久化新增消息
+        # continue_pending 不 append checkpoint，但 run_query 内部仍会
+        # append assistant/tool 消息，需要持久化以支持 resume
+        messages_before = len(self._messages)
+        try:
+            async for event, usage in run_query(context, self._messages):
+                if usage is not None:
+                    self._cost_tracker.add(usage)  # 累加使用量
+                    # 持久化累积 usage（continue_pending 不 append checkpoint）
+                    if self._checkpoint_store is not None:
+                        await self._checkpoint_store.append_usage(
+                            self._cost_tracker.total.input_tokens,
+                            self._cost_tracker.total.output_tokens,
+                        )
+                    if usage.input_tokens > 0:
+                        messages_tokens = estimate_conversation_tokens(self._messages)
+                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
+                            if self._checkpoint_store is not None:
+                                await self._checkpoint_store.append_system_overhead(
+                                    self._overhead_tracker.tokens or 0,
+                                )
+                yield event
+        finally:
+            # 持久化 run_query 期间新增的所有消息（与 submit_message 一致）
+            if self._checkpoint_store is not None:
+                for msg in self._messages[messages_before:]:
+                    await self._checkpoint_store.append_message(msg)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd

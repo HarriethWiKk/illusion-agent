@@ -190,7 +190,6 @@ class BaseCommandHandler:
             msg: 入站消息
             key: 会话键
         """
-        import hashlib
         import time
         from illusion.engine.messages import ConversationMessage
         from illusion.services.checkpoint_store import CheckpointStore
@@ -214,9 +213,6 @@ class BaseCommandHandler:
         sid = session.session_id
         session_dir = get_project_session_dir(cwd) / sid
         store = CheckpointStore(session_dir, sid)
-        system_prompt = ""
-        sp_hash = hashlib.sha256(system_prompt.encode()).hexdigest()
-        await store.append_system_prompt(system_prompt, sp_hash)
         await store.append_checkpoint()
         for m in conv_messages:
             await store.append_message(m)
@@ -228,6 +224,7 @@ class BaseCommandHandler:
             "updated_at": time.time(),
             "summary": "",
             "message_count": len(conv_messages),
+            "turn_count": sum(1 for m in conv_messages if m.role == "assistant"),
         })
         write_index(cwd, sid)
         await self._reply(msg, t("feishu_cmd_detached", id=sid))

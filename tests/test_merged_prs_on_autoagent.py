@@ -366,7 +366,6 @@ async def task_session_resume_autoagent():
         print(f"    Turn 3: {r3['text'][:100]}")
 
         # Save session with cost tracking (PR #16) — 用新 CheckpointStore API
-        import hashlib
         import time as _time_mod
         from illusion.services.checkpoint_store import CheckpointStore
         usage_before = engine1.total_usage
@@ -375,8 +374,6 @@ async def task_session_resume_autoagent():
         sid = "autoagent-research-001"
         ckpt_dir = get_project_session_dir(session_dir) / sid
         store = CheckpointStore(ckpt_dir, sid)
-        sp_hash = hashlib.sha256(b"code analyst").hexdigest()
-        await store.append_system_prompt("code analyst", sp_hash)
         await store.append_checkpoint()
         for m in engine1.messages:
             await store.append_message(m)
@@ -593,14 +590,11 @@ type: project
 
             # Step 5: Save session (PR #16) — 用新 CheckpointStore API
             print("  Step 5: [PR#16] Save session...")
-            import hashlib
             import time as _time_mod2
             from illusion.services.checkpoint_store import CheckpointStore
             sid = "full-workflow-001"
             ckpt_dir = get_project_session_dir(tmpdir) / sid
             store = CheckpointStore(ckpt_dir, sid)
-            sp_hash = hashlib.sha256(b"researcher").hexdigest()
-            await store.append_system_prompt("researcher", sp_hash)
             await store.append_checkpoint()
             for m in engine1.messages:
                 await store.append_message(m)

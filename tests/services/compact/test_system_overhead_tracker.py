@@ -40,29 +40,18 @@ def test_update_from_usage_huge_overhead_returns_false():
     assert tracker.tokens is None
 
 
-def test_invalidate_on_prompt_change():
+def test_update_from_usage_overrides_previous():
+    """每轮无条件覆盖，接受自然波动。"""
     tracker = SystemOverheadTracker()
     tracker.update_from_usage(50000, 25000)
     assert tracker.tokens == 25000
-    # system prompt 变化 → 失效
-    tracker.invalidate("new system prompt content")
-    assert tracker.tokens is None
-    assert tracker.has_measured_value is False
-
-
-def test_invalidate_no_change_keeps_value():
-    tracker = SystemOverheadTracker()
-    tracker.invalidate("prompt v1")
-    tracker.update_from_usage(50000, 25000)
-    assert tracker.tokens == 25000
-    # 相同 prompt 不失效
-    tracker.invalidate("prompt v1")
-    assert tracker.tokens == 25000
+    # 下一轮反推值不同 → 直接覆盖
+    tracker.update_from_usage(55000, 25000)
+    assert tracker.tokens == 30000
 
 
 def test_reset():
     tracker = SystemOverheadTracker()
-    tracker.invalidate("prompt")
     tracker.update_from_usage(50000, 25000)
     tracker.reset()
     assert tracker.tokens is None
@@ -73,19 +62,33 @@ def test_apply_restore_from_result() -> None:
     """apply_restore 从 RestoreResult 恢复 overhead。"""
     from illusion.services.checkpoint_store import RestoreResult
     from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
-    from illusion.engine.messages import ConversationMessage
 
     result = RestoreResult(
         messages=[],
         usage_input=0,
         usage_output=0,
         system_overhead=3000,
-        system_overhead_hash="hash_xyz",
-        system_prompt="sys prompt",
-        system_prompt_hash="hash_xyz",
         checkpoint_count=0,
     )
     tracker = SystemOverheadTracker()
     tracker.apply_restore(result)
     assert tracker.tokens == 3000
     assert tracker.has_measured_value is True
+
+
+def test_apply_restore_none_overhead_resets() -> None:
+    """apply_restore 遇到 None overhead 时 reset。"""
+    from illusion.services.checkpoint_store import RestoreResult
+    from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
+
+    result = RestoreResult(
+        messages=[],
+        usage_input=0,
+        usage_output=0,
+        system_overhead=None,
+        checkpoint_count=0,
+    )
+    tracker = SystemOverheadTracker()
+    tracker.update_from_usage(50000, 25000)  # 先有值
+    tracker.apply_restore(result)
+    assert tracker.tokens is None

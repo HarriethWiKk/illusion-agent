@@ -4,13 +4,15 @@
 反推得到 system overhead 实测值（含 system prompt / tools / skills / hooks / rules
 / memory / channels 等系统级开销），不拆分子项。
 
+每轮 API 调用后无条件反推覆盖，接受自然波动。不使用 hash 比对，因为
+system_prompt 文本不包含 tools 描述，hash 无法完整代表系统级开销变化。
+
 主要类：
     - SystemOverheadTracker: 反推并缓存 system overhead
 """
 
 from __future__ import annotations
 
-import hashlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,12 +26,11 @@ class SystemOverheadTracker:
     其中 api_input_tokens 为单轮 API 返回的 input_tokens（即 prompt_tokens，
     已含完整上下文：system + messages + tools + skills 等）。
 
-    缓存在 system prompt 文本变化时失效。
+    每轮 API 调用后由 update_from_usage 无条件反推覆盖。
     """
 
     def __init__(self) -> None:
         self._cached_overhead: int | None = None
-        self._system_prompt_hash: str | None = None
 
     @property
     def has_measured_value(self) -> bool:
@@ -41,24 +42,10 @@ class SystemOverheadTracker:
         """返回实测值；未实测返回 None。"""
         return self._cached_overhead
 
-    @property
-    def system_prompt_hash(self) -> str | None:
-        """返回当前 system prompt 哈希（供 CheckpointStore 持久化）。"""
-        return self._system_prompt_hash
-
-    def invalidate(self, system_prompt_text: str) -> None:
-        """system prompt 变化时失效缓存。
-
-        Args:
-            system_prompt_text: 当前 system prompt 文本
-        """
-        new_hash = hashlib.sha256(system_prompt_text.encode()).hexdigest()
-        if new_hash != self._system_prompt_hash:
-            self._cached_overhead = None
-            self._system_prompt_hash = new_hash
-
     def update_from_usage(self, api_input_tokens: int, messages_tokens_estimated: int) -> bool:
         """API 响应后反推并缓存。
+
+        每轮无条件覆盖（只要反推值在合法范围内），接受自然波动。
 
         Args:
             api_input_tokens: 本轮 API 返回的 input_tokens（即 prompt_tokens）
@@ -79,19 +66,16 @@ class SystemOverheadTracker:
     def apply_restore(self, result: RestoreResult) -> None:
         """从 CheckpointStore.restore() 结果恢复 overhead。
 
-        若 result.system_overhead 为 None，保持未实测状态。
-        否则恢复 cached_overhead 和对应哈希。
+        resume 后使用持久化的 overhead 值显示，直到下一轮 API 调用反推覆盖。
 
         Args:
             result: restore 结果
         """
         if result.system_overhead is not None and result.system_overhead > 0:
             self._cached_overhead = result.system_overhead
-            self._system_prompt_hash = result.system_overhead_hash
         else:
             self.reset()
 
     def reset(self) -> None:
         """重置到初始状态。"""
         self._cached_overhead = None
-        self._system_prompt_hash = None
