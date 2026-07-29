@@ -52,7 +52,6 @@ from illusion.engine.stream_events import (
     ToolProgressEvent,
 )
 from illusion.output_styles import load_output_styles
-from illusion.services.session_storage import save_session_snapshot_async
 from illusion.tasks import TaskRecord, get_task_manager
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
@@ -156,7 +155,6 @@ class ReactBackendHost:
         self._write_queue: Queue[BackendEvent] = Queue()       # 替代 _write_lock，串行化所有 stdout 写入
         self._write_task: asyncio.Task[None] | None = None     # 单一消费者写循环 Task
         self._dispatch_tasks: set[asyncio.Task[None]] = set()  # fire-and-forget 强引用集合
-        self._pending_checkpoints: set[asyncio.Task[None]] = set()  # checkpoint task 强引用集合，防止 GC
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}      # 用户问答
@@ -603,18 +601,9 @@ class ReactBackendHost:
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 # 透传最新累积用量与反推值到前端
                 sync_app_state(self._bundle)
-                # 每轮 checkpoint 异步保存
-                _model = self._bundle.current_settings().active_model_name
-                _checkpoint_task = asyncio.create_task(save_session_snapshot_async(
-                    cwd=self._bundle.cwd,
-                    model=_model,
-                    system_prompt=self._bundle.engine.system_prompt,
-                    messages=list(self._bundle.engine.messages),
-                    usage=self._bundle.engine.total_usage,
-                    session_id=self._bundle.session_id,
-                ))
-                self._pending_checkpoints.add(_checkpoint_task)
-                _checkpoint_task.add_done_callback(self._pending_checkpoints.discard)
+                # 更新会话 meta（CheckpointStore 已在 query_engine 内每轮 append）
+                from illusion.ui.runtime import _update_session_meta
+                _update_session_meta(self._bundle)
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):

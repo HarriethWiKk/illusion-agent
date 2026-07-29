@@ -72,7 +72,6 @@ from illusion.permissions import PermissionChecker
 from illusion.plugins.loader import load_plugins
 from illusion.plugins.types import LoadedPlugin
 from illusion.prompts import build_runtime_system_prompt
-from illusion.services.session_storage import save_session_snapshot
 from illusion.state import AppState, AppStateStore
 from illusion.tasks.types import TaskRecord
 from illusion.tools import ToolRegistry, create_default_tool_registry
@@ -522,6 +521,29 @@ async def build_runtime(
             ConversationMessage.model_validate(m) for m in restore_messages
         ]
         engine.load_messages(restored)
+    # 构造 CheckpointStore 并注入 engine
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import get_project_session_dir, write_index, write_meta
+    import time as _time_mod
+    session_dir = get_project_session_dir(cwd) / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_store = CheckpointStore(session_dir, session_id)
+    engine.set_checkpoint_store(checkpoint_store)
+    # 若有 restore_messages，需要 restore
+    if restore_messages:
+        # resume 场景：restore_messages 已在调用前处理，这里跳过
+        pass
+    # 写 index 和 meta
+    write_index(cwd, session_id)
+    write_meta(cwd, session_id, {
+        "session_id": session_id,
+        "cwd": cwd,
+        "model": settings.active_model_name,
+        "created_at": _time_mod.time(),
+        "updated_at": _time_mod.time(),
+        "summary": "",
+        "message_count": 0,
+    })
 
     return RuntimeBundle(
         api_client=resolved_api_client,
@@ -789,6 +811,27 @@ def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
     bundle.hook_executor._context.api_client = new_client  # type: ignore[assignment]
 
 
+def _update_session_meta(bundle: RuntimeBundle) -> None:
+    """更新会话 meta.json（替代旧 save_session_snapshot）。"""
+    from illusion.services.session_storage import write_meta
+    import time
+    settings = bundle.current_settings()
+    summary = ""
+    for msg in bundle.engine.messages:
+        if msg.role == "user" and msg.text.strip():
+            summary = msg.text.strip()[:80]
+            break
+    write_meta(bundle.cwd, bundle.session_id, {
+        "session_id": bundle.session_id,
+        "cwd": bundle.cwd,
+        "model": settings.active_model_name,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+        "summary": summary,
+        "message_count": len(bundle.engine.messages),
+    })
+
+
 async def handle_line(
     bundle: RuntimeBundle,
     line: str,
@@ -843,6 +886,30 @@ async def handle_line(
         )
         if result.reset_session:
             bundle.session_id = uuid4().hex[:12]
+            # 构造新 CheckpointStore
+            from illusion.services.checkpoint_store import CheckpointStore
+            from illusion.services.session_storage import get_project_session_dir, write_index, write_meta
+            import time, hashlib
+            session_dir = get_project_session_dir(bundle.cwd) / bundle.session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            new_store = CheckpointStore(session_dir, bundle.session_id)
+            bundle.engine.set_checkpoint_store(new_store)
+            # 写 system_prompt 到新 store
+            settings = bundle.current_settings()
+            system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, channel_hint=bundle.channel_hint)
+            sp_hash = hashlib.sha256(system_prompt.encode()).hexdigest()
+            await new_store.append_system_prompt(system_prompt, sp_hash)
+            # 更新 index 和 meta
+            write_index(bundle.cwd, bundle.session_id)
+            write_meta(bundle.cwd, bundle.session_id, {
+                "session_id": bundle.session_id,
+                "cwd": bundle.cwd,
+                "model": settings.active_model_name,
+                "created_at": time.time(),
+                "updated_at": time.time(),
+                "summary": "",
+                "message_count": 0,
+            })
             locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
             prefix = "新会话已开启，任务 ID：" if locale.lower().startswith("zh") else "Started new session. Task ID: "
             suffix = result.message or ""
@@ -880,15 +947,8 @@ async def handle_line(
                 pending = _format_pending_tool_results(bundle.engine.messages)
                 if pending:
                     await print_system(pending)
-            # 保存会话快照
-            save_session_snapshot(
-                cwd=bundle.cwd,
-                model=settings.active_model_name,
-                system_prompt=system_prompt,
-                messages=bundle.engine.messages,
-                usage=bundle.engine.total_usage,
-                session_id=bundle.session_id,
-            )
+            # 更新会话 meta（替代旧 save_session_snapshot）
+            _update_session_meta(bundle)
         sync_app_state(bundle)
         return not result.should_exit
 
@@ -909,25 +969,12 @@ async def handle_line(
         pending = _format_pending_tool_results(bundle.engine.messages)
         if pending:
             await print_system(pending)
-        save_session_snapshot(
-            cwd=bundle.cwd,
-            model=settings.model,
-            system_prompt=system_prompt,
-            messages=bundle.engine.messages,
-            usage=bundle.engine.total_usage,
-            session_id=bundle.session_id,
-        )
+        # 更新会话 meta（替代旧 save_session_snapshot）
+        _update_session_meta(bundle)
         sync_app_state(bundle)
         return True
-    # 保存会话快照
-    save_session_snapshot(
-        cwd=bundle.cwd,
-        model=settings.model,
-        system_prompt=system_prompt,
-        messages=bundle.engine.messages,
-        usage=bundle.engine.total_usage,
-        session_id=bundle.session_id,
-    )
+    # 更新会话 meta（替代旧 save_session_snapshot）
+    _update_session_meta(bundle)
     sync_app_state(bundle)
     return True
 
