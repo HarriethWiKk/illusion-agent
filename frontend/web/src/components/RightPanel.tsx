@@ -66,6 +66,13 @@ export default function RightPanel({
   const contextWindow = Number(status?.context_window ?? 0);
   const contextTokens = Number(status?.context_tokens ?? 0);
   const contextPercent = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 100 / contextWindow)) : 0;
+  // token 计量分项数据
+  const systemPromptTokens = Number(status?.system_prompt_tokens ?? 0);
+  const systemOverheadMeasured = Boolean(status?.system_overhead_measured);
+  const inputTokens = Number(status?.input_tokens ?? 0);
+  const outputTokens = Number(status?.output_tokens ?? 0);
+  const systemPct = contextWindow > 0 ? Math.round(systemPromptTokens * 100 / contextWindow) : 0;
+  const messagesPct = contextWindow > 0 ? Math.round((contextTokens - systemPromptTokens) * 100 / contextWindow) : 0;
 
   // 折叠态
   if (collapsed) {
@@ -179,18 +186,53 @@ export default function RightPanel({
       {/* Context 使用量 */}
       {contextWindow > 0 && (
         <div className="px-5 py-3 border-t border-border-light">
-          <div className="text-xs text-content-secondary font-medium mb-1.5">{t(lang, 'context_window')}</div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-content-primary whitespace-nowrap tabular-nums">~{formatTokens(contextTokens)}/{formatTokens(contextWindow)}</span>
+          <div className="text-xs text-content-secondary font-medium mb-2">{t(lang, 'context_window')}</div>
+          {/* System Prompt 分项 */}
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-content-secondary">{t(lang, 'systemPrompt')}</span>
+            <span className="text-content-primary tabular-nums">
+              {systemOverheadMeasured
+                ? `~${formatTokens(systemPromptTokens)} (${systemPct}%)`
+                : `~ ${t(lang, 'pendingMeasurement')}`}
+            </span>
+          </div>
+          {/* Messages 分项 */}
+          <div className="flex items-center justify-between text-xs mb-2">
+            <span className="text-content-secondary">{t(lang, 'messagesLabel')}</span>
+            <span className="text-content-primary tabular-nums">~{formatTokens(contextTokens - systemPromptTokens)} ({messagesPct}%)</span>
+          </div>
+          {/* 进度条 */}
+          <div className="flex items-center gap-3 mb-1">
             <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${contextPercent >= 95 ? 'bg-gradient-to-r from-warning to-danger' : contextPercent >= 80 ? 'bg-gradient-to-r from-primary to-warning' : 'bg-primary'}`}
+                className={`h-full rounded-full transition-all duration-500 ${contextPercent >= 95 ? 'bg-danger' : contextPercent >= 80 ? 'bg-warning' : 'bg-primary'}`}
                 style={{ width: `${contextPercent}%` }}
               />
             </div>
-            <span className={`text-xs font-medium tabular-nums ${contextPercent >= 95 ? 'text-danger' : contextPercent >= 80 ? 'text-warning' : 'text-content-secondary'}`}>
+            <span className={`text-xs font-medium tabular-nums ${contextPercent >= 95 ? 'text-danger' : 'text-content-secondary'}`}>
               {contextPercent}%
             </span>
+          </div>
+          <div className="text-xs text-content-secondary tabular-nums">
+            ~{formatTokens(contextTokens)} / {formatTokens(contextWindow)}
+          </div>
+          <div className="text-xs text-content-secondary tabular-nums mt-1">
+            {t(lang, 'remaining')} ~{formatTokens(Math.max(0, contextWindow - contextTokens))}
+          </div>
+        </div>
+      )}
+
+      {/* 累积 API 用量区块 */}
+      {(inputTokens > 0 || outputTokens > 0) && (
+        <div className="px-5 py-3 border-t border-border-light">
+          <div className="text-xs text-content-secondary font-medium mb-2">{t(lang, 'cumulativeApiUsage')}</div>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-content-secondary">{t(lang, 'inputLabel')}</span>
+            <span className="text-content-primary tabular-nums">{formatTokens(inputTokens)} ↓</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-content-secondary">{t(lang, 'outputLabel')}</span>
+            <span className="text-content-primary tabular-nums">{formatTokens(outputTokens)} ↑</span>
           </div>
         </div>
       )}

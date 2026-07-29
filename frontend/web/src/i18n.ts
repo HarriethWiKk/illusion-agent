@@ -123,6 +123,14 @@ const ZH: Record<string, string> = {
   contextWindowInvalid: '请输入有效的正整数',
   // 通用按钮
   confirm: '确定',
+  // token 计量相关
+  cumulativeApiUsage: '累积 API 用量',
+  systemPrompt: 'System Prompt',
+  messagesLabel: 'Messages',
+  remaining: '剩余',
+  inputLabel: 'input',
+  outputLabel: 'output',
+  pendingMeasurement: '待实测',
 };
 
 const EN: Record<string, string> = {
@@ -220,6 +228,14 @@ const EN: Record<string, string> = {
   contextWindowInvalid: 'Please enter a valid positive integer',
   // common buttons
   confirm: 'Confirm',
+  // token metering
+  cumulativeApiUsage: 'Cumulative API Usage',
+  systemPrompt: 'System Prompt',
+  messagesLabel: 'Messages',
+  remaining: 'Remaining',
+  inputLabel: 'input',
+  outputLabel: 'output',
+  pendingMeasurement: 'pending',
 };
 
 /**

@@ -372,3 +372,58 @@ export interface WebSessionItem {
   /** 会话摘要（可选） */
   summary?: string;
 }
+
+/**
+ * 后端状态快照接口
+ *
+ * 对应后端 `_state_payload` 返回的字段（src/illusion/ui/protocol.py）。
+ * 所有字段可选，因为前端可能收到部分更新或字段尚未到位。
+ */
+export interface StatusPayload {
+  /** 当前模型名 */
+  model?: string;
+  /** 当前工作目录 */
+  cwd?: string;
+  /** 认证状态 */
+  auth_status?: string;
+  /** API base URL */
+  base_url?: string;
+  /** 权限模式 */
+  permission_mode?: string;
+  /** UI 语言 */
+  ui_language?: string;
+  /** 思考强度 */
+  effort?: string;
+  /** 最大轮数 */
+  passes?: number;
+  /** 已连接 MCP 服务器数 */
+  mcp_connected?: number;
+  /** 失败 MCP 服务器数 */
+  mcp_failed?: number;
+  /** 桥接会话数 */
+  bridge_sessions?: number;
+  /** 输出风格 */
+  output_style?: string;
+  /** 是否显示思考过程 */
+  show_thinking?: boolean;
+  /** 当前阶段 */
+  phase?: string;
+  /** 会话 ID */
+  session_id?: string;
+  /** 上下文窗口大小 */
+  context_window?: number;
+  /** 当前上下文已用 tokens（含 system overhead + messages） */
+  context_tokens?: number;
+  /** 累积 API input tokens */
+  input_tokens?: number;
+  /** 累积 API output tokens */
+  output_tokens?: number;
+  /** 当前 system overhead（实测值或 0） */
+  system_prompt_tokens?: number;
+  /** 是否已得到 system overhead 实测值 */
+  system_overhead_measured?: boolean;
+  /** 最大 tokens */
+  max_tokens?: number;
+  /** 活动 agent 数 */
+  agent_count?: number;
+}
