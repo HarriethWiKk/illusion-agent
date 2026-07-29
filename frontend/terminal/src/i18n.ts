@@ -78,6 +78,8 @@ const ZH: Dict = {
 	contextWindowCustomPrompt: '输入自定义上下文窗口大小:',
 	// ---- 后端退出兜底提示 ----
 	backend_exit_hint: '后端启动失败。请运行 \'illusion auth login\' 配置 API 环境，或检查 settings.json 配置。',
+	// ---- Ctrl+x 行上下文占比摘要（{used}/{window}/{pct} 为占位符）----
+	contextUsageSummary: '上下文 {used} / {window} ({pct}%)',
 };
 
 /**

@@ -160,7 +160,7 @@ export function StatusBar({
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
 				<Box flexGrow={1} />
 				{isAutoMode ? <AutoModeIndicator /> : null}
-		</Box>
+			</Box>
 		</Box>
 	);
 }
