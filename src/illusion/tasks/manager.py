@@ -46,6 +46,8 @@ from illusion.utils.shell import create_shell_subprocess
 
 logger = logging.getLogger(__name__)
 
+_TASK_LOG_TTL_DAYS = 7  # task log 保留天数
+
 
 class BackgroundTaskManager:
     """管理 shell 和 agent 子进程任务。"""
@@ -59,6 +61,23 @@ class BackgroundTaskManager:
         self._generations: dict[str, int] = {}
         # 子进程退出时回调，用于通知 bg_agent_tracker（由 runtime.py 注册）
         self.on_task_complete: Callable[[str, TaskRecord], None] | None = None
+        # 清理超过 TTL 的旧 task log
+        self._cleanup_old_task_logs()
+
+    def _cleanup_old_task_logs(self) -> None:
+        """清理超过 TTL 的 task log 文件。"""
+        try:
+            tasks_dir = get_tasks_dir()
+            cutoff = time.time() - _TASK_LOG_TTL_DAYS * 24 * 3600
+            for log_file in tasks_dir.glob("*.log"):
+                try:
+                    if log_file.stat().st_mtime < cutoff:
+                        log_file.unlink(missing_ok=True)
+                except OSError:
+                    continue
+        except OSError:
+            # 目录不可访问时静默跳过
+            return
 
     def create_pending_task(
         self,

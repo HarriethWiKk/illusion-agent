@@ -287,3 +287,47 @@ async def test_complete_in_process_agent_triggers_callback(tmp_path: Path, monke
     assert record.async_task is None
     assert len(completed_calls) == 1
     assert completed_calls[0] == (record.id, "completed")
+
+
+def test_cleanup_old_task_logs_removes_expired(monkeypatch, tmp_path):
+    """超过 7 天的 task log 应在初始化时被清理"""
+    import os
+    import time
+    from pathlib import Path
+
+    data_dir = tmp_path / "data"
+    tasks_dir = data_dir / "tasks"
+    tasks_dir.mkdir(parents=True)
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(data_dir))
+
+    # 创建一个 8 天前的旧 log
+    old_log = tasks_dir / "bold_log.log"
+    old_log.write_text("old content")
+    old_time = time.time() - 8 * 24 * 3600  # 8 天前
+    os.utime(old_log, (old_time, old_time))
+
+    # 创建一个近期的 log
+    recent_log = tasks_dir / "bnew_log.log"
+    recent_log.write_text("recent content")
+
+    from illusion.tasks.manager import BackgroundTaskManager
+    BackgroundTaskManager()
+
+    assert not old_log.exists(), "旧 log 应被清理"
+    assert recent_log.exists(), "近期 log 应保留"
+
+
+def test_cleanup_old_task_logs_keeps_recent(monkeypatch, tmp_path):
+    """7 天内的 task log 应保留"""
+    data_dir = tmp_path / "data"
+    tasks_dir = data_dir / "tasks"
+    tasks_dir.mkdir(parents=True)
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(data_dir))
+
+    log = tasks_dir / "brecent.log"
+    log.write_text("content")
+
+    from illusion.tasks.manager import BackgroundTaskManager
+    BackgroundTaskManager()
+
+    assert log.exists()
