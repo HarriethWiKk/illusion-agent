@@ -295,3 +295,64 @@ def test_write_meta_still_creates_dir(monkeypatch, tmp_path):
 
     session_dir = get_project_session_dir(str(tmp_path))
     assert (session_dir / "test-session-1" / "meta.json").exists()
+
+
+def test_get_project_session_dir_no_create_does_not_create_dir(monkeypatch, tmp_path):
+    """公开的 get_project_session_dir_no_create 不应创建 session 子目录。
+
+    回归测试：Task 4 曾将该函数设为私有，外部只读调用方被迫使用会 mkdir 的
+    get_project_session_dir，导致空 session 目录遗留。现已公开，外部只读
+    调用方应改用它，确保不创建目录。
+    """
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.services.session_storage import (
+        get_project_session_dir_no_create,
+        get_sessions_dir,
+    )
+
+    project = tmp_path / "repo"
+    project.mkdir()
+
+    session_dir = get_project_session_dir_no_create(str(project))
+
+    # 返回的路径不应存在于磁盘
+    assert not session_dir.exists()
+
+    # sessions 目录下不应有任何项目子目录
+    sessions_dir = get_sessions_dir()
+    sub_dirs = [p for p in sessions_dir.iterdir() if p.is_dir()]
+    assert len(sub_dirs) == 0, "get_project_session_dir_no_create 不应创建任何 session 子目录"
+
+
+@pytest.mark.asyncio
+async def test_privacy_settings_handler_does_not_create_session_dir(monkeypatch, tmp_path):
+    """/privacy-settings 是纯展示命令，不应在磁盘创建 session 子目录。
+
+    回归测试：privacy_settings_handler 原先调用会 mkdir 的 get_project_session_dir
+    仅为展示路径，导致空 session 目录遗留。现已改用 get_project_session_dir_no_create。
+    """
+    from unittest.mock import MagicMock
+
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.commands.settings import privacy_settings_handler
+    from illusion.commands.types import CommandContext
+    from illusion.services.session_storage import get_sessions_dir
+
+    context = CommandContext(
+        engine=MagicMock(),
+        cwd=str(tmp_path / "project"),
+    )
+
+    result = await privacy_settings_handler("", context)
+
+    # 命令应正常返回展示消息
+    assert result.message is not None
+    assert "session_dir" in result.message
+
+    # session 目录下不应有任何项目子目录
+    sessions_dir = get_sessions_dir()
+    sub_dirs = [p for p in sessions_dir.iterdir() if p.is_dir()]
+    assert len(sub_dirs) == 0, "/privacy-settings 不应创建任何 session 子目录"

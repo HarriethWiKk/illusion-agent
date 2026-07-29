@@ -526,8 +526,8 @@ async def build_runtime(
     # 只有第一条用户消息真正提交时才在磁盘创建会话目录。
     # 这样启动后未发消息就退出不会留下"0轮无摘要"的空会话。
     from illusion.services.checkpoint_store import CheckpointStore
-    from illusion.services.session_storage import get_project_session_dir
-    session_dir = get_project_session_dir(cwd) / session_id
+    from illusion.services.session_storage import get_project_session_dir_no_create
+    session_dir = get_project_session_dir_no_create(cwd) / session_id
     checkpoint_store = CheckpointStore(session_dir, session_id)
     engine.set_checkpoint_store(checkpoint_store)
     # resume 场景：restore_messages 已在调用前处理，无需额外操作。

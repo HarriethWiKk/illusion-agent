@@ -99,9 +99,9 @@ async def output_style_handler(args: str, context: CommandContext) -> CommandRes
 
 async def privacy_settings_handler(_: str, context: CommandContext) -> CommandResult:
     """显示隐私和存储设置"""
-    from illusion.services.session_storage import get_project_session_dir
+    from illusion.services.session_storage import get_project_session_dir_no_create
     settings = load_settings()
-    session_dir = get_project_session_dir(context.cwd)
+    session_dir = get_project_session_dir_no_create(context.cwd)
     lines = [
         "Privacy settings:",
         f"- user_config_dir: {get_config_dir()}",

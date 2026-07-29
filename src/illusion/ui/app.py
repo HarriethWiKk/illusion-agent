@@ -412,7 +412,7 @@ async def run_print_mode(
             raise SystemExit(1)
         sid = index["latest_session_id"]
         meta = read_meta(effective_cwd, sid) or {}
-        session_dir = get_project_session_dir(effective_cwd) / sid
+        session_dir = get_project_session_dir_no_create(effective_cwd) / sid
         if not session_dir.exists():
             print(_t("session_not_found_prev"), file=sys.stderr)
             raise SystemExit(1)
@@ -429,7 +429,7 @@ async def run_print_mode(
         if not meta:
             print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
             raise SystemExit(1)
-        session_dir = get_project_session_dir(effective_cwd) / resume
+        session_dir = get_project_session_dir_no_create(effective_cwd) / resume
         store = CheckpointStore(session_dir, resume)
         restore_result = await store.restore()
         restore_messages = [m.model_dump(mode="json") for m in restore_result.messages]

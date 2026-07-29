@@ -79,10 +79,11 @@ def get_project_session_dir(cwd: str | Path) -> Path:
     return session_dir
 
 
-def _get_project_session_dir_no_create(cwd: str | Path) -> Path:
+def get_project_session_dir_no_create(cwd: str | Path) -> Path:
     """返回项目的会话目录路径，但不创建目录。
 
-    供只读/删除操作使用，避免遗留空目录（违反懒创建约束）。
+    公开 API：供只读/删除操作以及外部只读调用方使用，避免遗留空目录
+    （违反懒创建约束）。需要立即创建目录的写路径请改用 get_project_session_dir。
     """
     path = Path(cwd).resolve()
     digest = sha1(str(path).encode("utf-8")).hexdigest()[:12]
@@ -98,7 +99,7 @@ def read_index(cwd: str | Path) -> dict[str, Any] | None:
     Returns:
         dict | None: {"latest_session_id": "...", "version": 1} 或 None
     """
-    path = _get_project_session_dir_no_create(cwd) / "index.json"
+    path = get_project_session_dir_no_create(cwd) / "index.json"
     if not path.exists():
         return None
     try:
@@ -131,7 +132,7 @@ def read_meta(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
         dict | None: meta 字典或 None
     """
     _validate_session_id(session_id)
-    path = _get_project_session_dir_no_create(cwd) / session_id / "meta.json"
+    path = get_project_session_dir_no_create(cwd) / session_id / "meta.json"
     if not path.exists():
         return None
     try:
@@ -169,7 +170,7 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
     Returns:
         list[dict]: 会话元数据列表
     """
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     if not session_dir.exists():
         return []
     sessions: list[dict[str, Any]] = []
@@ -211,7 +212,7 @@ def delete_session_by_id(cwd: str | Path, session_id: str) -> bool:
     """
     _validate_session_id(session_id)
     import shutil
-    session_dir = _get_project_session_dir_no_create(cwd) / session_id
+    session_dir = get_project_session_dir_no_create(cwd) / session_id
     if session_dir.exists() and session_dir.is_dir():
         shutil.rmtree(session_dir)
         # 若删除的是 latest，更新或清空 index.json
@@ -221,7 +222,7 @@ def delete_session_by_id(cwd: str | Path, session_id: str) -> bool:
             if sessions:
                 write_index(cwd, sessions[0]["session_id"])
             else:
-                index_path = _get_project_session_dir_no_create(cwd) / "index.json"
+                index_path = get_project_session_dir_no_create(cwd) / "index.json"
                 if index_path.exists():
                     index_path.unlink()
         return True
@@ -238,7 +239,7 @@ def delete_all_sessions(cwd: str | Path) -> int:
         int: 删除的会话数量
     """
     import shutil
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     count = 0
     if not session_dir.exists():
         return count
@@ -258,7 +259,7 @@ def export_session_markdown(
     messages: list[ConversationMessage],
 ) -> Path:
     """将会话记录导出为 Markdown。"""
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     session_dir.mkdir(parents=True, exist_ok=True)
     path = session_dir / "transcript.md"
     parts: list[str] = ["# IllusionAgent Session Transcript"]
@@ -315,7 +316,7 @@ def count_turns(messages: list[dict[str, Any]]) -> int:
 
 def _pending_question_path(cwd: str | Path, session_id: str) -> Path:
     """返回指定会话的 pending question 文件路径"""
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     return session_dir / f"pending-question-{session_id}.json"
 
 
@@ -386,7 +387,7 @@ def delete_pending_question(cwd: str | Path, session_id: str) -> bool:
 
 def _pending_plan_approval_path(cwd: str | Path, session_id: str) -> Path:
     """返回指定会话的 pending plan approval 文件路径"""
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     return session_dir / f"pending-plan-approval-{session_id}.json"
 
 
@@ -462,7 +463,7 @@ def _pending_permission_path(cwd: str | Path, session_id: str) -> Path:
     Returns:
         Path: pending-permission 文件路径
     """
-    session_dir = _get_project_session_dir_no_create(cwd)
+    session_dir = get_project_session_dir_no_create(cwd)
     return session_dir / f"pending-permission-{session_id}.json"
 
 
