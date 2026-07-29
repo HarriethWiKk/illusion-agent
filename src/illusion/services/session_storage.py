@@ -2,41 +2,40 @@
 会话持久化辅助模块
 ================
 
-本模块提供会话状态持久化功能，支持保存和加载会话快照。
+本模块提供会话状态持久化功能，支持会话目录管理与会话列表查询。
+checkpoint 持久化由 CheckpointStore 负责，本模块仅维护 index.json /
+meta.json 以及 pending 类文件。
 
 主要功能：
     - 获取项目会话目录
-    - 保存会话快照
-    - 加载会话快照
+    - 读写 index.json / meta.json
     - 列出会话快照
+    - 删除会话
     - 导出会话记录为 Markdown
 
 类说明：
     - get_project_session_dir: 获取项目会话目录
-    - save_session_snapshot: 保存会话快照
-    - load_session_snapshot: 加载会话快照
+    - read_index / write_index: 父级 index.json 读写
+    - read_meta / write_meta: {session_id}/meta.json 读写
     - list_session_snapshots: 列出会话快照
     - export_session_markdown: 导出为 Markdown
 
 使用示例：
-    >>> from illusion.services.session_storage import get_project_session_dir, save_session_snapshot
+    >>> from illusion.services.session_storage import get_project_session_dir, write_meta
     >>> # 获取项目会话目录
     >>> session_dir = get_project_session_dir("/path/to/project")
-    >>> # 保存会话快照
-    >>> save_session_snapshot(cwd="/path/to/project", model="claude-3", messages=[...], usage=...)
+    >>> # 写入会话元数据
+    >>> write_meta("/path/to/project", "abc123", {"summary": "...", "updated_at": 0})
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
-from illusion.api.usage import UsageSnapshot
 from illusion.config.paths import get_sessions_dir
 from illusion.engine.messages import ConversationMessage
 from illusion.utils.atomic_write import atomic_write_text
@@ -52,173 +51,153 @@ def get_project_session_dir(cwd: str | Path) -> Path:
     return session_dir
 
 
-def save_session_snapshot(
-    *,
-    cwd: str | Path,
-    model: str,
-    system_prompt: str,
-    messages: list[ConversationMessage],
-    usage: UsageSnapshot,
-    session_id: str | None = None,
-) -> Path:
-    """持久化会话快照。同时按 ID 保存和保存为 latest。"""
-    session_dir = get_project_session_dir(cwd)
-    sid = session_id or uuid4().hex[:12]
-    now = time.time()
-    # 从第一个用户消息提取摘要
-    summary = ""
-    for msg in messages:
-        if msg.role == "user" and msg.text.strip():
-            summary = msg.text.strip()[:80]
-            break
+def read_index(cwd: str | Path) -> dict[str, Any] | None:
+    """读取父级 index.json。
 
-    payload = {
-        "session_id": sid,
-        "cwd": str(Path(cwd).resolve()),
-        "model": model,
-        "system_prompt": system_prompt,
-        "messages": [message.model_dump(mode="json") for message in messages],
-        "usage": usage.model_dump(),
-        "created_at": now,
-        "summary": summary,
-        "message_count": len(messages),
-    }
-    data = json.dumps(payload, indent=2) + "\n"
+    Args:
+        cwd: 项目工作目录
 
-    # 保存为 latest
-    latest_path = session_dir / "latest.json"
-    atomic_write_text(latest_path, data)
-
-    # 按会话 ID 保存
-    session_path = session_dir / f"session-{sid}.json"
-    atomic_write_text(session_path, data)
-
-    return latest_path
-
-
-def load_session_snapshot(cwd: str | Path) -> dict[str, Any] | None:
-    """加载项目的最新会话快照。"""
-    path = get_project_session_dir(cwd) / "latest.json"
+    Returns:
+        dict | None: {"latest_session_id": "...", "version": 1} 或 None
+    """
+    path = get_project_session_dir(cwd) / "index.json"
     if not path.exists():
         return None
-    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return result
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_index(cwd: str | Path, latest_session_id: str) -> None:
+    """写入父级 index.json。
+
+    Args:
+        cwd: 项目工作目录
+        latest_session_id: 最新活动的 session_id
+    """
+    path = get_project_session_dir(cwd) / "index.json"
+    payload = {"latest_session_id": latest_session_id, "version": 1}
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
+
+
+def read_meta(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
+    """读取 {session_id}/meta.json。
+
+    Args:
+        cwd: 项目工作目录
+        session_id: 会话 ID
+
+    Returns:
+        dict | None: meta 字典或 None
+    """
+    path = get_project_session_dir(cwd) / session_id / "meta.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_meta(cwd: str | Path, session_id: str, meta: dict[str, Any]) -> None:
+    """写入 {session_id}/meta.json。
+
+    Args:
+        cwd: 项目工作目录
+        session_id: 会话 ID
+        meta: 元数据字典
+    """
+    session_dir = get_project_session_dir(cwd) / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    path = session_dir / "meta.json"
+    atomic_write_text(path, json.dumps(meta, indent=2) + "\n")
 
 
 def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, Any]]:
-    """列出项目的已保存会话，按最新优先排序。"""
+    """列出项目的已保存会话，按最新优先排序。
+
+    遍历 {session_id}/meta.json，按 updated_at 降序排序。
+
+    Args:
+        cwd: 项目工作目录
+        limit: 最大返回数量
+
+    Returns:
+        list[dict]: 会话元数据列表
+    """
     session_dir = get_project_session_dir(cwd)
     sessions: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    # 命名会话文件
-    for path in sorted(session_dir.glob("session-*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for sub in session_dir.iterdir():
+        if not sub.is_dir():
+            continue
+        meta_path = sub / "meta.json"
+        if not meta_path.exists():
+            continue
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            sid = data.get("session_id", path.stem.replace("session-", ""))
-            seen_ids.add(sid)
-            summary = data.get("summary", "")
-            if not summary:
-                # 从消息中提取
-                for msg in data.get("messages", []):
-                    if msg.get("role") == "user":
-                        texts = [b.get("text", "") for b in msg.get("content", []) if b.get("type") == "text"]
-                        summary = " ".join(texts).strip()[:80]
-                        if summary:
-                            break
-            messages = data.get("messages", [])
-            sessions.append({
-                "session_id": sid,
-                "summary": summary,
-                "message_count": data.get("message_count", len(messages)),
-                "turn_count": count_turns(messages),
-                "model": data.get("model", ""),
-                "created_at": data.get("created_at", path.stat().st_mtime),
-            })
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        if len(sessions) >= limit:
-            break
-
-    # 也包含 latest.json（如果没有对应的会话文件）
-    latest_path = session_dir / "latest.json"
-    if latest_path.exists() and len(sessions) < limit:
-        try:
-            data = json.loads(latest_path.read_text(encoding="utf-8"))
-            sid = data.get("session_id", "latest")
-            if sid not in seen_ids:
-                summary = data.get("summary", "")
-                if not summary:
-                    for msg in data.get("messages", []):
-                        if msg.get("role") == "user":
-                            texts = [b.get("text", "") for b in msg.get("content", []) if b.get("type") == "text"]
-                            summary = " ".join(texts).strip()[:80]
-                            if summary:
-                                break
-                messages = data.get("messages", [])
-                sessions.append({
-                    "session_id": sid,
-                    "summary": summary or "(latest session)",
-                    "message_count": data.get("message_count", len(messages)),
-                    "turn_count": count_turns(messages),
-                    "model": data.get("model", ""),
-                    "created_at": data.get("created_at", latest_path.stat().st_mtime),
-                })
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # 按 created_at 降序排序
-    sessions.sort(key=lambda s: s.get("created_at", 0), reverse=True)
+        sessions.append({
+            "session_id": data.get("session_id", sub.name),
+            "summary": data.get("summary", ""),
+            "message_count": data.get("message_count", 0),
+            "turn_count": data.get("turn_count", 0),
+            "model": data.get("model", ""),
+            "created_at": data.get("created_at", 0),
+            "updated_at": data.get("updated_at", 0),
+        })
+    sessions.sort(key=lambda s: s.get("updated_at", 0), reverse=True)
     return sessions[:limit]
 
 
-def load_session_by_id(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
-    """按 ID 加载特定会话。"""
-    session_dir = get_project_session_dir(cwd)
-    # 先尝试命名会话
-    path = session_dir / f"session-{session_id}.json"
-    if path.exists():
-        result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-        return result
-    # 回退到 latest.json（如果 session_id 匹配）
-    latest = session_dir / "latest.json"
-    if latest.exists():
-        data: dict[str, Any] = json.loads(latest.read_text(encoding="utf-8"))
-        if data.get("session_id") == session_id or session_id == "latest":
-            return data
-    return None
-
-
 def delete_session_by_id(cwd: str | Path, session_id: str) -> bool:
-    """按 ID 删除特定会话。返回是否成功删除。"""
-    session_dir = get_project_session_dir(cwd)
-    path = session_dir / f"session-{session_id}.json"
-    if path.exists():
-        path.unlink()
-        # 如果删除的是 latest.json 对应的会话，也删除 latest.json
-        latest = session_dir / "latest.json"
-        if latest.exists():
-            try:
-                data = json.loads(latest.read_text(encoding="utf-8"))
-                if data.get("session_id") == session_id:
-                    latest.unlink()
-            except (json.JSONDecodeError, OSError):
-                pass
+    """按 ID 删除特定会话（rmtree 整个 {sid}/ 目录）。
+
+    Args:
+        cwd: 项目工作目录
+        session_id: 会话 ID
+
+    Returns:
+        bool: 是否成功删除
+    """
+    import shutil
+    session_dir = get_project_session_dir(cwd) / session_id
+    if session_dir.exists() and session_dir.is_dir():
+        shutil.rmtree(session_dir)
+        # 若删除的是 latest，更新或清空 index.json
+        index = read_index(cwd)
+        if index and index.get("latest_session_id") == session_id:
+            sessions = list_session_snapshots(cwd, limit=1)
+            if sessions:
+                write_index(cwd, sessions[0]["session_id"])
+            else:
+                index_path = get_project_session_dir(cwd) / "index.json"
+                if index_path.exists():
+                    index_path.unlink()
         return True
     return False
 
 
 def delete_all_sessions(cwd: str | Path) -> int:
-    """删除项目的所有会话快照。返回删除的文件数量。"""
+    """删除项目的所有会话快照（rmtree 所有 {sid}/ 子目录 + 删 index.json）。
+
+    Args:
+        cwd: 项目工作目录
+
+    Returns:
+        int: 删除的会话数量
+    """
+    import shutil
     session_dir = get_project_session_dir(cwd)
     count = 0
-    for path in session_dir.glob("session-*.json"):
-        path.unlink()
-        count += 1
-    latest = session_dir / "latest.json"
-    if latest.exists():
-        latest.unlink()
-        count += 1
+    for sub in session_dir.iterdir():
+        if sub.is_dir():
+            shutil.rmtree(sub)
+            count += 1
+    index_path = session_dir / "index.json"
+    if index_path.exists():
+        index_path.unlink()
     return count
 
 
@@ -495,35 +474,3 @@ def delete_pending_permission(cwd: str | Path, session_id: str) -> None:
     path = _pending_permission_path(cwd, session_id)
     if path.exists():
         path.unlink()
-
-
-async def save_session_snapshot_async(
-    *,
-    cwd: str | Path,
-    model: str,
-    system_prompt: str,
-    messages: list[ConversationMessage],
-    usage: UsageSnapshot,
-    session_id: str | None = None,
-) -> None:
-    """异步保存会话快照（每轮 checkpoint 用）。
-
-    失败仅记日志，不抛异常以免影响主流程。
-
-    Args:
-        cwd: 工作目录
-        model: 模型名
-        system_prompt: 系统提示词
-        messages: 消息列表
-        usage: 累积用量
-        session_id: 会话 ID
-    """
-    import logging
-    try:
-        await asyncio.to_thread(
-            save_session_snapshot,
-            cwd=cwd, model=model, system_prompt=system_prompt,
-            messages=messages, usage=usage, session_id=session_id,
-        )
-    except Exception as e:
-        logging.getLogger(__name__).warning("checkpoint 保存失败: %s", e)

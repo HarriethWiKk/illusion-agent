@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from illusion.services.checkpoint_store import CheckpointStore, RestoreResult
 from illusion.services.compact import (
     AutoCompactState,
     TokenWarningState,
@@ -28,13 +29,17 @@ from illusion.services.compact import (
 from illusion.services.session_storage import (
     export_session_markdown,
     get_project_session_dir,
-    load_session_snapshot,
-    save_session_snapshot,
+    read_index,
+    read_meta,
+    write_index,
+    write_meta,
 )
 from illusion.services.token_estimation import estimate_message_tokens, estimate_tokens
 
 __all__ = [
     "AutoCompactState",
+    "CheckpointStore",
+    "RestoreResult",
     "TokenWarningState",
     "calculate_token_warning_state",
     "compact_conversation",
@@ -49,11 +54,13 @@ __all__ = [
     "get_messages_after_compact_boundary",
     "get_project_session_dir",
     "is_compact_boundary_marker",
-    "load_session_snapshot",
     "microcompact_messages",
     "reactive_compact",
-    "save_session_snapshot",
+    "read_index",
+    "read_meta",
     "should_autocompact",
     "strip_images_from_messages",
     "summarize_messages",
+    "write_index",
+    "write_meta",
 ]
