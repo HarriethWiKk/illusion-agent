@@ -692,6 +692,10 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     from illusion.services.compact import estimate_conversation_tokens
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
+    # 读取 system overhead 实测值（invalidate 由 QueryEngine 在反推前处理）
+    system_tokens = bundle.engine.overhead_tracker.tokens
+    messages_tokens = estimate_conversation_tokens(bundle.engine.messages)
+    usage = bundle.engine.total_usage
     bundle.app_state.set(
         model=settings.active_model_name,
         permission_mode=settings.permission.mode.value,
@@ -710,8 +714,24 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         phase=bundle.app_state.get().phase,
         session_id=bundle.session_id,
         context_window=settings.context_window,
-        context_tokens=estimate_conversation_tokens(bundle.engine.messages),
+        context_tokens=(system_tokens or 0) + messages_tokens,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        system_prompt_tokens=system_tokens or 0,
+        system_overhead_measured=system_tokens is not None,
     )
+
+
+def refresh_session_state(bundle: RuntimeBundle) -> None:
+    """会话指令后刷新状态（统一入口）。
+
+    在 /new /resume /rewind /delete /compact 等改变消息历史或会话状态的
+    命令处理后调用，确保前端立即收到最新 context_tokens / usage。
+
+    Args:
+        bundle: 运行时数据 bundle
+    """
+    sync_app_state(bundle)
 
 
 def _rebuild_api_client(bundle: RuntimeBundle, settings: Settings) -> None:
