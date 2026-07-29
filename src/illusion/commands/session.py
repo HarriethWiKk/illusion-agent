@@ -65,7 +65,7 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         from illusion.services.compact import estimate_conversation_tokens, get_context_window
         estimated = estimate_conversation_tokens(context.engine.messages)
         usage = context.engine.total_usage
-        context_window = get_context_window(settings.active_model_name)
+        context_window = get_context_window()
         percentage = int(estimated * 100 / context_window) if context_window > 0 else 0
         remaining = max(0, context_window - estimated)
         return CommandResult(

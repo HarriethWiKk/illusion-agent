@@ -53,3 +53,20 @@ class CostTracker:
             UsageSnapshot: 累积的使用量快照
         """
         return self._usage
+
+    @classmethod
+    def from_snapshot(cls, usage_dict: dict) -> "CostTracker":
+        """从持久化的 usage 字典重建 CostTracker。
+
+        Args:
+            usage_dict: UsageSnapshot.model_dump() 输出的字典
+
+        Returns:
+            CostTracker: 已恢复累积值的 tracker
+        """
+        tracker = cls()
+        tracker._usage = UsageSnapshot(
+            input_tokens=usage_dict.get("input_tokens", 0),
+            output_tokens=usage_dict.get("output_tokens", 0),
+        )
+        return tracker

@@ -62,10 +62,11 @@ def estimate_conversation_tokens(messages: list[ConversationMessage]) -> int:
     return estimate_message_tokens(messages)
 
 
-def get_context_window(model: str) -> int:
-    """返回模型的上下文窗口大小。
+def get_context_window() -> int:
+    """返回当前配置的上下文窗口大小。
 
-    上下文窗口完全由 settings.json 中的 context_window 字段决定。
+    Returns:
+        int: 上下文窗口 token 数
     """
     from illusion.config.settings import load_settings
 
@@ -78,7 +79,7 @@ def get_context_window(model: str) -> int:
 
 def get_autocompact_threshold(model: str) -> int:
     """计算触发自动压缩的 Token 数量阈值。"""
-    context_window = get_context_window(model)
+    context_window = get_context_window()
     reserved = min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, 20_000)
     effective = context_window - reserved
     return effective - AUTOCOMPACT_BUFFER_TOKENS
@@ -92,7 +93,7 @@ def calculate_token_warning_state(
 ) -> TokenWarningState:
     """计算当前上下文使用量的警告状态。"""
     estimated = estimate_message_tokens(messages)
-    context_window = get_context_window(model)
+    context_window = get_context_window()
     threshold = get_autocompact_threshold(model)
 
     is_above_autocompact = estimated >= threshold
