@@ -286,3 +286,39 @@ export type BackendEvent = {
 	/** 转录项列表（可选，用于批量更新） */
 	items?: TranscriptItem[] | null;
 };
+
+/**
+ * 后端状态载荷类型
+ *
+ * 表示后端 `_state_payload` 推送的状态快照，包含模型、权限、上下文窗口、
+ * token 计量等字段。前端通过 `Record<string, unknown>` 宽松接收，
+ * 此接口用于文档化与类型安全（token 计量相关字段为 Token 计量优化新增）。
+ */
+export type StatusPayload = {
+	/** 当前模型名称 */
+	model?: string;
+	/** 权限模式 */
+	permission_mode?: string;
+	/** 上下文窗口大小（token 数） */
+	context_window?: number;
+	/** 当前预估已用上下文 token 数（system overhead + messages） */
+	context_tokens?: number;
+	/** 累积 API input tokens */
+	input_tokens?: number;
+	/** 累积 API output tokens */
+	output_tokens?: number;
+	/** 当前 system overhead token 数（实测值，未实测为 0） */
+	system_prompt_tokens?: number;
+	/** 是否已得到 system overhead 实测值 */
+	system_overhead_measured?: boolean;
+	/** UI 语言 */
+	ui_language?: string;
+	/** 会话 ID */
+	session_id?: string;
+	/** MCP 已连接数 */
+	mcp_connected?: number;
+	/** 活动代理数 */
+	agent_count?: number;
+	/** 其他未知字段索引签名 */
+	[key: string]: unknown;
+};

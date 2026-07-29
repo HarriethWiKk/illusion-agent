@@ -17,6 +17,7 @@ import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TaskSnapshot} from '../types.js';
+import {fmtTokens} from '../utils/fmtTokens.js';
 
 /** 分隔符 */
 const SEP = ' · ';
@@ -48,10 +49,10 @@ function TokenDisplay({
 }): React.JSX.Element {
 	return (
 		<Text color={color}>
-			<Text dimColor>{formatNum(inputTokens)}</Text>
+			<Text dimColor>{fmtTokens(inputTokens)}</Text>
 			<Text dimColor>↓</Text>
 			<Text> </Text>
-			<Text dimColor>{formatNum(outputTokens)}</Text>
+			<Text dimColor>{fmtTokens(outputTokens)}</Text>
 			<Text dimColor>↑</Text>
 		</Text>
 	);
@@ -159,17 +160,7 @@ export function StatusBar({
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
 				<Box flexGrow={1} />
 				{isAutoMode ? <AutoModeIndicator /> : null}
-			</Box>
+		</Box>
 		</Box>
 	);
-}
-
-function formatNum(n: number): string {
-	if (n >= 1000000) {
-		return `${(n / 1000000).toFixed(1)}M`;
-	}
-	if (n >= 1000) {
-		return `${(n / 1000).toFixed(1)}k`;
-	}
-	return String(n);
 }

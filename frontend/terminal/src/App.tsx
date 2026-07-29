@@ -29,6 +29,7 @@ import {useBackendSession} from './hooks/useBackendSession.js';
 import {normalizeLanguage, t, UiLanguage} from './i18n.js';
 import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
+import {fmtTokens} from './utils/fmtTokens.js';
 import {VERSION} from './version.js';
 
 /**
@@ -137,6 +138,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
+	// 上下文窗口占比（用于 idle 提示行末尾展示）
+	const contextWindow = Number(session.status.context_window ?? 0);
+	const contextTokens = Number(session.status.context_tokens ?? 0);
+	const contextPct = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 100 / contextWindow)) : 0;
 	const permissionRequestId =
 		isPermissionModal && typeof session.modal?.request_id === 'string' ? String(session.modal.request_id) : '';
 	const localizedPermissionOptions = PERMISSION_PROMPT_OPTIONS.map((opt) => {
@@ -794,6 +799,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
+						{contextWindow > 0 ? (
+							<>
+								<Text> {theme.icons.middleDot} </Text>
+								{t(language, 'contextUsageSummary')
+									.replace('{used}', fmtTokens(contextTokens))
+									.replace('{window}', fmtTokens(contextWindow))
+									.replace('{pct}', String(contextPct))}
+							</>
+						) : null}
 					</Text>
 				</Box>
 			) : session.ready && session.busy && !session.modal && !selectModal ? (
