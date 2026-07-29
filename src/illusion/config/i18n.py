@@ -645,8 +645,6 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Context Window: (\d[\d,]*) tokens$", r"上下文窗口：\1 tokens"),
     (r"^Estimated Used: ~(\d[\d,]*) tokens \((\d+)%\)$", r"预估已用：~\1 tokens（\2%）"),
     (r"^Remaining: ~(\d[\d,]*) tokens$", r"剩余：~\1 tokens"),
-    # /context usage 新格式（含 ✻ 前缀和 2 空格缩进）
-    (r"^✻ Context Window: (\d[\d,]*) tokens$", r"✻ 上下文窗口：\1 tokens"),
     (r"^  System Prompt: ~(\d[\d,]*) tokens \((\d+)%\)$", r"  System Prompt: ~\1 tokens（\2%）"),
     (r"^  System Prompt: ~ tokens$", r"  System Prompt: ~ tokens"),
     (r"^  Messages: ~(\d[\d,]*) tokens \((\d+)%\)$", r"  Messages: ~\1 tokens（\2%）"),

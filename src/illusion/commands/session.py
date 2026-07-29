@@ -71,7 +71,7 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         )
         return CommandResult(
             message=(
-                f"✻ Context Window: {context_window:,} tokens\n"
+                f"Context Window: {context_window:,} tokens\n"
                 f"{system_line}\n"
                 f"  Messages: ~{messages_tokens:,} tokens ({messages_pct}%)\n"
                 f"  Estimated Used: ~{estimated_used:,} tokens ({percentage}%)\n"

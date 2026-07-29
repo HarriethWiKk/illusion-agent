@@ -47,3 +47,21 @@ async def test_context_usage_not_measured():
     assert "Messages: ~24,822 tokens (2%)" in msg
     assert "Estimated Used: ~24,822 tokens (2%)" in msg
     assert "Cumulative API Usage: input=0 output=0" in msg
+
+
+@pytest.mark.asyncio
+async def test_context_usage_message_has_no_spark_prefix():
+    """/context usage 输出的第一行不应包含 ✻ 前缀（TUI 会自动添加）。"""
+    ctx = MagicMock()
+    ctx.engine.messages = []
+    ctx.engine.overhead_tracker.tokens = 1000
+    ctx.engine.total_usage.input_tokens = 100
+    ctx.engine.total_usage.output_tokens = 50
+    with patch("illusion.commands.session.load_settings") as ls, \
+         patch("illusion.commands.session.estimate_conversation_tokens", return_value=24822), \
+         patch("illusion.commands.session.get_context_window", return_value=1000000):
+        ls.return_value.context_window = 1000000
+        result = await context_handler("usage", ctx)
+    first_line = result.message.split("\n")[0]
+    assert not first_line.startswith("✻"), f"第一行不应包含 ✻ 前缀，实际: {first_line!r}"
+    assert "Context Window:" in first_line
