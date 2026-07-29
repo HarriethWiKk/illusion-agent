@@ -69,6 +69,7 @@ from illusion.ui.runtime import (
     close_runtime,
     handle_line,
     start_runtime,
+    sync_app_state,
 )
 from illusion.utils.aioqueue import Queue, QueueShutDown
 
@@ -873,6 +874,10 @@ class WebBackendHost:
         # 处理恢复结果
         if result.restored_session_id:
             self._bundle.session_id = result.restored_session_id
+
+        # 会话指令后刷新状态
+        if result.refresh_state:
+            sync_app_state(self._bundle)
 
         # 如果有 replay_messages，替换转录项（复用共享的 build_replay_items 函数）
         if result.replay_messages:

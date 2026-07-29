@@ -39,6 +39,7 @@ async def new_handler(_: str, context: CommandContext) -> CommandResult:
         message="Started a new conversation session.",
         clear_screen=True,
         reset_session=True,
+        refresh_state=True,
     )
 
 
@@ -158,7 +159,8 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
     saved = max(0, before_tokens - after_tokens)
     from illusion.config.i18n import t
     return CommandResult(
-        message=t("compact_result", before=before, after=len(compacted), saved=f"{saved:,}")
+        message=t("compact_result", before=before, after=len(compacted), saved=f"{saved:,}"),
+        refresh_state=True,
     )
 
 
@@ -193,6 +195,7 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             + (f" ({summary})" if summary else ""),
             replay_messages=messages,
             restored_session_id=str(snapshot.get("session_id") or sid),
+            refresh_state=True,
         )
 
     # /resume — 列出会话
@@ -211,6 +214,7 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             message=f"Restored {len(messages)} messages from the latest session.",
             replay_messages=messages,
             restored_session_id=str(snapshot.get("session_id", "")),
+            refresh_state=True,
         )
 
     import time
@@ -282,6 +286,7 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         clear_screen=True,
         replay_messages=list(updated) if mode in ("both", "conversation") else None,
         message="\n".join(lines),
+        refresh_state=True,
     )
 
 
@@ -324,6 +329,7 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             message=f"Deleted {count} session file(s).",
             clear_screen=True,
             reset_session=True,
+            refresh_state=True,
         )
 
     # /delete <session_id> or /delete #<turn_number>
@@ -344,6 +350,7 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
                 message=f"Deleted current session: {sid}",
                 clear_screen=True,
                 reset_session=True,
+                refresh_state=True,
             )
         return CommandResult(message=f"Deleted session: {sid}")
     return CommandResult(message=f"Session not found: {sid}")

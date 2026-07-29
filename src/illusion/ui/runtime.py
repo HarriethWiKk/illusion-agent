@@ -851,6 +851,9 @@ async def handle_line(
         await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter, replace_transcript_items)
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
+        # 会话指令后刷新状态（context_tokens / usage / overhead）
+        if result.refresh_state:
+            sync_app_state(bundle)
         # 跨 env 切换模型时重建 API 客户端
         if result.needs_api_rebuild:
             _rebuild_api_client(bundle, bundle.current_settings())

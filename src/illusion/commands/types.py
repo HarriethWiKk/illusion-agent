@@ -30,6 +30,7 @@ class CommandResult:
         replay_messages: 要在TUI中重放的消息列表
         continue_pending: 是否继续待处理的工具循环
         continue_turns: 继续的回合数
+        refresh_state: 命令处理后是否刷新 app_state
     """
 
     message: str | None = None  # 返回消息
@@ -41,6 +42,7 @@ class CommandResult:
     continue_turns: int | None = None  # 继续回合数
     reset_session: bool = False  # 是否重置会话ID
     restored_session_id: str | None = None  # 恢复的会话ID
+    refresh_state: bool = False  # 命令处理后是否刷新 app_state（sync_app_state）
 
 
 @dataclass
