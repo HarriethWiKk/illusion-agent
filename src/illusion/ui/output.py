@@ -189,32 +189,6 @@ class OutputRenderer:
         else:
             self.console.print(f"[yellow]\u2139 {message}[/yellow]")
 
-    def print_status_line(
-        self,
-        *,
-        model: str = "unknown",
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        permission_mode: str = "default",
-    ) -> None:
-        """在每回合后打印紧凑状态行。
-
-        Args:
-            model: 模型名称
-            input_tokens: 输入 token 数量
-            output_tokens: 输出 token 数量
-            permission_mode: 权限模式
-        """
-        parts = [f"[cyan]model: {model}[/cyan]"]
-        if input_tokens > 0 or output_tokens > 0:
-            down = "\u2193"
-            up = "\u2191"
-            parts.append(f"tokens: {_fmt_num(input_tokens)}{down} {_fmt_num(output_tokens)}{up}")
-        parts.append(f"mode: {permission_mode}")
-        sep = " \u2502 "
-        line = sep.join(parts)
-        self.console.print(f"[dim]{line}[/dim]")
-
     def clear(self) -> None:
         """清空终端屏幕。"""
         self.console.clear()
@@ -350,17 +324,3 @@ def _ext_to_lexer(ext: str) -> str | None:
         "txt": None,
     }
     return mapping.get(ext.lower())
-
-
-def _fmt_num(n: int) -> str:
-    """格式化数字（添加千位分隔符）。
-
-    Args:
-        n: 数字
-
-    Returns:
-        str: 格式化的数字字符串
-    """
-    if n >= 1000:
-        return f"{n / 1000:.1f}k"
-    return str(n)
