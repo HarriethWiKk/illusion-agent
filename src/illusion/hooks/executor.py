@@ -29,6 +29,7 @@ from illusion.api.client import (
     ApiMessageRequest,
     SupportsStreamingMessages,
 )
+from illusion.utils.http import create_async_client
 from illusion.engine.messages import ConversationMessage
 from illusion.hooks.events import HookEvent
 from illusion.hooks.loader import HookRegistry
@@ -358,7 +359,7 @@ class HookExecutor:
     ) -> HookResult:
         timeout = hook.timeout or 30
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with create_async_client(timeout=timeout) as client:
                 response = await client.post(
                     hook.url,
                     json=payload,

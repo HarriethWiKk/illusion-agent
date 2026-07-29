@@ -22,6 +22,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.http import create_async_client
 
 
 class WebSearchToolInput(BaseModel):
@@ -88,7 +89,7 @@ IMPORTANT - Use the correct year in search queries:
         endpoint = arguments.search_url or "https://html.duckduckgo.com/html/"
         try:
             # 发起搜索请求
-            async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+            async with create_async_client(follow_redirects=True, timeout=20.0) as client:
                 response = await client.get(
                     endpoint,
                     params={"q": arguments.query},

@@ -40,6 +40,7 @@ from illusion.api.client import (
     ApiTextDeltaEvent,
     ApiToolCallStartedEvent,
 )
+from illusion.utils.http import create_async_client
 from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
 from illusion.api.errors import (
     AuthenticationFailure,
@@ -428,7 +429,7 @@ class CodexApiClient:
 
         headers = _build_codex_headers(self._resolve_auth_token())
         try:
-            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client, client.stream(
+            async with create_async_client(timeout=60.0, follow_redirects=True) as client, client.stream(
                 "POST", self._url, headers=headers, json=body
             ) as response:
                 if response.status_code >= 400:

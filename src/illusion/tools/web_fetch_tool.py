@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from illusion.utils.http import create_async_client
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ Usage notes:
 
         # 发起 HTTP 请求（手动处理重定向以检测跨主机跳转）
         try:
-            async with httpx.AsyncClient(follow_redirects=False, timeout=20.0) as client:
+            async with create_async_client(follow_redirects=False, timeout=20.0) as client:
                 response = await client.get(url, headers={"User-Agent": "IllusionAgent/0.1"})
                 # 检测跨主机重定向（限制最大次数，防止恶意服务器触发无限循环）
                 max_redirects = 10
