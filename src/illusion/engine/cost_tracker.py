@@ -14,7 +14,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from illusion.api.usage import UsageSnapshot
+
+if TYPE_CHECKING:
+    from illusion.services.checkpoint_store import RestoreResult
 
 
 class CostTracker:
@@ -45,6 +50,28 @@ class CostTracker:
             output_tokens=self._usage.output_tokens + usage.output_tokens,
         )
 
+    def set_usage(self, input_tokens: int, output_tokens: int) -> None:
+        """直接设置累积值（用于 rewind 后恢复）。
+
+        Args:
+            input_tokens: 累积 input tokens
+            output_tokens: 累积 output tokens
+        """
+        self._usage = UsageSnapshot(
+            input_tokens=input_tokens, output_tokens=output_tokens
+        )
+
+    def apply_restore(self, result: RestoreResult) -> None:
+        """从 CheckpointStore.restore() 结果恢复累积值。
+
+        Args:
+            result: restore 结果
+        """
+        self._usage = UsageSnapshot(
+            input_tokens=result.usage_input,
+            output_tokens=result.usage_output,
+        )
+
     @property
     def total(self) -> UsageSnapshot:
         """返回聚合后的使用量。
@@ -53,20 +80,3 @@ class CostTracker:
             UsageSnapshot: 累积的使用量快照
         """
         return self._usage
-
-    @classmethod
-    def from_snapshot(cls, usage_dict: dict) -> "CostTracker":
-        """从持久化的 usage 字典重建 CostTracker。
-
-        Args:
-            usage_dict: UsageSnapshot.model_dump() 输出的字典
-
-        Returns:
-            CostTracker: 已恢复累积值的 tracker
-        """
-        tracker = cls()
-        tracker._usage = UsageSnapshot(
-            input_tokens=usage_dict.get("input_tokens", 0),
-            output_tokens=usage_dict.get("output_tokens", 0),
-        )
-        return tracker

@@ -11,6 +11,10 @@
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from illusion.services.checkpoint_store import RestoreResult
 
 
 class SystemOverheadTracker:
@@ -36,6 +40,11 @@ class SystemOverheadTracker:
     def tokens(self) -> int | None:
         """返回实测值；未实测返回 None。"""
         return self._cached_overhead
+
+    @property
+    def system_prompt_hash(self) -> str | None:
+        """返回当前 system prompt 哈希（供 CheckpointStore 持久化）。"""
+        return self._system_prompt_hash
 
     def invalidate(self, system_prompt_text: str) -> None:
         """system prompt 变化时失效缓存。
@@ -66,6 +75,21 @@ class SystemOverheadTracker:
             return False
         self._cached_overhead = overhead
         return True
+
+    def apply_restore(self, result: RestoreResult) -> None:
+        """从 CheckpointStore.restore() 结果恢复 overhead。
+
+        若 result.system_overhead 为 None，保持未实测状态。
+        否则恢复 cached_overhead 和对应哈希。
+
+        Args:
+            result: restore 结果
+        """
+        if result.system_overhead is not None and result.system_overhead > 0:
+            self._cached_overhead = result.system_overhead
+            self._system_prompt_hash = result.system_overhead_hash
+        else:
+            self.reset()
 
     def reset(self) -> None:
         """重置到初始状态。"""

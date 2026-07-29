@@ -67,3 +67,25 @@ def test_reset():
     tracker.reset()
     assert tracker.tokens is None
     assert tracker.has_measured_value is False
+
+
+def test_apply_restore_from_result() -> None:
+    """apply_restore 从 RestoreResult 恢复 overhead。"""
+    from illusion.services.checkpoint_store import RestoreResult
+    from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
+    from illusion.engine.messages import ConversationMessage
+
+    result = RestoreResult(
+        messages=[],
+        usage_input=0,
+        usage_output=0,
+        system_overhead=3000,
+        system_overhead_hash="hash_xyz",
+        system_prompt="sys prompt",
+        system_prompt_hash="hash_xyz",
+        checkpoint_count=0,
+    )
+    tracker = SystemOverheadTracker()
+    tracker.apply_restore(result)
+    assert tracker.tokens == 3000
+    assert tracker.has_measured_value is True
