@@ -199,3 +199,31 @@ def test_search_handles_cjk_queries(tmp_path: Path, monkeypatch):
 
     assert matches
     assert matches[0].title == "meeting"
+
+
+def test_get_project_memory_dir_under_config_dir(monkeypatch, tmp_path):
+    """get_project_memory_dir 应位于 ~/.illusion/memory 下，而非 data/memory"""
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.memory.paths import get_project_memory_dir, get_memory_dir
+    from illusion.config.paths import get_config_dir
+
+    mem_dir = get_project_memory_dir(str(tmp_path / "project"))
+
+    expected_parent = get_config_dir() / "memory"
+    assert mem_dir.parent == expected_parent, f"memory 目录应位于 {expected_parent}，实际 {mem_dir.parent}"
+    assert "data" not in str(mem_dir), "memory 目录不应在 data 下"
+
+
+def test_get_memory_dir_returns_config_memory(monkeypatch, tmp_path):
+    """get_memory_dir 应返回 ~/.illusion/memory"""
+    config_dir = tmp_path / "config"
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(config_dir))
+
+    from illusion.memory.paths import get_memory_dir
+    from illusion.config.paths import get_config_dir
+
+    result = get_memory_dir()
+    assert result == get_config_dir() / "memory"

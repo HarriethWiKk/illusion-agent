@@ -10,7 +10,8 @@
     - 支持项目级记忆目录（.illusion/memory/）
 
 函数说明：
-    - get_project_memory_dir: 获取项目记忆目录（全局数据目录）
+    - get_memory_dir: 获取全局 memory 根目录（~/.illusion/memory）
+    - get_project_memory_dir: 获取项目记忆目录（全局配置目录）
     - get_project_local_memory_dir: 获取项目级记忆目录（.illusion/memory/）
     - get_memory_entrypoint: 获取记忆入口点文件
 
@@ -25,14 +26,23 @@ from __future__ import annotations
 from hashlib import sha1
 from pathlib import Path
 
-from illusion.config.paths import get_data_dir
+from illusion.config.paths import get_config_dir
+
+
+def get_memory_dir() -> Path:
+    """返回全局 memory 根目录（~/.illusion/memory）。
+
+    与项目级目录 {cwd}/.illusion/memory/ 对称。
+    """
+    return get_config_dir() / "memory"
 
 
 def get_project_memory_dir(cwd: str | Path) -> Path:
-    """获取项目持久化记忆目录（全局数据目录）
+    """获取项目持久化记忆目录（全局配置目录）
 
     目录名格式: {项目名}-{sha1哈希前12位}
-    使用项目路径的哈希确保唯一性
+    使用项目路径的哈希确保唯一性。
+    路径位于 ~/.illusion/memory/，与项目级 {cwd}/.illusion/memory/ 对称。
 
     Args:
         cwd: 当前工作目录
@@ -40,11 +50,11 @@ def get_project_memory_dir(cwd: str | Path) -> Path:
     Returns:
         Path: 记忆目录的Path对象
     """
-    path = Path(cwd).resolve()  # 解析为绝对路径
-    digest = sha1(str(path).encode("utf-8")).hexdigest()[:12]  # 计算哈希
-    memory_dir = get_data_dir() / "memory" / f"{path.name}-{digest}"  # 构建目录路径
-    memory_dir.mkdir(parents=True, exist_ok=True)  # 创建目录
-    return memory_dir  # 返回目录
+    path = Path(cwd).resolve()
+    digest = sha1(str(path).encode("utf-8")).hexdigest()[:12]
+    memory_dir = get_memory_dir() / f"{path.name}-{digest}"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    return memory_dir
 
 
 def get_project_local_memory_dir(cwd: str | Path) -> Path:
