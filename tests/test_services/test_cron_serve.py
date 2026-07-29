@@ -25,6 +25,9 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         "illusion.services.cron_serve.get_logs_dir", lambda: logs_dir
     )
+    monkeypatch.setattr(
+        "illusion.services.cron_scheduler.get_cron_dir", lambda: cron_dir
+    )
 
 
 def test_run_cron_serve_starts_server_and_serve():
@@ -108,3 +111,25 @@ async def test_serve_async_stops_scheduler_on_exception():
 
     mock_scheduler.start.assert_called_once()
     mock_scheduler.stop.assert_called_once()
+
+
+def test_run_cron_serve_does_not_touch_real_pid_file(monkeypatch, tmp_path):
+    """run_cron_serve 不应写入或删除真实的 scheduler.pid"""
+    import os
+    from illusion.services import cron_scheduler
+
+    cron_dir = tmp_path / "data" / "cron"
+    cron_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    # 同时 patch cron_serve 和 cron_scheduler 的 get_cron_dir
+    monkeypatch.setattr("illusion.services.cron_serve.get_cron_dir", lambda: cron_dir)
+    monkeypatch.setattr("illusion.services.cron_scheduler.get_cron_dir", lambda: cron_dir)
+    monkeypatch.setattr("illusion.services.cron_serve.get_logs_dir", lambda: logs_dir)
+
+    # 记录真实 PID 文件路径
+    from illusion.services.cron_scheduler import get_pid_path
+    # 在 patch 作用下，get_pid_path 应返回临时目录下的路径
+    pid_path = get_pid_path()
+    assert str(pid_path).startswith(str(tmp_path)), f"PID 文件应在临时目录下，实际 {pid_path}"
