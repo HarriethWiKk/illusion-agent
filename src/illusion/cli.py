@@ -1457,7 +1457,7 @@ def main(
             """用 CheckpointStore 加载会话数据（替代旧 load_session_by_id）。"""
             _cwd = cwd or "."
             meta = read_meta(_cwd, sid) or {}
-            session_dir = get_project_session_dir(_cwd) / sid
+            session_dir = get_project_session_dir_no_create(_cwd) / sid
             store = CheckpointStore(session_dir, sid)
             result = await store.restore()
             return {
