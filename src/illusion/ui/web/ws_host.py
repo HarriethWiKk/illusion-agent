@@ -459,6 +459,19 @@ class WebBackendHost:
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 # 透传最新累积用量与反推值到前端
                 sync_app_state(self._bundle)
+                # 每轮 checkpoint 异步保存
+                import asyncio
+                from illusion.services.session_storage import save_session_snapshot_async
+                from illusion.config.settings import load_settings
+                _settings = load_settings()
+                asyncio.create_task(save_session_snapshot_async(
+                    cwd=self._bundle.cwd,
+                    model=_settings.active_model_name,
+                    system_prompt=self._bundle.engine.system_prompt,
+                    messages=self._bundle.engine.messages,
+                    usage=self._bundle.engine.total_usage,
+                    session_id=self._bundle.session_id,
+                ))
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):

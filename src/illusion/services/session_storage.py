@@ -494,3 +494,39 @@ def delete_pending_permission(cwd: str | Path, session_id: str) -> None:
     path = _pending_permission_path(cwd, session_id)
     if path.exists():
         path.unlink()
+
+
+async def save_session_snapshot_async(
+    *,
+    cwd: str | Path,
+    model: str,
+    system_prompt: str,
+    messages: list[ConversationMessage],
+    usage: UsageSnapshot,
+    session_id: str | None = None,
+) -> None:
+    """异步保存会话快照（每轮 checkpoint 用）。
+
+    失败仅记日志，不抛异常以免影响主流程。
+
+    Args:
+        cwd: 工作目录
+        model: 模型名
+        system_prompt: 系统提示词
+        messages: 消息列表
+        usage: 累积用量
+        session_id: 会话 ID
+    """
+    import asyncio
+    import logging
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: save_session_snapshot(
+                cwd=cwd, model=model, system_prompt=system_prompt,
+                messages=messages, usage=usage, session_id=session_id,
+            )
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning("checkpoint 保存失败: %s", e)
