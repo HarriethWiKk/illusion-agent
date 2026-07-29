@@ -50,6 +50,8 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState
+from illusion.services.compact import estimate_conversation_tokens
+from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
 from illusion.services.file_history import FileHistoryState, make_snapshot, track_edit
 from illusion.tools.base import ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
@@ -111,6 +113,7 @@ class QueryEngine:
         self._effort = effort  # effort 级别
         self._messages: list[ConversationMessage] = []  # 对话消息历史
         self._cost_tracker = CostTracker()  # 成本跟踪器
+        self._overhead_tracker = SystemOverheadTracker()  # system overhead 反推跟踪器
         self._bg_agent_tracker = BackgroundAgentTracker()  # 后台代理追踪器
         self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
         self._file_history: FileHistoryState | None = None  # 文件历史状态
@@ -180,13 +183,32 @@ class QueryEngine:
         """
         return self._cost_tracker.total
 
+    @property
+    def system_prompt(self) -> str:
+        """返回当前系统提示词。
+
+        Returns:
+            str: 当前 system prompt 文本
+        """
+        return self._system_prompt or ""
+
+    @property
+    def overhead_tracker(self) -> SystemOverheadTracker:
+        """返回 system overhead 反推跟踪器。
+
+        Returns:
+            SystemOverheadTracker: tracker 实例
+        """
+        return self._overhead_tracker
+
     def clear(self) -> None:
         """清除内存中的对话历史。
 
-        同时重置成本跟踪器和文件状态缓存。
+        同时重置成本跟踪器、system overhead 跟踪器和文件状态缓存。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
+        self._overhead_tracker.reset()
         self._file_state_cache.clear()
 
     async def aclose(self) -> None:
@@ -376,6 +398,12 @@ class QueryEngine:
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
+                # 反推 system overhead（每轮矫正 skills/hooks 变化）
+                if usage.input_tokens > 0:
+                    # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
+                    self._overhead_tracker.invalidate(self._system_prompt or "")
+                    messages_tokens = estimate_conversation_tokens(self._messages)
+                    self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens)
             yield event
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
@@ -416,6 +444,10 @@ class QueryEngine:
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
+                if usage.input_tokens > 0:
+                    self._overhead_tracker.invalidate(self._system_prompt or "")
+                    messages_tokens = estimate_conversation_tokens(self._messages)
+                    self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens)
             yield event
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
