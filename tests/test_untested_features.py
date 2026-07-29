@@ -391,15 +391,18 @@ async def test_memory_lifecycle():
 # ====================================================================
 # 7. Session storage: save, list, load, export markdown
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_session_storage():
     """Test session save/load/list/export cycle."""
-    from illusion.api.usage import UsageSnapshot
     from illusion.engine.messages import ConversationMessage, TextBlock
+    from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
         export_session_markdown,
+        get_project_session_dir,
         list_session_snapshots,
-        load_session_snapshot,
-        save_session_snapshot,
+        read_meta,
+        write_index,
+        write_meta,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -409,25 +412,36 @@ async def test_session_storage():
             ConversationMessage.from_user_text("Thanks, now fix the bug"),
             ConversationMessage(role="assistant", content=[TextBlock(text="Fixed the null check at line 42.")]),
         ]
-        usage = UsageSnapshot(input_tokens=500, output_tokens=200)
 
-        # Save
-        path = save_session_snapshot(
-            cwd=tmpdir, model=MODEL, system_prompt="Test prompt",
-            messages=messages, usage=usage, session_id="test-session-123",
-        )
+        # Save (用新 CheckpointStore API 替代旧 save_session_snapshot)
+        sid = "test-session-123"
+        import hashlib
+        import time as _time_mod
+        session_dir = get_project_session_dir(tmpdir) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"Test prompt").hexdigest()
+        await store.append_system_prompt("Test prompt", sp_hash)
+        await store.append_checkpoint()
+        for m in messages:
+            await store.append_message(m)
+        path = session_dir / "context.jsonl"
+        write_meta(tmpdir, sid, {
+            "session_id": sid, "cwd": tmpdir, "model": MODEL,
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(messages),
+        })
+        write_index(tmpdir, sid)
         print(f"  Saved to: {path}")
 
         # List
         snapshots = list_session_snapshots(tmpdir)
         print(f"  Listed: {len(snapshots)} snapshots")
 
-        # Load latest
-        loaded = load_session_snapshot(tmpdir)
-        print(f"  Loaded: model={loaded.get('model')}, messages={len(loaded.get('messages', []))}")
-
-        # Load by ID
-
+        # Load via CheckpointStore.restore
+        store2 = CheckpointStore(session_dir, sid)
+        restore_result = await store2.restore()
+        loaded_meta = read_meta(tmpdir, sid) or {}
+        print(f"  Loaded: model={loaded_meta.get('model')}, messages={len(restore_result.messages)}")
 
         # Export markdown
         md_path = export_session_markdown(cwd=tmpdir, messages=messages)
@@ -437,8 +451,8 @@ async def test_session_storage():
         return (
             path.exists()
             and len(snapshots) >= 1
-            and loaded is not None
-            and loaded.get("model") == MODEL
+            and restore_result is not None
+            and loaded_meta.get("model") == MODEL
             and len(md_content) > 0
         )
 

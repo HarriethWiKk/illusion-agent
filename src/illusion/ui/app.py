@@ -384,11 +384,12 @@ async def run_print_mode(
         delete_pending_permission,
         delete_pending_plan_approval,
         delete_pending_question,
+        get_project_session_dir,
         load_pending_permission,
         load_pending_plan_approval,
         load_pending_question,
-        load_session_by_id,
-        load_session_snapshot,
+        read_index,
+        read_meta,
     )
     from illusion.ui.permission_store import add_always_allowed_tool
     from illusion.ui.terminal_io import (
@@ -403,25 +404,37 @@ async def run_print_mode(
     restore_messages: list[dict[str, Any]] | None = None
     restore_session_id: str | None = None
     effective_cwd = cwd or str(Path.cwd())
+    from illusion.services.checkpoint_store import CheckpointStore
     if continue_session:
-        session_data = load_session_snapshot(effective_cwd)
-        if session_data is None:
+        index = read_index(effective_cwd)
+        if index is None or not index.get("latest_session_id"):
             print(_t("session_not_found_prev"), file=sys.stderr)
             raise SystemExit(1)
-        restore_messages = session_data.get("messages", [])
-        restore_session_id = session_data.get("session_id")
-        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
+        sid = index["latest_session_id"]
+        meta = read_meta(effective_cwd, sid) or {}
+        session_dir = get_project_session_dir(effective_cwd) / sid
+        if not session_dir.exists():
+            print(_t("session_not_found_prev"), file=sys.stderr)
+            raise SystemExit(1)
+        store = CheckpointStore(session_dir, sid)
+        restore_result = await store.restore()
+        restore_messages = [m.model_dump(mode="json") for m in restore_result.messages]
+        restore_session_id = sid
+        print(_t("session_continuing", summary=meta.get('summary') or _t("session_summary_fallback")))
     elif resume is not None:
         if resume == "":
             print(_t("session_resume_requires_id"), file=sys.stderr)
             raise SystemExit(1)
-        session_data = load_session_by_id(effective_cwd, resume)
-        if session_data is None:
+        meta = read_meta(effective_cwd, resume)
+        if meta is None:
             print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
             raise SystemExit(1)
-        restore_messages = session_data.get("messages", [])
+        session_dir = get_project_session_dir(effective_cwd) / resume
+        store = CheckpointStore(session_dir, resume)
+        restore_result = await store.restore()
+        restore_messages = [m.model_dump(mode="json") for m in restore_result.messages]
         restore_session_id = resume
-        print(_t("session_continuing", summary=session_data.get('summary') or _t("session_summary_fallback")))
+        print(_t("session_continuing", summary=meta.get('summary') or _t("session_summary_fallback")))
 
     # 检测 pending question（上次 print 模式退出时遗留的待回答问题）
     pending_question: dict[str, Any] | None = None

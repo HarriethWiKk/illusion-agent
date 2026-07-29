@@ -139,23 +139,36 @@ async def test_resume_followed_by_session_tag_uses_restored_session_id(tmp_path:
     registry = create_default_command_registry()
     context = _build_context(tmp_path)
 
-    from illusion.api.usage import UsageSnapshot
-    from illusion.services.session_storage import load_session_by_id, save_session_snapshot
+    import hashlib
+    import time
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import (
+        get_project_session_dir,
+        read_meta,
+        write_index,
+        write_meta,
+    )
 
     context.engine.load_messages([
         ConversationMessage(role="user", content=[TextBlock(text="first")]),
         ConversationMessage(role="assistant", content=[TextBlock(text="second")]),
     ])
-    save_session_snapshot(
-        cwd=tmp_path,
-        model="claude-test",
-        system_prompt="system",
-        messages=context.engine.messages,
-        usage=UsageSnapshot(),
-        session_id="sid-flow-001",
-    )
+    sid = "sid-flow-001"
+    session_dir = get_project_session_dir(tmp_path) / sid
+    store = CheckpointStore(session_dir, sid)
+    sp_hash = hashlib.sha256(b"system").hexdigest()
+    await store.append_system_prompt("system", sp_hash)
+    await store.append_checkpoint()
+    for m in context.engine.messages:
+        await store.append_message(m)
+    write_meta(tmp_path, sid, {
+        "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+        "created_at": time.time(), "updated_at": time.time(),
+        "summary": "", "message_count": len(context.engine.messages),
+    })
+    write_index(tmp_path, sid)
 
     resume_command, resume_args = registry.lookup("/resume sid-flow-001")
     resume_result = await resume_command.handler(resume_args, context)
     assert resume_result.restored_session_id == "sid-flow-001"
-    assert load_session_by_id(tmp_path, "sid-flow-001") is not None
+    assert read_meta(tmp_path, "sid-flow-001") is not None

@@ -146,7 +146,11 @@ class BaseCommandHandler:
             key: 会话键
             args: 命令参数（序号或 session_id）
         """
-        from illusion.services.session_storage import list_session_snapshots, load_session_by_id
+        from illusion.services.checkpoint_store import CheckpointStore
+        from illusion.services.session_storage import (
+            get_project_session_dir,
+            list_session_snapshots,
+        )
 
         cwd = str(Path.cwd())
         snapshots = list_session_snapshots(cwd)
@@ -171,11 +175,11 @@ class BaseCommandHandler:
                 lines.append(f"  {i}. [{sid}] {summary}")
             await self._reply(msg, "\n".join(lines))
             return
-        data = load_session_by_id(cwd, chosen.get("session_id", ""))
-        if data is None:
-            await self._reply(msg, t("feishu_cmd_no_sessions"))
-            return
-        messages = data.get("messages", [])
+        sid = chosen.get("session_id", "")
+        session_dir = get_project_session_dir(cwd) / sid
+        store = CheckpointStore(session_dir, sid)
+        result = await store.restore()
+        messages = [m.model_dump(mode="json") for m in result.messages]
         self.session_store.inject(key, messages)
         await self._reply(msg, t("feishu_cmd_resumed", n=len(messages)))
 
@@ -186,8 +190,15 @@ class BaseCommandHandler:
             msg: 入站消息
             key: 会话键
         """
+        import hashlib
+        import time
         from illusion.engine.messages import ConversationMessage
-        from illusion.services.session_storage import save_session_snapshot
+        from illusion.services.checkpoint_store import CheckpointStore
+        from illusion.services.session_storage import (
+            get_project_session_dir,
+            write_index,
+            write_meta,
+        )
 
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
         cwd = str(Path.cwd())
@@ -197,12 +208,26 @@ class BaseCommandHandler:
                 conv_messages.append(ConversationMessage.model_validate(m))
             except (ValueError, TypeError):
                 continue
-        from illusion.api.usage import UsageSnapshot
         from illusion.config import load_settings
         settings = load_settings()
-        save_session_snapshot(
-            cwd=cwd, model=session.model or settings.active_model_name,
-            system_prompt="", messages=conv_messages,
-            usage=UsageSnapshot(), session_id=session.session_id,
-        )
-        await self._reply(msg, t("feishu_cmd_detached", id=session.session_id))
+        model = session.model or settings.active_model_name
+        sid = session.session_id
+        session_dir = get_project_session_dir(cwd) / sid
+        store = CheckpointStore(session_dir, sid)
+        system_prompt = ""
+        sp_hash = hashlib.sha256(system_prompt.encode()).hexdigest()
+        await store.append_system_prompt(system_prompt, sp_hash)
+        await store.append_checkpoint()
+        for m in conv_messages:
+            await store.append_message(m)
+        write_meta(cwd, sid, {
+            "session_id": sid,
+            "cwd": cwd,
+            "model": model,
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "summary": "",
+            "message_count": len(conv_messages),
+        })
+        write_index(cwd, sid)
+        await self._reply(msg, t("feishu_cmd_detached", id=sid))

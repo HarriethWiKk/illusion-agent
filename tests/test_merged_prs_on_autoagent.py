@@ -333,8 +333,10 @@ async def task_session_resume_autoagent():
 
     from illusion.engine.messages import ConversationMessage
     from illusion.services.session_storage import (
-        load_session_snapshot,
-        save_session_snapshot,
+        get_project_session_dir,
+        read_meta,
+        write_index,
+        write_meta,
     )
 
     with tempfile.TemporaryDirectory() as session_dir:
@@ -363,30 +365,40 @@ async def task_session_resume_autoagent():
         r3 = collect(evs3)
         print(f"    Turn 3: {r3['text'][:100]}")
 
-        # Save session with cost tracking (PR #16)
+        # Save session with cost tracking (PR #16) — 用新 CheckpointStore API
+        import hashlib
+        import time as _time_mod
+        from illusion.services.checkpoint_store import CheckpointStore
         usage_before = engine1.total_usage
         print(f"\n  Session cost: in={usage_before.input_tokens}, out={usage_before.output_tokens}")
 
-        session_path = save_session_snapshot(
-            cwd=session_dir, model=MODEL,
-            system_prompt="code analyst",
-            messages=engine1.messages,
-            usage=usage_before,
-            session_id="autoagent-research-001",
-        )
+        sid = "autoagent-research-001"
+        ckpt_dir = get_project_session_dir(session_dir) / sid
+        store = CheckpointStore(ckpt_dir, sid)
+        sp_hash = hashlib.sha256(b"code analyst").hexdigest()
+        await store.append_system_prompt("code analyst", sp_hash)
+        await store.append_checkpoint()
+        for m in engine1.messages:
+            await store.append_message(m)
+        write_meta(session_dir, sid, {
+            "session_id": sid, "cwd": session_dir, "model": MODEL,
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(engine1.messages),
+        })
+        write_index(session_dir, sid)
+        session_path = ckpt_dir / "context.jsonl"
         print(f"  Saved: {session_path.exists()}, {len(engine1.messages)} messages")
 
-        # Phase 2: Resume in new engine
-        loaded = load_session_snapshot(session_dir)
-        assert loaded is not None
-        print(f"  Loaded: {len(loaded['messages'])} messages, model={loaded['model']}")
+        # Phase 2: Resume in new engine — 用 CheckpointStore.restore 替代旧 load_session_snapshot
+        store2 = CheckpointStore(ckpt_dir, sid)
+        restore_result = await store2.restore()
+        loaded_meta = read_meta(session_dir, sid) or {}
+        print(f"  Loaded: {len(restore_result.messages)} messages, model={loaded_meta.get('model', '?')}")
 
         engine2 = make_anthropic_engine(
             "You are a code analyst. Continue the previous analysis.",
         )
-        engine2.load_messages([
-            ConversationMessage.model_validate(m) for m in loaded["messages"]
-        ])
+        engine2.load_messages(restore_result.messages)
 
         # Phase 3: Continue with context — agent should remember Registry + types
         print("\n  Phase 3: Resumed conversation...")
@@ -517,7 +529,12 @@ async def task_full_dev_workflow():
     from illusion.memory.scan import scan_memory_files
     from illusion.memory.search import find_relevant_memories
     from illusion.services.cron import load_cron_jobs, upsert_cron_job, validate_cron_expression
-    from illusion.services.session_storage import load_session_snapshot, save_session_snapshot
+    from illusion.services.session_storage import (
+        get_project_session_dir,
+        read_meta,
+        write_index,
+        write_meta,
+    )
     from illusion.tools.skill_tool import SkillTool
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -574,13 +591,26 @@ type: project
             usage = engine1.total_usage
             print(f"    Total cost: in={usage.input_tokens}, out={usage.output_tokens}")
 
-            # Step 5: Save session (PR #16)
+            # Step 5: Save session (PR #16) — 用新 CheckpointStore API
             print("  Step 5: [PR#16] Save session...")
-            sp = save_session_snapshot(
-                cwd=tmpdir, model=MODEL, system_prompt="researcher",
-                messages=engine1.messages, usage=usage,
-                session_id="full-workflow-001",
-            )
+            import hashlib
+            import time as _time_mod2
+            from illusion.services.checkpoint_store import CheckpointStore
+            sid = "full-workflow-001"
+            ckpt_dir = get_project_session_dir(tmpdir) / sid
+            store = CheckpointStore(ckpt_dir, sid)
+            sp_hash = hashlib.sha256(b"researcher").hexdigest()
+            await store.append_system_prompt("researcher", sp_hash)
+            await store.append_checkpoint()
+            for m in engine1.messages:
+                await store.append_message(m)
+            write_meta(tmpdir, sid, {
+                "session_id": sid, "cwd": tmpdir, "model": MODEL,
+                "created_at": _time_mod2.time(), "updated_at": _time_mod2.time(),
+                "summary": "", "message_count": len(engine1.messages),
+            })
+            write_index(tmpdir, sid)
+            sp = ckpt_dir / "context.jsonl"
             print(f"    Saved: {sp.exists()}, {len(engine1.messages)} messages")
 
             # Step 6: Create cron job for ongoing monitoring (PR #16)
@@ -596,13 +626,12 @@ type: project
 
             # Step 7: Resume session in Anthropic client and continue (PR #16 + #14)
             print("  Step 7: [PR#16] Resume session with Anthropic client...")
-            loaded = load_session_snapshot(tmpdir)
+            store2 = CheckpointStore(ckpt_dir, sid)
+            restore_result = await store2.restore()
             engine2 = make_anthropic_engine(
                 "You are a researcher continuing a previous analysis. Be concise.",
             )
-            engine2.load_messages([
-                ConversationMessage.model_validate(m) for m in loaded["messages"]
-            ])
+            engine2.load_messages(restore_result.messages)
 
             evs7 = [ev async for ev in engine2.submit_message(
                 "Based on your earlier research, what is the single most important "

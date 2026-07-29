@@ -303,7 +303,14 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.services.session_storage import save_session_snapshot
+    import hashlib
+    import time as _time_mod
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import (
+        get_project_session_dir,
+        write_index,
+        write_meta,
+    )
     from illusion.ui.backend_host import BackendHostConfig, ReactBackendHost
 
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
@@ -314,14 +321,20 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
             ConversationMessage(role="user", content=[TextBlock(text="hello")]),
             ConversationMessage(role="assistant", content=[TextBlock(text="world")]),
         ])
-        save_session_snapshot(
-            cwd=tmp_path,
-            model="claude-test",
-            system_prompt="system",
-            messages=host._bundle.engine.messages,
-            usage=UsageSnapshot(),
-            session_id="sid-old-001",
-        )
+        sid = "sid-old-001"
+        session_dir = get_project_session_dir(tmp_path) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"system").hexdigest()
+        await store.append_system_prompt("system", sp_hash)
+        await store.append_checkpoint()
+        for m in host._bundle.engine.messages:
+            await store.append_message(m)
+        write_meta(tmp_path, sid, {
+            "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(host._bundle.engine.messages),
+        })
+        write_index(tmp_path, sid)
         await host._process_line("/resume sid-old-001")
         assert host._bundle.session_id == "sid-old-001"
     finally:
@@ -334,7 +347,14 @@ async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeyp
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
-    from illusion.services.session_storage import save_session_snapshot
+    import hashlib
+    import time as _time_mod
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import (
+        get_project_session_dir,
+        write_index,
+        write_meta,
+    )
 
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
     host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
@@ -353,14 +373,20 @@ async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeyp
                 content=[ThinkingBlock(thinking="先分析问题"), TextBlock(text="最终答案")],
             ),
         ])
-        save_session_snapshot(
-            cwd=tmp_path,
-            model="claude-test",
-            system_prompt="system",
-            messages=host._bundle.engine.messages,
-            usage=UsageSnapshot(),
-            session_id="sid-thinking-001",
-        )
+        sid = "sid-thinking-001"
+        session_dir = get_project_session_dir(tmp_path) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"system").hexdigest()
+        await store.append_system_prompt("system", sp_hash)
+        await store.append_checkpoint()
+        for m in host._bundle.engine.messages:
+            await store.append_message(m)
+        write_meta(tmp_path, sid, {
+            "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(host._bundle.engine.messages),
+        })
+        write_index(tmp_path, sid)
         await host._process_line("/resume sid-thinking-001")
     finally:
         await close_runtime(host._bundle)
@@ -390,12 +416,25 @@ async def test_backend_rewind_replay_keeps_reasoning_only_assistant(tmp_path, mo
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        host._bundle.engine.load_messages([
-            ConversationMessage(role="user", content=[TextBlock(text="turn1")]),
-            ConversationMessage(role="assistant", content=[ThinkingBlock(thinking="先检查上下文")]),
-            ConversationMessage(role="user", content=[TextBlock(text="turn2")]),
-            ConversationMessage(role="assistant", content=[TextBlock(text="final")]),
-        ])
+        import hashlib
+        from illusion.services.checkpoint_store import CheckpointStore
+
+        turn1_user = ConversationMessage(role="user", content=[TextBlock(text="turn1")])
+        turn1_asst = ConversationMessage(role="assistant", content=[ThinkingBlock(thinking="先检查上下文")])
+        turn2_user = ConversationMessage(role="user", content=[TextBlock(text="turn2")])
+        turn2_asst = ConversationMessage(role="assistant", content=[TextBlock(text="final")])
+        host._bundle.engine.load_messages([turn1_user, turn1_asst, turn2_user, turn2_asst])
+        # 在 CheckpointStore 中写入与 engine 一致的消息+checkpoint
+        store = host._bundle.engine.checkpoint_store
+        assert store is not None
+        sp_hash = hashlib.sha256(b"system").hexdigest()
+        await store.append_system_prompt("system", sp_hash)
+        await store.append_checkpoint()  # id=0
+        await store.append_message(turn1_user)
+        await store.append_message(turn1_asst)
+        await store.append_checkpoint()  # id=1
+        await store.append_message(turn2_user)
+        await store.append_message(turn2_asst)
         await host._process_line("/rewind 1")
     finally:
         await close_runtime(host._bundle)
@@ -425,20 +464,32 @@ async def test_resume_replay_has_no_session_restored_system_banner(tmp_path, mon
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        from illusion.api.usage import UsageSnapshot
-        from illusion.services.session_storage import save_session_snapshot
+        import hashlib
+        import time as _time_mod
+        from illusion.services.checkpoint_store import CheckpointStore
+        from illusion.services.session_storage import (
+            get_project_session_dir,
+            write_index,
+            write_meta,
+        )
         host._bundle.engine.load_messages([
             ConversationMessage(role="user", content=[TextBlock(text="u")]),
             ConversationMessage(role="assistant", content=[TextBlock(text="a")]),
         ])
-        save_session_snapshot(
-            cwd=tmp_path,
-            model="claude-test",
-            system_prompt="system",
-            messages=host._bundle.engine.messages,
-            usage=UsageSnapshot(),
-            session_id="sid-banner-001",
-        )
+        sid = "sid-banner-001"
+        session_dir = get_project_session_dir(tmp_path) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"system").hexdigest()
+        await store.append_system_prompt("system", sp_hash)
+        await store.append_checkpoint()
+        for m in host._bundle.engine.messages:
+            await store.append_message(m)
+        write_meta(tmp_path, sid, {
+            "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(host._bundle.engine.messages),
+        })
+        write_index(tmp_path, sid)
         await host._process_line("/resume sid-banner-001")
     finally:
         await close_runtime(host._bundle)
@@ -465,22 +516,34 @@ async def test_resume_replay_skips_empty_user_transcript_rows(tmp_path, monkeypa
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        from illusion.api.usage import UsageSnapshot
+        import hashlib
+        import time as _time_mod
         from illusion.engine.messages import ToolResultBlock
-        from illusion.services.session_storage import save_session_snapshot
+        from illusion.services.checkpoint_store import CheckpointStore
+        from illusion.services.session_storage import (
+            get_project_session_dir,
+            write_index,
+            write_meta,
+        )
 
         host._bundle.engine.load_messages([
             ConversationMessage(role="assistant", content=[]),
             ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id="x", content="ok", is_error=False)]),
         ])
-        save_session_snapshot(
-            cwd=tmp_path,
-            model="claude-test",
-            system_prompt="system",
-            messages=host._bundle.engine.messages,
-            usage=UsageSnapshot(),
-            session_id="sid-empty-user-001",
-        )
+        sid = "sid-empty-user-001"
+        session_dir = get_project_session_dir(tmp_path) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"system").hexdigest()
+        await store.append_system_prompt("system", sp_hash)
+        await store.append_checkpoint()
+        for m in host._bundle.engine.messages:
+            await store.append_message(m)
+        write_meta(tmp_path, sid, {
+            "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+            "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+            "summary": "", "message_count": len(host._bundle.engine.messages),
+        })
+        write_index(tmp_path, sid)
         await host._process_line("/resume sid-empty-user-001")
     finally:
         await close_runtime(host._bundle)

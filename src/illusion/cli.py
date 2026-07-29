@@ -1445,19 +1445,35 @@ def main(
     # 处理 --continue 和 --resume 标志
     if (continue_session or resume is not None) and backend_only:
         # backend-only 模式：在当前进程加载会话（子进程路径）
+        from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
+            get_project_session_dir,
             list_session_snapshots,
-            load_session_by_id,
-            load_session_snapshot,
+            read_index,
+            read_meta,
         )
+
+        async def _load_session(sid: str) -> dict:
+            """用 CheckpointStore 加载会话数据（替代旧 load_session_by_id）。"""
+            meta = read_meta(cwd, sid) or {}
+            session_dir = get_project_session_dir(cwd) / sid
+            store = CheckpointStore(session_dir, sid)
+            result = await store.restore()
+            return {
+                "session_id": sid,
+                "model": meta.get("model", ""),
+                "summary": meta.get("summary", ""),
+                "messages": [m.model_dump(mode="json") for m in result.messages],
+            }
 
         session_data = None
         assert cwd is not None
         if continue_session:
-            session_data = load_session_snapshot(cwd)
-            if session_data is None:
+            index = read_index(cwd)
+            if index is None or not index.get("latest_session_id"):
                 print(_t("session_not_found_prev"), file=sys.stderr)
                 raise typer.Exit(1)
+            session_data = asyncio.run(_load_session(index["latest_session_id"]))
             print(_t("session_continuing", summary=session_data.get('summary', '(?)')[:60]))
         elif resume == "" or resume is None:
             sessions = list_session_snapshots(cwd, limit=10)
@@ -1471,17 +1487,17 @@ def main(
             try:
                 idx = int(choice) - 1
                 if 0 <= idx < len(sessions):
-                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+                    session_data = asyncio.run(_load_session(sessions[idx]["session_id"]))
                 else:
                     print(_t("invalid_selection"), file=sys.stderr)
                     raise typer.Exit(1)
             except ValueError:
-                session_data = load_session_by_id(cwd, choice)
+                session_data = asyncio.run(_load_session(choice))
             if session_data is None:
                 print(_t("session_not_found", id=choice), file=sys.stderr)
                 raise typer.Exit(1)
         else:
-            session_data = load_session_by_id(cwd, resume)
+            session_data = asyncio.run(_load_session(resume))
             if session_data is None:
                 print(_t("session_not_found", id=resume), file=sys.stderr)
                 raise typer.Exit(1)

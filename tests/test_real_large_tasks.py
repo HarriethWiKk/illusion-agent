@@ -307,7 +307,7 @@ async def task_migration_plan_with_memory():
     import illusion.memory.paths as mp
     from illusion.coordinator.agent_definitions import get_agent_definition
     from illusion.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
-    from illusion.services.session_storage import export_session_markdown, save_session_snapshot
+    from illusion.services.session_storage import export_session_markdown, get_project_session_dir, write_index, write_meta
     from illusion.skills.registry import SkillRegistry
     from illusion.skills.types import SkillDefinition
 
@@ -381,13 +381,27 @@ async def task_migration_plan_with_memory():
             mem_files = list_memory_files(tmpdir)
             print(f"  Memory files saved: {len(mem_files)}")
 
-            # Save session
+            # Save session (用新 CheckpointStore API 替代旧 save_session_snapshot)
+            import hashlib
+            import time as _time_mod
+            from illusion.services.checkpoint_store import CheckpointStore
             all_msgs = engine.messages
             usage = engine.total_usage
-            session_path = save_session_snapshot(
-                cwd=tmpdir, model=MODEL, system_prompt="Plan agent",
-                messages=all_msgs, usage=usage, session_id="migration-plan-001",
-            )
+            sid = "migration-plan-001"
+            session_dir = get_project_session_dir(tmpdir) / sid
+            store = CheckpointStore(session_dir, sid)
+            sp_hash = hashlib.sha256(b"Plan agent").hexdigest()
+            await store.append_system_prompt("Plan agent", sp_hash)
+            await store.append_checkpoint()
+            for m in all_msgs:
+                await store.append_message(m)
+            write_meta(tmpdir, sid, {
+                "session_id": sid, "cwd": tmpdir, "model": MODEL,
+                "created_at": _time_mod.time(), "updated_at": _time_mod.time(),
+                "summary": "", "message_count": len(all_msgs),
+            })
+            write_index(tmpdir, sid)
+            session_path = session_dir / "context.jsonl"
             print(f"  Session saved: {session_path.exists()}")
 
             # Export markdown
@@ -686,8 +700,10 @@ async def task_refactor_with_session():
     """Refactor code across 3 turns, save session, verify it can be loaded."""
 
     from illusion.services.session_storage import (
-        load_session_snapshot,
-        save_session_snapshot,
+        get_project_session_dir,
+        read_meta,
+        write_index,
+        write_meta,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -753,14 +769,28 @@ def handle_create_admin(data):
         r3 = collect(evs3)
         print(f"  Turn 3 (verify): {r3['turns']} turns, {len(r3['tools'])} tools")
 
-        # Save session
-        session_path = save_session_snapshot(
-            cwd=tmpdir, model=MODEL, system_prompt="Refactoring expert",
-            messages=engine.messages, usage=engine.total_usage,
-        )
-        loaded = load_session_snapshot(tmpdir)
+        # Save session (用新 CheckpointStore API 替代旧 save_session_snapshot)
+        import hashlib
+        import time as _time_mod2
+        from illusion.services.checkpoint_store import CheckpointStore
+        sid = "refactor-session"
+        session_dir = get_project_session_dir(tmpdir) / sid
+        store = CheckpointStore(session_dir, sid)
+        sp_hash = hashlib.sha256(b"Refactoring expert").hexdigest()
+        await store.append_system_prompt("Refactoring expert", sp_hash)
+        await store.append_checkpoint()
+        for m in engine.messages:
+            await store.append_message(m)
+        write_meta(tmpdir, sid, {
+            "session_id": sid, "cwd": tmpdir, "model": MODEL,
+            "created_at": _time_mod2.time(), "updated_at": _time_mod2.time(),
+            "summary": "", "message_count": len(engine.messages),
+        })
+        write_index(tmpdir, sid)
+        session_path = session_dir / "context.jsonl"
+        loaded_meta = read_meta(tmpdir, sid) or {}
         print(f"  Session saved: {session_path.exists()}")
-        print(f"  Session loaded: messages={len(loaded.get('messages', []))}")
+        print(f"  Session loaded: model={loaded_meta.get('model', '?')}")
         print(f"  Cost: in={engine.total_usage.input_tokens}, out={engine.total_usage.output_tokens}")
 
         # Verify refactoring

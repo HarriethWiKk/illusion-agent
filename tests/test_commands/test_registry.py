@@ -476,14 +476,30 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
-    context.engine.load_messages(
-        [
-            ConversationMessage.from_user_text("first prompt"),
-            ConversationMessage(role="assistant", content=[TextBlock(text="first answer")]),
-            ConversationMessage.from_user_text("second prompt"),
-            ConversationMessage(role="assistant", content=[TextBlock(text="second answer")]),
-        ]
-    )
+    msgs = [
+        ConversationMessage.from_user_text("first prompt"),
+        ConversationMessage(role="assistant", content=[TextBlock(text="first answer")]),
+        ConversationMessage.from_user_text("second prompt"),
+        ConversationMessage(role="assistant", content=[TextBlock(text="second answer")]),
+    ]
+    context.engine.load_messages(msgs)
+
+    # 设置 CheckpointStore（替代旧 push_checkpoint 内存栈）
+    import hashlib
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import get_project_session_dir
+    sid = "test-copy-rewind"
+    session_dir = get_project_session_dir(tmp_path) / sid
+    store = CheckpointStore(session_dir, sid)
+    context.engine.set_checkpoint_store(store)
+    sp_hash = hashlib.sha256(b"system").hexdigest()
+    await store.append_system_prompt("system", sp_hash)
+    await store.append_checkpoint()  # id=0 (turn 1)
+    await store.append_message(msgs[0])
+    await store.append_message(msgs[1])
+    await store.append_checkpoint()  # id=1 (turn 2)
+    await store.append_message(msgs[2])
+    await store.append_message(msgs[3])
 
     copied: list[str] = []
 
@@ -499,7 +515,7 @@ async def test_copy_rewind_and_meta_commands(tmp_path: Path, monkeypatch):
 
     rewind_command, rewind_args = registry.lookup("/rewind 1")
     rewind_result = await rewind_command.handler(rewind_args, context)
-    assert "removed 2 message(s)" in rewind_result.message
+    assert "Rewound 1 turn(s)" in rewind_result.message
     assert len(context.engine.messages) == 2
 
     privacy_command, privacy_args = registry.lookup("/privacy-settings")
@@ -613,21 +629,33 @@ async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkey
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
-    from illusion.api.usage import UsageSnapshot
-    from illusion.services.session_storage import save_session_snapshot
+    import hashlib
+    import time
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import (
+        get_project_session_dir,
+        write_index,
+        write_meta,
+    )
 
     context.engine.load_messages([
         ConversationMessage(role="user", content=[TextBlock(text="resume me")]),
         ConversationMessage(role="assistant", content=[TextBlock(text="ok")]),
     ])
-    save_session_snapshot(
-        cwd=tmp_path,
-        model="claude-test",
-        system_prompt="system",
-        messages=context.engine.messages,
-        usage=UsageSnapshot(),
-        session_id="resume-abc123",
-    )
+    sid = "resume-abc123"
+    session_dir = get_project_session_dir(tmp_path) / sid
+    store = CheckpointStore(session_dir, sid)
+    sp_hash = hashlib.sha256(b"system").hexdigest()
+    await store.append_system_prompt("system", sp_hash)
+    await store.append_checkpoint()
+    for m in context.engine.messages:
+        await store.append_message(m)
+    write_meta(tmp_path, sid, {
+        "session_id": sid, "cwd": str(tmp_path), "model": "claude-test",
+        "created_at": time.time(), "updated_at": time.time(),
+        "summary": "", "message_count": len(context.engine.messages),
+    })
+    write_index(tmp_path, sid)
 
     command, args = registry.lookup("/resume resume-abc123")
     result = await command.handler(args, context)

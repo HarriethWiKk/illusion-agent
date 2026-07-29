@@ -4,33 +4,33 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import ConversationMessage, TextBlock
 from illusion.services.session_storage import (
     export_session_markdown,
-    load_session_snapshot,
-    save_session_snapshot,
+    read_meta,
+    write_meta,
 )
 
 
-def test_save_and_load_session_snapshot(tmp_path: Path, monkeypatch):
+def test_write_and_read_meta(tmp_path: Path, monkeypatch):
+    """write_meta / read_meta 验证新的会话元数据读写（替代旧 save/load_session_snapshot）。"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     project = tmp_path / "repo"
     project.mkdir()
 
-    path = save_session_snapshot(
-        cwd=project,
-        model="claude-test",
-        system_prompt="system",
-        messages=[ConversationMessage(role="user", content=[TextBlock(text="hello")])],
-        usage=UsageSnapshot(input_tokens=1, output_tokens=2),
-    )
+    meta = {
+        "session_id": "abc",
+        "cwd": str(project),
+        "model": "claude-test",
+        "summary": "",
+        "message_count": 1,
+    }
+    write_meta(cwd=project, session_id="abc", meta=meta)
 
-    assert path.exists()
-    snapshot = load_session_snapshot(project)
-    assert snapshot is not None
-    assert snapshot["model"] == "claude-test"
-    assert snapshot["usage"]["output_tokens"] == 2
+    loaded = read_meta(project, "abc")
+    assert loaded is not None
+    assert loaded["model"] == "claude-test"
+    assert loaded["session_id"] == "abc"
 
 
 def test_export_session_markdown(tmp_path: Path, monkeypatch):
