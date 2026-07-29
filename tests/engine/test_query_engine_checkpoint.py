@@ -23,7 +23,7 @@ def _make_engine(tmp_path: Path) -> QueryEngine:
 
 
 @pytest.mark.asyncio
-async def test_submit_message_appends_checkpoint(tmp_path: Path) -> None:
+async def test_submit_message_appends_checkpoint(tmp_path: Path, monkeypatch) -> None:
     """submit_message 入口 append checkpoint + user message。"""
     from illusion.services.checkpoint_store import CheckpointStore
 
@@ -32,12 +32,12 @@ async def test_submit_message_appends_checkpoint(tmp_path: Path) -> None:
     engine.set_checkpoint_store(store)
     engine.set_system_prompt("sys")
 
-    # mock run_query 返回空事件流
+    # mock run_query 返回空事件流（使用 monkeypatch 自动还原，避免污染后续测试）
     import illusion.engine.query_engine as qe_mod
     async def _fake_run_query(ctx, msgs):
         if False:
             yield  # 让函数成为 async generator（不 yield 任何东西）
-    qe_mod.run_query = _fake_run_query  # type: ignore
+    monkeypatch.setattr(qe_mod, "run_query", _fake_run_query)
 
     async for _ in engine.submit_message("hello"):
         pass
