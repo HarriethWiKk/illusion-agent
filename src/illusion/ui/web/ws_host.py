@@ -457,6 +457,8 @@ class WebBackendHost:
                     )
                 )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+                # 透传最新累积用量与反推值到前端
+                sync_app_state(self._bundle)
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):
