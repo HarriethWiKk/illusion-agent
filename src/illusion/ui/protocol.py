@@ -414,6 +414,10 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "session_id": state.session_id,
         "context_window": state.context_window,
         "context_tokens": state.context_tokens,
+        "input_tokens": state.input_tokens,
+        "output_tokens": state.output_tokens,
+        "system_prompt_tokens": state.system_prompt_tokens,
+        "system_overhead_measured": state.system_overhead_measured,
         "agent_count": len(list_active_agents()),
     }
 
