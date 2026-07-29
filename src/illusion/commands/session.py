@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 from illusion.api.errors import IllusionAgentApiError
-from illusion.commands.helpers import rewind_turns
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import load_settings, save_settings
 from illusion.engine.messages import ConversationMessage
@@ -163,11 +162,11 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
     """
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
+        get_project_session_dir,
         list_session_snapshots,
         read_index,
         read_meta,
         write_index,
-        get_project_session_dir,
     )
 
     tokens = args.strip().split()
@@ -184,8 +183,13 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             else:
                 return CommandResult(message=f"Invalid turn number: {sid}. Use /resume to see available sessions.")
 
-        # 读 meta.json 验证存在
-        meta = read_meta(context.cwd, sid)
+        # 校验 session_id 合法性（防路径遍历）
+        from illusion.services.session_storage import InvalidSessionIdError
+        try:
+            # 读 meta.json 验证存在
+            meta = read_meta(context.cwd, sid)
+        except InvalidSessionIdError:
+            return CommandResult(message=f"Invalid session id: {sid}")
         if meta is None:
             return CommandResult(message=f"Session not found: {sid}")
 
@@ -270,7 +274,6 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
 
     用法：/rewind [TURNS] [both|conversation|code]
     """
-    from illusion.services.checkpoint_store import CheckpointStore
 
     parts = args.strip().split()
     turns = 1
@@ -296,7 +299,7 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         )
 
     removed = 0
-    restored_messages: list | None = None
+    restored_messages: list[ConversationMessage] | None = None
 
     # 回退对话
     if mode in ("both", "conversation"):
@@ -380,7 +383,13 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             sid = sessions[turn_num - 1]["session_id"]
         else:
             return CommandResult(message=f"Invalid turn number: {sid}. Use /delete to see available sessions.")
-    if delete_session_by_id(context.cwd, sid):
+    # 校验 session_id 合法性（防路径遍历）
+    from illusion.services.session_storage import InvalidSessionIdError
+    try:
+        deleted = delete_session_by_id(context.cwd, sid)
+    except InvalidSessionIdError:
+        return CommandResult(message=f"Invalid session id: {sid}")
+    if deleted:
         cleanup_file_history(sid)
         if sid == context.session_id:
             context.engine.full_reset()

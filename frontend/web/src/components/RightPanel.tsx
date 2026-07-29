@@ -135,7 +135,7 @@ export default function RightPanel({
         <CollapsibleSection
           title="Skills"
           count={skills.length}
-          subtitle={projectSkills.length > 0 ? `${projectSkills.length} project` : undefined}
+          subtitle={projectSkills.length > 0 ? `${projectSkills.length} ${t(lang, 'project_label')}` : undefined}
           defaultCollapsed={false}
         >
           {skills.map((s) => (
@@ -149,7 +149,7 @@ export default function RightPanel({
         <CollapsibleSection
           title="MCP"
           count={mcpServers.length}
-          subtitle={mcpServers.some((s) => s.state === 'connected') ? `${mcpServers.filter((s) => s.state === 'connected').length} connected` : undefined}
+          subtitle={mcpServers.some((s) => s.state === 'connected') ? `${mcpServers.filter((s) => s.state === 'connected').length} ${t(lang, 'connected_label')}` : undefined}
         >
           {mcpServers.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.state} tag={s.tool_count != null ? `${s.tool_count}t` : undefined} />
@@ -162,10 +162,10 @@ export default function RightPanel({
         <CollapsibleSection
           title="Plugins"
           count={plugins.length}
-          subtitle={enabledPlugins.length > 0 ? `${enabledPlugins.length} enabled` : undefined}
+          subtitle={enabledPlugins.length > 0 ? `${enabledPlugins.length} ${t(lang, 'enabled_label')}` : undefined}
         >
           {plugins.map((p) => (
-            <ItemRow key={p.name} name={p.name} description={p.description} tag={p.enabled ? undefined : 'off'} />
+            <ItemRow key={p.name} name={p.name} description={p.description} tag={p.enabled ? undefined : t(lang, 'off_label')} />
           ))}
         </CollapsibleSection>
       )}
@@ -175,7 +175,7 @@ export default function RightPanel({
         <CollapsibleSection
           title="Rules"
           count={rules.length}
-          subtitle={projectRules.length > 0 ? `${projectRules.length} project` : undefined}
+          subtitle={projectRules.length > 0 ? `${projectRules.length} ${t(lang, 'project_label')}` : undefined}
         >
           {rules.map((r) => (
             <ItemRow key={`${r.source}-${r.name}`} name={r.name} description="" tag={r.source === 'project' ? 'P' : undefined} />
@@ -309,6 +309,6 @@ function ItemRow({ name, description, tag }: { name: string; description: string
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }

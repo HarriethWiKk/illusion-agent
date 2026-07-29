@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import aiofiles
+from pydantic import ValidationError
 
 from illusion.engine.messages import ConversationMessage
 
@@ -59,7 +62,13 @@ class CheckpointStore:
         Args:
             session_dir: 会话目录（含 context.jsonl）
             session_id: 会话 ID
+
+        Raises:
+            InvalidSessionIdError: 当 session_id 含路径遍历字符时
         """
+        # 防御路径遍历：session_id 应为纯目录名
+        from illusion.services.session_storage import _validate_session_id
+        _validate_session_id(session_id)
         self._session_dir = session_dir
         self._session_id = session_id
         self._file = session_dir / "context.jsonl"
@@ -203,7 +212,7 @@ class CheckpointStore:
                 self._file.unlink()
             self._next_checkpoint_id = 0
 
-    async def _append_line(self, record: dict) -> None:
+    async def _append_line(self, record: dict[str, Any]) -> None:
         """加锁追加一行 JSON。第一次调用时延迟创建会话目录。"""
         async with self._io_lock:
             if not self._dir_ensured:
@@ -252,8 +261,11 @@ class CheckpointStore:
                 if msg_data:
                     try:
                         messages.append(ConversationMessage.model_validate(msg_data))
-                    except Exception:
-                        pass
+                    except (ValidationError, ValueError, TypeError) as e:
+                        # 损坏的消息行跳过，避免影响整次 restore
+                        logging.getLogger(__name__).warning(
+                            "跳过损坏的 %s 消息行: %s", role, e
+                        )
 
         return RestoreResult(
             messages=messages,

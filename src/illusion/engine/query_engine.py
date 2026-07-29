@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,8 +53,7 @@ from illusion.engine.query import (
 from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
-from illusion.services.compact import AutoCompactState
-from illusion.services.compact import estimate_conversation_tokens
+from illusion.services.compact import AutoCompactState, estimate_conversation_tokens
 from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
 from illusion.services.file_history import FileHistoryState, make_snapshot, track_edit
 from illusion.tools.base import ToolRegistry
@@ -380,7 +380,7 @@ class QueryEngine:
         # 初始化文件历史状态（如尚未初始化）
         if self._file_history is None:
             self._file_history = FileHistoryState(
-                session_id=self._session_id or __import__('uuid').uuid4().hex[:12],
+                session_id=self._session_id or uuid.uuid4().hex[:12],
                 cwd=str(self._cwd),
             )
 
@@ -475,12 +475,11 @@ class QueryEngine:
                     # 反推 system overhead（每轮无条件覆盖，接受自然波动）
                     if usage.input_tokens > 0:
                         messages_tokens = estimate_conversation_tokens(self._messages)
-                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
+                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens) and self._checkpoint_store is not None:
                             # 持久化实测 overhead
-                            if self._checkpoint_store is not None:
-                                await self._checkpoint_store.append_system_overhead(
-                                    self._overhead_tracker.tokens or 0,
-                                )
+                            await self._checkpoint_store.append_system_overhead(
+                                self._overhead_tracker.tokens or 0,
+                            )
                 yield event
         finally:
             # 持久化 run_query 期间新增的所有消息（assistant 回复、tool 结果、
@@ -541,11 +540,10 @@ class QueryEngine:
                         )
                     if usage.input_tokens > 0:
                         messages_tokens = estimate_conversation_tokens(self._messages)
-                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
-                            if self._checkpoint_store is not None:
-                                await self._checkpoint_store.append_system_overhead(
-                                    self._overhead_tracker.tokens or 0,
-                                )
+                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens) and self._checkpoint_store is not None:
+                            await self._checkpoint_store.append_system_overhead(
+                                self._overhead_tracker.tokens or 0,
+                            )
                 yield event
         finally:
             # 持久化 run_query 期间新增的所有消息（与 submit_message 一致）

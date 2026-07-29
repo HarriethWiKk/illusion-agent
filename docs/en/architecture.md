@@ -5,7 +5,7 @@ illusion-agent/
 ├── src/illusion/           # Main source code
 │   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
-│   ├── commands/           # Slash command system (49 commands)
+│   ├── commands/           # Slash command system (48 commands)
 │   ├── config/             # Configuration system
 │   ├── coordinator/        # Multi-agent coordinator
 │   ├── engine/             # Core conversation engine

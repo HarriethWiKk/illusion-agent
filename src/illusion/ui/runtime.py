@@ -807,8 +807,9 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
 
     空会话（engine.messages 为空）不写入 meta/index，避免磁盘留下空会话目录。
     """
-    from illusion.services.session_storage import write_meta, write_index, read_meta
     import time
+
+    from illusion.services.session_storage import read_meta, write_index, write_meta
     # 空会话不写 meta/index，避免磁盘留下空会话目录
     # （rewind 到 0、/new 后未发消息等场景会触发）
     if not bundle.engine.messages:

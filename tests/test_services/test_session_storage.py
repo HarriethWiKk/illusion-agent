@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from illusion.engine.messages import ConversationMessage, TextBlock
 from illusion.services.session_storage import (
+    InvalidSessionIdError,
+    delete_session_by_id,
     export_session_markdown,
     list_session_snapshots,
     read_meta,
@@ -206,3 +210,43 @@ def test_list_session_snapshots_filters_empty(tmp_path: Path, monkeypatch):
     assert sessions[0]["session_id"] == "real1"
     assert sessions[0]["turn_count"] == 1
     assert sessions[0]["summary"] == "你好"
+
+
+def test_validate_session_id_rejects_traversal(tmp_path: Path, monkeypatch):
+    """session_id 含路径遍历字符应被拒绝。"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    project = tmp_path / "repo"
+    project.mkdir()
+
+    # 各种路径遍历尝试都应抛出 InvalidSessionIdError
+    evil_ids = [
+        "..",
+        "../..",
+        "..\\..",
+        "/etc/passwd",
+        "\\windows\\system32",
+        "~/malicious",
+        "C:\\windows",
+        "foo/bar",
+        "foo\\bar",
+    ]
+    for evil in evil_ids:
+        with pytest.raises(InvalidSessionIdError):
+            read_meta(cwd=project, session_id=evil)
+        with pytest.raises(InvalidSessionIdError):
+            write_meta(cwd=project, session_id=evil, meta={})
+        with pytest.raises(InvalidSessionIdError):
+            delete_session_by_id(cwd=project, session_id=evil)
+
+    # 空 session_id 也要拒绝
+    with pytest.raises(InvalidSessionIdError):
+        read_meta(cwd=project, session_id="")
+
+
+def test_checkpoint_store_validates_session_id(tmp_path: Path, monkeypatch):
+    """CheckpointStore 构造时校验 session_id。"""
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    from illusion.services.checkpoint_store import CheckpointStore
+
+    with pytest.raises(InvalidSessionIdError):
+        CheckpointStore(tmp_path / "evil", "../../etc")

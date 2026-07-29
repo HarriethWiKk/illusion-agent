@@ -41,6 +41,34 @@ from illusion.engine.messages import ConversationMessage
 from illusion.utils.atomic_write import atomic_write_text
 
 
+class InvalidSessionIdError(ValueError):
+    """会话 ID 非法（含路径遍历字符等）。"""
+
+
+def _validate_session_id(session_id: str) -> None:
+    """校验 session_id 合法性，防止路径遍历攻击。
+
+    合法 session_id 应为纯目录名（hex 字符串），不含路径分隔符、
+    上层目录引用或绝对路径前缀。
+
+    Args:
+        session_id: 待校验的会话 ID
+
+    Raises:
+        InvalidSessionIdError: 当 session_id 含非法字符时
+    """
+    if not session_id:
+        raise InvalidSessionIdError("session_id 不能为空")
+    # 拒绝路径遍历字符和路径分隔符
+    if ".." in session_id or "/" in session_id or "\\" in session_id or "~" in session_id:
+        raise InvalidSessionIdError(f"非法 session_id: {session_id!r}")
+    # 拒绝绝对路径（Windows 盘符或 POSIX 绝对路径）
+    if len(session_id) >= 2 and session_id[1] == ":":
+        raise InvalidSessionIdError(f"非法 session_id: {session_id!r}")
+    if session_id.startswith(("/", "\\")):
+        raise InvalidSessionIdError(f"非法 session_id: {session_id!r}")
+
+
 def get_project_session_dir(cwd: str | Path) -> Path:
     """返回项目的会话目录。"""
     path = Path(cwd).resolve()
@@ -64,7 +92,8 @@ def read_index(cwd: str | Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return data
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -91,11 +120,13 @@ def read_meta(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
     Returns:
         dict | None: meta 字典或 None
     """
+    _validate_session_id(session_id)
     path = get_project_session_dir(cwd) / session_id / "meta.json"
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return data
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -108,6 +139,7 @@ def write_meta(cwd: str | Path, session_id: str, meta: dict[str, Any]) -> None:
         session_id: 会话 ID
         meta: 元数据字典
     """
+    _validate_session_id(session_id)
     session_dir = get_project_session_dir(cwd) / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     path = session_dir / "meta.json"
@@ -165,6 +197,7 @@ def delete_session_by_id(cwd: str | Path, session_id: str) -> bool:
     Returns:
         bool: 是否成功删除
     """
+    _validate_session_id(session_id)
     import shutil
     session_dir = get_project_session_dir(cwd) / session_id
     if session_dir.exists() and session_dir.is_dir():

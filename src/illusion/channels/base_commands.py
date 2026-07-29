@@ -191,6 +191,7 @@ class BaseCommandHandler:
             key: 会话键
         """
         import time
+
         from illusion.engine.messages import ConversationMessage
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
