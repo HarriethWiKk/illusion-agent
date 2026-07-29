@@ -29,9 +29,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from illusion.services.checkpoint_store import CheckpointStore, RestoreResult
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.api.effort import EffortLevel
@@ -119,6 +122,7 @@ class QueryEngine:
         self._file_history: FileHistoryState | None = None  # 文件历史状态
         self._session_id: str = session_id or ""  # 会话 ID（用于文件历史目录）
         self._file_state_cache = FileStateCache()  # 文件状态缓存（用于读写去重）
+        self._checkpoint_store: CheckpointStore | None = None  # 持久化存储
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -205,11 +209,59 @@ class QueryEngine:
         """清除内存中的对话历史。
 
         同时重置成本跟踪器、system overhead 跟踪器和文件状态缓存。
+        注意：不清除 _checkpoint_store 和 _session_id，由 full_reset 处理。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
-        self._overhead_tracker.reset()
+        self._overhead_tracker = SystemOverheadTracker()
         self._file_state_cache.clear()
+
+    def set_checkpoint_store(self, store: CheckpointStore | None) -> None:
+        """设置或清除 CheckpointStore。
+
+        Args:
+            store: CheckpointStore 实例或 None
+        """
+        self._checkpoint_store = store
+
+    def set_session_id(self, session_id: str) -> None:
+        """更新引擎内部的 session_id（用于 /resume 后同步）。
+
+        Args:
+            session_id: 新的会话 ID
+        """
+        self._session_id = session_id
+
+    def full_reset(self) -> None:
+        """完全重置引擎状态（用于 /new）。
+
+        清空消息历史、cost_tracker、overhead_tracker、file_history、
+        file_state_cache、session_id 和 checkpoint_store。
+        """
+        self._messages.clear()
+        self._cost_tracker = CostTracker()
+        self._overhead_tracker = SystemOverheadTracker()
+        self._file_history = None
+        self._file_state_cache.clear()
+        self._session_id = ""
+        self._checkpoint_store = None
+
+    def apply_restore(self, result: RestoreResult) -> None:
+        """从 CheckpointStore.restore() 结果恢复所有状态。
+
+        Args:
+            result: restore 结果
+        """
+        self._messages = list(result.messages)
+        self._cost_tracker.apply_restore(result)
+        self._overhead_tracker.apply_restore(result)
+        if result.system_prompt:
+            self._system_prompt = result.system_prompt
+
+    @property
+    def checkpoint_store(self) -> CheckpointStore | None:
+        """返回当前 CheckpointStore。"""
+        return self._checkpoint_store
 
     async def aclose(self) -> None:
         """关闭查询引擎，cancel 所有未完成后台 task。
@@ -317,6 +369,9 @@ class QueryEngine:
             >>> async for event in engine.submit_message("你好"):
             ...     print(event)
         """
+        # append checkpoint 到 JSONL（替代旧 push_checkpoint）
+        if self._checkpoint_store is not None:
+            await self._checkpoint_store.append_checkpoint()
         # 初始化文件历史状态（如尚未初始化）
         if self._file_history is None:
             self._file_history = FileHistoryState(
@@ -326,6 +381,9 @@ class QueryEngine:
 
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))
+        # 持久化 user message
+        if self._checkpoint_store is not None:
+            await self._checkpoint_store.append_message(self._messages[-1])
 
         # 执行 UserPromptSubmit 钩子（对齐 Claude Code）
         if self._hook_executor is not None:
@@ -398,12 +456,24 @@ class QueryEngine:
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
+                # 持久化累积 usage
+                if self._checkpoint_store is not None:
+                    await self._checkpoint_store.append_usage(
+                        self._cost_tracker.total.input_tokens,
+                        self._cost_tracker.total.output_tokens,
+                    )
                 # 反推 system overhead（每轮矫正 skills/hooks 变化）
                 if usage.input_tokens > 0:
                     # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
                     self._overhead_tracker.invalidate(self._system_prompt or "")
                     messages_tokens = estimate_conversation_tokens(self._messages)
-                    self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens)
+                    if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
+                        # 持久化实测 overhead
+                        if self._checkpoint_store is not None:
+                            await self._checkpoint_store.append_system_overhead(
+                                self._overhead_tracker.tokens or 0,
+                                self._overhead_tracker.system_prompt_hash or "",
+                            )
             yield event
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
@@ -444,11 +514,22 @@ class QueryEngine:
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
                 self._cost_tracker.add(usage)  # 累加使用量
+                # 持久化累积 usage（continue_pending 不 append checkpoint）
+                if self._checkpoint_store is not None:
+                    await self._checkpoint_store.append_usage(
+                        self._cost_tracker.total.input_tokens,
+                        self._cost_tracker.total.output_tokens,
+                    )
                 if usage.input_tokens > 0:
                     # 先 invalidate：若本轮 system prompt 变化（含 hooks/skills 注入）则清旧值
                     self._overhead_tracker.invalidate(self._system_prompt or "")
                     messages_tokens = estimate_conversation_tokens(self._messages)
-                    self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens)
+                    if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens):
+                        if self._checkpoint_store is not None:
+                            await self._checkpoint_store.append_system_overhead(
+                                self._overhead_tracker.tokens or 0,
+                                self._overhead_tracker.system_prompt_hash or "",
+                            )
             yield event
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
