@@ -169,6 +169,13 @@ class LspClient:
             if popped is not None and not popped.done():
                 popped.cancel()
             raise TimeoutError(f"LSP '{method}' timed out after {timeout}s")
+        except asyncio.CancelledError:
+            # 取消时清理 pending Future，防止 reader 线程后续 set_result 触发 InvalidStateError
+            with self._pending_lock:
+                popped = self._pending.pop(msg_id, None)
+            if popped is not None and not popped.done():
+                popped.cancel()
+            raise
 
         if "error" in resp:
             raise RuntimeError(f"LSP error: {resp['error'].get('message', resp['error'])}")

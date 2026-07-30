@@ -41,6 +41,7 @@ Shell 工具共享模块
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import locale
 from dataclasses import dataclass, field
 from typing import Any
@@ -176,6 +177,11 @@ class CommandExecutor:
                 return_code=-1,
                 metadata={"returncode": -1, "timed_out": True},
             )
+        except asyncio.CancelledError:
+            process.kill()
+            with contextlib.suppress(Exception):
+                await process.wait()
+            raise
 
         return OutputNormalizer.format_result(
             stdout=stdout or b"",

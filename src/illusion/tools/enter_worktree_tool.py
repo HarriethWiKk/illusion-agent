@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import subprocess
 import sys
@@ -102,7 +103,13 @@ class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
             await asyncio.to_thread(worktree_path.parent.mkdir, parents=True, exist_ok=True)
             cmd = ["git", "worktree", "add", "-b", branch_name, str(worktree_path), "HEAD"]
             proc = await _create_git_subprocess(cmd, cwd=repo_root)
-            stdout_bytes, stderr_bytes = await proc.communicate()
+            try:
+                stdout_bytes, stderr_bytes = await proc.communicate()
+            except asyncio.CancelledError:
+                proc.kill()
+                with contextlib.suppress(Exception):
+                    await proc.wait()
+                raise
             stdout = (stdout_bytes or b"").decode("utf-8", errors="replace")
             stderr = (stderr_bytes or b"").decode("utf-8", errors="replace")
             output = (stdout or stderr).strip() or f"Created worktree {worktree_path}"
@@ -161,7 +168,13 @@ async def _git_output(cwd: Path, *args: str) -> str | None:
         命令输出字符串，失败返回 None
     """
     proc = await _create_git_subprocess(["git", *args], cwd=cwd)
-    stdout_bytes, _ = await proc.communicate()
+    try:
+        stdout_bytes, _ = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        raise
     if proc.returncode != 0:
         return None
     return (stdout_bytes or b"").decode("utf-8", errors="replace").strip()

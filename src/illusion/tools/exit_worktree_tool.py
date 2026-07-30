@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -125,7 +126,13 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
                 ["git", "status", "--porcelain"],
                 cwd=worktree_path,
             )
-            status_stdout, _ = await status_proc.communicate()
+            try:
+                status_stdout, _ = await status_proc.communicate()
+            except asyncio.CancelledError:
+                status_proc.kill()
+                with contextlib.suppress(Exception):
+                    await status_proc.wait()
+                raise
             status_text = (status_stdout or b"").decode("utf-8", errors="replace")
             if status_text.strip():
                 return ToolResult(
@@ -144,7 +151,13 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
         cmd.append(str(worktree_path))
 
         result_proc = await _create_git_subprocess(cmd, cwd=main_repo_root)
-        result_stdout, result_stderr = await result_proc.communicate()
+        try:
+            result_stdout, result_stderr = await result_proc.communicate()
+        except asyncio.CancelledError:
+            result_proc.kill()
+            with contextlib.suppress(Exception):
+                await result_proc.wait()
+            raise
         result_stdout_text = (result_stdout or b"").decode("utf-8", errors="replace")
         result_stderr_text = (result_stderr or b"").decode("utf-8", errors="replace")
         if result_proc.returncode != 0:
@@ -157,7 +170,13 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
                 ["git", "branch", "-D", branch],
                 cwd=main_repo_root,
             )
-            await branch_proc.communicate()
+            try:
+                await branch_proc.communicate()
+            except asyncio.CancelledError:
+                branch_proc.kill()
+                with contextlib.suppress(Exception):
+                    await branch_proc.wait()
+                raise
 
         output = result_stdout_text.strip() or f"Removed worktree {worktree_path}"
         return ToolResult(
@@ -193,7 +212,13 @@ async def _git_output(cwd: Path, *args: str) -> str | None:
         命令输出字符串，失败返回 None
     """
     proc = await _create_git_subprocess(["git", *args], cwd=cwd)
-    stdout_bytes, _ = await proc.communicate()
+    try:
+        stdout_bytes, _ = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        raise
     if proc.returncode != 0:
         return None
     return (stdout_bytes or b"").decode("utf-8", errors="replace").strip()

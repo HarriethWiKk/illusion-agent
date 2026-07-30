@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shlex
 import time
@@ -416,7 +417,20 @@ class BackgroundTaskManager:
     ) -> None:
         """监视子进程直到完成。"""
         reader = asyncio.create_task(self._copy_output(task_id, process))
-        return_code = await process.wait()
+        try:
+            return_code = await process.wait()
+        except asyncio.CancelledError:
+            # 取消时 kill 子进程，避免孤儿进程
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            with contextlib.suppress(Exception):
+                await process.wait()
+            reader.cancel()
+            with contextlib.suppress(Exception):
+                await reader
+            raise
         await reader
 
         current_generation = self._generations.get(task_id)

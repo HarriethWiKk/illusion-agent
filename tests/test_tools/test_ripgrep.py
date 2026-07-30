@@ -281,3 +281,42 @@ async def test_run_rg_timeout(monkeypatch):
     monkeypatch.setattr("illusion.utils.ripgrep.ensure_ripgrep", mock_ensure)
     with pytest.raises(RipgrepError):
         await run_rg(["--version"], timeout=0.1)
+
+
+class TestRunRgCancel:
+    """run_rg 在 CancelledError 时应 kill 子进程。"""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_kills_rg_process(self, monkeypatch):
+        """CancelledError 传播时 process.kill() 被调用。"""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        # 模拟 ensure_ripgrep 返回路径
+        async def _fake_ensure():
+            return "/fake/rg"
+        monkeypatch.setattr("illusion.utils.ripgrep.ensure_ripgrep", _fake_ensure)
+
+        # 模拟 create_subprocess_exec 返回 mock 进程
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.wait = AsyncMock()
+        process.returncode = None
+
+        async def _slow_communicate():
+            await asyncio.sleep(100)
+        process.communicate = _slow_communicate
+
+        async def _fake_create(*args, **kwargs):
+            return process
+        monkeypatch.setattr("illusion.utils.ripgrep.asyncio.create_subprocess_exec", _fake_create)
+
+        from illusion.utils.ripgrep import run_rg
+
+        task = asyncio.create_task(run_rg(["pattern"], timeout=1000))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert process.kill.called, "process.kill() should be called on CancelledError"
