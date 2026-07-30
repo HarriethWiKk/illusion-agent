@@ -101,6 +101,8 @@ class QQChannel(Channel):
         # 打字状态防抖
         self._last_typing_time: float = 0.0
         self._typing_debounce: float = 50.0
+        # 最近一条入站消息 ID（用于打字状态关联）
+        self._last_msg_id: dict[str, str] = {}
 
         # chat_type 缓存（用于判断 C2C vs 群聊）
         self._chat_type_cache: dict[str, str] = {}
@@ -227,6 +229,10 @@ class QQChannel(Channel):
             return
 
         if self._admit(msg):
+            # 缓存最近一条入站消息 ID（用于打字状态关联）
+            if msg.message_id and msg.chat_id:
+                self._last_msg_id[msg.chat_id] = msg.message_id
+
             # 空 @消息（只 @机器人没有文字）→ 回复帮助提示，不传给 LLM
             if not msg.text.strip() and msg.chat_type == "group":
                 logger.info("QQ 空 @消息，回复帮助提示: user=%s", msg.user_id)
@@ -794,18 +800,31 @@ class QQChannel(Channel):
     async def start_typing(self, chat_id: str) -> None:
         """开始打字状态指示（C2C only，50s 防抖）
 
+        仅私聊发送打字状态，群聊跳过。
+        需要缓存的入站消息 ID（_last_msg_id），无则跳过。
+
         Args:
             chat_id: 目标会话
         """
+        # 仅 C2C 发送打字状态
+        if self._chat_type_cache.get(chat_id) != "dm":
+            return
+
+        # 防抖：50s 内不重复发送
         now = time.monotonic()
         if now - self._last_typing_time < self._typing_debounce:
             return
         self._last_typing_time = now
 
+        # 获取缓存的入站消息 ID
+        msg_id = self._last_msg_id.get(chat_id)
+        if not msg_id:
+            return
+
         try:
             from illusion.channels.qq.api import send_typing
             token = await self._get_token()
-            await send_typing(self._session, token, chat_id)
+            await send_typing(self._session, token, chat_id, msg_id)
         except (ImportError, aiohttp.ClientError, RuntimeError, ValueError) as exc:
             logger.debug("QQ 打字状态发送失败: %s", exc)
 

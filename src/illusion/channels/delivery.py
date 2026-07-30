@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 from typing import TYPE_CHECKING
 
 from illusion.channels.feishu.adapter import _feishu_executor  # 飞书 SDK 专用线程池
@@ -529,6 +530,7 @@ async def _deliver_file_qq(
 
         from illusion.channels.qq.api import (
             MEDIA_TYPE_FILE,
+            MEDIA_TYPE_IMAGE,
             ensure_token,
             send_c2c_message,
             send_group_message,
@@ -554,10 +556,13 @@ async def _deliver_file_qq(
                             session, token, chat_id, caption, msg_id="",
                             markdown=config.markdown_support,
                         )
+                # 根据 MIME 类型选择正确的 file_type（图片用 IMAGE，其他用 FILE）
+                content_type, _ = mimetypes.guess_type(file_path)
+                file_type = MEDIA_TYPE_IMAGE if (content_type and content_type.startswith("image/")) else MEDIA_TYPE_FILE
                 # 上传文件
                 file_info_data = await upload_file(
                     session, token, chat_id, file_path,
-                    is_group=is_group, file_type=MEDIA_TYPE_FILE,
+                    is_group=is_group, file_type=file_type,
                 )
                 file_info = str(file_info_data.get("file_info", ""))
                 if not file_info:

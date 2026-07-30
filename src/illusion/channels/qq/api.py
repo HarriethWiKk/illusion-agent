@@ -299,20 +299,34 @@ async def send_group_message(
 async def send_typing(
     session: aiohttp.ClientSession,
     token: str,
+    chat_id: str,
     msg_id: str,
 ) -> None:
-    """发送 C2C 打字状态指示
+    """发送 C2C 打字状态指示（"正在输入中…"）
 
-    QQ API v2 的打字状态通过 input_notify 消息类型实现。
-    具体端点取决于 API 版本。
+    QQ API v2 通过 input_notify 消息类型实现打字状态。
+    仅 C2C 私聊有效，群聊不支持。
 
     Args:
-        session: HTTP 会话（保留以备后续使用）
-        token: access_token（保留以备后续使用）
-        msg_id: 最近一条入站消息 ID（保留以备后续使用）
+        session: HTTP 会话
+        token: access_token
+        chat_id: 目标用户 openid
+        msg_id: 最近一条入站消息 ID（用于关联打字状态）
     """
-    # TODO: QQ API v2 打字状态端点待确认
-    logger.debug("QQ 打字状态指示（占位）")
+    url = f"{API_BASE}/v2/users/{chat_id}/messages"
+    headers = {"Authorization": f"QQBot {token}"}
+    body = {
+        "msg_type": MSG_TYPE_INPUT_NOTIFY,
+        "msg_id": msg_id,
+        "input_notify": {
+            "input_type": 1,
+            "input_second": 60,  # 持续 60 秒
+        },
+        "msg_seq": _next_msg_seq(),
+    }
+    async with session.post(url, headers=headers, json=body) as resp:
+        if resp.status >= 400:
+            logger.debug("QQ 打字状态发送失败: status=%d", resp.status)
 
 
 # ── C2C 流式消息 ──────────────────────────────────────────────
