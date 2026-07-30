@@ -602,7 +602,7 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
     "Usage: /memory add TITLE :: CONTENT": "用法：/memory add 标题 :: 内容",
     "Usage: /memory [list|show NAME|add TITLE :: CONTENT|remove NAME]": "用法：/memory [list|show 名称|add 标题 :: 内容|remove 名称]",
-    "Usage: /rewind [TURNS] [both|conversation|code]": "用法：/rewind [轮数] [both|conversation|code]",
+    "Usage: /rewind [TURNS] [both|conversation]": "用法：/rewind [轮数] [both|conversation]",
     "Usage: /config [show|set KEY VALUE]": "用法：/config [show|set 键 值]",
     "Usage: /thinking [show|on|off|toggle]": "用法：/thinking [show|on|off|toggle]",
     "Usage: /effort [show|low|medium|high|xhigh|max]": "用法：/effort [show|low|medium|high|xhigh|max]",

@@ -519,7 +519,6 @@ export default function App() {
               {([
                 { mode: 'both', label: t(lang, 'rewind_both'), desc: t(lang, 'rewind_both_desc') },
                 { mode: 'conversation', label: t(lang, 'rewind_conversation'), desc: t(lang, 'rewind_conversation_desc') },
-                { mode: 'code', label: t(lang, 'rewind_code'), desc: t(lang, 'rewind_code_desc') },
               ] as const).map((opt) => (
                 <button
                   key={opt.mode}

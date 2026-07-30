@@ -811,11 +811,6 @@ class ReactBackendHost:
                 "label": "仅回退对话" if zh else "Rewind conversation only",
                 "description": "只移除对话，保留文件修改" if zh else "Remove conversation, keep files",
             },
-            {
-                "value": "code",
-                "label": "仅回退代码" if zh else "Rewind code only",
-                "description": "只撤销文件修改，保留对话" if zh else "Revert files, keep conversation",
-            },
         ]
         await self._emit(BackendEvent(
             type="select_request",
@@ -831,7 +826,7 @@ class ReactBackendHost:
         target_idx = self._rewind_target_idx
         self._rewind_target_idx = None
         mode = value.strip()
-        if mode not in ("both", "conversation", "code"):
+        if mode not in ("both", "conversation"):
             return True
         messages = self._bundle.engine.messages
         turns = sum(

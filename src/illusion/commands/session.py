@@ -274,12 +274,11 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
 async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
     """回退对话回合
 
-    支持三种模式：
+    支持两种模式：
     - both（默认）：同时回退对话和文件
     - conversation：仅回退对话
-    - code：仅回退文件修改
 
-    用法：/rewind [TURNS] [both|conversation|code]
+    用法：/rewind [TURNS] [both|conversation]
     """
 
     parts = args.strip().split()
@@ -289,11 +288,11 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         try:
             turns = max(1, int(parts[0]))
         except ValueError:
-            return CommandResult(message="Usage: /rewind [TURNS] [both|conversation|code]")
+            return CommandResult(message="Usage: /rewind [TURNS] [both|conversation]")
         if len(parts) > 1:
             mode = parts[1].lower()
-            if mode not in ("both", "conversation", "code"):
-                return CommandResult(message="Usage: /rewind [TURNS] [both|conversation|code]")
+            if mode not in ("both", "conversation"):
+                return CommandResult(message="Usage: /rewind [TURNS] [both|conversation]")
 
     store = context.engine.checkpoint_store
     if store is None or store.next_checkpoint_id == 0:
@@ -315,21 +314,15 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         removed = turns  # 简化：回退的 turn 数
         restored_messages = result.messages
 
-    # 回退文件
+    # 回退文件（仅 both 模式）
     reverted_count = 0
-    if mode in ("both", "code"):
+    if mode == "both":
         fh = context.engine.file_history
         if fh is not None and fh.snapshots:
             from illusion.services.file_history import rewind_to
-            if mode == "both":
-                # both 模式：复用预先计算的 target_id（= 原始 next_cp - turns）
-                # 不能用 store.next_checkpoint_id，因为对话 rewind 后它已变小
-                target_cp_id = target_id
-            else:
-                # code 模式：仅文件回退，按位置定位后取 checkpoint_id
-                target_index = max(0, len(fh.snapshots) - turns)
-                target_cp_id = fh.snapshots[target_index].checkpoint_id
-            reverted_files = rewind_to(fh, target_cp_id)
+            # 复用预先计算的 target_id（= 原始 next_cp - turns）
+            # 不能用 store.next_checkpoint_id，因为对话 rewind 后它已变小
+            reverted_files = rewind_to(fh, target_id)
             reverted_count = len(reverted_files)
 
     lines = []
