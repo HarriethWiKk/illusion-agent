@@ -24,9 +24,9 @@ def _extract_call_names(func) -> set[str]:
 
 def test_main_does_not_call_remove_ref():
     """main() 不应调用 remove_ref"""
-    import illusion.cli as cli_module
+    from illusion.cli.main import main
 
-    main_calls = _extract_call_names(cli_module.main)
+    main_calls = _extract_call_names(main)
     assert "remove_ref" not in main_calls, (
         "main() 不应调用 remove_ref"
     )
@@ -37,9 +37,9 @@ def test_main_does_not_call_remove_ref():
 
 def test_web_start_does_not_call_remove_ref():
     """web_start() 不应调用 remove_ref"""
-    import illusion.cli as cli_module
+    from illusion.cli.web import web_start
 
-    web_start_calls = _extract_call_names(cli_module.web_start)
+    web_start_calls = _extract_call_names(web_start)
     assert "remove_ref" not in web_start_calls, (
         "web_start() 不应调用 remove_ref"
     )

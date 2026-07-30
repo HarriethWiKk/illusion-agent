@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from illusion.config.settings import Settings
-from illusion.workspace import (
+from illusion.cli.workspace import (
     is_first_login,
     validate_and_normalize,
 )

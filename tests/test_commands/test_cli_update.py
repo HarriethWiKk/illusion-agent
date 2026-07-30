@@ -14,7 +14,7 @@ async def test_update_returns_locked_hint_on_permission_denied():
 
     with patch("illusion.commands.misc._check_pypi_latest", return_value=None), \
          patch("illusion.commands.misc._run_pip_upgrade", return_value=(False, "ERROR: Access is denied for 'illusion-agent'")):
-        from illusion.cli import _update_cli
+        from illusion.cli.update import _update_cli
         result = await _update_cli("")
     assert isinstance(result, CommandResult)
     assert result.message == t("update_locked_by_running_process")
@@ -28,7 +28,7 @@ async def test_update_returns_locked_hint_on_being_used():
 
     with patch("illusion.commands.misc._check_pypi_latest", return_value=None), \
          patch("illusion.commands.misc._run_pip_upgrade", return_value=(False, "WinError 32: being used by another process")):
-        from illusion.cli import _update_cli
+        from illusion.cli.update import _update_cli
         result = await _update_cli("")
     assert isinstance(result, CommandResult)
     assert result.message == t("update_locked_by_running_process")
@@ -42,7 +42,7 @@ async def test_update_returns_generic_failed_on_other_error():
 
     with patch("illusion.commands.misc._check_pypi_latest", return_value=None), \
          patch("illusion.commands.misc._run_pip_upgrade", return_value=(False, "some other error")):
-        from illusion.cli import _update_cli
+        from illusion.cli.update import _update_cli
         result = await _update_cli("")
     assert isinstance(result, CommandResult)
     assert result.message == t("update_failed", error="some other error")

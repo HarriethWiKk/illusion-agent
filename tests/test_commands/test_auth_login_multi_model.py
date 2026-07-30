@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from illusion.cli import _prompt_models_and_create_env
+from illusion.cli.auth import _prompt_models_and_create_env
 
 
 def _make_env_config(api_format="anthropic", base_url="https://api.anthropic.com", models=None):
@@ -159,7 +159,7 @@ def test_default_model_used_when_empty():
 
 def test_add_model_to_existing_env_interactive():
     """add model 交互式选择 env 并添加多个 model"""
-    from illusion.cli import add_model
+    from illusion.cli.auth import add_model
 
     existing_env = _make_env_config(models={"model_1": "claude-sonnet-4-6"})
     manager = _make_manager(envs={"env_1": existing_env})
@@ -168,7 +168,7 @@ def test_add_model_to_existing_env_interactive():
     with (
         patch("builtins.input", side_effect=inputs),
         patch("illusion.auth.manager.AuthManager", return_value=manager),
-        patch("illusion.cli._ensure_language"),
+        patch("illusion.cli.auth._ensure_language"),
         patch("illusion.cli.typer.prompt", return_value="1") as mock_prompt,
     ):
         try:
@@ -186,7 +186,7 @@ def test_add_model_to_existing_env_interactive():
 
 def test_add_model_with_env_key_arg():
     """add model env_1 直接指定 env"""
-    from illusion.cli import add_model
+    from illusion.cli.auth import add_model
 
     existing_env = _make_env_config(models={"model_1": "existing-model"})
     manager = _make_manager(envs={"env_1": existing_env})
@@ -195,7 +195,7 @@ def test_add_model_with_env_key_arg():
     with (
         patch("builtins.input", side_effect=inputs),
         patch("illusion.auth.manager.AuthManager", return_value=manager),
-        patch("illusion.cli._ensure_language"),
+        patch("illusion.cli.auth._ensure_language"),
     ):
         try:
             add_model(env_key="env_1")  # type: ignore
@@ -211,12 +211,12 @@ def test_add_model_env_not_exist():
     """add model 指定不存在的 env 时报错"""
     import typer
 
-    from illusion.cli import add_model
+    from illusion.cli.auth import add_model
 
     manager = _make_manager(envs={})
     with (
         patch("illusion.auth.manager.AuthManager", return_value=manager),
-        patch("illusion.cli._ensure_language"),
+        patch("illusion.cli.auth._ensure_language"),
         pytest.raises(typer.Exit),
     ):
         add_model(env_key="env_999")  # type: ignore
@@ -226,12 +226,12 @@ def test_add_model_no_existing_env():
     """无已有 env 时报错"""
     import typer
 
-    from illusion.cli import add_model
+    from illusion.cli.auth import add_model
 
     manager = _make_manager(envs={})
     with (
         patch("illusion.auth.manager.AuthManager", return_value=manager),
-        patch("illusion.cli._ensure_language"),
+        patch("illusion.cli.auth._ensure_language"),
         pytest.raises(typer.Exit),
     ):
         add_model(env_key=None)  # type: ignore
