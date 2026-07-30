@@ -58,7 +58,7 @@ _GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _GITHUB_USER_URL = "https://api.github.com/user"
 _COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 
-# Token 刷新提前量（秒）
+# Token 刷新提前量（秒）：在 refresh_in 推荐间隔前提前刷新，留出缓冲
 _TOKEN_REFRESH_BUFFER = 60
 
 # 轮询默认间隔和超时
@@ -147,6 +147,7 @@ class CopilotAuthData:
         github_token: GitHub OAuth access token
         copilot_token: Copilot token（JWT）
         copilot_token_expires_at: Copilot token 过期时间（Unix 秒）
+        copilot_token_refresh_at: Copilot token 推荐刷新时间点（Unix 秒）
         user_login: GitHub 用户名
         user_id: GitHub 用户 ID
         authenticated_at: 认证时间戳
@@ -155,6 +156,7 @@ class CopilotAuthData:
     github_token: str = ""
     copilot_token: str = ""
     copilot_token_expires_at: int = 0
+    copilot_token_refresh_at: int = 0
     user_login: str = ""
     user_id: int = 0
     authenticated_at: int = 0
@@ -189,6 +191,7 @@ class CopilotAuth:
                 github_token=raw.get("github_token", ""),
                 copilot_token=raw.get("copilot_token", ""),
                 copilot_token_expires_at=raw.get("copilot_token_expires_at", 0),
+                copilot_token_refresh_at=raw.get("copilot_token_refresh_at", 0),
                 user_login=raw.get("user_login", ""),
                 user_id=raw.get("user_id", 0),
                 authenticated_at=raw.get("authenticated_at", 0),
@@ -377,19 +380,32 @@ class CopilotAuth:
 
         copilot_token = data.get("token", "")
         expires_at = data.get("expires_at", 0)
-        if not copilot_token:
-            raise RuntimeError("Copilot token 响应为空")
+        refresh_in = data.get("refresh_in", 0)
+        if not copilot_token or not expires_at or refresh_in <= 0:
+            raise RuntimeError("Copilot token 响应字段不完整")
+
+        # 在 refresh_in 推荐间隔前提前刷新，留出缓冲
+        refresh_at = int(time.time()) + refresh_in - _TOKEN_REFRESH_BUFFER
 
         self._data.copilot_token = copilot_token
         self._data.copilot_token_expires_at = expires_at
+        self._data.copilot_token_refresh_at = refresh_at
         if github_token:
             self._data.github_token = github_token
         self._save()
-        log.info("Copilot Token 获取成功，过期时间: %s", expires_at)
+        log.info(
+            "Copilot Token 获取成功，过期时间: %s，刷新时间: %s",
+            expires_at,
+            refresh_at,
+        )
         return str(copilot_token)
 
     def get_valid_token(self) -> str:
         """获取有效的 Copilot token，自动刷新
+
+        基于 refresh_at 推荐刷新时间点判断是否需要刷新：
+        - 无 copilot_token 或已到 refresh_at，触发刷新
+        - 未到 refresh_at，返回缓存 token（滚动续期，token 始终远离过期）
 
         Returns:
             str: 有效的 Copilot token
@@ -401,10 +417,7 @@ class CopilotAuth:
             raise RuntimeError("未认证，请先运行 'illusion auth login' 选择 GitHub Copilot")
 
         now = int(time.time())
-        if (
-            self._data.copilot_token
-            and self._data.copilot_token_expires_at - now > _TOKEN_REFRESH_BUFFER
-        ):
+        if self._data.copilot_token and now < self._data.copilot_token_refresh_at:
             return self._data.copilot_token
 
         log.info("Copilot Token 需要刷新")
