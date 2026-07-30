@@ -22,12 +22,18 @@ rewind 时从备份恢复。不依赖 git，可跟踪任意路径的文件。
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 
 from illusion.config.paths import get_config_dir, resolve_relative_path
+from illusion.services.session_storage import (
+    _validate_session_id,
+    get_project_session_dir_no_create,
+)
+from illusion.utils.atomic_write import atomic_write_text
 
 
 @dataclass
@@ -43,6 +49,8 @@ class FileSnapshot:
     message_id: str
     turn_index: int = 0  # 轮次索引（0-based）
     tracked_backups: dict[str, FileBackup] = field(default_factory=dict)
+    # Task 2 将在 make_snapshot 中传入此字段；Task 1 仅用于 save/load 序列化
+    checkpoint_id: int = 0
 
 
 @dataclass
@@ -68,6 +76,24 @@ def _backup_name(file_path: str, version: int = 1) -> str:
 def _backup_path(session_id: str, backup_name: str) -> Path:
     """返回备份文件的完整路径。"""
     return _backup_dir(session_id) / backup_name
+
+
+def _state_path(cwd: str, session_id: str) -> Path:
+    """返回 file_history.json 路径（不创建目录）。
+
+    位于会话目录下，与 meta.json / context.jsonl 同目录，
+    生命周期对齐：会话删除时随目录一并清理。
+
+    Args:
+        cwd: 项目工作目录
+        session_id: 会话 ID
+
+    Returns:
+        Path: file_history.json 完整路径
+    """
+    _validate_session_id(session_id)
+    session_dir = get_project_session_dir_no_create(cwd) / session_id
+    return session_dir / "file_history.json"
 
 
 def track_edit(state: FileHistoryState, file_path: str) -> None:
@@ -253,3 +279,108 @@ def _cleanup_evicted(state: FileHistoryState, evicted: list[FileSnapshot]) -> No
                     bpath.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+
+def save(state: FileHistoryState) -> None:
+    """序列化状态为 JSON，原子写入 file_history.json。
+
+    写前 mkdir(parents=True, exist_ok=True)。使用 atomic_write_text
+    保证崩溃安全。
+
+    Args:
+        state: 文件历史状态
+    """
+    payload = {
+        "version": 1,
+        "session_id": state.session_id,
+        "cwd": state.cwd,
+        "turn_counter": state._turn_counter,
+        "tracked_files": sorted(state.tracked_files),
+        "snapshots": [
+            {
+                "message_id": snap.message_id,
+                "turn_index": snap.turn_index,
+                "checkpoint_id": getattr(snap, "checkpoint_id", 0),
+                "tracked_backups": {
+                    k: {"backup_name": b.backup_name, "version": b.version}
+                    for k, b in snap.tracked_backups.items()
+                },
+            }
+            for snap in state.snapshots
+        ],
+    }
+    path = _state_path(state.cwd, state.session_id)
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+
+
+def load(
+    cwd: str,
+    session_id: str,
+    checkpoint_count: int | None = None,
+) -> FileHistoryState | None:
+    """从 file_history.json 加载状态。
+
+    文件不存在或损坏返回 None（降级为无历史）。旧格式 snapshot 缺失
+    checkpoint_id 字段时整个返回 None（保守降级）。
+
+    Args:
+        cwd: 项目工作目录
+        session_id: 会话 ID
+        checkpoint_count: 当前 CheckpointStore.next_checkpoint_id，
+            用于崩溃恢复对齐。None 时不做对齐（懒初始化场景）。
+
+    Returns:
+        FileHistoryState | None: 加载的状态或 None
+    """
+    path = _state_path(cwd, session_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    # 校验必需字段
+    if not isinstance(data, dict) or "snapshots" not in data:
+        return None
+
+    snapshots: list[FileSnapshot] = []
+    for snap_data in data.get("snapshots", []):
+        # 旧格式兼容：缺失 checkpoint_id 整体降级
+        if "checkpoint_id" not in snap_data:
+            return None
+        tracked_backups: dict[str, FileBackup] = {}
+        for k, b in snap_data.get("tracked_backups", {}).items():
+            tracked_backups[k] = FileBackup(
+                backup_name=b.get("backup_name"),
+                version=b.get("version", 1),
+            )
+        snapshots.append(
+            FileSnapshot(
+                message_id=snap_data.get("message_id", ""),
+                turn_index=snap_data.get("turn_index", 0),
+                tracked_backups=tracked_backups,
+                checkpoint_id=snap_data.get("checkpoint_id", 0),
+            )
+        )
+
+    state = FileHistoryState(
+        session_id=data.get("session_id", session_id),
+        cwd=data.get("cwd", cwd),
+        snapshots=snapshots,
+        tracked_files=set(data.get("tracked_files", [])),
+        _turn_counter=data.get("turn_counter", len(snapshots)),
+    )
+
+    # 崩溃恢复对齐：丢弃 checkpoint_id >= checkpoint_count 的 snapshot
+    if checkpoint_count is not None:
+        original_len = len(state.snapshots)
+        state.snapshots = [
+            s for s in state.snapshots
+            if getattr(s, "checkpoint_id", 0) < checkpoint_count
+        ]
+        if len(state.snapshots) != original_len:
+            state._turn_counter = len(state.snapshots)
+            save(state)
+
+    return state
