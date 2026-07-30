@@ -145,6 +145,16 @@ MESSAGES: dict[str, dict[str, str]] = {
     "cwd_invalid": {"zh-CN": "settings.json中配置的working_directory不存在或不是目录: {path}", "en-US": "working_directory in settings.json does not exist or is not a directory: {path}"},
     "no_api_key": {"zh-CN": "未找到 API 密钥。请使用 'illusion auth login' 配置", "en-US": "No API key found. Run 'illusion auth login' to configure"},
     "no_auth": {"zh-CN": "未找到认证信息。请使用 'illusion auth login' 配置", "en-US": "No credentials found. Run 'illusion auth login' to configure"},
+    # --- workspace / set command ---
+    "set_current_working_directory": {"zh-CN": "当前工作目录：{path}", "en-US": "Current working directory: {path}"},
+    "set_no_working_directory": {"zh-CN": "尚未设置工作目录", "en-US": "No working directory set"},
+    "set_usage": {"zh-CN": "用法：illusion set [working_directory]，例如 illusion set \"E:\\\\Projects\\\\my-project\"", "en-US": "Usage: illusion set [working_directory], e.g. illusion set \"E:\\\\Projects\\\\my-project\""},
+    "set_created": {"zh-CN": "已创建目录：{path}", "en-US": "Created directory: {path}"},
+    "set_saved": {"zh-CN": "工作目录已设置为：{path}", "en-US": "Working directory set to: {path}"},
+    "set_invalid_path": {"zh-CN": "路径无效：{path}", "en-US": "Invalid path: {path}"},
+    "working_dir_prompt": {"zh-CN": "是否设置工作目录？输入目录路径（回车跳过）：", "en-US": "Set working directory? Enter path (Enter to skip): "},
+    "working_dir_skipped": {"zh-CN": "未设置工作目录（可稍后使用 'illusion set <path>' 设置）", "en-US": "Working directory not set (use 'illusion set <path>' later)"},
+    "working_dir_set_failed": {"zh-CN": "工作目录设置失败：{error}（可稍后使用 'illusion set <path>' 设置）", "en-US": "Working directory setup failed: {error} (use 'illusion set <path>' later)"},
     # --- manager ---
     "unknown_env": {"zh-CN": "未知环境: {env_key}", "en-US": "Unknown environment: {env_key}"},
     "cannot_remove_active_env": {"zh-CN": "不能移除当前活动环境", "en-US": "Cannot remove the active environment"},
