@@ -27,7 +27,6 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -232,12 +231,21 @@ class QueryEngine:
         self._checkpoint_store = store
 
     def set_session_id(self, session_id: str) -> None:
-        """更新引擎内部的 session_id（用于 /resume 后同步）。
+        """更新引擎内部的 session_id（用于 /new、/resume 后同步）。
+
+        同时同步已加载的 file_history.session_id，避免 file_history.json
+        写入与 session_dir 不匹配的孤立目录。
 
         Args:
             session_id: 新的会话 ID
         """
         self._session_id = session_id
+        if self._file_history is not None and self._file_history.session_id != session_id:
+            self._file_history.session_id = session_id
+            # 若旧 session_id 下已落盘，则按新 session_id 再保存一次，
+            # 确保后续 track_edit/rewind_to 写入正确目录
+            from illusion.services.file_history import save as _fh_save
+            _fh_save(self._file_history)
 
     def full_reset(self) -> None:
         """完全重置引擎状态（用于 /new）。
@@ -404,17 +412,17 @@ class QueryEngine:
         if self._checkpoint_store is not None:
             checkpoint_id = await self._checkpoint_store.append_checkpoint()
         # 初始化文件历史状态（load 优先，无则新建）
-        if self._file_history is None:
-            loaded = (
-                _file_history_load(str(self._cwd), self._session_id)
-                if self._session_id
-                else None
-            )
+        # 要求 self._session_id 已由 runtime 层设置（/new、/resume、首启均会同步）。
+        # 若仍为空，说明 runtime 未正确同步，跳过 file_history 创建——
+        # file_history.json 写入随机 id 会导致路径与 session_dir 不匹配，
+        # 重启后 resume 无法加载，rewind 失效。
+        if self._file_history is None and self._session_id:
+            loaded = _file_history_load(str(self._cwd), self._session_id)
             if loaded is not None:
                 self._file_history = loaded
             else:
                 self._file_history = FileHistoryState(
-                    session_id=self._session_id or uuid.uuid4().hex[:12],
+                    session_id=self._session_id,
                     cwd=str(self._cwd),
                 )
 
@@ -450,7 +458,9 @@ class QueryEngine:
                     ))
 
         # 为这条用户消息创建文件历史快照（用消息列表长度作为 ID）
-        make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
+        # 仅当 file_history 已初始化（session_id 可用）时才创建快照
+        if self._file_history is not None:
+            make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
 
         # 文件历史回调：工具执行前备份文件
         def _on_before_tool_execute(tool_name: str, tool_input: dict[str, Any]) -> None:

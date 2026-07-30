@@ -915,6 +915,10 @@ async def handle_line(
             session_dir = get_project_session_dir_no_create(bundle.cwd) / bundle.session_id
             new_store = CheckpointStore(session_dir, bundle.session_id)
             bundle.engine.set_checkpoint_store(new_store)
+            # 同步 engine.session_id 与 file_history.session_id，
+            # 否则 submit_message 会用随机 id 兜底，导致 file_history.json
+            # 写入与 session_dir 不匹配的孤立目录（重启后 rewind 失效）。
+            bundle.engine.set_session_id(bundle.session_id)
             locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
             prefix = "新会话已开启，任务 ID：" if locale.lower().startswith("zh") else "Started new session. Task ID: "
             suffix = result.message or ""
