@@ -11,7 +11,9 @@ from illusion.services.file_history import (
     _state_path,
     load,
     make_snapshot,
+    rewind_to,
     save,
+    track_edit,
 )
 
 
@@ -121,3 +123,64 @@ def test_make_snapshot_records_checkpoint_id(tmp_path: Path) -> None:
     assert state.snapshots[0].checkpoint_id == 5
     assert state.snapshots[0].message_id == "msg-1"
     assert state.snapshots[0].turn_index == 0
+
+
+def test_rewind_to_by_checkpoint_id(tmp_path: Path) -> None:
+    """rewind_to 按 checkpoint_id 定位，撤销 >= target 的快照。"""
+    state = FileHistoryState(session_id="abc123", cwd=str(tmp_path))
+    make_snapshot(state, "1", checkpoint_id=0)
+    make_snapshot(state, "2", checkpoint_id=1)
+    make_snapshot(state, "3", checkpoint_id=2)
+    make_snapshot(state, "4", checkpoint_id=3)
+
+    # rewind 到 checkpoint_id=2 之前（保留 cp_id < 2）
+    changed = rewind_to(state, 2)
+    # 无文件被跟踪，changed 为空
+    assert changed == []
+    assert len(state.snapshots) == 2
+    assert state.snapshots[0].checkpoint_id == 0
+    assert state.snapshots[1].checkpoint_id == 1
+    assert state._turn_counter == 2
+
+
+def test_rewind_to_no_match_returns_empty(tmp_path: Path) -> None:
+    """target_checkpoint_id 大于所有 snapshot 的 cp_id 时返回空列表。"""
+    state = FileHistoryState(session_id="abc123", cwd=str(tmp_path))
+    make_snapshot(state, "1", checkpoint_id=0)
+    make_snapshot(state, "2", checkpoint_id=1)
+
+    changed = rewind_to(state, 99)
+    assert changed == []
+    assert len(state.snapshots) == 2  # 不变
+
+
+def test_rewind_to_zero_removes_all(tmp_path: Path) -> None:
+    """rewind_to(0) 移除所有 checkpoint_id >= 0 的快照。"""
+    state = FileHistoryState(session_id="abc123", cwd=str(tmp_path))
+    make_snapshot(state, "1", checkpoint_id=0)
+    make_snapshot(state, "1", checkpoint_id=1)
+
+    changed = rewind_to(state, 0)
+    assert changed == []
+    assert state.snapshots == []
+    assert state._turn_counter == 0
+
+
+def test_track_edit_persists_state(tmp_path: Path) -> None:
+    """track_edit 后状态应被持久化（可被 load 还原）。"""
+    cwd = str(tmp_path)
+    state = FileHistoryState(session_id="abc123", cwd=cwd)
+    make_snapshot(state, "1", checkpoint_id=0)
+
+    # 创建一个真实文件让 track_edit 复制
+    target = tmp_path / "file.py"
+    target.write_text("original", encoding="utf-8")
+    track_edit(state, str(target))
+
+    loaded = load(cwd, "abc123")
+    assert loaded is not None
+    assert len(loaded.snapshots) == 1
+    key = str(target.resolve())
+    assert key in loaded.snapshots[0].tracked_backups
+    assert loaded.snapshots[0].tracked_backups[key].backup_name is not None
+    assert loaded.snapshots[0].tracked_backups[key].version == 1

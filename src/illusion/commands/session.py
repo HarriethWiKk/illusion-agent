@@ -314,8 +314,10 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         fh = context.engine.file_history
         if fh is not None and fh.snapshots:
             from illusion.services.file_history import rewind_to
-            target_index = max(0, len(fh.snapshots) - turns)
-            reverted_files = rewind_to(fh, target_index)
+            # both 模式用 target_id（= next_cp - turns）作为 checkpoint_id 阈值
+            # code 模式 Task 5 细化
+            target_cp_id = target_id
+            reverted_files = rewind_to(fh, target_cp_id)
             reverted_count = len(reverted_files)
 
     lines = []

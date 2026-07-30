@@ -141,6 +141,7 @@ def track_edit(state: FileHistoryState, file_path: str) -> None:
         state.snapshots[-1].tracked_backups[tracking_key] = backup
 
     state.tracked_files.add(tracking_key)
+    save(state)
 
 
 def make_snapshot(state: FileHistoryState, message_id: str, checkpoint_id: int) -> None:
@@ -169,34 +170,33 @@ def make_snapshot(state: FileHistoryState, message_id: str, checkpoint_id: int) 
     save(state)
 
 
-def rewind_to(state: FileHistoryState, snapshot_index: int) -> list[str]:
-    """撤销从指定位置开始到末尾的所有快照的文件修改。
+def rewind_to(state: FileHistoryState, target_checkpoint_id: int) -> list[str]:
+    """撤销 checkpoint_id >= target_checkpoint_id 的所有快照的文件修改。
 
-    使用快照列表位置而非 turn_index 值来定位目标，确保在回退→继续→
-    再回退的场景下仍然正确工作。只恢复被撤销的快照中实际跟踪的文件，
-    不影响其他轮次的文件。
+    使用 checkpoint_id 而非位置定位，确保 /rewind code 后 /rewind both
+    不会错位。
 
     Args:
         state: 文件历史状态
-        snapshot_index: 快照列表中的起始位置（0-based）
+        target_checkpoint_id: 目标 checkpoint id（>= 该值的快照被撤销）
 
     Returns:
         list[str]: 被恢复的文件路径列表
     """
-    if snapshot_index < 0 or snapshot_index >= len(state.snapshots):
+    removed = [s for s in state.snapshots if s.checkpoint_id >= target_checkpoint_id]
+    if not removed:
         return []
 
-    # 收集被撤销范围内所有快照中跟踪的文件（不遍历全局 tracked_files）
-    removed_snapshots = state.snapshots[snapshot_index:]
+    # 收集被撤销范围内所有快照中跟踪的文件
     files_to_restore: set[str] = set()
-    for snap in removed_snapshots:
+    for snap in removed:
         files_to_restore.update(snap.tracked_backups.keys())
 
     changed: list[str] = []
     for tracking_key in files_to_restore:
         # 在被撤销的快照中找到该文件最早的备份（即修改前的状态）
         backup = None
-        for snap in removed_snapshots:
+        for snap in removed:
             if tracking_key in snap.tracked_backups:
                 backup = snap.tracked_backups[tracking_key]
                 break
@@ -223,12 +223,12 @@ def rewind_to(state: FileHistoryState, snapshot_index: int) -> list[str]:
                     changed.append(tracking_key)
 
     # 移除目标快照及之后的所有快照
-    evicted = state.snapshots[snapshot_index:]
-    state.snapshots = state.snapshots[:snapshot_index]
-    _cleanup_evicted(state, evicted)
+    state.snapshots = [s for s in state.snapshots if s.checkpoint_id < target_checkpoint_id]
+    _cleanup_evicted(state, removed)
 
     # 重置轮次计数器，保持后续快照的 turn_index 连续
     state._turn_counter = len(state.snapshots)
+    save(state)
 
     return changed
 
