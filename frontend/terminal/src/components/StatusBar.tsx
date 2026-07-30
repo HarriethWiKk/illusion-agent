@@ -49,8 +49,7 @@ function TokenDisplay({
 }): React.JSX.Element {
 	return (
 		<Text color={color}>
-			{fmtTokens(inputTokens)}↓ {' '}
-			{fmtTokens(outputTokens)}↑
+			{fmtTokens(inputTokens)}↓ {fmtTokens(outputTokens)}↑
 		</Text>
 	);
 }
