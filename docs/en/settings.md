@@ -171,6 +171,11 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 
 Fixed working directory. If set, illusion-agent will automatically switch to this directory on startup.
 
+**How to set:**
+- Via `illusion set [path]` command (recommended)
+- Guided setup during first `illusion auth login`
+- Direct edit of `settings.json`
+
 **Type:** String (optional)
 
 **Default:** Not set or empty
@@ -186,7 +191,8 @@ Fixed working directory. If set, illusion-agent will automatically switch to thi
 **Behavior:**
 - If the field exists and is not empty, automatically switches to the specified directory on startup
 - If the field does not exist or is empty, uses the current directory at startup
-- If the specified directory does not exist or lacks permissions, logs a warning and uses the current directory
+- If the specified directory does not exist, `illusion set` will automatically create it
+- If directory validation fails on startup (e.g., insufficient permissions), logs a warning and uses the current directory
 
 ---
 

@@ -84,7 +84,7 @@ pip install .
 ### Basic Usage
 
 ```bash
-# First-time: configure authentication
+# First-time: configure authentication and working directory
 illusion auth login
 
 # Start interactive session (recommended)
@@ -95,6 +95,9 @@ illusion web
 
 # Non-interactive print mode
 illusion -p "Analyze the structure of this project"
+
+# Set or update working directory
+illusion set "E:\Projects\my-project"
 ```
 
 ### Print Mode Notes

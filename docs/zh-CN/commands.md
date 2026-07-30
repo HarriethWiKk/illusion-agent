@@ -106,11 +106,15 @@ illusion web                     # 启动 Web UI 浏览器界面（默认端口 
 illusion web --port 8080         # 自定义端口启动
 
 # 认证管理
-illusion auth login              # 交互式配置提供商（自定义/Anthropic/OpenAI/Copilot/Codex）
+illusion auth login              # 交互式配置提供商（首次登录后会引导设置工作目录）
 illusion auth status             # 查看所有环境的认证状态
 illusion auth logout [env_N]     # 清除环境凭据
 illusion auth switch [env_N]     # 切换活动环境
 illusion add model [env_N]       # 向已有环境添加模型（支持循环输入多个）
+
+# 工作目录管理
+illusion set                      # 查看当前工作目录
+illusion set "E:\Projects\myapp"  # 设置工作目录（不存在则新建）
 
 # MCP 管理
 illusion mcp list                # 列出 MCP 服务器

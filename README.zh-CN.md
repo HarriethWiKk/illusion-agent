@@ -81,7 +81,7 @@ pip install .
 ### 基本使用
 
 ```bash
-# 首次使用：配置认证
+# 首次使用：配置认证（登录后会引导设置工作目录）
 illusion auth login
 
 # 启动交互式会话（推荐）
@@ -92,6 +92,9 @@ illusion web
 
 # 非交互式打印模式
 illusion -p "帮我分析这个项目的结构"
+
+# 设置或更新工作目录
+illusion set "E:\Projects\my-project"
 ```
 
 ### Print 模式说明

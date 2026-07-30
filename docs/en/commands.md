@@ -104,11 +104,15 @@ illusion web                     # Launch Web UI in browser (default port 3000)
 illusion web --port 8080         # Launch with custom port
 
 # Authentication management
-illusion auth login              # Interactive provider setup (Custom/Anthropic/OpenAI/Copilot/Codex)
+illusion auth login              # Interactive provider setup (first login guides working directory setup)
 illusion auth status             # View credential status for all environments
 illusion auth logout [env_N]     # Clear environment credentials
 illusion auth switch [env_N]     # Switch active environment
 illusion add model [env_N]       # Add model(s) to an existing environment (supports multiple input)
+
+# Working directory management
+illusion set                      # Show current working directory
+illusion set "E:\Projects\myapp"  # Set working directory (creates if missing)
 
 # MCP management
 illusion mcp list                # List MCP servers
