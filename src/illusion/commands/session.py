@@ -314,9 +314,14 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         fh = context.engine.file_history
         if fh is not None and fh.snapshots:
             from illusion.services.file_history import rewind_to
-            # both 模式用 target_id（= next_cp - turns）作为 checkpoint_id 阈值
-            # code 模式 Task 5 细化
-            target_cp_id = target_id
+            if mode == "both":
+                # both 模式：复用预先计算的 target_id（= 原始 next_cp - turns）
+                # 不能用 store.next_checkpoint_id，因为对话 rewind 后它已变小
+                target_cp_id = target_id
+            else:
+                # code 模式：仅文件回退，按位置定位后取 checkpoint_id
+                target_index = max(0, len(fh.snapshots) - turns)
+                target_cp_id = fh.snapshots[target_index].checkpoint_id
             reverted_files = rewind_to(fh, target_cp_id)
             reverted_count = len(reverted_files)
 
