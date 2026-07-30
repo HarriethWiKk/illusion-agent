@@ -38,7 +38,7 @@ export function WelcomeBanner({language}: {language?: string}): React.JSX.Elemen
 		<Box flexDirection="column" marginBottom={1}>
 			<Box flexDirection="column">
 				{LOGO.map((line, i) => (
-					<Text key={i} color={theme.colors.primary} bold>{line}</Text>
+					<Text key={i} color={theme.colors.primary} bold>{' ' + line}</Text>
 				))}
 			</Box>
 			<Box marginTop={1}>
