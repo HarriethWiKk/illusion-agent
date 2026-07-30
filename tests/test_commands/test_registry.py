@@ -687,3 +687,41 @@ def test_update_command_not_registered() -> None:
     """update 不再作为斜杠指令注册。"""
     registry = create_default_command_registry()
     assert registry.lookup("/update") is None
+
+
+def test_slash_command_has_usage_field_default_none():
+    """SlashCommand.usage 字段默认为 None。"""
+    from illusion.commands.registry import SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        from illusion.commands.types import CommandResult
+        return CommandResult()
+
+    cmd = SlashCommand("test_cmd", "test description", _noop)
+    assert cmd.usage is None
+
+
+def test_slash_command_usage_field_set():
+    """SlashCommand.usage 可在构造时传入。"""
+    from illusion.commands.registry import SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        from illusion.commands.types import CommandResult
+        return CommandResult()
+
+    cmd = SlashCommand("test_cmd", "test description", _noop, usage="/test_cmd [show|set N]")
+    assert cmd.usage == "/test_cmd [show|set N]"
+
+
+def test_registry_get_usage_returns_registered_usage():
+    """CommandRegistry.get_usage 返回已注册的 usage。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        from illusion.commands.types import CommandResult
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("ctx", "ctx desc", _noop, usage="/ctx [usage|show]"))
+    assert registry.get_usage("ctx") == "/ctx [usage|show]"
+    assert registry.get_usage("nonexistent") is None
