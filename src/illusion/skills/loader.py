@@ -2,7 +2,7 @@
 Skill 加载模块 — 从内置和用户目录加载 Skills
 =========================================
 
-对齐 Claude Code 的 loadSkillsDir.ts，支持完整 frontmatter 解析和 SKILL.md 目录格式。
+支持完整 frontmatter 解析和 SKILL.md 目录格式。
 """
 
 from __future__ import annotations
@@ -260,7 +260,7 @@ def parse_skill_markdown(
 ) -> SkillDefinition:
     """解析 SKILL.md，提取全部 frontmatter 字段。
 
-    对齐 Claude Code 的 frontmatter 解析。
+    frontmatter 解析。
     kebab-case 自动转换为 snake_case。
     """
     name = default_name

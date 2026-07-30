@@ -179,7 +179,7 @@ class BackgroundTaskManager:
         与 create_shell_task 不同，本方法不启动子进程，而是绑定一个已有的
         asyncio.Task（由调用方创建并传入）。task_stop 通过 task.cancel() 终止，
         task_output 读取 output_file（调用方通过 write_to_task_output 累积）。
-        对齐 Claude Code 的 LocalAgentTaskState + abortController 模式。
+        采用 LocalAgentTaskState + abortController 模式。
         """
         task_id = _task_id("in_process_agent")
         output_path = get_tasks_dir() / f"{task_id}.log"
@@ -205,7 +205,7 @@ class BackgroundTaskManager:
         """向任务输出文件追加数据（用于进程内 agent 输出累积）。
 
         与 write_to_task 不同，本方法不写入 stdin，而是把 data 追加到
-        output_file，供 task_output 读取。对齐 Claude Code 的 appendTaskOutput。
+        output_file，供 task_output 读取。
         """
         task = self._require_task(task_id)
         async with self._output_locks[task_id]:
@@ -215,7 +215,7 @@ class BackgroundTaskManager:
     def set_task_result(self, task_id: str, result: str) -> None:
         """设置进程内 agent 的最终结果文本。
 
-        任务完成后调用，task_output 会优先返回 result（对齐 Claude Code 的
+        任务完成后调用，task_output 会优先返回 result。
         local_agent 优先读取内存 result.content 的行为）。
         """
         task = self._require_task(task_id)
@@ -393,7 +393,7 @@ class BackgroundTaskManager:
     def read_task_output(self, task_id: str, *, max_bytes: int = 12000) -> str:
         """返回任务输出。
 
-        对齐 Claude Code 的 getTaskOutputData：
+        获取任务输出数据：
         - 进程内 agent（in_process_agent）：优先返回内存 result，无 result 时回退到 output_file
         - 子进程任务（local_bash / local_agent / remote_agent）：返回 output_file 尾部
         """

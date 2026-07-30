@@ -40,7 +40,6 @@ from illusion.api.client import (
     ApiTextDeltaEvent,
     ApiToolCallStartedEvent,
 )
-from illusion.utils.http import create_async_client
 from illusion.api.compat import merge_reasoning_text, parse_tool_arguments, split_thinking_from_text
 from illusion.api.errors import (
     AuthenticationFailure,
@@ -58,6 +57,7 @@ from illusion.engine.messages import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from illusion.utils.http import create_async_client
 
 # 模块级日志记录器
 log = logging.getLogger(__name__)

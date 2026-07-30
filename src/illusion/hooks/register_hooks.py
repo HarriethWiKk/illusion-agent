@@ -3,7 +3,6 @@ Frontmatter 钩子注册
 ====================
 
 从 agent/skill 的 frontmatter 中注册会话钩子。
-对齐 Claude Code 的 registerFrontmatterHooks.ts 和 registerSkillHooks.ts。
 """
 
 from __future__ import annotations
@@ -44,10 +43,7 @@ def register_skill_hooks(
     skill_name: str,
     skill_root: str | None = None,
 ) -> None:
-    """从 skill frontmatter 注册钩子到会话。
-
-    对齐 Claude Code 的 registerSkillHooks.ts。
-    """
+    """从 skill frontmatter 注册钩子到会话。"""
     for event_name, matchers in hooks_settings.items():
         try:
             event = HookEvent(event_name)

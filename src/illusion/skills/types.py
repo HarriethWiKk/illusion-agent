@@ -2,7 +2,7 @@
 Skill 数据模型模块
 ================
 
-对齐 Claude Code 的 SKILL.md frontmatter 字段。
+SKILL.md frontmatter 字段数据模型。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ class SkillDefinition:
     content: str
     source: str
     path: str | None = None
-    # 对齐 Claude Code frontmatter
+
     allowed_tools: list[str] | None = None
     model: str | None = None
     hooks: dict[str, list[Any]] | None = None

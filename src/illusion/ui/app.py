@@ -384,7 +384,7 @@ async def run_print_mode(
         delete_pending_permission,
         delete_pending_plan_approval,
         delete_pending_question,
-        get_project_session_dir,
+        get_project_session_dir_no_create,
         load_pending_permission,
         load_pending_plan_approval,
         load_pending_question,

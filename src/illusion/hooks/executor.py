@@ -1,8 +1,8 @@
-"""
+﻿"""
 钩子执行引擎
 ============
 
-实现钩子的核心执行逻辑，与 Claude Code 的 hooks.ts 对齐。
+实现钩子的核心执行逻辑
 
 支持的钩子类型：
     - CommandHookDefinition: 执行 Shell 命令
@@ -29,7 +29,6 @@ from illusion.api.client import (
     ApiMessageRequest,
     SupportsStreamingMessages,
 )
-from illusion.utils.http import create_async_client
 from illusion.engine.messages import ConversationMessage
 from illusion.hooks.events import HookEvent
 from illusion.hooks.loader import HookRegistry
@@ -42,6 +41,7 @@ from illusion.hooks.schemas import (
 )
 from illusion.hooks.types import AggregatedHookResult, HookResult
 from illusion.sandbox import SandboxUnavailableError
+from illusion.utils.http import create_async_client
 from illusion.utils.shell import create_shell_subprocess
 
 
@@ -58,7 +58,7 @@ class HookExecutionContext:
 
 
 def matches_pattern(match_query: str, matcher: str) -> bool:
-    """对齐 Claude Code 的 matchesPattern()。
+    """匹配模式判断。
 
     支持三种匹配模式：
     - 空字符串或 *：匹配所有
@@ -79,7 +79,7 @@ def matches_pattern(match_query: str, matcher: str) -> bool:
 
 
 def process_hook_json_output(text: str, event: HookEvent) -> dict[str, Any]:
-    """解析钩子 JSON 输出，对齐 Claude Code processHookJSONOutput()。
+    """解析钩子 JSON 输出。
 
     按 hookEventName 分发提取事件特定字段（additionalContext, updatedInput 等）。
     """
@@ -213,7 +213,7 @@ def _inject_plugin_variables(template: str, context: HookExecutionContext) -> st
 
 
 class HookExecutor:
-    """钩子执行器，对齐 Claude Code 的 executeHooks() 逻辑。"""
+    """钩子执行器。"""
 
     def __init__(
         self,
@@ -281,7 +281,7 @@ class HookExecutor:
         command = _inject_arguments(hook.command, payload, shell_escape=True)
         command = _inject_plugin_variables(command, self._context)
 
-        # 构建环境变量（对齐 Claude Code）
+        # 构建环境变量
         env = {
             **os.environ,
             "CLAUDE_PROJECT_DIR": str(self._context.cwd),

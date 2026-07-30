@@ -2,7 +2,7 @@
 技能内容读取工具
 ================
 
-本模块提供读取已加载技能内容的功能，对齐 Claude Code 的 SkillTool。
+本模块提供读取已加载技能内容的功能。
 支持 frontmatter 字段（hooks 注册、变量替换等）。
 """
 
@@ -27,7 +27,7 @@ class SkillToolInput(BaseModel):
 
 
 class SkillTool(BaseTool[SkillToolInput]):
-    """返回已加载技能的内容，对齐 Claude Code SkillTool。
+    """返回已加载技能的内容。
 
     支持：
     - frontmatter 字段（allowed_tools, model, hooks, context 等）

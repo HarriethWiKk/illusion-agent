@@ -2,7 +2,7 @@
 钩子事件定义模块
 ================
 
-定义 Illusion Agent 支持的全部 27 个钩子事件，与 Claude Code 完全对齐。
+定义 Illusion Agent 支持的全部 27 个钩子事件
 事件值使用 PascalCase 格式。
 """
 
@@ -12,7 +12,7 @@ from enum import Enum
 
 
 class HookEvent(str, Enum):
-    """钩子事件枚举，与 Claude Code HOOK_EVENTS 完全对齐。"""
+    """钩子事件枚举。"""
 
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"

@@ -390,7 +390,7 @@ class QueryEngine:
         if self._checkpoint_store is not None:
             await self._checkpoint_store.append_message(self._messages[-1])
 
-        # 执行 UserPromptSubmit 钩子（对齐 Claude Code）
+        # 执行 UserPromptSubmit 钩子
         if self._hook_executor is not None:
             ups_result = await self._hook_executor.execute(
                 HookEvent.USER_PROMPT_SUBMIT,

@@ -265,7 +265,7 @@ class BackgroundAgentTracker:
         """非阻塞地取出所有已完成的通知。
 
         用于 mid-turn drain：工具执行后立即检查已完成的后台任务通知，
-        不等待未完成的任务。对齐 Claude Code 的 query.ts drain gate。
+        不等待未完成的任务。
         """
         return self._drain_completions()
 
@@ -586,7 +586,7 @@ async def run_query(
                     yield StatusEvent(message=_t("bg_agent_resuming"), bg_agent=True), None
                     continue
 
-            # 执行 Stop 钩子（对齐 Claude Code）
+            # 执行 Stop 钩子
             if context.hook_executor is not None:
                 last_msg_text = final_message.text if final_message else ""
                 stop_result = await context.hook_executor.execute(
@@ -788,7 +788,7 @@ async def run_query(
 
         # ------------------------------------------------------------------
         # Mid-turn drain：工具执行后立即检查已完成的后台任务通知
-        # 对齐 Claude Code 的 query.ts drain gate（line 1566-1590）：
+        # drain gate（line 1566-1590）：
         # 每轮工具执行后，drain 已完成但未消费的通知，注入为 user message，
         # 让 LLM 在下一轮调用时看到通知，无需轮询 task_output/sleep。
         # ------------------------------------------------------------------
@@ -820,7 +820,7 @@ async def _execute_tool_call(
     """
     hook_additional_contexts: list[str] = []
 
-    # 执行预工具钩子（对齐 Claude Code PreToolUse 输入格式）
+    # 执行预工具钩子
     if context.hook_executor is not None:
         pre_hooks = await context.hook_executor.execute(
             HookEvent.PRE_TOOL_USE,
@@ -975,7 +975,7 @@ async def _execute_tool_call(
         content=_build_tool_result_content(result.output, result.metadata),
         is_error=result.is_error,
     )
-    # 执行后工具钩子（对齐 Claude Code PostToolUse/PostToolUseFailure）
+    # 执行后工具钩子
     if context.hook_executor is not None:
         hook_event = HookEvent.POST_TOOL_USE_FAILURE if tool_result.is_error else HookEvent.POST_TOOL_USE
         post_hooks = await context.hook_executor.execute(

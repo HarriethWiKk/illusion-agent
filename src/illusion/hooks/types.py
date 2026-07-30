@@ -2,7 +2,7 @@
 钩子类型定义
 ============
 
-定义钩子执行的输入和输出类型，与 Claude Code 对齐。
+定义钩子执行的输入和输出类型
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 @dataclass
 class BaseHookInput:
-    """钩子输入基础字段，对齐 Claude Code BaseHookInput。"""
+    """钩子输入基础字段。"""
 
     session_id: str
     transcript_path: str
@@ -64,7 +64,7 @@ def create_hook_input(
 
 @dataclass(frozen=True)
 class HookResult:
-    """单个钩子执行结果，对齐 Claude Code processHookJSONOutput 输出。"""
+    """单个钩子执行结果。"""
 
     hook_type: str
     success: bool
@@ -86,7 +86,7 @@ class HookResult:
 
 @dataclass(frozen=True)
 class AggregatedHookResult:
-    """聚合钩子结果，对齐 Claude Code 的聚合逻辑。"""
+    """聚合钩子结果。"""
 
     results: list[HookResult] = field(default_factory=list)
 

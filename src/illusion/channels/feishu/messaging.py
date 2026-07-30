@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)  # 日志器
 
-# 飞书文件上传类型路由表（对齐 hermes-agent _FEISHU_DOC_UPLOAD_TYPES）
+# 飞书文件上传类型路由表
 # 飞书 im.v1.file.create 要求 file_type 按扩展名分类，且必须与发送消息时的
 # msg_type 严格匹配（飞书错误码 230055）：
 #   - pdf/doc/xls/ppt：飞书原生支持的办公文档类型，msg_type=file
@@ -678,7 +678,7 @@ def build_display_text(
 ) -> str:
     """构造流式过程中 streaming_content 的显示文本
 
-    与 openclaw-lark buildDisplayText 对齐：
+
     思考阶段（有 reasoning 且 is_reasoning_phase）：
         - 无 accumulated_text: "💭 **Thinking...**\\n\\n{reasoning_text}"
         - 有 accumulated_text: "{accumulated_text}\\n\\n💭 **Thinking...**\\n\\n{reasoning_text}"

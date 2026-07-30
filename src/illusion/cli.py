@@ -237,7 +237,7 @@ def plugin_uninstall(
     print(_t("plugin_uninstalled", name=name))
 
 
-# ---- cron 子命令（对齐 openclaw cron CLI） ----
+# ---- cron 子命令 ----
 
 @cron_app.command("start")
 def cron_start() -> None:
@@ -1447,7 +1447,7 @@ def main(
         # backend-only 模式：在当前进程加载会话（子进程路径）
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
-            get_project_session_dir,
+            get_project_session_dir_no_create,
             list_session_snapshots,
             read_index,
             read_meta,
@@ -1780,7 +1780,7 @@ def channel_login() -> None:
     settings = load_settings()
     lang = settings.ui_language or "en-US"
 
-    # 1. 选择渠道（对齐 auth login 的范式）
+    # 1. 选择渠道
     print(_t("channel_select"))
     for i, (key, labels) in enumerate(_CHANNEL_OPTIONS, 1):
         label = labels.get(lang, labels.get("en-US", key))

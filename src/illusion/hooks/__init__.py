@@ -2,7 +2,7 @@
 钩子模块
 ========
 
-本模块提供 IllusionAgent 钩子系统功能，与 Claude Code 完全对齐。
+本模块提供 IllusionAgent 钩子系统功能。
 """
 
 from __future__ import annotations

@@ -40,7 +40,7 @@ from illusion.channels.feishu.messaging import (
 
 logger = logging.getLogger(__name__)
 
-# 节流常量（秒）—— 与 openclaw-lark THROTTLE_CONSTANTS 对齐
+# 节流常量（秒）
 _THROTTLE_MS = 0.1  # CardKit: 100ms
 _THROTTLE_PATCH_MS = 1.5  # patch 降级: 1500ms
 _LONG_GAP_THRESHOLD_MS = 2.0  # 长间隔阈值

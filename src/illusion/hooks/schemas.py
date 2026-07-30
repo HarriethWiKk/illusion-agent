@@ -2,7 +2,7 @@
 钩子配置模式定义
 ================
 
-定义钩子的配置数据模型，与 Claude Code 的 Zod schema 对齐。
+定义钩子的配置数据模型
 
 支持的钩子类型：
     - CommandHookDefinition: 执行 Shell 命令
@@ -11,7 +11,7 @@
     - AgentHookDefinition: 使用 Agent 深度验证
 
 新增结构：
-    - HookMatcherDefinition: 带 matcher 的钩子组（对齐 Claude Code HookMatcherSchema）
+    - HookMatcherDefinition: 带 matcher 的钩子组
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 
 class CommandHookDefinition(BaseModel):
-    """命令钩子定义，对齐 Claude Code BashCommandHookSchema。"""
+    """命令钩子定义。"""
 
     type: Literal["command"] = "command"
     command: str
@@ -40,7 +40,7 @@ class CommandHookDefinition(BaseModel):
 
 
 class PromptHookDefinition(BaseModel):
-    """提示词钩子定义，对齐 Claude Code PromptHookSchema。"""
+    """提示词钩子定义。"""
 
     type: Literal["prompt"] = "prompt"
     prompt: str
@@ -55,7 +55,7 @@ class PromptHookDefinition(BaseModel):
 
 
 class HttpHookDefinition(BaseModel):
-    """HTTP 钩子定义，对齐 Claude Code HttpHookSchema。"""
+    """HTTP 钩子定义。"""
 
     type: Literal["http"] = "http"
     url: str
@@ -71,7 +71,7 @@ class HttpHookDefinition(BaseModel):
 
 
 class AgentHookDefinition(BaseModel):
-    """Agent 钩子定义，对齐 Claude Code AgentHookSchema。"""
+    """Agent 钩子定义。"""
 
     type: Literal["agent"] = "agent"
     prompt: str
@@ -95,7 +95,7 @@ HookDefinition = (
 
 @dataclass
 class HookMatcherDefinition:
-    """带 matcher 的钩子组，对齐 Claude Code HookMatcherSchema。
+    """带 matcher 的钩子组。
 
     格式：{ matcher?: string, hooks: HookCommand[] }
     在配置中表示为：{ "PreToolUse": [{ "matcher": "Bash", "hooks": [...] }] }

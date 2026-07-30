@@ -228,7 +228,7 @@ async def _deliver_qq(
             async def _send_chunk(*, is_group: bool, chunk: str) -> None:
                 """发送单个分片，markdown 失败时降级为纯文本重试
 
-                对齐 adapter.send_text 的降级逻辑：QQ Bot API v2 markdown
+                QQ Bot API v2 markdown
                 消息需预批准模板，普通开发者账号会触发 err_code=11255。
                 """
                 md = use_markdown
@@ -309,7 +309,7 @@ async def _deliver_weixin(
     复用 _split_text 按段落边界分片（max_len=2000）。
     context_token 从持久化文件加载（iLink 硬约束：每 peer 回复必须回传）。
 
-    对齐 adapter.WeixinAdapter.send_text 的 errcode 处理：
+    errcode 处理：
         - SESSION_EXPIRED: 去掉 context_token 降级重试一次
         - RATE_LIMIT: 等待后重试
         - 其他非零 errcode: 重试最多 3 次
@@ -357,7 +357,7 @@ async def _deliver_weixin(
             sent_any = False
             for chunk in chunks:
                 ctx_token = context_token
-                # 重试逻辑（最多 3 次，对齐 adapter.send_text）
+                # 重试逻辑（最多 3 次）
                 for attempt in range(3):
                     resp = await send_message(
                         session,
@@ -404,7 +404,7 @@ async def _deliver_weixin(
                     # for-else: 重试 3 次都失败
                     return False
 
-                # 分片间隔，防限流（对齐 adapter.send_text）
+                # 分片间隔，防限流
                 await asyncio.sleep(1.5)
             return sent_any
     except Exception:

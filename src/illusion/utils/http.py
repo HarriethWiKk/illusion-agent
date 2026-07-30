@@ -15,12 +15,6 @@ from typing import Any
 
 import httpx
 
-try:
-    import truststore
-    _HAS_TRUSTSTORE = True
-except ImportError:
-    _HAS_TRUSTSTORE = False
-
 
 def _create_ssl_context() -> ssl.SSLContext:
     """创建 SSL 上下文，优先使用系统证书库（truststore）。
@@ -28,9 +22,11 @@ def _create_ssl_context() -> ssl.SSLContext:
     truststore 会加载 Windows/macOS 系统证书库，包括 SteamTools
     注入的 MITM 证书；若 truststore 不可用，回退到 httpx 默认验证。
     """
-    if _HAS_TRUSTSTORE:
-        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    return ssl.create_default_context()
+    try:
+        import truststore
+    except ImportError:
+        return ssl.create_default_context()
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
 def create_async_client(**kwargs: Any) -> httpx.AsyncClient:

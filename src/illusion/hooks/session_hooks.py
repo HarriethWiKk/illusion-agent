@@ -3,7 +3,6 @@
 ============
 
 管理会话级钩子（内存中，会话结束时清除）。
-对齐 Claude Code 的 sessionHooks.ts。
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from illusion.hooks.schemas import HookDefinition
 
 @dataclass
 class SessionHookMatcher:
-    """会话钩子匹配器，对齐 Claude Code SessionHookMatcher。"""
+    """会话钩子匹配器。"""
 
     matcher: str
     skill_root: str | None = None
@@ -32,7 +31,7 @@ class SessionStore:
 
 
 class SessionHookStore:
-    """会话钩子管理器，对齐 Claude Code SessionHooksState (Map<string, SessionStore>)。"""
+    """会话钩子管理器。"""
 
     def __init__(self) -> None:
         self._stores: dict[str, SessionStore] = {}

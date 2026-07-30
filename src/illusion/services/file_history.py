@@ -3,7 +3,6 @@
 
 本模块提供基于文件复制的快照管理，用于支持 /rewind 指令的文件回退。
 
-参考 Claude Code 的 copy-on-write 方案：在工具修改文件前备份其内容，
 rewind 时从备份恢复。不依赖 git，可跟踪任意路径的文件。
 
 存储位置：~/.illusion/data/file-history/{session_id}/{sha256(path)[:16]}@v{N}

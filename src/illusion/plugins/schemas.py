@@ -2,7 +2,7 @@
 插件清单模式模块
 ================
 
-定义插件清单的数据模型，对齐 Claude Code PluginManifestSchema。
+定义插件清单的数据模型。
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 
 class PluginManifest(BaseModel):
-    """插件清单，对齐 Claude Code PluginManifestSchema。"""
+    """插件清单。"""
 
     name: str
     version: str = "0.0.0"
@@ -27,7 +27,6 @@ class PluginManifest(BaseModel):
     agents: str | list[Any] | None = None
     skills: str | list[Any] | None = None
     hooks: str | dict[str, Any] | list[Any] | None = None
-    # 对齐 Claude Code
     output_styles: str | list[Any] | None = None
     settings: dict[str, Any] | None = None
     user_config: dict[str, Any] | None = None

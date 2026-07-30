@@ -21,7 +21,7 @@ from typing import Any
 
 from illusion.config.paths import get_config_dir, get_data_dir
 
-# 团队负责人固定名称，与上游行为对齐
+# 团队负责人固定名称
 TEAM_LEAD_NAME = "team-lead"
 
 # 当前会话中创建的团队集合（用于会话结束时兜底清理）

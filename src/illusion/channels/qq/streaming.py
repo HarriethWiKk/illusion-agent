@@ -8,10 +8,10 @@
 - 首次发送返回 stream_msg_id，后续分片复用该 ID 做全量替换
 - input_mode="replace"：每次发送的都是当前完整文本
 - input_state: GENERATING(1) 生成中 / DONE(10) 终结
-- 500ms 节流（对齐 openclaw-main THROTTLE_CONSTANTS.DEFAULT_MS）
+- 500ms 节流
 - 4 态状态机：idle → streaming → completed / aborted
 - 降级：首次分片失败时 shouldFallbackToStatic=True，由上层走普通发送
-- 不展示 reasoning（对齐 openclaw-main 的 sanitizeAssistantVisibleText 策略）
+- 不展示 reasoning
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from illusion.channels.qq.api import (
 
 logger = logging.getLogger(__name__)
 
-# 节流常量（秒）—— 对齐 openclaw-main THROTTLE_CONSTANTS
+# 节流常量（秒）
 _THROTTLE_MS = 0.5  # 默认节流间隔 500ms
 _LONG_GAP_THRESHOLD_MS = 2.0  # 长间隔阈值
 _BATCH_AFTER_GAP_MS = 0.3  # 长间隔后批量延迟

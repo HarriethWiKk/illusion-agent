@@ -3,7 +3,6 @@
 ============
 
 替换钩子命令和技能内容中的插件变量。
-对齐 Claude Code 的 pluginOptionsStorage.ts。
 """
 
 from __future__ import annotations

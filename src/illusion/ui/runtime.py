@@ -553,7 +553,7 @@ async def start_runtime(bundle: RuntimeBundle) -> AggregatedHookResult:
     """运行会话开始钩子。
 
     执行 SESSION_START 钩子事件，提取 additional_contexts
-    并注入到系统提示词中（对齐 Claude Code 的 SessionStart 钩子行为）。
+    并注入到系统提示词中。
 
     Args:
         bundle: 运行时数据 bundle

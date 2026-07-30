@@ -2,7 +2,7 @@
 插件发现和加载模块
 ==================
 
-实现插件的发现和加载功能，对齐 Claude Code 的 pluginLoader.ts。
+实现插件的发现和加载功能。
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
         skills.extend(_load_plugin_skills(commands_dir, manifest.name, path))
 
     # 从 plugin agents/ 目录发现智能体
-    # 安全限制：插件 agent 禁止解析 hooks（对齐 Claude Code loadPluginAgents.ts）
+    # 安全限制：插件 agent 禁止解析 hooks
     agents_dir = path / "agents"
     if agents_dir.exists():
         skills.extend(_load_plugin_skills(agents_dir, manifest.name, path, parse_hooks=False))
@@ -147,7 +147,7 @@ def _load_plugin_skills(
 ) -> list[SkillDefinition]:
     """从目录加载技能，支持 SKILL.md 目录格式和命名空间。
 
-    对齐 Claude Code 的 loadPluginCommands.ts。
+
     技能名称格式：{plugin_name}:{skill_name}
     """
     if not path.exists():
