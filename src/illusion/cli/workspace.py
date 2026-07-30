@@ -6,13 +6,11 @@
 
 主要函数：
     - validate_and_normalize: 校验并规范化工作目录路径
-    - apply_working_directory: 应用工作目录切换（os.chdir）
     - is_first_login: 判断是否为首次登录
     - prompt_working_directory: 首次登录时提示用户设置工作目录
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from illusion.config.i18n import t as _t
@@ -57,38 +55,6 @@ def validate_and_normalize(path_str: str) -> tuple[Path | None, str]:
             return None, str(exc)
 
     return resolved, ""
-
-
-def apply_working_directory(path_str: str) -> str | None:
-    """应用工作目录切换
-
-    读取 settings.json 中的 working_directory，校验后 os.chdir。
-    校验失败时打印警告，返回 None。
-
-    Args:
-        path_str: 工作目录路径字符串
-
-    Returns:
-        str | None: 成功切换返回规范化路径字符串，失败返回 None
-    """
-    if not path_str:
-        return None
-
-    resolved, err = validate_and_normalize(path_str)
-    if resolved is None and err:
-        import logging
-        logging.getLogger(__name__).warning(_t("cwd_invalid", path=path_str))
-        return None
-    if resolved is None:
-        return None
-
-    try:
-        os.chdir(resolved)
-        return str(resolved)
-    except OSError as exc:
-        import logging
-        logging.getLogger(__name__).warning(_t("cwd_invalid", path=path_str))
-        return None
 
 
 def is_first_login(settings: Settings) -> bool:

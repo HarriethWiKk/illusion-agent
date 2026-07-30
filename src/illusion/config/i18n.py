@@ -149,7 +149,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "set_current_working_directory": {"zh-CN": "当前工作目录：{path}", "en-US": "Current working directory: {path}"},
     "set_no_working_directory": {"zh-CN": "尚未设置工作目录", "en-US": "No working directory set"},
     "set_usage": {"zh-CN": "用法：illusion set [working_directory]，例如 illusion set \"E:\\\\Projects\\\\my-project\"", "en-US": "Usage: illusion set [working_directory], e.g. illusion set \"E:\\\\Projects\\\\my-project\""},
-    "set_created": {"zh-CN": "已创建目录：{path}", "en-US": "Created directory: {path}"},
     "set_saved": {"zh-CN": "工作目录已设置为：{path}", "en-US": "Working directory set to: {path}"},
     "set_invalid_path": {"zh-CN": "路径无效：{path}", "en-US": "Invalid path: {path}"},
     "working_dir_prompt": {"zh-CN": "是否设置工作目录？输入目录路径（回车跳过）：", "en-US": "Set working directory? Enter path (Enter to skip): "},
