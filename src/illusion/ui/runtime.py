@@ -530,7 +530,13 @@ async def build_runtime(
     session_dir = get_project_session_dir_no_create(cwd) / session_id
     checkpoint_store = CheckpointStore(session_dir, session_id)
     engine.set_checkpoint_store(checkpoint_store)
-    # resume 场景：restore_messages 已在调用前处理，无需额外操作。
+    # 加载文件历史（若磁盘存在）。
+    # restore_messages 场景：调用方已在外部完成 CheckpointStore.restore()
+    # 并传入 restore_messages，但此处 checkpoint_store 是新建的、未 restore，
+    # next_checkpoint_id 为 0，不能作为对齐依据，故不传 checkpoint_count。
+    # 懒初始化（submit_message）会再次 load 并由后续 submit_message 的
+    # checkpoint_count 隐式对齐。
+    engine.load_file_history()
     # index.json 和 meta.json 的写入由 _update_session_meta 在第一条消息后负责。
 
     return RuntimeBundle(

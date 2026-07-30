@@ -88,3 +88,23 @@ async def test_rewind_code_then_both_no_misalignment(
     changed = rewind_to(state, 2)
     assert changed == []
     assert [s.checkpoint_id for s in state.snapshots] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_resume_loads_file_history(tmp_path: Path) -> None:
+    """/resume 后 engine.file_history 应从磁盘加载。"""
+    from illusion.services.file_history import (
+        FileHistoryState,
+        make_snapshot,
+        save,
+    )
+    cwd = str(tmp_path)
+    session_id = "abc123"
+    state = FileHistoryState(session_id=session_id, cwd=cwd)
+    make_snapshot(state, "old", checkpoint_id=0)
+    save(state)
+
+    from illusion.services.file_history import load
+    loaded = load(cwd, session_id, checkpoint_count=1)
+    assert loaded is not None
+    assert len(loaded.snapshots) == 1

@@ -203,6 +203,9 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
         context.engine.set_session_id(sid)
         context.engine.apply_restore(result)
 
+        # 加载文件历史（传入 checkpoint_count 做崩溃恢复对齐）
+        context.engine.load_file_history(checkpoint_count=store.next_checkpoint_id)
+
         # 更新 index.json
         write_index(context.cwd, sid)
 
@@ -251,6 +254,10 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
     context.engine.set_checkpoint_store(store)
     context.engine.set_session_id(sid)
     context.engine.apply_restore(result)
+
+    # 加载文件历史（传入 checkpoint_count 做崩溃恢复对齐）
+    context.engine.load_file_history(checkpoint_count=store.next_checkpoint_id)
+
     write_index(context.cwd, sid)
 
     summary = meta.get("summary", "")[:60]
