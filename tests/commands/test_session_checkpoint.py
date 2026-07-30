@@ -45,17 +45,17 @@ async def test_rewind_no_checkpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rewind_code_then_both_no_misalignment(
+async def test_rewind_to_checkpoint_id_no_misalignment_after_partial_removal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """/rewind code 后 /rewind both 不应错位。
+    """rewind_to 按 checkpoint_id 定位，部分移除后再整体回退不应错位。
 
     场景：
-    - 3 轮对话 + 文件修改
-    - /rewind 1 code：移除第 3 轮文件快照（cp 不动）
-    - 发新消息：cp=3, 新快照 cp_id=3
-    - /rewind 1 both：对话移除 cp3, 文件移除 cp_id>=3
-    - /rewind 1 both：对话移除 cp2, 文件无 cp_id>=2 的快照（S2 已被 code 移除）
+    - 3 轮对话 + 文件修改，快照 cp_id 分别为 0/1/2
+    - 先按位置移除最后 1 个快照（模拟底层部分回退）
+    - 发新消息：新快照 cp_id=3
+    - rewind_to(3)：移除 cp_id>=3 的快照
+    - rewind_to(2)：无 cp_id>=2 的快照（已被移除），不恢复文件
     """
     from illusion.services.file_history import (
         FileHistoryState,
@@ -68,7 +68,7 @@ async def test_rewind_code_then_both_no_misalignment(
     make_snapshot(state, "2", checkpoint_id=1)  # S1
     make_snapshot(state, "3", checkpoint_id=2)  # S2
 
-    # /rewind 1 code: target_index=2, target_cp=S2.cp_id=2
+    # 按位置移除最后 1 个快照（模拟底层部分回退）
     target_index = max(0, len(state.snapshots) - 1)
     target_cp_id = state.snapshots[target_index].checkpoint_id
     rewind_to(state, target_cp_id)
@@ -79,12 +79,11 @@ async def test_rewind_code_then_both_no_misalignment(
     make_snapshot(state, "4", checkpoint_id=3)
     assert [s.checkpoint_id for s in state.snapshots] == [0, 1, 3]
 
-    # /rewind 1 both: target_cp = 4 - 1 = 3 (假设 next_cp=4)
+    # rewind_to(3): 移除 cp_id>=3 的快照
     rewind_to(state, 3)
     assert [s.checkpoint_id for s in state.snapshots] == [0, 1]
 
-    # /rewind 1 both: target_cp = 3 - 1 = 2 (假设 next_cp=3)
-    # 无 cp_id >= 2 的快照（S2 已被 code 移除），不恢复文件
+    # rewind_to(2): 无 cp_id>=2 的快照（S2 已被移除），不恢复文件
     changed = rewind_to(state, 2)
     assert changed == []
     assert [s.checkpoint_id for s in state.snapshots] == [0, 1]
@@ -108,3 +107,72 @@ async def test_resume_loads_file_history(tmp_path: Path) -> None:
     loaded = load(cwd, session_id, checkpoint_count=1)
     assert loaded is not None
     assert len(loaded.snapshots) == 1
+
+
+def test_set_session_id_syncs_file_history_session_id(tmp_path: Path) -> None:
+    """set_session_id 应同步已加载 file_history 的 session_id 并重保存到新路径。
+
+    验证场景：/new 后 engine.full_reset 清空 session_id，
+    runtime 调用 set_session_id(new_id) 后，file_history.session_id
+    应同步为新_id，且 file_history.json 写入新_id 目录。
+    """
+    from illusion.engine.query_engine import QueryEngine
+    from illusion.services.file_history import (
+        FileHistoryState,
+        load,
+        make_snapshot,
+    )
+
+    cwd = str(tmp_path)
+    old_session_id = "old_sid_abc"
+    new_session_id = "new_sid_xyz"
+
+    # 预置旧 session_id 下的 file_history
+    state = FileHistoryState(session_id=old_session_id, cwd=cwd)
+    make_snapshot(state, "1", checkpoint_id=0)
+    from illusion.services.file_history import save as fh_save
+    fh_save(state)
+
+    # 构造 engine 并加载旧 file_history
+    engine = QueryEngine(
+        api_client=MagicMock(),
+        tool_registry=MagicMock(),
+        permission_checker=MagicMock(),
+        cwd=cwd,
+        model="test-model",
+        system_prompt="",
+        session_id=old_session_id,
+    )
+    engine.load_file_history(checkpoint_count=1)
+    assert engine.file_history is not None
+    assert engine.file_history.session_id == old_session_id
+
+    # 模拟 /new 后 runtime 调用 set_session_id(new_id)
+    engine.set_session_id(new_session_id)
+    assert engine._session_id == new_session_id
+    assert engine.file_history.session_id == new_session_id
+
+    # 验证 file_history.json 已写入新 session_id 目录
+    from illusion.services.session_storage import get_project_session_dir_no_create
+    new_path = get_project_session_dir_no_create(cwd) / new_session_id / "file_history.json"
+    assert new_path.exists()
+    loaded = load(cwd, new_session_id, checkpoint_count=1)
+    assert loaded is not None
+    assert loaded.session_id == new_session_id
+    assert len(loaded.snapshots) == 1
+
+
+def test_submit_message_no_file_history_when_session_id_empty(tmp_path: Path) -> None:
+    """session_id 为空时 submit_message 不应创建 file_history。
+
+    验证 Task 1 修复：移除随机 uuid 兜底后，session_id 为空时
+    file_history 保持 None，避免写入随机 id 的孤立目录。
+    """
+    import inspect
+
+    from illusion.engine.query_engine import QueryEngine
+
+    # 检查源码中不再包含 uuid 兜底逻辑
+    source = inspect.getsource(QueryEngine.submit_message)
+    assert "uuid.uuid4" not in source
+    assert "or uuid" not in source

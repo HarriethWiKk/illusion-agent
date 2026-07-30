@@ -12,7 +12,7 @@ from illusion.services.file_history import (
 )
 
 
-def test_restart_then_rewind_code_restores_file(tmp_path: Path) -> None:
+def test_restart_then_rewind_to_restores_file(tmp_path: Path) -> None:
     """模拟重启：engine1 修改文件 → 保存 → 新 state load + rewind → 文件恢复。"""
     cwd = str(tmp_path)
     session_id = "abc123"
@@ -33,7 +33,7 @@ def test_restart_then_rewind_code_restores_file(tmp_path: Path) -> None:
     assert len(state2.snapshots) == 1
     assert state2.snapshots[0].checkpoint_id == 0
 
-    # === /rewind 1 code ===
+    # === rewind_to: 回退到 cp_id=0 之前 ===
     target_index = max(0, len(state2.snapshots) - 1)
     target_cp_id = state2.snapshots[target_index].checkpoint_id
     changed = rewind_to(state2, target_cp_id)
@@ -41,8 +41,8 @@ def test_restart_then_rewind_code_restores_file(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "original"
 
 
-def test_restart_rewind_code_then_both_no_misalignment(tmp_path: Path) -> None:
-    """跨重启：/rewind code 后 /rewind both 不错位。"""
+def test_restart_rewind_partial_then_full_no_misalignment(tmp_path: Path) -> None:
+    """跨重启：部分回退后再整体回退，checkpoint_id 定位不错位。"""
     cwd = str(tmp_path)
     session_id = "abc123"
     target = tmp_path / "file.py"
@@ -68,7 +68,7 @@ def test_restart_rewind_code_then_both_no_misalignment(tmp_path: Path) -> None:
     assert state2 is not None
     assert len(state2.snapshots) == 3
 
-    # === /rewind 1 code: 移除 cp_id=2 的快照 ===
+    # === 部分回退: 移除 cp_id=2 的快照 ===
     target_index = max(0, len(state2.snapshots) - 1)
     target_cp_id = state2.snapshots[target_index].checkpoint_id
     assert target_cp_id == 2
@@ -88,14 +88,14 @@ def test_restart_rewind_code_then_both_no_misalignment(tmp_path: Path) -> None:
     assert state3 is not None
     assert [s.checkpoint_id for s in state3.snapshots] == [0, 1, 3]
 
-    # === /rewind 1 both: target_cp = 4 - 1 = 3 ===
+    # === 整体回退: target_cp = 4 - 1 = 3 ===
     rewind_to(state3, 3)
     assert [s.checkpoint_id for s in state3.snapshots] == [0, 1]
     # 文件恢复到 v2（v3_new 被撤销）
     assert target.read_text(encoding="utf-8") == "v2"
 
-    # === /rewind 1 both: target_cp = 3 - 1 = 2 ===
-    # 无 cp_id >= 2 的快照（S2 已被 code 移除），不恢复文件
+    # === 再次整体回退: target_cp = 3 - 1 = 2 ===
+    # 无 cp_id >= 2 的快照（S2 已被部分回退移除），不恢复文件
     changed = rewind_to(state3, 2)
     assert changed == []
     assert [s.checkpoint_id for s in state3.snapshots] == [0, 1]
