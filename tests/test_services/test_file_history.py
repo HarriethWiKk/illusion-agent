@@ -184,3 +184,22 @@ def test_track_edit_persists_state(tmp_path: Path) -> None:
     assert key in loaded.snapshots[0].tracked_backups
     assert loaded.snapshots[0].tracked_backups[key].backup_name is not None
     assert loaded.snapshots[0].tracked_backups[key].version == 1
+
+
+def test_rewind_to_checkpoint_id_not_index_aligned(tmp_path: Path) -> None:
+    """rewind_to 按 checkpoint_id 定位，与列表索引错位时仍正确。
+
+    构造 cp_id=[10, 11, 12]，rewind_to(11) 应保留 cp_id=10 一个，
+    若按旧列表位置语义（index=1）会错误移除后两个。
+    """
+    state = FileHistoryState(session_id="abc123", cwd=str(tmp_path))
+    make_snapshot(state, "1", checkpoint_id=10)
+    make_snapshot(state, "2", checkpoint_id=11)
+    make_snapshot(state, "3", checkpoint_id=12)
+
+    # rewind_to(11)：移除 cp_id >= 11 的，保留 cp_id=10
+    changed = rewind_to(state, 11)
+    assert changed == []
+    assert len(state.snapshots) == 1
+    assert state.snapshots[0].checkpoint_id == 10
+    assert state._turn_counter == 1
