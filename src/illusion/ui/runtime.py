@@ -534,8 +534,8 @@ async def build_runtime(
     # restore_messages 场景：调用方已在外部完成 CheckpointStore.restore()
     # 并传入 restore_messages，但此处 checkpoint_store 是新建的、未 restore，
     # next_checkpoint_id 为 0，不能作为对齐依据，故不传 checkpoint_count。
-    # 懒初始化（submit_message）会再次 load 并由后续 submit_message 的
-    # checkpoint_count 隐式对齐。
+    # 此处加载后 submit_message 的懒加载分支不会重复触发；
+    # 若磁盘无历史则保持 None，由 submit_message 兜底新建。
     engine.load_file_history()
     # index.json 和 meta.json 的写入由 _update_session_meta 在第一条消息后负责。
 
