@@ -88,17 +88,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   // 跨渠道文件传输
   list_channel_sessions: 'ListChannelSessions',
   send_to_channel: 'SendToChannel',
-  // 飞书文档工具
-  feishu_doc_read: 'FeishuDocRead',
-  feishu_doc_create: 'FeishuDocCreate',
-  feishu_doc_write: 'FeishuDocWrite',
-  feishu_doc_delete: 'FeishuDocDelete',
-  // 飞书云盘工具
-  feishu_drive_list: 'FeishuDriveList',
-  feishu_drive_upload: 'FeishuDriveUpload',
-  feishu_drive_download: 'FeishuDriveDownload',
-  feishu_drive_mkdir: 'FeishuDriveMkdir',
-  feishu_drive_delete: 'FeishuDriveDelete',
 
   // 权限/计划相关（后端事件名）
   set_permission_mode: 'SetPermissionMode',

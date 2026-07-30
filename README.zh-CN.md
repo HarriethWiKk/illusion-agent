@@ -1,10 +1,31 @@
-# IllusionAgent
-
 <div align="center">
+
+<svg width="520" height="100" viewBox="0 0 520 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ia-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2a9d99"/>
+      <stop offset="35%" stop-color="#7c6fb0"/>
+      <stop offset="70%" stop-color="#e8856c"/>
+      <stop offset="100%" stop-color="#2a9d99"/>
+    </linearGradient>
+  </defs>
+  <text x="260" y="48" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="46" font-weight="700" letter-spacing="-1.5"
+        fill="url(#ia-grad)">IllusionAgent</text>
+  <text x="260" y="80" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="13" font-weight="500" letter-spacing="4"
+        fill="#8b92a8">OPEN SOURCE AI AGENT PLATFORM</text>
+</svg>
 
 **幻想与实用，于此交融**
 
 *融合多个开源项目精华，构建统一智能代理*
+
+<svg width="80" height="2" xmlns="http://www.w3.org/2000/svg">
+  <line x1="0" y1="1" x2="80" y2="1" stroke="#d0d5e0" stroke-width="1"/>
+</svg>
 
 中文 | [English](README.md)
 
@@ -19,7 +40,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 在 Windows、macOS、Linux 之上皆能从容运行。
 
 无论你习惯终端的克制，还是偏爱浏览器的舒展，IllusionAgent 都能与你的工作流共振：
-42 项内置工具、48 条斜杠命令、7 类专业子代理、MCP 服务器支持、
+35 项内置工具、48 条斜杠命令、7 类专业子代理、MCP 服务器支持、
 钩子、插件，以及面向无人值守场景的 Cron 调度器，贯通飞书、微信、QQ 三大渠道。
 
 > 站在巨人之肩 —— Claude Code 提示词体系、OpenHarness 架构理念、
@@ -29,7 +50,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
-- 🛠️ **丰富的工具集** - 42 内置工具（29 基础 + 13 渠道）+ MCP 动态工具扩展
+- 🛠️ **丰富的工具集** - 35 内置工具（31 基础 + 4 渠道）+ MCP 动态工具扩展
 - ⌨️ **48 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🌐 **Web UI 界面** - 通过 `illusion web` 启动浏览器聊天界面，与终端界面相互独立、同等可用
 - 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
@@ -51,7 +72,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 <div align="center">
   <p>演示视频</p>
   <a href="https://b23.tv/3mWe9It">
-    <img src="docs/images/illusion-agent.png" alt="点击观看演示视频" width="720" />
+    <img src="docs/images/illusion-agent-zh.png" alt="点击观看演示视频" width="720" />
   </a>
   <p><a href="https://b23.tv/3mWe9It">📺 B站观看演示视频</a></p>
 </div>

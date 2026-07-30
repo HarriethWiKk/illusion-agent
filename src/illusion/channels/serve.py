@@ -320,16 +320,12 @@ async def _serve_async(cfg: ChannelsConfig, settings: Any, server: Any) -> None:
         channel_data_dir.mkdir(parents=True, exist_ok=True)
         # 群组会话隔离：微信只私聊固定 False，其他渠道从配置读取
         group_sessions_per_user = getattr(channel_cfg, "group_sessions_per_user", False)
-        # 基础 runner_kwargs + 渠道特有额外参数（通过 descriptor 工厂注入）
-        runner_kwargs: dict[str, Any] = {
-            "channel": channel,
-            "settings": settings,
-            "session_data_dir": channel_data_dir,
-            "group_sessions_per_user": group_sessions_per_user,
-        }
-        if desc.runner_extra_kwargs_factory is not None:
-            runner_kwargs.update(desc.runner_extra_kwargs_factory(channel_cfg))
-        runner = ChannelRunner(**runner_kwargs)
+        runner = ChannelRunner(
+            channel=channel,
+            settings=settings,
+            session_data_dir=channel_data_dir,
+            group_sessions_per_user=group_sessions_per_user,
+        )
         runners.append(runner)
 
     if not runners:

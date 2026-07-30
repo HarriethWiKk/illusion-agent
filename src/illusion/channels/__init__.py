@@ -309,8 +309,7 @@ class ChannelRunner:
     """
 
     def __init__(self, *, channel: Channel, settings: Settings,
-                 session_data_dir: Path, group_sessions_per_user: bool = True,
-                 feishu_config: Any = None) -> None:
+                 session_data_dir: Path, group_sessions_per_user: bool = True) -> None:
         """初始化
 
         Args:
@@ -318,7 +317,6 @@ class ChannelRunner:
             settings: 主设置
             session_data_dir: 会话存储目录
             group_sessions_per_user: 群组会话是否按用户隔离
-            feishu_config: 飞书渠道配置（用于构造飞书工具注入 agent）
         """
         self.channel = channel  # 渠道
         self.settings = settings  # 主设置
@@ -328,7 +326,6 @@ class ChannelRunner:
             data_dir=session_data_dir,
             group_sessions_per_user=group_sessions_per_user,
         )
-        self._feishu_config = feishu_config  # 飞书配置（构造工具用）
         self._pending_replies: dict[str, asyncio.Future[str]] = {}  # 权限/询问待回复
         # 按 chat_id 串行化 agent turn，避免并行消息导致会话历史覆盖
         # （同一会话连发多条消息时，M2/M3 排队等 M1 完成后再跑）
@@ -535,36 +532,6 @@ class ChannelRunner:
                 ))
         except (ImportError, AttributeError, TypeError) as exc:
             logger.warning("构造媒体工具失败: %s", exc)
-
-        # 飞书文档/云盘工具
-        if self._feishu_config is not None:
-            try:
-                from illusion.channels.tools.feishu_doc import (
-                    FeishuDocCreateTool,
-                    FeishuDocDeleteTool,
-                    FeishuDocReadTool,
-                    FeishuDocWriteTool,
-                )
-                from illusion.channels.tools.feishu_drive import (
-                    FeishuDriveDeleteTool,
-                    FeishuDriveDownloadTool,
-                    FeishuDriveListTool,
-                    FeishuDriveMkdirTool,
-                    FeishuDriveUploadTool,
-                )
-                tools.extend([
-                    FeishuDocReadTool(self._feishu_config),
-                    FeishuDocCreateTool(self._feishu_config),
-                    FeishuDocWriteTool(self._feishu_config),
-                    FeishuDocDeleteTool(self._feishu_config),
-                    FeishuDriveListTool(self._feishu_config),
-                    FeishuDriveUploadTool(self._feishu_config),
-                    FeishuDriveDownloadTool(self._feishu_config),
-                    FeishuDriveMkdirTool(self._feishu_config),
-                    FeishuDriveDeleteTool(self._feishu_config),
-                ])
-            except (ImportError, AttributeError, TypeError) as exc:
-                logger.warning("构造飞书工具失败: %s", exc)
 
         # 跨渠道文件传输工具（所有渠道）
         try:

@@ -556,7 +556,7 @@ Each subdirectory must contain `plugin.json` or `.claude-plugin/plugin.json`.
 
 ### Project Memory (`.illusion/memory/`)
 
-Project-level memory files. Takes priority over global fallback (`~/.illusion/data/memory/{project-hash}/`).
+Project-level memory files. Takes priority over global fallback (`~/.illusion/memory/{project-hash}/`).
 
 ---
 

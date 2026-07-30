@@ -121,17 +121,6 @@ function ensureInitialized(): void {
 	// 跨渠道文件传输
 	register(createGenericTool('list_channel_sessions', 'ListChannelSessions'));
 	register(createGenericTool('send_to_channel', 'SendToChannel'));
-	// 飞书文档工具
-	register(createGenericTool('feishu_doc_read', 'FeishuDocRead'));
-	register(createGenericTool('feishu_doc_create', 'FeishuDocCreate'));
-	register(createGenericTool('feishu_doc_write', 'FeishuDocWrite'));
-	register(createGenericTool('feishu_doc_delete', 'FeishuDocDelete'));
-	// 飞书云盘工具
-	register(createGenericTool('feishu_drive_list', 'FeishuDriveList'));
-	register(createGenericTool('feishu_drive_upload', 'FeishuDriveUpload'));
-	register(createGenericTool('feishu_drive_download', 'FeishuDriveDownload'));
-	register(createGenericTool('feishu_drive_mkdir', 'FeishuDriveMkdir'));
-	register(createGenericTool('feishu_drive_delete', 'FeishuDriveDelete'));
 
 	// 专用工具（需要特殊处理）
 	register({

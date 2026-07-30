@@ -17,7 +17,7 @@ illusion-agent/
 │   ├── prompts/            # Prompt system
 │   ├── skills/             # Skill system
 │   ├── tasks/              # Task management
-│   ├── tools/              # Toolset (29 base tools + channel tools)
+│   ├── tools/              # Toolset (31 base tools + 4 channel tools)
 │   ├── ui/                 # User interface
 │   │   ├── web/            # Web backend (FastAPI + WebSocket)
 │   │   └── ...
@@ -47,7 +47,7 @@ Supports multiple AI providers:
 
 ### Tool System
 
-Provides 29 base tools, covering:
+Provides 31 base tools, covering:
 
 - **File Operations**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **Command Execution**: `bash`, `powershell`, `repl`
@@ -58,6 +58,7 @@ Provides 29 base tools, covering:
   - `exit_plan_mode` triggers plan approval: terminal/Web shows an approval card, print mode uses cross-turn approval (exit code 2), channel sends plan content and waits for reply
 - **Session Control**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
 - **Config & Debug**: `config`, `lsp`, `mcp_auth`, `skill`
+- **MCP Resources**: `list_mcp_resources`, `read_mcp_resource`
 - **Interaction**: `ask_user_question`
 - **Scheduled Tasks**: `cron` (unified tool with status/list/add/update/remove/run actions)
 

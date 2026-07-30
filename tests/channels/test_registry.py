@@ -225,26 +225,3 @@ def test_descriptor_start_msg_fields():
     assert qq is not None
     assert qq.start_msg_key == "channel_starting_qq"
     assert qq.start_msg_needs_channel_name is False
-
-
-def test_feishu_runner_extra_kwargs_factory():
-    """feishu 的 runner_extra_kwargs_factory 应返回 feishu_config"""
-    from unittest.mock import MagicMock
-    feishu = ChannelRegistry.get("feishu")
-    assert feishu is not None
-    assert feishu.runner_extra_kwargs_factory is not None
-
-    mock_cfg = MagicMock()
-    extra = feishu.runner_extra_kwargs_factory(mock_cfg)
-    assert extra == {"feishu_config": mock_cfg}
-
-
-def test_weixin_qq_have_no_extra_kwargs_factory():
-    """weixin 和 qq 不应有 runner_extra_kwargs_factory（无额外构造参数）"""
-    weixin = ChannelRegistry.get("weixin")
-    assert weixin is not None
-    assert weixin.runner_extra_kwargs_factory is None
-
-    qq = ChannelRegistry.get("qq")
-    assert qq is not None
-    assert qq.runner_extra_kwargs_factory is None

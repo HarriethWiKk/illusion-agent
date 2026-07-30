@@ -1,7 +1,6 @@
 """渠道注册表
 ============
 
-将散落在 14+ 处的 feishu/weixin/qq 硬编码分支收敛到一个注册表。
 每个渠道注册一个 ChannelDescriptor，包含元数据和工厂函数。
 
 模块加载时自动注册三个内置渠道（feishu/weixin/qq）。
@@ -41,8 +40,6 @@ class ChannelDescriptor:
         fingerprint_factory: 根据渠道配置生成指纹标识字符串（用于检测配置变更）
         start_msg_key: 启动文案的 i18n key（如 "channel_starting"）
         start_msg_needs_channel_name: 启动文案是否需要传入 {channel} 参数（feishu 用）
-        runner_extra_kwargs_factory: 根据 channel_cfg 生成 ChannelRunner 额外构造参数的工厂；
-            返回的 dict 会合并到 runner_kwargs；None 或返回空 dict 表示无额外参数
     """
 
     name: str  # 渠道名
@@ -55,7 +52,6 @@ class ChannelDescriptor:
     fingerprint_factory: Callable[[Any], str]  # 配置指纹工厂
     start_msg_key: str = "channel_starting"  # 启动文案 i18n key
     start_msg_needs_channel_name: bool = False  # 启动文案是否需要 {channel} 参数
-    runner_extra_kwargs_factory: Callable[[Any], dict[str, Any]] | None = None  # ChannelRunner 额外构造参数工厂
 
 
 class ChannelRegistry:
@@ -150,11 +146,6 @@ def _feishu_fingerprint_factory(cfg: Any) -> str:
     return f"feishu:{cfg.app_id}"
 
 
-def _feishu_runner_extra_kwargs_factory(channel_cfg: Any) -> dict[str, Any]:
-    """飞书 ChannelRunner 额外构造参数：需要 feishu_config 注入"""
-    return {"feishu_config": channel_cfg}
-
-
 def _weixin_session_store_factory(
     channel: Any, data_dir: Any, group_sessions_per_user: bool
 ) -> Any:
@@ -223,7 +214,6 @@ ChannelRegistry.register(
         fingerprint_factory=_feishu_fingerprint_factory,
         start_msg_key="channel_starting",
         start_msg_needs_channel_name=True,  # feishu 启动文案带 {channel} 参数
-        runner_extra_kwargs_factory=_feishu_runner_extra_kwargs_factory,
     )
 )
 ChannelRegistry.register(

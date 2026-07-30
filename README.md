@@ -1,10 +1,31 @@
-# IllusionAgent
-
 <div align="center">
+
+<svg width="520" height="100" viewBox="0 0 520 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ia-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2a9d99"/>
+      <stop offset="35%" stop-color="#7c6fb0"/>
+      <stop offset="70%" stop-color="#e8856c"/>
+      <stop offset="100%" stop-color="#2a9d99"/>
+    </linearGradient>
+  </defs>
+  <text x="260" y="48" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="46" font-weight="700" letter-spacing="-1.5"
+        fill="url(#ia-grad)">IllusionAgent</text>
+  <text x="260" y="80" text-anchor="middle"
+        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="13" font-weight="500" letter-spacing="4"
+        fill="#8b92a8">OPEN SOURCE AI AGENT PLATFORM</text>
+</svg>
 
 **Where fantasy meets functionality.**
 
 *The best of many worlds, refined into one intelligent agent*
+
+<svg width="80" height="2" xmlns="http://www.w3.org/2000/svg">
+  <line x1="0" y1="1" x2="80" y2="1" stroke="#d0d5e0" stroke-width="1"/>
+</svg>
 
 [中文版](README.zh-CN.md) | English
 
@@ -20,7 +41,7 @@ a flexible extension ecosystem into a single intelligent agent — at home
 on Windows, macOS, and Linux.
 
 Whether you prefer the discipline of the terminal or the ease of the browser,
-IllusionAgent resonates with your workflow: 42 built-in tools, 48 slash
+IllusionAgent resonates with your workflow: 35 built-in tools, 48 slash
 commands, 7 specialized sub-agents, MCP server support, hooks, plugins, and
 a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 
@@ -32,7 +53,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 
 - 🤖 **Multi AI Provider Support** - Anthropic, OpenAI, Copilot, Codex, and any compatible endpoint
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents
-- 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
+- 🛠️ **Rich Toolset** - 35 built-in tools (31 base + 4 channel) + MCP dynamic tool extension
 - ⌨️ **48 Slash Commands** - Session, config, project, scheduling
 - 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, independently usable alongside the terminal
 - 🌍 **Bilingual Interface** - Chinese/English auto-switch via `ui_language` setting
@@ -54,7 +75,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 <div align="center">
   <p>Demo video</p>
   <a href="https://www.youtube.com/watch?v=ExrzKVjWPls">
-    <img src="docs/images/illusion-agent.png" alt="Click to watch demo video" width="720" />
+    <img src="docs/images/illusion-agent-en.png" alt="Click to watch demo video" width="720" />
   </a>
   <p><a href="https://www.youtube.com/watch?v=ExrzKVjWPls">📺 Watch demo on YouTube</a></p>
 </div>

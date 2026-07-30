@@ -19,7 +19,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 在 Windows、macOS、Linux 之上皆能从容运行。
 
 无论你习惯终端的克制，还是偏爱浏览器的舒展，IllusionAgent 都能与你的工作流共振：
-42 项内置工具、48 条斜杠命令、7 类专业子代理、MCP 服务器支持、
+35 项内置工具、48 条斜杠命令、7 类专业子代理、MCP 服务器支持、
 钩子、插件，以及面向无人值守场景的 Cron 调度器，贯通飞书、微信、QQ 三大渠道。
 
 > 站在巨人之肩 —— Claude Code 提示词体系、OpenHarness 架构理念、
@@ -29,7 +29,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 
 - 🤖 **多 AI 提供商支持** - Anthropic Claude、OpenAI、GitHub Copilot、OpenAI Codex 及任意 OpenAI 兼容端点
 - 🧠 **多智能体协作** - 7 种内置专业 Agent，支持任务编排
-- 🛠️ **丰富的工具集** - 42 内置工具（29 基础 + 13 渠道）+ MCP 动态工具扩展
+- 🛠️ **丰富的工具集** - 35 内置工具（31 基础 + 4 渠道）+ MCP 动态工具扩展
 - ⌨️ **48 个斜杠命令** - 覆盖会话管理、配置、项目操作、任务调度等
 - 🌐 **Web UI 界面** - 通过 `illusion web` 启动浏览器聊天界面，暖色设计、会话管理、实时流式响应（终端界面的补充方案）
 - 🌍 **中英双语支持** - 所有 CLI 输出根据 `ui_language` 设置自动切换中英文
@@ -54,7 +54,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 <div align="center">
   <p>演示视频</p>
   <a href="https://b23.tv/3mWe9It">
-    <img src="../images/illusion-agent.png" alt="点击观看演示视频" width="720" />
+    <img src="../images/illusion-agent-zh.png" alt="点击观看演示视频" width="720" />
   </a>
   <p><a href="https://b23.tv/3mWe9It">📺 B站观看演示视频</a></p>
 </div>

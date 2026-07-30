@@ -244,23 +244,6 @@ def test_large_file_io_uses_to_thread_in_weixin_adapter():
     assert "asyncio.to_thread(out_path.write_bytes" in download_source
 
 
-def test_large_file_io_uses_to_thread_in_feishu_drive():
-    """feishu_drive.py 的上传和下载用 asyncio.to_thread 包装文件 I/O。"""
-    from illusion.channels.tools.feishu_drive import (
-        FeishuDriveDownloadTool,
-        FeishuDriveUploadTool,
-    )
-
-    upload_all_source = inspect.getsource(FeishuDriveUploadTool._upload_all)
-    assert "asyncio.to_thread(path.read_bytes" in upload_all_source
-
-    chunked_source = inspect.getsource(FeishuDriveUploadTool._upload_chunked)
-    assert "asyncio.to_thread(_read_chunk" in chunked_source
-
-    download_source = inspect.getsource(FeishuDriveDownloadTool.execute)
-    assert "asyncio.to_thread(save_path.write_bytes" in download_source
-
-
 def test_file_io_does_not_block_event_loop(tmp_path: Path):
     """大文件写盘通过 to_thread 执行，不阻塞事件循环。
 

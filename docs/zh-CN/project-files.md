@@ -62,9 +62,9 @@
 记忆文件存储在两个位置，项目级位置优先：
 
 1. **项目级**（优先）：`{cwd}/.illusion/memory/`
-2. **全局回退**：`~/.illusion/data/memory/{项目名}-{sha1哈希前12位}/`
+2. **全局回退**：`~/.illusion/memory/{项目名}-{sha1哈希前12位}/`
 
-全局回退的目录名格式为 `{path.name}-{sha1(path)[:12]}`。
+全局回退的目录名格式为 `{path.name}-{sha1(path)[:12]}`，位于 `~/.illusion/memory/`（与项目级 `{cwd}/.illusion/memory/` 对称）。
 
 ### MEMORY.md 入口文件
 

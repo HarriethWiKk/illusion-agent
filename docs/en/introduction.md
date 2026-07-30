@@ -16,7 +16,7 @@ a flexible extension ecosystem into a single intelligent agent — at home
 on Windows, macOS, and Linux.
 
 Whether you prefer the discipline of the terminal or the ease of the browser,
-IllusionAgent resonates with your workflow: 42 built-in tools, 48 slash
+IllusionAgent resonates with your workflow: 35 built-in tools, 48 slash
 commands, 7 specialized sub-agents, MCP server support, hooks, plugins, and
 a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 
@@ -28,7 +28,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 
 - 🤖 **Multi AI Provider Support** - Anthropic Claude, OpenAI, GitHub Copilot, OpenAI Codex, and any OpenAI-compatible endpoint
 - 🧠 **Multi-Agent Collaboration** - 7 built-in specialized Agents, supporting task orchestration
-- 🛠️ **Rich Toolset** - 42 built-in tools (29 base + 13 channel) + MCP dynamic tool extension
+- 🛠️ **Rich Toolset** - 35 built-in tools (31 base + 4 channel) + MCP dynamic tool extension
 - ⌨️ **48 Slash Commands** - Covering session management, configuration, project operations, task scheduling, etc.
 - 🌐 **Web UI Interface** - Browser-based chat interface with `illusion web`, featuring warm color design, session management, and real-time streaming (supplementary to the recommended terminal interface)
 - 🌍 **Bilingual Interface** - All CLI output automatically switches between Chinese and English based on `ui_language` setting
@@ -53,7 +53,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 <div align="center">
   <p>Demo video</p>
   <a href="https://www.youtube.com/watch?v=ExrzKVjWPls">
-    <img src="../images/illusion-agent.png" alt="Click to watch demo video" width="720" />
+    <img src="../images/illusion-agent-en.png" alt="Click to watch demo video" width="720" />
   </a>
   <p><a href="https://www.youtube.com/watch?v=ExrzKVjWPls">📺 Watch demo on YouTube</a></p>
 </div>

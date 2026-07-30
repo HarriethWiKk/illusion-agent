@@ -159,23 +159,7 @@ illusion channel serve
 
 ### 飞书内置工具
 
-启用飞书渠道后，agent 自动获得飞书专属工具（共 9 个）：
-
-| 工具 | 说明 |
-|------|------|
-| `feishu_doc_read` | 读取飞书 Docx/Wiki 文档为纯文本 |
-| `feishu_doc_create` | 创建新的飞书 Docx 文档 |
-| `feishu_doc_write` | 向飞书 Docx 文档写入内容 |
-| `feishu_doc_delete` | 删除飞书 Docx 文档 |
-| `feishu_drive_list` | 列出飞书云盘文件夹下的文件 |
-| `feishu_drive_upload` | 上传本地文件到飞书云盘 |
-| `feishu_drive_download` | 下载飞书云盘文件到本地 |
-| `feishu_drive_mkdir` | 在飞书云盘创建文件夹 |
-| `feishu_drive_delete` | 删除飞书云盘文件或文件夹 |
-
-这些工具使用相同的 App 凭据，agent 可自主调用。
-
-此外，渠道启用后还会加载以下通用渠道工具：
+启用飞书渠道后，agent 自动获得以下通用渠道工具：
 
 | 工具 | 说明 | 启用条件 |
 |------|------|----------|
@@ -342,8 +326,6 @@ src/illusion/channels/
 │   └── commands.py      # QQCommandHandler（继承 BaseCommandHandler）
 └── tools/
     ├── cross_channel.py # ListChannelSessionsTool / SendToChannelTool（≥2 渠道启用时加载）
-    ├── feishu_doc.py    # feishu_doc_read / create / write / delete
-    ├── feishu_drive.py  # feishu_drive_list / upload / download / mkdir / delete
     └── media.py         # SendMediaTool / ReceiveMediaTool（按渠道配置激活）
 ```
 

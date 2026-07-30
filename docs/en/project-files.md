@@ -62,9 +62,9 @@ The memory system provides project knowledge persistence through `MEMORY.md` and
 Memory files are stored in two locations, with the project-level location taking priority:
 
 1. **Project-level** (priority): `{cwd}/.illusion/memory/`
-2. **Global fallback**: `~/.illusion/data/memory/{project_name}-{sha1_hash_prefix}/`
+2. **Global fallback**: `~/.illusion/memory/{project_name}-{sha1_hash_prefix}/`
 
-The directory name format for global fallback is `{path.name}-{sha1(path)[:12]}`.
+The directory name format for global fallback is `{path.name}-{sha1(path)[:12]}`, located under `~/.illusion/memory/` (symmetric with the project-level `{cwd}/.illusion/memory/`).
 
 ### MEMORY.md Entry File
 

@@ -19,7 +19,7 @@ illusion-agent/
 │   ├── prompts/            # 提示词系统
 │   ├── skills/             # 技能系统
 │   ├── tasks/              # 任务管理
-│   ├── tools/              # 工具集 (29 个基础工具 + 渠道工具)
+│   ├── tools/              # 工具集 (31 个基础工具 + 4 个渠道工具)
 │   ├── ui/                 # 用户界面
 │   │   ├── web/            # Web 后端 (FastAPI + WebSocket)
 │   │   └── ...
@@ -49,7 +49,7 @@ illusion-agent/
 
 ### 工具系统
 
-提供 29 个基础工具，涵盖：
+提供 31 个基础工具，涵盖：
 
 - **文件操作**: `file_read`, `file_write`, `file_edit`, `notebook_edit`
 - **命令执行**: `bash`, `powershell`, `repl`
@@ -60,6 +60,7 @@ illusion-agent/
   - `exit_plan_mode` 会触发计划审批：终端/Web 弹出审批卡片，print 模式跨轮次审批（退出码 2），渠道端发送计划内容并等待回复
 - **会话控制**: `enter_worktree`, `exit_worktree`, `todo_write`, `sleep`
 - **配置与调试**: `config`, `lsp`, `mcp_auth`, `skill`
+- **MCP 资源**: `list_mcp_resources`, `read_mcp_resource`
 - **交互**: `ask_user_question`
 - **定时任务**: `cron`（统一工具，支持 status/list/add/update/remove/run 操作）
 
