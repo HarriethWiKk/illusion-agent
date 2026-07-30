@@ -146,8 +146,7 @@
   "ui_language": "zh-CN",
   "output_style": "default",
   "effort": "medium",
-  "passes": 1,
-  "verbose": false
+  "passes": 1
 }
 ```
 
@@ -164,7 +163,6 @@
 | `ui_language` | string | "zh-CN" | 界面语言 |
 | `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
 | `passes` | int | 1 | 推理轮数（1-8） |
-| `verbose` | bool | false | 详细输出 |
 | `working_directory` | string | - | 固定工作目录（可选） |
 
 ---

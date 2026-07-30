@@ -146,8 +146,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
   "ui_language": "en-US",
   "output_style": "default",
   "effort": "medium",
-  "passes": 1,
-  "verbose": false
+  "passes": 1
 }
 ```
 
@@ -164,7 +163,6 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 | `ui_language` | string | "en-US" | UI language |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
-| `verbose` | bool | false | Verbose output |
 | `working_directory` | string | - | Fixed working directory (optional) |
 
 ---

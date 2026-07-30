@@ -38,9 +38,8 @@ class TestSettings:
 
     def test_merge_cli_overrides(self):
         s = Settings()
-        updated = s.merge_cli_overrides(model="env_2.model_1", verbose=True, api_key=None)
+        updated = s.merge_cli_overrides(model="env_2.model_1", api_key=None)
         assert updated.model == "env_2.model_1"
-        assert updated.verbose is True
 
     def test_merge_cli_overrides_returns_new_instance(self):
         s = Settings()
@@ -96,24 +95,20 @@ class TestLoadSaveSettings:
         path.write_text(json.dumps({
             "model": "env_1.model_1",
             "env_1": {"api_format": "anthropic", "model_1": "claude-opus-4-20250514"},
-            "verbose": True,
         }))
         s = load_settings(path)
         assert s.active_model_name == "claude-opus-4-20250514"
-        assert s.verbose is True
         assert s.api_key == ""
 
     def test_save_and_load_roundtrip(self, tmp_path: Path):
         path = tmp_path / "settings.json"
         original = Settings(
             env_1={"api_format": "anthropic", "api_key": "sk-roundtrip", "model_1": "claude-opus-4-20250514"},
-            verbose=True,
         )
         save_settings(original, path)
         loaded = load_settings(path)
         assert loaded.api_key == "sk-roundtrip"
         assert loaded.active_model_name == "claude-opus-4-20250514"
-        assert loaded.verbose is True
 
     def test_save_creates_parent_dirs(self, tmp_path: Path):
         path = tmp_path / "deep" / "nested" / "settings.json"

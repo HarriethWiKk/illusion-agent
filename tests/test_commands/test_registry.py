@@ -278,11 +278,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
-    config_command, config_args = registry.lookup("/config set verbose true")
-    config_result = await config_command.handler(config_args, context)
-    assert "Updated verbose" in config_result.message
-    assert load_settings().verbose is True
-
     output_command, output_args = registry.lookup("/output-style set minimal")
     output_result = await output_command.handler(output_args, context)
     assert "minimal" in output_result.message

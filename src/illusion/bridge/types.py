@@ -85,19 +85,18 @@ class WorkSecret:
 class BridgeConfig:
     """
     桥接配置
-    
+
     定义桥接服务的基本配置信息。
-    
+
     Attributes:
         dir: 桥接目录路径
         machine_name: 机器名称，用于标识当前节点
         max_sessions: 最大会话数，默认为 1
-        verbose: 是否启用详细输出，默认为 False
         session_timeout_ms: 会话超时时间（毫秒），默认为 24 小时
-    
+
     使用示例：
         >>> config = BridgeConfig(dir="/tmp/bridge", machine_name="machine-1")
-        >>> config = BridgeConfig(dir="/tmp/bridge", machine_name="machine-1", max_sessions=5, verbose=True)
+        >>> config = BridgeConfig(dir="/tmp/bridge", machine_name="machine-1", max_sessions=5)
     """
 
     # 桥接目录路径
@@ -106,7 +105,5 @@ class BridgeConfig:
     machine_name: str
     # 最大会话数
     max_sessions: int = 1
-    # 是否启用详细输出
-    verbose: bool = False
     # 会话超时时间（毫秒）
     session_timeout_ms: int = DEFAULT_SESSION_TIMEOUT_MS

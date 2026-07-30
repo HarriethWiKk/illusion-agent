@@ -137,8 +137,7 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
   "output_style": "default",
   "show_thinking": true,
   "effort": "medium",
-  "passes": 1,
-  "verbose": false
+  "passes": 1
 }
 ```
 
@@ -157,8 +156,7 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
 | `show_thinking` | bool | true | Show thinking process |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
-| `verbose` | bool | false | Verbose output |
-| `working_directory` | string\|null | null | Fixed working directory (auto-switch on startup) |
+| `working_directory` | string\|null | null | Fixed working directory (auto-switch on startup, auto-create if missing) |
 | `enabled_plugins` | object | {} | Plugin enable/disable map |
 | `mcp_servers` | object | {} | MCP server configurations |
 

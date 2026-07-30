@@ -53,7 +53,6 @@ Only top-level flat fields can be set. Nested objects (permission, sandbox, memo
 
 ## Available flat settings
 - model: Active model reference in "env_N.model_N" format (e.g., "env_1.model_1")
-- verbose: true/false — Show detailed output
 - ui_language: UI language (e.g., "zh-CN")
 - output_style: Output style ("default" or custom)
 - show_thinking: true/false — Show thinking process
@@ -63,10 +62,10 @@ Only top-level flat fields can be set. Nested objects (permission, sandbox, memo
 - max_turns: Maximum conversation turns (integer)
 - context_window: Context window size (integer)
 - system_prompt: Custom system prompt or null
+- working_directory: Fixed working directory path or null
 
 ## Examples
 - Show all settings: { "action": "show" }
-- Enable verbose: { "action": "set", "key": "verbose", "value": "true" }
 - Set UI language: { "action": "set", "key": "ui_language", "value": "zh-CN" }
 - Set effort level: { "action": "set", "key": "effort", "value": "high" }"""
     input_model = ConfigToolInput
