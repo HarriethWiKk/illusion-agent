@@ -128,8 +128,12 @@ def auth_login() -> None:
     """
     from illusion.auth.flows import ApiKeyFlow
     from illusion.auth.manager import AuthManager
+    from illusion.config import load_settings
 
-    _ensure_language()
+    # 首次登录时选择 language，与工作目录设置判断一致
+    if is_first_login(load_settings()):
+        _ensure_language()
+
     manager = AuthManager()
 
     # 1. 选择 API 格式
