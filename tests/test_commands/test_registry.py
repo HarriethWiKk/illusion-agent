@@ -725,3 +725,62 @@ def test_registry_get_usage_returns_registered_usage():
     registry.register(SlashCommand("ctx", "ctx desc", _noop, usage="/ctx [usage|show]"))
     assert registry.get_usage("ctx") == "/ctx [usage|show]"
     assert registry.get_usage("nonexistent") is None
+
+
+@pytest.mark.asyncio
+async def test_render_command_result_appends_usage(tmp_path: Path):
+    """_render_command_result 在 command_usage 非空时追加用法到 message。"""
+    from illusion.commands.types import CommandResult
+    from illusion.ui.runtime import _render_command_result
+
+    emitted: list[tuple[str, str]] = []
+
+    async def _emitter(message: str, result_type: str) -> None:
+        emitted.append((message, result_type))
+
+    async def _print_system(message: str) -> None:
+        pass
+
+    async def _clear_output() -> None:
+        pass
+
+    result = CommandResult(message="Context window: 200000 tokens")
+    await _render_command_result(
+        result,
+        print_system=_print_system,
+        clear_output=_clear_output,
+        command_result_emitter=_emitter,
+        command_usage="/context [usage|show|window|set N]",
+    )
+    assert len(emitted) == 1
+    assert "Usage: /context [usage|show|window|set N]" in emitted[0][0]
+    assert "Context window: 200000 tokens" in emitted[0][0]
+
+
+@pytest.mark.asyncio
+async def test_render_command_result_no_usage_when_none(tmp_path: Path):
+    """_render_command_result 在 command_usage 为 None 时不追加用法。"""
+    from illusion.commands.types import CommandResult
+    from illusion.ui.runtime import _render_command_result
+
+    emitted: list[tuple[str, str]] = []
+
+    async def _emitter(message: str, result_type: str) -> None:
+        emitted.append((message, result_type))
+
+    async def _print_system(message: str) -> None:
+        pass
+
+    async def _clear_output() -> None:
+        pass
+
+    result = CommandResult(message="Session cleared")
+    await _render_command_result(
+        result,
+        print_system=_print_system,
+        clear_output=_clear_output,
+        command_result_emitter=_emitter,
+        command_usage=None,
+    )
+    assert len(emitted) == 1
+    assert "Usage:" not in emitted[0][0]

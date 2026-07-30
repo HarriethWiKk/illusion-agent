@@ -924,7 +924,7 @@ async def handle_line(
             suffix = result.message or ""
             detail = f"\n{suffix}" if suffix else ""
             result.message = f"{prefix}{bundle.session_id}{detail}"
-        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter, replace_transcript_items)
+        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter, replace_transcript_items, command_usage=command.usage)
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
         # 会话指令后刷新状态（context_tokens / usage / overhead）
@@ -999,6 +999,7 @@ async def _render_command_result(
 	replay_transcript_item: TranscriptItemSender | None = None,
 	command_result_emitter: CommandResultEmitter | None = None,
 	replace_transcript_items: ReplaceTranscriptItems | None = None,
+	command_usage: str | None = None,
 ) -> None:
 	"""渲染命令执行结果。
 
@@ -1010,7 +1011,11 @@ async def _render_command_result(
 		replay_transcript_item: 重播 transcript_item 的回调
 		command_result_emitter: 指令结果发射回调
 		replace_transcript_items: 替换转录项列表的回调
+		command_usage: 命令用法说明，非空时追加到 message 末尾
 	"""
+	# 追加命令用法到 message
+	if result.message and command_usage:
+		result.message = f"{result.message}\n\nUsage: {command_usage}"
 	if result.replay_messages and replace_transcript_items is not None:
 		from illusion.engine.messages import ToolResultBlock, ToolUseBlock
 
