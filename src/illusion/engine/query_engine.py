@@ -55,7 +55,14 @@ from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState, estimate_conversation_tokens
 from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
-from illusion.services.file_history import FileHistoryState, make_snapshot, track_edit
+from illusion.services.file_history import (
+    FileHistoryState,
+    make_snapshot,
+    track_edit,
+)
+from illusion.services.file_history import (
+    load as _file_history_load,
+)
 from illusion.tools.base import ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
 
@@ -259,6 +266,24 @@ class QueryEngine:
         self._cost_tracker.apply_restore(result)
         self._overhead_tracker.apply_restore(result)
 
+    def load_file_history(self, checkpoint_count: int | None = None) -> None:
+        """显式加载文件历史状态（用于 /resume 后）。
+
+        在 apply_restore 之后调用，确保 /rewind 前状态已就绪。
+        若磁盘上无 file_history.json 则保持现有状态不变。
+
+        Args:
+            checkpoint_count: 当前 CheckpointStore.next_checkpoint_id，
+                用于崩溃恢复对齐。None 时不做对齐。
+        """
+        if not self._session_id:
+            return
+        loaded = _file_history_load(
+            str(self._cwd), self._session_id, checkpoint_count=checkpoint_count
+        )
+        if loaded is not None:
+            self._file_history = loaded
+
     @property
     def checkpoint_store(self) -> CheckpointStore | None:
         """返回当前 CheckpointStore。"""
@@ -375,14 +400,23 @@ class QueryEngine:
         # （update_from_usage 无条件覆盖），resume 后用持久化的 overhead
         # 值显示，第一轮 API 调用后用实测值覆盖。
         # append checkpoint 到 JSONL（替代旧 push_checkpoint）
+        checkpoint_id = 0
         if self._checkpoint_store is not None:
-            await self._checkpoint_store.append_checkpoint()
-        # 初始化文件历史状态（如尚未初始化）
+            checkpoint_id = await self._checkpoint_store.append_checkpoint()
+        # 初始化文件历史状态（load 优先，无则新建）
         if self._file_history is None:
-            self._file_history = FileHistoryState(
-                session_id=self._session_id or uuid.uuid4().hex[:12],
-                cwd=str(self._cwd),
+            loaded = (
+                _file_history_load(str(self._cwd), self._session_id)
+                if self._session_id
+                else None
             )
+            if loaded is not None:
+                self._file_history = loaded
+            else:
+                self._file_history = FileHistoryState(
+                    session_id=self._session_id or uuid.uuid4().hex[:12],
+                    cwd=str(self._cwd),
+                )
 
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))
@@ -416,7 +450,7 @@ class QueryEngine:
                     ))
 
         # 为这条用户消息创建文件历史快照（用消息列表长度作为 ID）
-        make_snapshot(self._file_history, str(len(self._messages)), 0)
+        make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
 
         # 文件历史回调：工具执行前备份文件
         def _on_before_tool_execute(tool_name: str, tool_input: dict[str, Any]) -> None:
