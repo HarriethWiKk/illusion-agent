@@ -360,6 +360,31 @@ class QueryEngine:
         """返回文件历史状态。"""
         return self._file_history
 
+    def on_before_tool_execute(self, tool_name: str, tool_input: dict[str, Any]) -> None:
+        """工具执行前回调：备份即将被修改的文件（copy-on-write）。
+
+        供主引擎和子 agent 共用：子 agent 通过 QueryContext 继承此回调，
+        其文件修改也会备份到主 engine 的 file_history，确保 rewind 能覆盖
+        子 agent 的修改。
+
+        Args:
+            tool_name: 工具名称
+            tool_input: 工具输入参数
+        """
+        if self._file_history is None:
+            return
+        # 跳过只读工具（如 grep、glob），它们不会修改文件
+        tool = self._tool_registry.get(tool_name)
+        if tool is not None:
+            try:
+                parsed_input = tool.input_model.model_validate(tool_input)
+                if tool.is_read_only(parsed_input):
+                    return
+            except ValidationError:
+                pass
+        for fpath in self._extract_file_paths(tool_name, tool_input):
+            track_edit(self._file_history, fpath)
+
     def _extract_file_paths(self, tool_name: str, tool_input: dict[str, Any]) -> list[str]:
         """从工具输入中提取文件路径。"""
         path_keys = ("path", "file_path", "notebook_path")
@@ -462,22 +487,7 @@ class QueryEngine:
         if self._file_history is not None:
             make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
 
-        # 文件历史回调：工具执行前备份文件
-        def _on_before_tool_execute(tool_name: str, tool_input: dict[str, Any]) -> None:
-            if self._file_history is None:
-                return
-            # 跳过只读工具（如 grep、glob），它们不会修改文件
-            tool = self._tool_registry.get(tool_name)
-            if tool is not None:
-                try:
-                    parsed_input = tool.input_model.model_validate(tool_input)
-                    if tool.is_read_only(parsed_input):
-                        return
-                except ValidationError:
-                    pass
-            for fpath in self._extract_file_paths(tool_name, tool_input):
-                track_edit(self._file_history, fpath)
-
+        # 文件历史回调：工具执行前备份文件（使用方法，供子 agent 继承复用）
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,
@@ -499,7 +509,7 @@ class QueryEngine:
             # 下轮 handle_line 续接）。与前台 IDLE_TIMEOUT 一致。
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
-            on_before_tool_execute=_on_before_tool_execute,
+            on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
         # 记录循环前的消息数量，用于循环结束后持久化新增消息
@@ -566,6 +576,7 @@ class QueryEngine:
             # idle 超时阈值（与 build_query_context 一致，详见上文说明）
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
+            on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
         # 记录循环前的消息数量，用于循环结束后持久化新增消息

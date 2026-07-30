@@ -582,6 +582,9 @@ async def run_agent_in_process(
     permission_checker = query_context.permission_checker
 
     # 创建代理专用的 QueryContext（继承父级的权限和问答回调）
+    # 继承 on_before_tool_execute 和 file_state_cache：子 agent 修改文件时
+    # 也需触发 track_edit 备份到主 engine 的 file_history，否则 rewind
+    # 无法回退子 agent 的文件修改。
     agent_query_context = QueryContext(
         api_client=query_context.api_client,
         tool_registry=agent_tools,
@@ -595,6 +598,8 @@ async def run_agent_in_process(
         max_turns=agent_def.max_turns if agent_def and agent_def.max_turns else query_context.max_turns,
         hook_executor=None,  # agent 不执行 hooks
         effort=query_context.effort,
+        on_before_tool_execute=query_context.on_before_tool_execute,
+        file_state_cache=query_context.file_state_cache,
     )
 
     # 初始化消息列表

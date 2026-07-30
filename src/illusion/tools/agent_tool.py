@@ -231,6 +231,9 @@ Terse command-style prompts produce shallow, generic work.
 
         if query_engine is not None:
             # 从引擎构建 QueryContext
+            # 继承 on_before_tool_execute 和 file_state_cache：子 agent 修改文件时
+            # 也需触发 track_edit 备份到主 engine 的 file_history，否则 rewind
+            # 无法回退子 agent 的文件修改。使用 getattr 防御旧版 mock/桩对象缺失属性。
             from illusion.engine.query import QueryContext
             query_context = QueryContext(
                 api_client=query_engine._api_client,
@@ -245,6 +248,8 @@ Terse command-style prompts produce shallow, generic work.
                 ask_user_prompt=query_engine._ask_user_prompt,
                 hook_executor=query_engine._hook_executor,
                 effort=query_engine._effort,
+                on_before_tool_execute=getattr(query_engine, "on_before_tool_execute", None),
+                file_state_cache=getattr(query_engine, "_file_state_cache", None),
             )
         else:
             query_context = None
