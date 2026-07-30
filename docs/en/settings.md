@@ -160,7 +160,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 | `system_prompt` | string\|null | null | Custom system prompt (global; overridable per env_N) |
 | `max_tokens` | int | 16384 | Maximum output tokens |
 | `max_turns` | int | 200 | Maximum conversation turns |
-| `ui_language` | string | "en-US" | UI language |
+| `ui_language` | string | "" | UI language (empty triggers first-login prompt; fallback zh-CN) |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
 | `passes` | int | 1 | Reasoning passes (1-8) |
 | `working_directory` | string | - | Fixed working directory (optional) |

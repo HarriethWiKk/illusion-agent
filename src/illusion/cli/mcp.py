@@ -1,4 +1,14 @@
-"""MCP 服务器管理子命令"""
+"""
+MCP 服务器管理子命令
+====================
+
+提供 MCP 服务器的列表、添加和删除功能。
+
+子命令:
+    - list: 列出所有 MCP 服务器配置
+    - add: 添加新的 MCP 服务器配置
+    - remove: 删除指定的 MCP 服务器配置
+"""
 from __future__ import annotations
 
 import json
@@ -30,7 +40,7 @@ def mcp_list() -> None:
         return
     for name, cfg in configs.items():
         if hasattr(cfg, "type"):
-            transport = cfg.type  # pyright: ignore[reportAttributeAccessIssue]
+            transport = getattr(cfg, "type", "unknown")
             if transport == "stdio":
                 cmd = getattr(cfg, "command", "")
                 detail = f" ({cmd})" if cmd else ""

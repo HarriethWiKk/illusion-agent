@@ -160,7 +160,7 @@
 | `system_prompt` | string\|null | null | 自定义系统提示词（全局，可被 env_N 覆盖） |
 | `max_tokens` | int | 16384 | 最大输出 token 数 |
 | `max_turns` | int | 200 | 最大对话轮数 |
-| `ui_language` | string | "zh-CN" | 界面语言 |
+| `ui_language` | string | "" | 界面语言（空时首次登录引导选择，兜底中文） |
 | `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
 | `passes` | int | 1 | 推理轮数（1-8） |
 | `working_directory` | string | - | 固定工作目录（可选） |

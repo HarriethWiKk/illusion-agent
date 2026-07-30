@@ -1,8 +1,19 @@
-"""认证管理子命令"""
+"""
+认证管理子命令
+==============
+
+提供认证登录、状态查看、登出、切换环境以及添加模型等功能。
+
+子命令:
+    - login: 交互式配置提供商认证（首次登录时选择语言和工作目录）
+    - status: 查看所有环境的认证状态
+    - logout: 清除指定环境的凭据
+    - switch: 切换活动环境
+    - add model: 向已有环境添加模型
+"""
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -12,7 +23,6 @@ from illusion.cli.shared import _ensure_language
 from illusion.cli.workspace import is_first_login, prompt_working_directory
 from illusion.config.i18n import MESSAGES as _I18N
 from illusion.config.i18n import t as _t
-
 
 _FORMAT_OPTIONS: list[tuple[str, dict[str, str]]] = [
     ("custom", _I18N["custom_format"]),

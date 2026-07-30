@@ -1,9 +1,16 @@
-"""跨子命令共享的辅助函数"""
+"""
+跨子命令共享的辅助函数
+======================
+
+提供子命令间共享的辅助功能，如语言设置确保。
+
+主要函数:
+    - _ensure_language: 确保 ui_language 已设置，未设置时提示用户选择
+"""
 from __future__ import annotations
 
 import typer
 
-from illusion.config.i18n import MESSAGES as _I18N
 from illusion.config.i18n import t as _t
 
 

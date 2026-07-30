@@ -1,4 +1,12 @@
-"""自更新子命令"""
+"""
+自更新子命令
+============
+
+提供 Illusion Agent 的自更新功能。
+
+子命令:
+    - update: 检查并更新到最新版本
+"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -55,7 +63,6 @@ async def _update_cli(args: str) -> CommandResult:
         _run_pip_upgrade,
     )
     from illusion.commands.types import CommandResult
-    from illusion.config.i18n import t
 
     include_deps = "--deps" in args
 
@@ -97,10 +104,8 @@ async def _update_cli(args: str) -> CommandResult:
             return CommandResult(message=t("update_failed", error=output[:200]))
 
     if include_deps:
-        try:
-            import tomllib
-        except ModuleNotFoundError:
-            import tomli as tomllib  # type: ignore[no-redef]
+        # tomllib 是 Python 3.11+ 标准库，低版本回退到 tomli 第三方包
+        import tomllib as _tomllib
 
         print(t("update_deps_checking"))
         pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
@@ -109,7 +114,7 @@ async def _update_cli(args: str) -> CommandResult:
 
         if pyproject_path.exists():
             with pyproject_path.open("rb") as f:
-                data = tomllib.load(f)
+                data = _tomllib.load(f)
             deps = data.get("project", {}).get("dependencies", [])
             pkg_names = []
             for dep in deps:

@@ -1,4 +1,12 @@
-"""Web UI 子命令"""
+"""
+Web UI 子命令
+=============
+
+提供启动 Web UI 界面的功能。
+
+子命令:
+    - (默认): 启动 Web UI 浏览器界面（默认端口 3000）
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -6,7 +14,6 @@ from typing import Any
 import typer
 
 from illusion.cli import web_app
-from illusion.config.i18n import t as _t
 
 
 @web_app.callback(invoke_without_command=True)
@@ -22,19 +29,9 @@ def web_start(
 
     import uvicorn
 
-    # 读取settings.json中的working_directory字段，切换工作目录
-    from illusion.config import load_settings
+    # working_directory 已由主回调统一切换（见 cli/main.py）
     from illusion.ui.web.server import create_app
     from illusion.ui.web.ws_host import WebHostConfig
-    settings = load_settings()
-    if settings.working_directory:
-        import os
-        from pathlib import Path
-        working_dir = Path(settings.working_directory).expanduser().resolve()
-        if working_dir.exists() and working_dir.is_dir():
-            os.chdir(working_dir)
-        else:
-            typer.echo(_t("cwd_invalid", path=settings.working_directory), err=True)
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（与 illusion 主命令一致）
     _daemon_proc = None

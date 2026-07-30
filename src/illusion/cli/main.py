@@ -1,4 +1,16 @@
-"""主命令回调"""
+"""
+主命令回调
+==========
+
+处理 Illusion Agent 的主命令逻辑，包括交互式会话、非交互式打印模式、工作目录切换等。
+
+主要功能:
+    - 启动交互式会话
+    - 非交互式打印模式处理
+    - 工作目录切换（基于 settings 或 --cwd 参数）
+    - 渠道和 Cron 任务的自动激活
+    - 会话恢复和管理
+"""
 from __future__ import annotations
 
 import sys
@@ -7,8 +19,8 @@ from typing import Any
 
 import typer
 
-from illusion.cli import app, _version_callback
-from illusion.cli.shared import _ensure_language  # noqa: F401
+from illusion.cli import _version_callback, app
+from illusion.cli.shared import _ensure_language
 from illusion.cli.workspace import validate_and_normalize
 from illusion.config.i18n import t as _t
 
@@ -130,10 +142,7 @@ def main(
         cwd: 会话工作目录
         backend_only: 运行结构化后端主机
     """
-    if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
-        return
-
-    # 读取settings.json中的working_directory字段，切换工作目录
+    # 读取settings.json中的working_directory字段，切换工作目录（子命令也适用）
     from illusion.config import load_settings
     settings = load_settings()
     # 仅在用户未显式指定 --cwd 时，才使用 settings.working_directory
@@ -150,6 +159,9 @@ def main(
             logging.getLogger(__name__).warning(
                 _t("cwd_invalid", path=cwd)
             )
+
+    if ctx.invoked_subcommand is not None:  # 如果调用了子命令，直接返回
+        return
 
     # 渠道自动激活：有 enabled 渠道时 spawn 守护进程
     # 注意：backend_only 模式下不 spawn（launcher 已负责），只连接持有 ref

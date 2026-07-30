@@ -37,16 +37,24 @@ IllusionAgent CLI 包
 from __future__ import annotations
 
 import sys
+from typing import Any, cast
 
 import typer
 
 from illusion import __version__
 
+
+class _ReconfigurableStream:
+    """支持 reconfigure 方法的流类型（用于类型安全地调用 stdout/stderr.reconfigure）。"""
+
+    def reconfigure(self, **kwargs: Any) -> None: ...
+
+
 # 确保 Windows 上 stdout/stderr 使用 UTF-8
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
+    cast(_ReconfigurableStream, sys.stdout).reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
+    cast(_ReconfigurableStream, sys.stderr).reconfigure(encoding="utf-8", errors="replace")
 
 
 def _version_callback(value: bool) -> None:
@@ -87,15 +95,21 @@ app.add_typer(add_app)
 app.add_typer(channel_app)
 
 # 导入各子命令模块以触发命令注册（顺序重要：先 shared/workspace，再子命令，最后 main）
-from illusion.cli import shared  # noqa: E402,F401
-from illusion.cli import workspace  # noqa: E402,F401
-from illusion.cli import mcp  # noqa: E402,F401
-from illusion.cli import plugin  # noqa: E402,F401
-from illusion.cli import cron  # noqa: E402,F401
-from illusion.cli import auth  # noqa: E402,F401
-from illusion.cli import web  # noqa: E402,F401
-from illusion.cli import update  # noqa: E402,F401
-from illusion.cli import channel  # noqa: E402,F401
-from illusion.cli import main  # noqa: E402,F401
+# 使用 importlib.import_module 进行副作用导入，避免未使用导入告警
+import importlib
+
+for _module_name in (
+    "shared",
+    "workspace",
+    "mcp",
+    "plugin",
+    "cron",
+    "auth",
+    "web",
+    "update",
+    "channel",
+    "main",
+):
+    importlib.import_module(f"illusion.cli.{_module_name}")
 
 __all__ = ["app"]

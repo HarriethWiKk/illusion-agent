@@ -1,4 +1,18 @@
-"""Cron 定时任务管理子命令"""
+"""
+Cron 定时任务管理子命令
+=======================
+
+提供 Cron 调度任务的启动、停止、状态查看、列表、切换、历史和日志功能。
+
+子命令:
+    - start: 启动 Cron 调度器
+    - stop: 停止 Cron 调度器
+    - status: 查看 Cron 调度器状态
+    - list: 列出所有定时任务
+    - toggle: 切换定时任务启用/禁用状态
+    - history: 查看任务执行历史
+    - logs: 查看任务日志
+"""
 from __future__ import annotations
 
 import typer

@@ -1,4 +1,14 @@
-"""插件管理子命令"""
+"""
+插件管理子命令
+==============
+
+提供插件的列表、安装和卸载功能。
+
+子命令:
+    - list: 列出已安装的插件
+    - install: 安装指定插件
+    - uninstall: 卸载指定插件
+"""
 from __future__ import annotations
 
 from pathlib import Path

@@ -252,7 +252,7 @@ class Settings(BaseModel):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
-    ui_language: str = "zh-CN"
+    ui_language: str = ""  # 空字符串表示未设置，由 _ensure_language 引导选择
     output_style: str = "default"
     show_thinking: bool = True
     effort: str = "medium"

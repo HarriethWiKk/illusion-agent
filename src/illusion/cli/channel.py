@@ -1,7 +1,21 @@
-"""渠道管理子命令"""
+"""
+渠道管理子命令
+==============
+
+提供渠道的登录、服务启动、状态查看、启用、禁用和登出功能。
+
+子命令:
+    - login: 登录指定渠道
+    - serve: 启动渠道服务
+    - status: 查看渠道状态
+    - enable: 启用渠道
+    - disable: 禁用渠道
+    - logout: 登出渠道
+"""
 from __future__ import annotations
 
 import os
+import sys
 
 import typer
 
@@ -9,7 +23,6 @@ from illusion.cli import channel_app
 from illusion.cli.shared import _ensure_language
 from illusion.config.i18n import MESSAGES as _I18N
 from illusion.config.i18n import t as _t
-
 
 # 渠道选项列表（未来新增渠道在此追加）
 _CHANNEL_OPTIONS: list[tuple[str, dict[str, str]]] = [

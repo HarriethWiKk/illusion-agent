@@ -71,7 +71,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "select_env_to_switch": {"zh-CN": "选择要切换的环境:", "en-US": "Select environment to switch to:"},
     "switched_to": {"zh-CN": "已切换到环境 {env_key}", "en-US": "Switched to environment {env_key}"},
     "env_not_found": {"zh-CN": "环境 {env_key} 不存在", "en-US": "Environment {env_key} not found"},
-    "select_language": {"zh-CN": "选择界面语言:", "en-US": "Select interface language:"},
+    "select_language": {"zh-CN": "选择界面语言 | Select interface language:", "en-US": "选择界面语言 | Select interface language:"},
     "language_set": {"zh-CN": "界面语言已设置为: {lang}", "en-US": "Interface language set to: {lang}"},
     "skip_default": {"zh-CN": "回车跳过，使用默认值", "en-US": "Press Enter to skip, use default"},
     "model_added": {"zh-CN": "已向 {env_key} 添加模型 {model_key}: {model_name}", "en-US": "Added {model_key} to {env_key}: {model_name}"},
@@ -838,7 +838,7 @@ def _get_lang() -> str:
     """获取当前 ui_language，避免循环导入"""
     from illusion.config.settings import load_settings
     settings = load_settings()
-    return settings.ui_language or "en-US"
+    return settings.ui_language or "zh-CN"
 
 
 def t(key: str, **kwargs: Any) -> str:
