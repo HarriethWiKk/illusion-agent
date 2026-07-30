@@ -235,3 +235,90 @@ def test_add_model_no_existing_env():
         pytest.raises(typer.Exit),
     ):
         add_model(env_key=None)  # type: ignore
+
+
+# ---- 首次登录工作目录引导测试 ----
+
+
+def test_auth_login_first_time_prompts_working_dir(tmp_path, monkeypatch):
+    """首次登录时应触发工作目录提示"""
+    from unittest.mock import patch, MagicMock
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text("{}")
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(config_dir))
+
+    # mock CopilotAuth 以避免真实 OAuth（_copilot_login 内部 from illusion.auth.copilot import CopilotAuth）
+    # 直接调用 _copilot_login(mock_manager) 传入 mock manager，无需 mock AuthManager
+    with patch("illusion.auth.copilot.CopilotAuth") as mock_copilot_cls:
+        mock_copilot = MagicMock()
+        mock_copilot.start_device_flow.return_value = {
+            "device_code": "test",
+            "user_code": "ABCD1234",
+            "verification_uri": "https://github.com/login/device",
+        }
+        mock_copilot.poll_for_token.return_value = True
+        mock_copilot.get_status.return_value = {"username": "testuser"}
+        mock_copilot_cls.return_value = mock_copilot
+
+        mock_manager = MagicMock()
+        mock_manager.settings.ui_language = "zh-CN"
+        mock_manager.settings.list_envs.return_value = {}
+        mock_manager.settings.working_directory = None
+
+        with patch("illusion.cli.auth._prompt_models_and_create_env", return_value="env_1"), \
+             patch("illusion.cli.auth.is_first_login", return_value=True), \
+             patch("illusion.cli.auth.prompt_working_directory") as mock_prompt:
+            # 触发 copilot 登录（走 _copilot_login 路径）
+            from illusion.cli.auth import _copilot_login
+            _copilot_login(mock_manager)
+            mock_prompt.assert_called_once_with(mock_manager.settings)
+
+
+def test_auth_login_not_first_time_skips_prompt(tmp_path, monkeypatch):
+    """非首次登录时不触发工作目录提示"""
+    from unittest.mock import patch, MagicMock
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text("{}")
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(config_dir))
+
+    with patch("illusion.auth.copilot.CopilotAuth") as mock_copilot_cls:
+        mock_copilot = MagicMock()
+        mock_copilot.start_device_flow.return_value = {
+            "device_code": "test",
+            "user_code": "ABCD1234",
+            "verification_uri": "https://github.com/login/device",
+        }
+        mock_copilot.poll_for_token.return_value = True
+        mock_copilot.get_status.return_value = {"username": "testuser"}
+        mock_copilot_cls.return_value = mock_copilot
+
+        mock_manager = MagicMock()
+        mock_manager.settings.ui_language = "zh-CN"
+
+        with patch("illusion.cli.auth._prompt_models_and_create_env", return_value="env_2"), \
+             patch("illusion.cli.auth.is_first_login", return_value=False), \
+             patch("illusion.cli.auth.prompt_working_directory") as mock_prompt:
+            from illusion.cli.auth import _copilot_login
+            _copilot_login(mock_manager)
+            mock_prompt.assert_not_called()
+
+
+def test_auth_login_working_dir_skip_on_enter(tmp_path, monkeypatch):
+    """首次登录但用户回车跳过，settings.working_directory 仍为 None"""
+    from illusion.cli.workspace import prompt_working_directory
+    from illusion.config.settings import Settings
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text("{}")
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(config_dir))
+
+    settings = Settings()
+    # 模拟用户回车（空输入）
+    monkeypatch.setattr("builtins.input", lambda _: "")
+    prompt_working_directory(settings)
+    assert settings.working_directory is None
