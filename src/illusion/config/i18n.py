@@ -237,6 +237,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_require_mention": {"zh-CN": "群组中是否要求 @机器人才响应? (Y/n)", "en-US": "Require @mention in groups to respond? (Y/n)"},
     "channel_allow_bots": {"zh-CN": "是否允许其他机器人消息? (y/N)", "en-US": "Allow other bots' messages? (y/N)"},
     "channel_group_isolation": {"zh-CN": "是否启用群组会话按用户隔离? (Y/n)", "en-US": "Enable per-user session isolation in groups? (Y/n)"},
+    "channel_show_reasoning": {"zh-CN": "是否在回复中显示思考过程? (Y/n)", "en-US": "Show thinking process in replies? (Y/n)"},
     "channel_installing_deps": {"zh-CN": "正在安装依赖: {deps}...", "en-US": "Installing dependencies: {deps}..."},
     "channel_deps_installed": {"zh-CN": "依赖安装完成", "en-US": "Dependencies installed"},
     "channel_deps_failed": {"zh-CN": "依赖安装失败: {error}", "en-US": "Failed to install dependencies: {error}"},
@@ -254,6 +255,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_disconnected": {"zh-CN": "未连接", "en-US": "disconnected"},
     # --- 飞书侧（用户在飞书中看到）---
     "feishu_thinking": {"zh-CN": "illusion agent 正在思考中...", "en-US": "illusion agent is thinking..."},
+    "streaming_thinking": {"zh-CN": "💭 **思考中...**", "en-US": "💭 **Thinking...**"},
     "feishu_cmd_help": {"zh-CN": "可用命令: /help /clear /new /stop /sessions /resume /detach /model", "en-US": "Commands: /help /clear /new /stop /sessions /resume /detach /model"},
     "feishu_cmd_cleared": {"zh-CN": "会话已清空，开启新会话。", "en-US": "Session cleared, starting new session."},
     # --- 通用渠道命令文案（不限渠道）---
@@ -596,7 +598,7 @@ _COMMAND_EXACT: dict[str, str] = {
     # 上下文窗口
     "Error: context window must be positive": "错误：上下文窗口必须为正数",
     "Error: invalid number": "错误：无效的数字",
-    "Usage: /context [usage|window|set N]": "用法：/context [usage|window|set N]",
+    "Usage: /context [usage|show|window|set N]": "用法：/context [usage|show|window|set N]",
     # 用法提示
     "Usage: /summary [MAX_MESSAGES]": "用法：/summary [最大消息数]",
     "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
@@ -625,6 +627,12 @@ _COMMAND_EXACT: dict[str, str] = {
     "Use /resume <session_id> to restore a specific session.": "使用 /resume <会话ID> 恢复指定会话。",
     # 登录
     "Usage: /login API_KEY": "用法：/login API_KEY",
+    # 用法提示（registry.usage 追加到 message 时翻译）
+    "Usage: /resume [session_id|#N]": "用法：/resume [session_id|#N]",
+    "Usage: /files [dirs|N] [needle]": "用法：/files [dirs|N] [needle]",
+    "Usage: /skills [name|number]": "用法：/skills [名称|序号]",
+    "Usage: /max-tokens [show|set N]": "用法：/max-tokens [show|set N]",
+    "Usage: /delete [session_id|#N|all]": "用法：/delete [session_id|#N|all]",
     # Doctor
     "- backend host: available": "- 后端宿主：可用",
     "- network: enabled only for API endpoint and explicit web/MCP calls": "- 网络：仅用于 API 端点和显式 web/MCP 调用",
@@ -864,8 +872,12 @@ def _is_zh(locale: str) -> bool:
 
 def _translate_single_line(line: str) -> str:
     """翻译单行命令消息（英文 -> 当前语言）"""
-    if line in _COMMAND_EXACT:
-        return _COMMAND_EXACT[line]
+    # 对带缩进的行（如 help_text 中的 "              Usage: /xxx"），
+    # 剥离前导空白后进行精确匹配，匹配后恢复前导缩进
+    stripped = line.lstrip()
+    leading_ws = line[: len(line) - len(stripped)]
+    if stripped in _COMMAND_EXACT:
+        return leading_ws + _COMMAND_EXACT[stripped]
     translated = line
     for pattern_str, replacement in _COMMAND_SUBSTITUTIONS:
         pattern = re.compile(pattern_str)

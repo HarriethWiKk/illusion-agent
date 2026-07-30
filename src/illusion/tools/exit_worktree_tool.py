@@ -129,7 +129,10 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
             try:
                 status_stdout, _ = await status_proc.communicate()
             except asyncio.CancelledError:
-                status_proc.kill()
+                try:
+                    status_proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
                 with contextlib.suppress(Exception):
                     await status_proc.wait()
                 raise
@@ -154,7 +157,10 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
         try:
             result_stdout, result_stderr = await result_proc.communicate()
         except asyncio.CancelledError:
-            result_proc.kill()
+            try:
+                result_proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
             with contextlib.suppress(Exception):
                 await result_proc.wait()
             raise
@@ -173,7 +179,10 @@ If called outside an EnterWorktree session, the tool is a **no-op**: it reports 
             try:
                 await branch_proc.communicate()
             except asyncio.CancelledError:
-                branch_proc.kill()
+                try:
+                    branch_proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
                 with contextlib.suppress(Exception):
                     await branch_proc.wait()
                 raise
@@ -215,7 +224,10 @@ async def _git_output(cwd: Path, *args: str) -> str | None:
     try:
         stdout_bytes, _ = await proc.communicate()
     except asyncio.CancelledError:
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
         with contextlib.suppress(Exception):
             await proc.wait()
         raise

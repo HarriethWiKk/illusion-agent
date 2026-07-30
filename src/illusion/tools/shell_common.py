@@ -178,7 +178,10 @@ class CommandExecutor:
                 metadata={"returncode": -1, "timed_out": True},
             )
         except asyncio.CancelledError:
-            process.kill()
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
             with contextlib.suppress(Exception):
                 await process.wait()
             raise

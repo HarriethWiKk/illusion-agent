@@ -106,7 +106,10 @@ class EnterWorktreeTool(BaseTool[EnterWorktreeToolInput]):
             try:
                 stdout_bytes, stderr_bytes = await proc.communicate()
             except asyncio.CancelledError:
-                proc.kill()
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
                 with contextlib.suppress(Exception):
                     await proc.wait()
                 raise
@@ -171,7 +174,10 @@ async def _git_output(cwd: Path, *args: str) -> str | None:
     try:
         stdout_bytes, _ = await proc.communicate()
     except asyncio.CancelledError:
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
         with contextlib.suppress(Exception):
             await proc.wait()
         raise

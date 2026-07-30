@@ -128,7 +128,10 @@ async def _run_git(*args: str, cwd: Path) -> tuple[int, str, str]:
     try:
         stdout_bytes, stderr_bytes = await proc.communicate()
     except asyncio.CancelledError:
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
         with contextlib.suppress(Exception):
             await proc.wait()
         raise

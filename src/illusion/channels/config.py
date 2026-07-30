@@ -63,6 +63,7 @@ class FeishuChannelConfig(BaseModel):
         allow_bots: 是否允许其他机器人的消息
         group_sessions_per_user: 群组会话是否按用户隔离
         group_policy: 群组访问策略
+        show_reasoning: 是否在回复中显示思考过程
     """
 
     enabled: bool = False  # 默认未启用
@@ -73,6 +74,7 @@ class FeishuChannelConfig(BaseModel):
     allow_bots: bool = False  # 默认拒绝机器人消息
     group_sessions_per_user: bool = True  # 群组会话按用户隔离
     group_policy: FeishuGroupPolicy = Field(default_factory=FeishuGroupPolicy)  # 群组策略
+    show_reasoning: bool = True  # 默认显示思考过程
 
 
 class WeixinChannelConfig(BaseModel):
@@ -133,6 +135,7 @@ class QQChannelConfig(BaseModel):
         require_mention: 群组中是否要求 @机器人才响应
         group_policy: 群组访问策略
         markdown_support: 是否使用 markdown 渲染（msg_type=2，需申请模板权限，默认关闭）
+        show_reasoning: 是否在回复中显示思考过程
     """
 
     enabled: bool = False  # 默认未启用
@@ -143,6 +146,7 @@ class QQChannelConfig(BaseModel):
     group_sessions_per_user: bool = True  # 群组会话按用户隔离
     require_mention: bool = True  # 群组需 @提及
     group_policy: QQGroupPolicy = Field(default_factory=QQGroupPolicy)  # 群组策略
+    show_reasoning: bool = True  # 默认显示思考过程
 
 
 class ChannelsConfig(BaseModel):

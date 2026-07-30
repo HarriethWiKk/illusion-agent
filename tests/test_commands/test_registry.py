@@ -10,6 +10,7 @@ import pytest
 
 import illusion.commands.helpers as helpers_module
 from illusion.commands.registry import CommandContext, create_default_command_registry
+from illusion.commands.types import CommandResult
 from illusion.config.paths import (
     get_feedback_log_path,
     get_project_issue_file,
@@ -622,6 +623,7 @@ async def test_resume_command_returns_restored_session_id(tmp_path: Path, monkey
     context = _make_context(tmp_path)
 
     import time
+
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
         get_project_session_dir,
@@ -694,7 +696,7 @@ def test_slash_command_has_usage_field_default_none():
     from illusion.commands.registry import SlashCommand
 
     async def _noop(args: str, context: CommandContext) -> CommandResult:
-        from illusion.commands.types import CommandResult
+        del args, context
         return CommandResult()
 
     cmd = SlashCommand("test_cmd", "test description", _noop)
@@ -706,7 +708,7 @@ def test_slash_command_usage_field_set():
     from illusion.commands.registry import SlashCommand
 
     async def _noop(args: str, context: CommandContext) -> CommandResult:
-        from illusion.commands.types import CommandResult
+        del args, context
         return CommandResult()
 
     cmd = SlashCommand("test_cmd", "test description", _noop, usage="/test_cmd [show|set N]")
@@ -718,7 +720,7 @@ def test_registry_get_usage_returns_registered_usage():
     from illusion.commands.registry import CommandRegistry, SlashCommand
 
     async def _noop(args: str, context: CommandContext) -> CommandResult:
-        from illusion.commands.types import CommandResult
+        del args, context
         return CommandResult()
 
     registry = CommandRegistry()
@@ -727,39 +729,125 @@ def test_registry_get_usage_returns_registered_usage():
     assert registry.get_usage("nonexistent") is None
 
 
+def test_help_text_includes_usage_when_set():
+    """help_text 在 usage 设置时包含用法行。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("test", "test description", _noop, usage="/test [show|set N]"))
+    text = registry.help_text()
+    assert "Usage: /test [show|set N]" in text
+
+
+def test_help_text_excludes_usage_when_none():
+    """help_text 在 usage 为 None 时不包含用法行。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("test", "test description", _noop))
+    text = registry.help_text()
+    assert "Usage:" not in text
+
+
+def test_help_text_excludes_usage_when_empty_string():
+    """help_text 在 usage 为空字符串时不包含用法行（验证 if command.usage 真值检查）。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("test", "test description", _noop, usage=""))
+    text = registry.help_text()
+    assert "Usage:" not in text
+
+
+def test_help_text_usage_inline_with_command():
+    """usage 内联在命令行中，不单独换行。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("test", "test description", _noop, usage="/test [show|set N]"))
+    text = registry.help_text()
+    lines = text.split("\n")
+    # 找到包含 /test 的行
+    command_line = next(line for line in lines if line.startswith("/test"))
+    # usage 应在同一行内联显示
+    assert "Usage: /test [show|set N]" in command_line
+    # 不应有单独的 usage 行
+    usage_only_lines = [line for line in lines if line.strip().startswith("Usage:")]
+    assert len(usage_only_lines) == 0
+
+
+def test_help_text_with_multiple_commands():
+    """多个命令的 usage 都出现在 help_text 中。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+
+    async def _noop(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult()
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("alpha", "alpha desc", _noop, usage="/alpha [show|set]"))
+    registry.register(SlashCommand("beta", "beta desc", _noop, usage="/beta [list|add]"))
+    text = registry.help_text()
+    assert "Usage: /alpha [show|set]" in text
+    assert "Usage: /beta [list|add]" in text
+
+
 @pytest.mark.asyncio
-async def test_render_command_result_appends_usage(tmp_path: Path):
-    """_render_command_result 在 command_usage 非空时追加用法到 message。"""
+async def test_localized_handler_appends_usage(tmp_path: Path):
+    """_localized_handler 在 command.usage 非空且 message 不含 Usage 时追加用法。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
     from illusion.commands.types import CommandResult
-    from illusion.ui.runtime import _render_command_result
 
-    emitted: list[tuple[str, str]] = []
+    async def _handler(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult(message="Context window: 200000 tokens")
 
-    async def _emitter(message: str, result_type: str) -> None:
-        emitted.append((message, result_type))
+    registry = CommandRegistry()
+    registry.register(SlashCommand("ctx", "ctx desc", _handler, usage="/ctx [usage|show|window|set N]"))
+    command, args = registry.lookup("/ctx")
+    context = _make_context(tmp_path)
+    result = await command.handler(args, context)
+    assert "Usage: /ctx [usage|show|window|set N]" in result.message
+    assert "Context window: 200000 tokens" in result.message
 
-    async def _print_system(message: str) -> None:
-        pass
 
-    async def _clear_output() -> None:
-        pass
+@pytest.mark.asyncio
+async def test_localized_handler_skips_usage_when_already_present(tmp_path: Path):
+    """_localized_handler 在 message 已含 Usage 时不重复追加。"""
+    from illusion.commands.registry import CommandRegistry, SlashCommand
+    from illusion.commands.types import CommandResult
 
-    result = CommandResult(message="Context window: 200000 tokens")
-    await _render_command_result(
-        result,
-        print_system=_print_system,
-        clear_output=_clear_output,
-        command_result_emitter=_emitter,
-        command_usage="/context [usage|show|window|set N]",
-    )
-    assert len(emitted) == 1
-    assert "Usage: /context [usage|show|window|set N]" in emitted[0][0]
-    assert "Context window: 200000 tokens" in emitted[0][0]
+    async def _handler(args: str, context: CommandContext) -> CommandResult:
+        del args, context
+        return CommandResult(message="Usage: /ctx [usage|show]")
+
+    registry = CommandRegistry()
+    registry.register(SlashCommand("ctx", "ctx desc", _handler, usage="/ctx [usage|show|window|set N]"))
+    command, args = registry.lookup("/ctx")
+    context = _make_context(tmp_path)
+    result = await command.handler(args, context)
+    assert result.message.count("Usage:") == 1
 
 
 @pytest.mark.asyncio
 async def test_render_command_result_no_usage_when_none(tmp_path: Path):
-    """_render_command_result 在 command_usage 为 None 时不追加用法。"""
+    """_render_command_result 不再追加用法（已移至 _localized_handler）。"""
     from illusion.commands.types import CommandResult
     from illusion.ui.runtime import _render_command_result
 
@@ -780,7 +868,6 @@ async def test_render_command_result_no_usage_when_none(tmp_path: Path):
         print_system=_print_system,
         clear_output=_clear_output,
         command_result_emitter=_emitter,
-        command_usage=None,
     )
     assert len(emitted) == 1
     assert "Usage:" not in emitted[0][0]

@@ -92,19 +92,21 @@ def test_module_level_set_pattern():
 
 
 def test_qq_streaming_controller_dispatch_tasks_initialized():
-    """QQStreamingController 初始化 _dispatch_tasks 集合。"""
-    import inspect
-
+    """QQStreamingController 通过基类继承 _dispatch_tasks 集合。"""
     from illusion.channels.qq.streaming import QQStreamingController
-    # 检查 __init__ 中是否包含 _dispatch_tasks 初始化
-    source = inspect.getsource(QQStreamingController.__init__)
-    assert "_dispatch_tasks" in source, "QQStreamingController.__init__ 应初始化 _dispatch_tasks"
+    from unittest.mock import AsyncMock
+    controller = QQStreamingController(
+        session=AsyncMock(), token="t", openid="o", msg_id="m"
+    )
+    # _dispatch_tasks 由 BaseStreamingController.__init__ 初始化
+    assert hasattr(controller, "_dispatch_tasks")
+    assert isinstance(controller._dispatch_tasks, set)
 
 
 def test_feishu_streaming_controller_dispatch_tasks_initialized():
     """FeishuStreamingCardController 初始化 _dispatch_tasks 集合。"""
-    import inspect
-
     from illusion.channels.feishu.streaming import FeishuStreamingCardController
-    source = inspect.getsource(FeishuStreamingCardController.__init__)
-    assert "_dispatch_tasks" in source, "FeishuStreamingCardController.__init__ 应初始化 _dispatch_tasks"
+    from unittest.mock import MagicMock
+    controller = FeishuStreamingCardController(MagicMock(), "ou_user1")
+    assert hasattr(controller, "_dispatch_tasks")
+    assert isinstance(controller._dispatch_tasks, set)

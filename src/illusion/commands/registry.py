@@ -94,6 +94,9 @@ class CommandRegistry:
 
         async def _localized_handler(args: str, context: CommandContext) -> CommandResult:
             result = await original_handler(args, context)
+            # 追加命令用法到 message（避免与 handler 已返回的 Usage 重复）
+            if result.message and command.usage and "usage:" not in result.message.lower():
+                result.message = f"{result.message}\n\nUsage: {command.usage}"
             if result.message:
                 result.message = _translate_command_message(
                     result.message,
@@ -137,9 +140,11 @@ class CommandRegistry:
             description = command.description
             if _is_zh(locale):
                 description = COMMAND_DESCRIPTIONS_ZH.get(command.name, description)
-            lines.append(f"/{command.name:<12} {description}")
+            # usage 内联在描述后，不单独换行
             if command.usage:
-                lines.append(f"{'':<14}Usage: {command.usage}")
+                lines.append(f"/{command.name:<12} {description}  Usage: {command.usage}")
+            else:
+                lines.append(f"/{command.name:<12} {description}")
         return "\n".join(lines)
 
     def list_commands(self) -> list[SlashCommand]:
@@ -282,13 +287,13 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("permissions", "Show or update permission mode", permissions_handler, usage="/permissions [show|set MODE]"))
     registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler, usage="/plan [on|off]"))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
-    registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler, usage="/effort [show|set low|medium|high]"))
+    registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler, usage="/effort [show|low|medium|high|xhigh|max]"))
     registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler, usage="/max-tokens [show|set N]"))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", turns_handler))
-    registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler, usage="/continue [COUNT] or /continue set COUNT"))
-    registry.register(SlashCommand("model", "Show or update the default model", model_handler, usage="/model [show]"))
-    registry.register(SlashCommand("language", "Show or update UI language", language_handler, usage="/language [show|set zh-CN|set en]"))
+    registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler, usage="/continue [COUNT]"))
+    registry.register(SlashCommand("model", "Show or update the default model", model_handler, usage="/model [show|set MODEL]"))
+    registry.register(SlashCommand("language", "Show or update UI language", language_handler, usage="/language [show|list|set zh-CN|set en]"))
     registry.register(SlashCommand("output-style", "Show or update output style", output_style_handler))
     registry.register(SlashCommand("doctor", "Show environment diagnostics", doctor_handler))
     registry.register(SlashCommand("diff", "Show git diff output", diff_handler))

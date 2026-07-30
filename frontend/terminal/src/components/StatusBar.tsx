@@ -12,12 +12,14 @@
  * @module StatusBar
  */
 
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useBlink} from '../hooks/useBlink.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TaskSnapshot} from '../types.js';
 import {fmtTokens} from '../utils/fmtTokens.js';
+import {stringWidth} from '../utils/markdown.js';
 
 /** 分隔符 */
 const SEP = ' · ';
@@ -42,16 +44,20 @@ function TokenDisplay({
 	inputTokens,
 	outputTokens,
 	color,
+	busy,
 }: {
 	inputTokens: number;
 	outputTokens: number;
 	color: string;
+	busy: boolean;
 }): React.JSX.Element {
-	return (
-		<Text color={color}>
-			{fmtTokens(inputTokens)}↓ {fmtTokens(outputTokens)}↑
-		</Text>
-	);
+	// busy 时与 ● 同频闪烁（useBlink 共享全局动画时钟）
+	const visible = useBlink(busy);
+	const text = `${fmtTokens(inputTokens)}↓ ${fmtTokens(outputTokens)}↑`;
+	if (!visible) {
+		return <Text>{' '.repeat(stringWidth(text))}</Text>;
+	}
+	return <Text color={color}>{text}</Text>;
 }
 
 /**
@@ -81,15 +87,11 @@ function McpIndicator({count}: {count: number}): React.JSX.Element {
  * 代理指示器
  *
  * 显示当前运行的后台代理数量，带有闪烁动画效果。
+ * 使用 useBlink 共享全局动画时钟，与 ● 和 TokenDisplay 同频闪烁。
  */
 function AgentIndicator({count}: {count: number}): React.JSX.Element {
 	const theme = useTheme();
-	const [visible, setVisible] = useState(true);
-
-	useEffect(() => {
-		const interval = setInterval(() => setVisible(v => !v), 500);
-		return () => clearInterval(interval);
-	}, []);
+	const visible = useBlink(true);
 
 	if (!visible) {
 		return <Box><Text> </Text></Box>;
@@ -106,10 +108,12 @@ export function StatusBar({
 	status,
 	tasks,
 	noMarginTop,
+	busy,
 }: {
 	status: Record<string, unknown>;
 	tasks: TaskSnapshot[];
 	noMarginTop?: boolean;
+	busy: boolean;
 }): React.JSX.Element {
 	const theme = useTheme();
 	const model = String(status.model ?? 'unknown');
@@ -139,7 +143,7 @@ export function StatusBar({
 				{(inputTokens > 0 || outputTokens > 0) ? (
 					<>
 						<Text color={theme.colors.illusion}>{SEP}</Text>
-						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} />
+						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} busy={busy} />
 					</>
 				) : null}
 				{taskCount > 0 ? (

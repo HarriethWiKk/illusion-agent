@@ -79,7 +79,10 @@ class ReplTool(BaseTool[ReplToolInput]):
                 is_error=True,
             )
         except asyncio.CancelledError:
-            process.kill()
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
             with contextlib.suppress(Exception):
                 await process.wait()
             raise

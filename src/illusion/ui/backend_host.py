@@ -177,12 +177,6 @@ class ReactBackendHost:
         # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
         # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
         self._modal_lock: asyncio.Lock = asyncio.Lock()
-        # 流式 token 估算：在 API 未返回 usage 时本地估算输出 token（chars/4），
-        # turn 结束后 sync_app_state 用 API 准确值覆盖。参考 Claude Code/Grok 的 bytes/4 启发式。
-        self._stream_output_chars: int = 0
-        self._stream_input_estimated: bool = False
-        self._stream_estimated_input_tokens: int = 0  # 缓存当前 turn 的输入 token 估算
-        self._last_usage_emit_ts: float = 0.0
 
     async def run(self) -> int:
         """运行后端主机主循环。
@@ -563,10 +557,6 @@ class ReactBackendHost:
         assert self._bundle is not None
         # 清除上一轮的工具调用去重记录
         self._emitted_tool_started_ids.clear()
-        # 重置流式 token 估算状态
-        self._stream_output_chars = 0
-        self._stream_input_estimated = False
-        self._stream_estimated_input_tokens = 0
         # 更新会话阶段为思考中
         await self._update_phase("thinking")
         # 发送用户消息
@@ -590,29 +580,6 @@ class ReactBackendHost:
                     message=event.text,
                     reasoning=reasoning if reasoning else None,
                 ))
-                # 流式 token 估算与节流推送
-                if self._bundle is not None:
-                    import time as _time
-                    self._stream_output_chars += len(event.text)
-                    # 首次 delta 时估算输入 token（含 system prompt 开销）
-                    if not self._stream_input_estimated:
-                        from illusion.services.compact import estimate_conversation_tokens
-                        self._stream_estimated_input_tokens = (
-                            estimate_conversation_tokens(self._bundle.engine.messages)
-                            + (self._bundle.engine.overhead_tracker.tokens or 0)
-                        )
-                        self._stream_input_estimated = True
-                    # 节流推送：距上次推送超过 200ms
-                    now = _time.monotonic()
-                    if now - self._last_usage_emit_ts >= 0.2:
-                        sync_app_state(self._bundle)
-                        base = self._bundle.engine.total_usage
-                        self._bundle.app_state.set(
-                            input_tokens=base.input_tokens + self._stream_estimated_input_tokens,
-                            output_tokens=base.output_tokens + (self._stream_output_chars // 4),
-                        )
-                        await self._emit(self._status_snapshot())
-                        self._last_usage_emit_ts = now
                 return
             # 助手回合完成
             if isinstance(event, AssistantTurnComplete):
@@ -638,13 +605,6 @@ class ReactBackendHost:
                     # 更新会话 meta（CheckpointStore 已在 query_engine 内每轮 append）
                     from illusion.ui.runtime import _update_session_meta
                     _update_session_meta(self._bundle)
-                    # 推送最终准确 usage（cost_tracker 已在 query_engine 中用 API 值累加）
-                    await self._emit(self._status_snapshot())
-                    # 重置流式估算状态
-                    self._stream_output_chars = 0
-                    self._stream_input_estimated = False
-                    self._stream_estimated_input_tokens = 0
-                    self._last_usage_emit_ts = 0.0
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):

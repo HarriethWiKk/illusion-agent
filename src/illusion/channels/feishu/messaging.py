@@ -617,6 +617,7 @@ def build_complete_card(
     reasoning_text: str = "",
     elapsed_ms: int = 0,
     is_error: bool = False,
+    show_reasoning: bool = True,
 ) -> str:
     """构造终态卡片 JSON
 
@@ -630,10 +631,11 @@ def build_complete_card(
         reasoning_text: 思考过程文本（为空则不渲染折叠面板）
         elapsed_ms: 总耗时（毫秒）
         is_error: 是否错误终态
+        show_reasoning: 是否显示思考过程折叠面板
     """
     elements: list[dict[str, Any]] = []
 
-    if reasoning_text:
+    if reasoning_text and show_reasoning:
         elapsed_s = elapsed_ms / 1000.0
         title = f"💭 Thought for {elapsed_s:.1f}s"
         elements.append({
