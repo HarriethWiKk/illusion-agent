@@ -16,7 +16,7 @@ rewind 时从备份恢复。不依赖 git，可跟踪任意路径的文件。
     >>> from illusion.services.file_history import FileHistoryState
     >>> state = FileHistoryState(session_id="abc123", cwd="/project")
     >>> track_edit(state, "/project/file.py")
-    >>> make_snapshot(state, "msg-uuid-1")
+    >>> make_snapshot(state, "msg-uuid-1", 0)
     >>> rewind_to(state, 0)
 """
 
@@ -143,7 +143,7 @@ def track_edit(state: FileHistoryState, file_path: str) -> None:
     state.tracked_files.add(tracking_key)
 
 
-def make_snapshot(state: FileHistoryState, message_id: str) -> None:
+def make_snapshot(state: FileHistoryState, message_id: str, checkpoint_id: int) -> None:
     """创建快照边界。
 
     在用户发送消息时调用，为后续的工具编辑创建新的跟踪空间。
@@ -151,8 +151,13 @@ def make_snapshot(state: FileHistoryState, message_id: str) -> None:
     Args:
         state: 文件历史状态
         message_id: 关联的消息 ID
+        checkpoint_id: 对应的 checkpoint id（用于 rewind 精确对应）
     """
-    snapshot = FileSnapshot(message_id=message_id, turn_index=state._turn_counter)
+    snapshot = FileSnapshot(
+        message_id=message_id,
+        turn_index=state._turn_counter,
+        checkpoint_id=checkpoint_id,
+    )
     state._turn_counter += 1
     state.snapshots.append(snapshot)
     # 最多保留 50 个快照
@@ -161,6 +166,7 @@ def make_snapshot(state: FileHistoryState, message_id: str) -> None:
         state.snapshots = state.snapshots[-50:]
         # 清理被驱逐快照的备份文件
         _cleanup_evicted(state, evicted)
+    save(state)
 
 
 def rewind_to(state: FileHistoryState, snapshot_index: int) -> list[str]:
@@ -300,7 +306,7 @@ def save(state: FileHistoryState) -> None:
             {
                 "message_id": snap.message_id,
                 "turn_index": snap.turn_index,
-                "checkpoint_id": getattr(snap, "checkpoint_id", 0),
+                "checkpoint_id": snap.checkpoint_id,
                 "tracked_backups": {
                     k: {"backup_name": b.backup_name, "version": b.version}
                     for k, b in snap.tracked_backups.items()
@@ -377,7 +383,7 @@ def load(
         original_len = len(state.snapshots)
         state.snapshots = [
             s for s in state.snapshots
-            if getattr(s, "checkpoint_id", 0) < checkpoint_count
+            if s.checkpoint_id < checkpoint_count
         ]
         if len(state.snapshots) != original_len:
             state._turn_counter = len(state.snapshots)

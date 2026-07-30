@@ -416,7 +416,7 @@ class QueryEngine:
                     ))
 
         # 为这条用户消息创建文件历史快照（用消息列表长度作为 ID）
-        make_snapshot(self._file_history, str(len(self._messages)))
+        make_snapshot(self._file_history, str(len(self._messages)), 0)
 
         # 文件历史回调：工具执行前备份文件
         def _on_before_tool_execute(tool_name: str, tool_input: dict[str, Any]) -> None:

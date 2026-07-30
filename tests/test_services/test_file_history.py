@@ -10,6 +10,7 @@ from illusion.services.file_history import (
     FileSnapshot,
     _state_path,
     load,
+    make_snapshot,
     save,
 )
 
@@ -110,3 +111,13 @@ def test_load_with_checkpoint_count_aligns(tmp_path: Path) -> None:
     reloaded = load(str(tmp_path), "abc123")
     assert reloaded is not None
     assert len(reloaded.snapshots) == 2
+
+
+def test_make_snapshot_records_checkpoint_id(tmp_path: Path) -> None:
+    """make_snapshot 应将 checkpoint_id 记录到 snapshot。"""
+    state = FileHistoryState(session_id="abc123", cwd=str(tmp_path))
+    make_snapshot(state, "msg-1", checkpoint_id=5)
+    assert len(state.snapshots) == 1
+    assert state.snapshots[0].checkpoint_id == 5
+    assert state.snapshots[0].message_id == "msg-1"
+    assert state.snapshots[0].turn_index == 0
