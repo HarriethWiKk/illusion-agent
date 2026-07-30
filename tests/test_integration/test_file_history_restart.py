@@ -8,7 +8,6 @@ from illusion.services.file_history import (
     load,
     make_snapshot,
     rewind_to,
-    save,
     track_edit,
 )
 
