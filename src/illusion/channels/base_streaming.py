@@ -265,6 +265,9 @@ class BaseStreamingController:
             self._last_flushed_text = display_text
         except (RuntimeError, ValueError, KeyError) as exc:
             logger.warning("流式 flush 失败: %s", exc)
+        except Exception as exc:
+            # 服务器断开连接等网络错误，降级为 debug 日志（关闭渠道时常见）
+            logger.debug("流式 flush 网络错误（可忽略）: %s", exc)
         finally:
             self._flush_in_progress = False
             self._last_flush_time = time.monotonic()
