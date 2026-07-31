@@ -168,6 +168,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [agentGenerated, setAgentGenerated] = useState<{identifier: string; when_to_use: string; system_prompt: string} | null>(null);
 	/** agent 向导提交结果 */
 	const [agentWizardResult, setAgentWizardResult] = useState<{success: boolean; path?: string; errors?: string[]; error?: string} | null>(null);
+	/** agent 生成中标志（Task 12） */
+	const [agentGenerateLoading, setAgentGenerateLoading] = useState(false);
+	/** agent 生成错误文本（Task 12） */
+	const [agentGenerateError, setAgentGenerateError] = useState<string | null>(null);
 	/** 后端子进程引用 */
 	const childRef = useRef<ChildProcess | null>(null);
 	/** 是否已发送初始提示词 */
@@ -317,6 +321,9 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 * @param model - 使用的模型名称
 	 */
 	const sendAgentGenerateRequest = (prompt: string, model: string): void => {
+		setAgentGenerateLoading(true);
+		setAgentGenerateError(null);
+		setAgentGenerated(null);
 		const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
 			? crypto.randomUUID()
 			: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -331,6 +338,21 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 */
 	const sendAgentWizardSubmit = (fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
 		sendRequest({type: 'agent_wizard_submit', fields, scope});
+	};
+
+	/**
+	 * 清空所有 agent 向导相关状态
+	 *
+	 * 重置工具/模型列表、生成草稿、提交结果、生成 loading 与错误，
+	 * 用于重新打开向导时避免残留旧数据干扰新一次填写。
+	 */
+	const clearAgentWizardState = (): void => {
+		setAgentWizardTools(null);
+		setAgentWizardModels(null);
+		setAgentGenerated(null);
+		setAgentWizardResult(null);
+		setAgentGenerateLoading(false);
+		setAgentGenerateError(null);
 	};
 
 	/**
@@ -759,8 +781,15 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'agent_generate_response') {
-			// Task 12 消费；此处仅存储结果（错误时置空）
-			setAgentGenerated(event.agent ?? null);
+			// Task 12 消费：清空 loading，根据 error 设置错误或草稿
+			setAgentGenerateLoading(false);
+			if (event.error) {
+				setAgentGenerateError(event.error);
+				setAgentGenerated(null);
+			} else {
+				setAgentGenerateError(null);
+				setAgentGenerated(event.agent ?? null);
+			}
 			return;
 		}
 		if (event.type === 'agent_wizard_result') {
@@ -814,16 +843,20 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			sendBtwRequest,
 			sendBtwCancel,
 			// ---- agent 向导（Task 12 消费） ----
-			agentWizardTools,
-			agentWizardModels,
-			agentGenerated,
-			agentWizardResult,
-			sendAgentWizardInit,
-			sendAgentGenerateRequest,
-			sendAgentWizardSubmit,
+		agentWizardTools,
+		agentWizardModels,
+		agentGenerated,
+		agentWizardResult,
+		agentGenerateLoading,
+		agentGenerateError,
+		sendAgentWizardInit,
+		sendAgentGenerateRequest,
+		sendAgentWizardSubmit,
+		clearAgentWizardState,
 		}),
 		[
 			agentGenerated, agentWizardModels, agentWizardResult, agentWizardTools,
+			agentGenerateError, agentGenerateLoading,
 			assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands,
 			exited, mcpServers, modal, pendingToolCalls, ready, selectRequest,
 			showThinking, staticItems, status, swarmNotifications, swarmTeammates,

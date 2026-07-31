@@ -15,6 +15,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
 import {getActivityDescription} from './tools/registry.js';
+import {AgentWizard} from './components/AgentWizard.js';
 import {BtwInlineInput} from './components/BtwInlineInput.js';
 import {BtwPanel} from './components/BtwPanel.js';
 import {CommandPicker} from './components/CommandPicker.js';
@@ -139,6 +140,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [cursorReset, setCursorReset] = useState(0);
 	/** busy 模式下 Ctrl+B 激活的侧问输入框是否可见 */
 	const [btwInputActive, setBtwInputActive] = useState(false);
+	/** /agent create 触发的分步创建向导是否可见 */
+	const [showAgentWizard, setShowAgentWizard] = useState(false);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
@@ -380,6 +383,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /agent create 或 /agent new → 打开分步创建向导
+		// 先清空残留向导状态，再请求初始化工具/模型列表
+		if (trimmed === '/agent create' || trimmed === '/agent new') {
+			session.clearAgentWizardState();
+			session.sendAgentWizardInit();
+			setShowAgentWizard(true);
+			return true;
+		}
+
 		// /btw <question> → 仅在非 busy 时拦截；busy 时改由 Ctrl+B 触发侧问输入框
 		if (trimmed.startsWith('/btw ') && !session.busy) {
 			const question = trimmed.slice('/btw '.length).trim();
@@ -459,6 +471,11 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					type: 'info',
 				});
 			}
+			return;
+		}
+		// --- AgentWizard 激活时，按键交由向导内部 useInput 处理 ---
+		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
+		if (showAgentWizard) {
 			return;
 		}
 		// --- btw 输入框 / 回复面板激活时，按键交由其内部 useInput 处理 ---
@@ -680,7 +697,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (scriptIndex >= scriptedSteps.length) {
 			return;
 		}
-		if (session.busy || session.modal || selectModal) {
+		if (session.busy || session.modal || selectModal || showAgentWizard) {
 			return;
 		}
 		const step = scriptedSteps[scriptIndex];
@@ -790,7 +807,23 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.illusion}>{t(language, 'connecting')}</Text>
 					</Box>
 				) : null
-			) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
+			) : showAgentWizard ? (
+			<AgentWizard
+				language={language}
+				tools={session.agentWizardTools}
+				models={session.agentWizardModels}
+				generated={session.agentGenerated}
+				generateLoading={session.agentGenerateLoading}
+				generateError={session.agentGenerateError}
+				result={session.agentWizardResult}
+				onInit={session.sendAgentWizardInit}
+				onGenerate={session.sendAgentGenerateRequest}
+				onSubmit={session.sendAgentWizardSubmit}
+				onCancel={() => {
+					setShowAgentWizard(false);
+				}}
+			/>
+		) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
 		<Box marginTop={1}>
 			{btwInputActive ? (
 				<BtwInlineInput
@@ -828,7 +861,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	)}
 
 			{/* 键盘快捷键提示（仅在后端就绪后显示） */}
-			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
+			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck && !showAgentWizard ? (
 				<Box>
 					<Text dimColor>
 						<Text color={theme.colors.muted}>ctrl+a</Text> {t(language, 'lineStart')}
@@ -853,7 +886,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						) : null}
 					</Text>
 				</Box>
-			) : session.ready && session.busy && !session.modal && !selectModal ? (
+			) : session.ready && session.busy && !session.modal && !selectModal && !showAgentWizard ? (
 				<Box marginTop={1}>
 					<Text dimColor>
 						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
@@ -866,7 +899,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			) : null}
 
 			{/* btw 侧问面板：reply / error / loading 任一存在时显示，Esc 关闭并取消请求 */}
-		{session.btwReply !== null || session.btwError !== null || session.btwLoading ? (
+		{(session.btwReply !== null || session.btwError !== null || session.btwLoading) && !showAgentWizard ? (
 			<Box marginTop={1}>
 				<BtwPanel
 					reply={session.btwReply}
