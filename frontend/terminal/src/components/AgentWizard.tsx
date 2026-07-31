@@ -109,8 +109,6 @@ interface AgentWizardProps {
 const EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** permission_mode 选项值列表 */
 const PERMISSION_VALUES = ['default', 'plan', 'full_auto'];
-/** 摘要中 system_prompt 的最大展示字符数 */
-const SUMMARY_PROMPT_MAX = 300;
 
 /**
  * Agent 分步创建向导组件
@@ -501,8 +499,8 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 				<Text bold>{prompt}</Text>
 			</Box>
 			<Box>
-				<Text color={theme.colors.illusionShimmer}>▎ </Text>
-				<MultilineTextInput
+			<Text>  </Text>
+			<MultilineTextInput
 					value={multilineValue}
 					onChange={setMultilineValue}
 					onSubmit={submit}
@@ -568,10 +566,11 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 				<Text color={theme.colors.suggestion}>{fields.identifier}</Text>
 			</Box>
 			<Box>
-				<Text dimColor>{t(language, 'agentWizardSystemPromptLabel')}:</Text>
+				<Text dimColor>{t(language, 'agentWizardDescriptionLabel')}: </Text>
+				<Text color={theme.colors.suggestion}>{fields.when_to_use}</Text>
 			</Box>
-			<Box>
-				<Text dimColor>{fields.system_prompt.slice(0, SUMMARY_PROMPT_MAX)}{fields.system_prompt.length > SUMMARY_PROMPT_MAX ? '…' : ''}</Text>
+			<Box marginTop={1}>
+				<Text dimColor>{t(language, 'agentWizardReviewHint')}</Text>
 			</Box>
 			<Box marginTop={1}>
 				<Text dimColor>
@@ -591,36 +590,32 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	);
 
 	/** 渲染确认摘要 */
-	const renderConfirm = (): React.JSX.Element => {
-		const promptPreview = fields.system_prompt.length > SUMMARY_PROMPT_MAX
-			? fields.system_prompt.slice(0, SUMMARY_PROMPT_MAX) + '…'
-			: fields.system_prompt;
-		return (
-			<Box flexDirection="column" marginTop={1}>
-				<Box>
-					<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
-					<Text bold>{t(language, 'agentWizardConfirmTitle')}</Text>
-				</Box>
-				<Text dimColor>{t(language, 'agentWizardScopeLabel')}: {fields.scope}</Text>
-				<Text dimColor>{t(language, 'agentWizardNameLabel')}: {fields.identifier}</Text>
-				<Text dimColor>{t(language, 'agentWizardDescriptionLabel')}: {fields.when_to_use}</Text>
-				<Text dimColor>{t(language, 'agentWizardModelLabel')}: {fields.model}</Text>
-				<Text dimColor>{t(language, 'agentWizardToolsLabel')}: {fields.tools.length ? fields.tools.join(', ') : t(language, 'agentWizardSkip')}</Text>
-				{fields.effort ? <Text dimColor>{t(language, 'agentWizardEffortLabel')}: {fields.effort}</Text> : null}
-				{fields.permission_mode ? <Text dimColor>{t(language, 'agentWizardPermissionLabel')}: {fields.permission_mode}</Text> : null}
-				{fields.max_turns != null ? <Text dimColor>{t(language, 'agentWizardMaxTurnsLabel')}: {fields.max_turns}</Text> : null}
-				<Text dimColor>{t(language, 'agentWizardSystemPromptLabel')}:</Text>
-				<Text dimColor>{promptPreview}</Text>
-				<Box marginTop={1}>
-					<Text dimColor>
-						<Text color={theme.colors.muted}>{t(language, 'questionHintSubmit')}</Text>
-						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>{t(language, 'questionHintCancel')}</Text>
-					</Text>
-				</Box>
+	const renderConfirm = (): React.JSX.Element => (
+		<Box flexDirection="column" marginTop={1}>
+			<Box>
+				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
+				<Text bold>{t(language, 'agentWizardConfirmTitle')}</Text>
 			</Box>
-		);
-	};
+			<Text dimColor>{t(language, 'agentWizardScopeLabel')}: {fields.scope}</Text>
+			<Text dimColor>{t(language, 'agentWizardNameLabel')}: {fields.identifier}</Text>
+			<Text dimColor>{t(language, 'agentWizardDescriptionLabel')}: {fields.when_to_use}</Text>
+			<Text dimColor>{t(language, 'agentWizardModelLabel')}: {fields.model}</Text>
+			<Text dimColor>{t(language, 'agentWizardToolsLabel')}: {fields.tools.length ? fields.tools.join(', ') : t(language, 'agentWizardSkip')}</Text>
+			{fields.effort ? <Text dimColor>{t(language, 'agentWizardEffortLabel')}: {fields.effort}</Text> : null}
+			{fields.permission_mode ? <Text dimColor>{t(language, 'agentWizardPermissionLabel')}: {fields.permission_mode}</Text> : null}
+			{fields.max_turns != null ? <Text dimColor>{t(language, 'agentWizardMaxTurnsLabel')}: {fields.max_turns}</Text> : null}
+			<Box marginTop={1}>
+				<Text dimColor>{t(language, 'agentWizardReviewHint')}</Text>
+			</Box>
+			<Box marginTop={1}>
+				<Text dimColor>
+					<Text color={theme.colors.muted}>{t(language, 'questionHintSubmit')}</Text>
+					<Text> {theme.icons.middleDot} </Text>
+					<Text color={theme.colors.muted}>{t(language, 'questionHintCancel')}</Text>
+				</Text>
+			</Box>
+		</Box>
+	);
 
 	/** 渲染成功 */
 	const renderDone = (): React.JSX.Element => (

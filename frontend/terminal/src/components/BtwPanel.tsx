@@ -2,8 +2,8 @@
  * @fileoverview 侧问（btw）回复显示面板
  *
  * 在 busy 模式下展示助手对侧问的回复，特性：
- * - 竖杠（▎）作为左侧视觉前缀，每行一条
- * - 长行按终端宽度自动换行（soft wrap），续行同样带 ▎ 前缀
+ * - 竖杠（│）作为左侧视觉前缀，每行一条
+ * - 长行按终端宽度自动换行（soft wrap），续行同样带 │ 前缀
  * - 最多显示 10 行，超出部分通过上下箭头翻页
  * - 翻页时首/末行前缀变为 ↑/↓ 提示还有更多内容
  * - 回复使用 illusionShimmer 色，错误使用 error 色
@@ -53,7 +53,7 @@ export function BtwPanel({reply, error, loading, language, onDismiss}: BtwPanelP
 	const [offset, setOffset] = useState(0);
 
 	const text = reply ?? error ?? '';
-	// 前缀宽度：▎（1 列）+ 空格（1 列）= 2 列；按此宽度换行而非截断
+	// 前缀宽度：│（1 列）+ 空格（1 列）= 2 列；按此宽度换行而非截断
 	const contentWidth = Math.max(10, terminalWidth - 2 - WIDTH_SAFETY_EXTRA);
 	const lines = wrapToDisplayWidth(text, contentWidth);
 	const visibleLines = lines.slice(offset, offset + MAX_LINES);
@@ -85,8 +85,8 @@ export function BtwPanel({reply, error, loading, language, onDismiss}: BtwPanelP
 	return (
 		<Box flexDirection="column">
 			{visibleLines.map((line, i) => {
-				// 导航提示放在左侧 ▎ 列：首行上方有更多则显示 ↑，末行下方有更多则显示 ↓
-				let prefix = '▎';
+				// 导航提示放在左侧 │ 列：首行上方有更多则显示 ↑，末行下方有更多则显示 ↓
+				let prefix = '│';
 				if (i === 0 && hasMoreAbove) {
 					prefix = '↑';
 				} else if (i === visibleLines.length - 1 && hasMoreBelow) {

@@ -45,7 +45,7 @@ export function BtwInlineInput({language, onSubmit, onCancel}: BtwInlineInputPro
 
 	return (
 		<Box>
-			<Text color={theme.colors.illusion}>▎ btw&gt; </Text>
+			<Text color={theme.colors.illusion}>│ &gt; </Text>
 			<TextInput
 				value={value}
 				onChange={setValue}
