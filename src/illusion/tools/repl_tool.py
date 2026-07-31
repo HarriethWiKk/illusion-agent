@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -77,6 +78,14 @@ class ReplTool(BaseTool[ReplToolInput]):
                 output=f"Command timed out after {arguments.timeout_seconds} seconds",
                 is_error=True,
             )
+        except asyncio.CancelledError:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            with contextlib.suppress(Exception):
+                await process.wait()
+            raise
 
         # 收集输出
         parts = []

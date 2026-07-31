@@ -75,6 +75,7 @@ def _feishu_login() -> None:
     group_isolation = _ask_bool("channel_group_isolation", default=True)
     require_mention = _ask_bool("channel_require_mention", default=True)
     allow_bots = _ask_bool("channel_allow_bots", default=False)
+    show_reasoning = _ask_bool("channel_show_reasoning", default=True)
 
     # 4. 安装依赖（首次配置时自动装 lark-oapi）
     ensure_feishu_dependencies()
@@ -90,6 +91,7 @@ def _feishu_login() -> None:
         allow_bots=allow_bots,
         group_sessions_per_user=group_isolation,
         group_policy=FeishuGroupPolicy(),
+        show_reasoning=show_reasoning,
     )
     save_channels_config(cfg)
 
@@ -172,6 +174,7 @@ def _qq_login() -> None:
     group_isolation = _ask_bool("channel_group_isolation", default=True)
     require_mention = _ask_bool("channel_require_mention", default=True)
     allow_bots = _ask_bool("channel_allow_bots", default=False)
+    show_reasoning = _ask_bool("channel_show_reasoning", default=True)
 
     # 3. 安装依赖
     ensure_qq_dependencies()
@@ -186,6 +189,7 @@ def _qq_login() -> None:
         group_sessions_per_user=group_isolation,
         require_mention=require_mention,
         group_policy=QQGroupPolicy(),
+        show_reasoning=show_reasoning,
     )
     save_channels_config(cfg)
 

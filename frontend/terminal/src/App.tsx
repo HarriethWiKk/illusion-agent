@@ -747,7 +747,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* 状态栏 — 模态框期间隐藏状态栏腾出空间 */}
 			{session.ready && !(session.modal && !isPermissionModal) ? (
-				<StatusBar status={session.status} tasks={session.tasks} />
+				<StatusBar status={session.status} tasks={session.tasks} busy={session.busy} />
 			) : null}
 
 			{/* 输入区域 — 后端就绪前显示加载指示器（后端退出后隐藏） */}

@@ -192,14 +192,14 @@ export default function RightPanel({
             <span className="text-content-secondary">{t(lang, 'systemPrompt')}</span>
             <span className="text-content-primary tabular-nums">
               {systemOverheadMeasured
-                ? `~${formatTokens(systemPromptTokens)} (${systemPct}%)`
+                ? `${formatTokens(systemPromptTokens)} (${systemPct}%)`
                 : `~ ${t(lang, 'pendingMeasurement')}`}
             </span>
           </div>
           {/* Messages 分项 */}
           <div className="flex items-center justify-between text-xs mb-2">
             <span className="text-content-secondary">{t(lang, 'messagesLabel')}</span>
-            <span className="text-content-primary tabular-nums">~{formatTokens(contextTokens - systemPromptTokens)} ({messagesPct}%)</span>
+            <span className="text-content-primary tabular-nums">{formatTokens(contextTokens - systemPromptTokens)} ({messagesPct}%)</span>
           </div>
           {/* 进度条 */}
           <div className="flex items-center gap-3 mb-1">
@@ -214,10 +214,10 @@ export default function RightPanel({
             </span>
           </div>
           <div className="text-xs text-content-secondary tabular-nums">
-            ~{formatTokens(contextTokens)} / {formatTokens(contextWindow)}
+            {formatTokens(contextTokens)} / {formatTokens(contextWindow)}
           </div>
           <div className="text-xs text-content-secondary tabular-nums mt-1">
-            {t(lang, 'remaining')} ~{formatTokens(Math.max(0, contextWindow - contextTokens))}
+            {t(lang, 'remaining')} {formatTokens(Math.max(0, contextWindow - contextTokens))}
           </div>
         </div>
       )}

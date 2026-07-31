@@ -189,3 +189,39 @@ class TestCommandExecutor:
         )
         result = await CommandExecutor.run_and_normalize(process, timeout=10)
         assert result.is_error is True
+
+
+class TestRunAndNormalizeCancel:
+    """run_and_normalize 在 CancelledError 时应 kill 子进程。"""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_kills_process(self):
+        """CancelledError 传播时 process.kill() 被调用。"""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        from illusion.tools.shell_common import CommandExecutor
+
+        # 模拟一个长时间运行的子进程
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.wait = AsyncMock()
+        process.returncode = None
+
+        # communicate 会被 wait_for 包装，模拟被 cancel
+        async def _slow_communicate():
+            await asyncio.sleep(100)
+
+        process.communicate = _slow_communicate
+
+        # 创建一个任务来执行 run_and_normalize，然后取消它
+        task = asyncio.create_task(
+            CommandExecutor.run_and_normalize(process, timeout=1000)
+        )
+        await asyncio.sleep(0.05)  # 让任务进入 wait_for
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # 验证 process.kill 被调用
+        assert process.kill.called, "process.kill() should be called on CancelledError"

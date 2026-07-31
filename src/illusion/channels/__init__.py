@@ -608,6 +608,10 @@ class ChannelRunner:
         streaming_controller: FeishuStreamingCardController | None = None  # 飞书流式卡片控制器
         qq_streaming_controller: QQStreamingController | None = None  # QQ C2C 流式控制器
 
+        # 加载渠道配置获取 show_reasoning 设置
+        from illusion.channels.config import load_channels_config
+        _channels_cfg = load_channels_config()
+
         async def render_event(ev: Any) -> None:
             """流式事件收集
 
@@ -621,9 +625,11 @@ class ChannelRunner:
                         await streaming_controller.on_reasoning(ev.reasoning)
                     if ev.text:
                         await streaming_controller.on_text(ev.text)
-                elif qq_streaming_controller and ev.text:
-                    # QQ 不展示 reasoning，只流式 answer text
-                    await qq_streaming_controller.on_text(ev.text)
+                elif qq_streaming_controller:
+                    if ev.reasoning:
+                        await qq_streaming_controller.on_reasoning(ev.reasoning)
+                    if ev.text:
+                        await qq_streaming_controller.on_text(ev.text)
                 collected_text.append(ev.text)
             elif isinstance(ev, ErrorEvent):
                 collected_text.append(f"\n❌ {ev.message}")
@@ -635,23 +641,32 @@ class ChannelRunner:
         if supports_edit:
             # 飞书：用 CardKit 流式卡片控制器替代"思考中"卡片
             from illusion.channels.feishu.streaming import FeishuStreamingCardController
+            feishu_show_reasoning = getattr(_channels_cfg.feishu, "show_reasoning", True)
             streaming_controller = FeishuStreamingCardController(
                 client=cast("FeishuChannel", self.channel)._client,
                 chat_id=msg.chat_id,
                 reply_to=msg.message_id,
+                show_reasoning=feishu_show_reasoning,
             )
-            await streaming_controller.start()
+            # 仅在 show_reasoning=True 时启动流式会话（立即显示思考指示器）
+            if feishu_show_reasoning:
+                await streaming_controller.start()
         elif qq_c2c_streaming and qq_channel is not None:
-            # QQ C2C：用 stream_messages API 流式（首次有文本时才启动）
+            # QQ C2C：用 stream_messages API 流式
             # 确保 token 已获取（通过 _get_token，重连后自动刷新）
             token = await qq_channel._get_token()
             from illusion.channels.qq.streaming import QQStreamingController
+            qq_show_reasoning = getattr(_channels_cfg.qq, "show_reasoning", True)
             qq_streaming_controller = QQStreamingController(
                 session=qq_channel._session,
                 token=token,
                 openid=msg.chat_id,
                 msg_id=msg.message_id,
+                show_reasoning=qq_show_reasoning,
             )
+            # 仅在 show_reasoning=True 时启动流式会话（立即显示思考指示器）
+            if qq_show_reasoning:
+                await qq_streaming_controller.start()
 
         async def print_system(text: str) -> None:
             """系统消息转发到渠道"""

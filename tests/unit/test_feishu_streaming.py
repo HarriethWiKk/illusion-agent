@@ -392,15 +392,15 @@ async def test_controller_throttle_batches_multiple_calls() -> None:
     """节流：100ms 内多次调用只触发一次实际 flush"""
     client = _mock_client()
     controller = FeishuStreamingCardController(client, "ou_user1")
-    await controller.start()
+    await controller.start()  # start() 发送初始内容（1次调用）
     # 立即连续调用 5 次
     for i in range(5):
         await controller.on_text(f"chunk{i}")
     # 等待节流窗口 + 补偿 flush
     await asyncio.sleep(0.3)
-    # card_element.acontent 调用次数应远小于 5（节流合并）
+    # card_element.acontent 调用次数：start(1) + 节流合并(1-2) = 2-3
     call_count = client.cardkit.v1.card_element.acontent.call_count
-    assert call_count <= 2, f"Expected <=2 flush calls, got {call_count}"
+    assert call_count <= 3, f"Expected <=3 flush calls, got {call_count}"
 
 
 @pytest.mark.asyncio
@@ -485,12 +485,13 @@ async def test_controller_throttle_has_lower_bound() -> None:
     """节流测试：验证 flush 次数有下限（不会因节流失效为 0）"""
     client = _mock_client()
     controller = FeishuStreamingCardController(client, "ou_user1")
-    await controller.start()
+    await controller.start()  # start() 发送初始内容（1 call）
     for i in range(5):
         await controller.on_text(f"chunk{i}")
     await asyncio.sleep(0.3)
     call_count = client.cardkit.v1.card_element.acontent.call_count
-    assert 1 <= call_count <= 2, f"Expected 1-2 flush calls, got {call_count}"
+    # start(1) + 节流合并(1-2) = 2-3
+    assert 2 <= call_count <= 3, f"Expected 2-3 flush calls, got {call_count}"
 
 
 @pytest.mark.asyncio
@@ -536,14 +537,15 @@ async def test_controller_flush_dedup_skips_unchanged_text() -> None:
     """
     client = _mock_client()
     controller = FeishuStreamingCardController(client, "ou_user1")
-    await controller.start()
+    await controller.start()  # start() 发送初始内容（1 call）
 
     # 第一次 flush：display_text = "Hello"
     controller._accumulated_text = "Hello"
     controller._is_reasoning_phase = False
     await controller._flush()
     first_count = client.cardkit.v1.card_element.acontent.call_count
-    assert first_count == 1
+    # start(1) + flush(1) = 2
+    assert first_count == 2
 
     # 第二次 flush：display_text 仍为 "Hello"，应被去重跳过
     await controller._flush()

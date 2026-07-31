@@ -78,6 +78,7 @@ illusion channel login
 是否启用群组会话按用户隔离? (Y/n): Y
 群组中是否要求 @机器人才响应? (Y/n): Y
 是否允许其他机器人消息? (y/N): N
+是否在回复中显示思考过程? (Y/n): Y
 
 正在安装依赖 lark-oapi... ✓
 配置已保存，飞书渠道已启用。
@@ -113,6 +114,7 @@ illusion channel serve
     "require_mention": true,
     "allow_bots": false,
     "group_sessions_per_user": true,
+    "show_reasoning": true,
     "group_policy": {
       "mode": "open",
       "allowlist": [],
@@ -132,6 +134,7 @@ illusion channel serve
 | `require_mention` | `true` | 群组中是否要求 @机器人才响应 |
 | `allow_bots` | `false` | 是否处理其他机器人的消息 |
 | `group_sessions_per_user` | `true` | 群组会话是否按用户隔离 |
+| `show_reasoning` | `true` | 是否在回复中显示思考过程 |
 | `group_policy.mode` | `"open"` | `"open"` / `"disabled"` / `"allowlist"` / `"blacklist"` |
 | `group_policy.allowlist` | `[]` | 允许的 chat_id 列表（mode=allowlist 时生效） |
 | `group_policy.blacklist` | `[]` | 拒绝的 chat_id 列表（mode=blacklist 时生效） |
@@ -274,7 +277,8 @@ illusion channel login
 1. 自动安装 `aiohttp`（仅首次）
 2. 引导输入 App ID 和 Client Secret
 3. 配置群组策略选项
-4. 保存凭据到 `~/.illusion/channels.json`
+4. 选择是否显示思考过程（`show_reasoning`，默认 Y）
+5. 保存凭据到 `~/.illusion/channels.json`
 
 #### 3. 开始使用
 

@@ -21,6 +21,7 @@ Git Worktree 隔离模块
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
 import subprocess
@@ -124,7 +125,16 @@ async def _run_git(*args: str, cwd: Path) -> tuple[int, str, str]:
         env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""},
         **kwargs,
     )
-    stdout_bytes, stderr_bytes = await proc.communicate()
+    try:
+        stdout_bytes, stderr_bytes = await proc.communicate()
+    except asyncio.CancelledError:
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        raise
     return (
         proc.returncode or 0,
         stdout_bytes.decode(errors="replace").strip(),

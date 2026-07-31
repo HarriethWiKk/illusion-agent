@@ -28,6 +28,7 @@ Cron 调度器模块
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -319,6 +320,15 @@ async def _execute_prompt_in_subprocess(
             "stdout": "",
             "stderr": f"Job timed out after {timeout}s",
         }
+    except asyncio.CancelledError:
+        if process is not None:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            with contextlib.suppress(Exception):
+                await process.wait()
+        raise
     except FileNotFoundError as exc:
         # illusion 命令未找到
         logger.error("Failed to start cron subprocess: %s", exc)

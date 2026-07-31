@@ -65,11 +65,13 @@ class SlashCommand:
         name: 命令名称 (不含前导/)
         description: 命令描述
         handler: 命令处理器函数
+        usage: 用法说明 (无子命令时为 None)
     """
 
     name: str  # 命令名称
     description: str  # 命令描述
     handler: CommandHandler  # 处理器函数
+    usage: str | None = None  # 用法说明，None 表示无特殊用法
 
 
 class CommandRegistry:
@@ -92,6 +94,9 @@ class CommandRegistry:
 
         async def _localized_handler(args: str, context: CommandContext) -> CommandResult:
             result = await original_handler(args, context)
+            # 追加命令用法到 message（避免与 handler 已返回的 Usage 重复）
+            if result.message and command.usage and "usage:" not in result.message.lower():
+                result.message = f"{result.message}\n\nUsage: {command.usage}"
             if result.message:
                 result.message = _translate_command_message(
                     result.message,
@@ -103,6 +108,7 @@ class CommandRegistry:
             name=command.name,
             description=command.description,
             handler=_localized_handler,
+            usage=command.usage,
         )
 
     def lookup(self, raw_input: str) -> tuple[SlashCommand, str] | None:
@@ -134,7 +140,11 @@ class CommandRegistry:
             description = command.description
             if _is_zh(locale):
                 description = COMMAND_DESCRIPTIONS_ZH.get(command.name, description)
-            lines.append(f"/{command.name:<12} {description}")
+            # usage 内联在描述后，不单独换行
+            if command.usage:
+                lines.append(f"/{command.name:<12} {description}  Usage: {command.usage}")
+            else:
+                lines.append(f"/{command.name:<12} {description}")
         return "\n".join(lines)
 
     def list_commands(self) -> list[SlashCommand]:
@@ -144,6 +154,18 @@ class CommandRegistry:
             list[SlashCommand]: 命令列表
         """
         return list(self._commands.values())
+
+    def get_usage(self, name: str) -> str | None:
+        """返回指定命令的用法说明。
+
+        Args:
+            name: 命令名称 (不含前导/)
+
+        Returns:
+            str | None: 用法说明字符串，命令不存在或无用法时返回 None
+        """
+        command = self._commands.get(name)
+        return command.usage if command else None
 
 
 def create_default_command_registry() -> CommandRegistry:
@@ -241,37 +263,37 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("new", "Start a new conversation session", new_handler))
     registry.register(SlashCommand("version", "Show the installed IllusionAgent version", version_handler))
     registry.register(SlashCommand("status", "Show session status", status_handler))
-    registry.register(SlashCommand("context", "Show active system prompt or manage context window", context_handler))
+    registry.register(SlashCommand("context", "Show active system prompt or manage context window", context_handler, usage="/context [usage|show|window|set N]"))
     registry.register(SlashCommand("summary", "Summarize conversation history", summary_handler))
     registry.register(SlashCommand("compact", "Compact older conversation history", compact_handler))
     registry.register(SlashCommand("memory", "Inspect and manage project memory", memory_handler))
     registry.register(SlashCommand("hooks", "Show configured hooks", hooks_handler))
-    registry.register(SlashCommand("resume", "Restore the latest saved session", resume_handler))
+    registry.register(SlashCommand("resume", "Restore the latest saved session", resume_handler, usage="/resume [session_id|#N]"))
     registry.register(SlashCommand("export", "Export the current transcript", export_handler))
     registry.register(SlashCommand("share", "Create a shareable transcript snapshot", share_handler))
     registry.register(SlashCommand("copy", "Copy the latest response or provided text", copy_handler))
-    registry.register(SlashCommand("rewind", "Remove the latest conversation turn(s)", rewind_handler))
-    registry.register(SlashCommand("files", "List files in the current workspace", files_handler))
+    registry.register(SlashCommand("rewind", "Remove the latest conversation turn(s)", rewind_handler, usage="/rewind [TURNS] [both|conversation]"))
+    registry.register(SlashCommand("files", "List files in the current workspace", files_handler, usage="/files [dirs|N] [needle]"))
     registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
     registry.register(SlashCommand("bridge", "Inspect bridge helpers and spawn bridge sessions", bridge_handler))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
     registry.register(SlashCommand("logout", "Clear the stored API key", logout_handler))
     registry.register(SlashCommand("feedback", "Save CLI feedback to the local feedback log", feedback_handler))
-    registry.register(SlashCommand("skills", "List or show available skills", skills_handler))
+    registry.register(SlashCommand("skills", "List or show available skills", skills_handler, usage="/skills [name|number]"))
     registry.register(SlashCommand("config", "Show or update configuration", config_handler))
     registry.register(SlashCommand("mcp", "Show MCP status", mcp_handler))
     registry.register(SlashCommand("plugin", "Manage plugins", plugin_handler))
     registry.register(SlashCommand("reload-plugins", "Reload plugin discovery for this workspace", reload_plugins_handler))
-    registry.register(SlashCommand("permissions", "Show or update permission mode", permissions_handler))
-    registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler))
+    registry.register(SlashCommand("permissions", "Show or update permission mode", permissions_handler, usage="/permissions [show|set MODE]"))
+    registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler, usage="/plan [on|off]"))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
-    registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler))
-    registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler))
+    registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler, usage="/effort [show|low|medium|high|xhigh|max]"))
+    registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler, usage="/max-tokens [show|set N]"))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", turns_handler))
-    registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler))
-    registry.register(SlashCommand("model", "Show or update the default model", model_handler))
-    registry.register(SlashCommand("language", "Show or update UI language", language_handler))
+    registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler, usage="/continue [COUNT]"))
+    registry.register(SlashCommand("model", "Show or update the default model", model_handler, usage="/model [show|set MODEL]"))
+    registry.register(SlashCommand("language", "Show or update UI language", language_handler, usage="/language [show|list|set zh-CN|set en]"))
     registry.register(SlashCommand("output-style", "Show or update output style", output_style_handler))
     registry.register(SlashCommand("doctor", "Show environment diagnostics", doctor_handler))
     registry.register(SlashCommand("diff", "Show git diff output", diff_handler))
@@ -280,7 +302,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("issue", "Show or update project issue context", issue_handler))
     registry.register(SlashCommand("pr_comments", "Show or update project PR comments context", pr_comments_handler))
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", privacy_settings_handler))
-    registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler))
+    registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler, usage="/delete [session_id|#N|all]"))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
     registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
 

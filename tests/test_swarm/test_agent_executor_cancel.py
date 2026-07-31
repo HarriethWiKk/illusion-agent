@@ -4,20 +4,52 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from illusion.swarm.agent_executor import AgentAbortController, AgentExecutionContext  # noqa: F401
+from illusion.swarm.agent_executor import AgentAbortController, AgentExecutionContext
 from illusion.utils.aioqueue import Queue
 
 
 def test_cancel_event_triggers_shutdown():
     """cancel_event 触发后 message_queue 被 shutdown，consumer 退出。"""
-    pytest.skip("需要 Task 10 完成后实现完整测试")
+
+    async def run():
+        ctx = AgentExecutionContext(
+            agent_id="test",
+            agent_name="test",
+            message_queue=Queue(),
+        )
+        messages: list = []
+        consumer_task = asyncio.create_task(_message_consumer(messages, ctx))
+
+        # 模拟 run_agent_in_process 的 cancel watcher：cancel_event 触发后 shutdown
+        async def _cancel_watcher():
+            await ctx.abort_controller.cancel_event.wait()
+            ctx.message_queue.shutdown()
+
+        watcher_task = asyncio.create_task(_cancel_watcher())
+        await asyncio.sleep(0.05)  # 让 consumer 进入 await get()
+
+        # 触发取消
+        ctx.abort_controller.request_cancel(reason="test")
+
+        # consumer 应在 watcher shutdown 后退出
+        await asyncio.wait_for(consumer_task, timeout=2.0)
+        await watcher_task
+        assert messages == []
+
+    from illusion.swarm.agent_executor import _message_consumer
+
+    asyncio.run(run())
 
 
 def test_timeout_triggers_force_cancel():
-    """超时后 force_cancel 被设置。"""
-    pytest.skip("需要 Task 10 完成后实现完整测试")
+    """request_cancel(force=True) 同时设置 force_cancel 和 cancel_event。"""
+    controller = AgentAbortController()
+    assert not controller.is_cancelled
+    controller.request_cancel(reason="timeout", force=True)
+    assert controller.force_cancel.is_set()
+    assert controller.cancel_event.is_set()
+    assert controller.is_cancelled
+    assert controller.reason == "timeout"
 
 
 def test_message_queue_shutdown_wakes_consumer():

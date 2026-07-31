@@ -28,7 +28,7 @@ IllusionAgent provides a layered extension system. Extensions can be configured 
 | Type | Fields | Description |
 |------|--------|-------------|
 | `stdio` | command, args, env, cwd, log_file, enabled | Standard I/O communication |
-| `http` | url, headers, enabled | HTTP protocol (Streamable HTTP; aliases: `streamable-http`/`streamableHttp`/`streamable_http`) |
+| `http` | url, headers, enabled | HTTP protocol (Streamable HTTP; aliases: `streamable-http`/`streamableHttp`/`streamable_http`/`streamablehttp`) |
 | `sse` | url, headers, enabled | Server-Sent Events protocol |
 | `ws` | url, headers, enabled | WebSocket protocol (alias: `websocket`) |
 

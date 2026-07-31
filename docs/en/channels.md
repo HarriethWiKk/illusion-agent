@@ -76,6 +76,7 @@ This launches an interactive setup wizard:
 是否启用群组会话按用户隔离? (Y/n): Y
 群组中是否要求 @机器人才响应? (Y/n): Y
 是否允许其他机器人消息? (y/N): N
+是否在回复中显示思考过程? (Y/n): Y
 
 正在安装依赖 lark-oapi... ✓
 配置已保存，飞书渠道已启用。
@@ -111,6 +112,7 @@ Channel config is stored separately in `~/.illusion/channels.json` (not in `sett
     "require_mention": true,
     "allow_bots": false,
     "group_sessions_per_user": true,
+    "show_reasoning": true,
     "group_policy": {
       "mode": "open",
       "allowlist": [],
@@ -130,6 +132,7 @@ Channel config is stored separately in `~/.illusion/channels.json` (not in `sett
 | `require_mention` | `true` | In groups, only respond when @mentioned |
 | `allow_bots` | `false` | Whether to process messages from other bots |
 | `group_sessions_per_user` | `true` | Isolate sessions per user in groups |
+| `show_reasoning` | `true` | Whether to show thinking process in replies |
 | `group_policy.mode` | `"open"` | `"open"` / `"disabled"` / `"allowlist"` / `"blacklist"` |
 | `group_policy.allowlist` | `[]` | Allowed chat_ids (when mode=allowlist) |
 | `group_policy.blacklist` | `[]` | Blocked chat_ids (when mode=blacklist) |
@@ -271,7 +274,8 @@ This will:
 1. Auto-install `aiohttp` (first time only)
 2. Guide you to enter App ID and Client Secret
 3. Configure group policy options
-4. Save credentials to `~/.illusion/channels.json`
+4. Choose whether to show thinking process (`show_reasoning`, default Y)
+5. Save credentials to `~/.illusion/channels.json`
 
 ### 3. Start Using
 

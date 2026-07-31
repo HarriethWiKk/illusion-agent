@@ -86,15 +86,15 @@ class McpHttpServerConfig(BaseModel):
     HTTP 类型 MCP 服务器配置（Streamable HTTP 传输）
     
     通过 Streamable HTTP 协议与 MCP 服务器通信的配置。
-    兼容多种 type 别名：http、streamable-http、streamableHttp、streamable_http。
+    兼容多种 type 别名：http、streamable-http、streamableHttp、streamable_http、streamablehttp。
     
     Attributes:
-        type: 服务器类型，支持 "http"/"streamable-http"/"streamableHttp"/"streamable_http"
+        type: 服务器类型，支持 "http"/"streamable-http"/"streamableHttp"/"streamable_http"/"streamablehttp"
         url: 服务器 URL 地址
         headers: HTTP 请求头字典
     """
 
-    type: Literal["http", "streamable-http", "streamableHttp", "streamable_http"] = "http"
+    type: Literal["http", "streamable-http", "streamableHttp", "streamable_http", "streamablehttp"] = "http"
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True

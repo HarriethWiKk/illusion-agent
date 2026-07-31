@@ -5,6 +5,7 @@ ripgrep (rg) 二进制的发现、下载、缓存和执行模块。
 """
 
 import asyncio
+import contextlib
 import os
 import platform
 import shutil
@@ -304,6 +305,14 @@ async def run_rg(args: list[str], cwd: str | None = None,
                 except (TimeoutError, ProcessLookupError, OSError):
                     pass  # 最终兜底，放弃等待
             raise RipgrepError(f"rg 执行超时（{timeout}秒）")
+        except asyncio.CancelledError:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            with contextlib.suppress(Exception):
+                await process.wait()
+            raise
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
