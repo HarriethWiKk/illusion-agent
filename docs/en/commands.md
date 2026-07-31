@@ -160,7 +160,8 @@ In interactive sessions, you can use the following commands:
 | Reasoning Control | `/effort`, `/max-tokens`, `/passes`, `/turns` | Effort, token limit, turn count control |
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
-| Multi-Agent | `/continue` | Agent collaboration |
+| Multi-Agent | `/continue`, `/agent` | Agent collaboration and management |
+| Side Question | `/btw` | Ask side questions without interrupting main conversation |
 
 ### Non-Interactive Mode (Print Mode) Available Parameters
 

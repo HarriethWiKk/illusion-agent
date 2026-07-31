@@ -74,7 +74,6 @@ const ZH: Dict = {
 	questionHintQuickSelect: '数字键快捷选择',
 	// ---- btw 侧问（busy 模式下打断式提问）----
 	btwSideQuestion: '侧问',
-	btwAnswering: '回答中...',
 	btwPlaceholder: '输入侧问...',
 	btwHint: '侧问',
 	// ---- max-tokens / 自定义输入模态框 ----
@@ -185,7 +184,6 @@ const EN: Dict = {
 	questionHintQuickSelect: '1-N quick select',
 	// ---- btw side question (interrupting question in busy mode) ----
 	btwSideQuestion: 'Side question',
-	btwAnswering: 'Answering...',
 	btwPlaceholder: 'Ask a side question...',
 	btwHint: 'btw',
 	// ---- max-tokens / custom input modal ----

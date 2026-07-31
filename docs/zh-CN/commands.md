@@ -162,7 +162,8 @@ illusion update --deps           # 同时更新项目依赖
 | 推理控制 | `/effort`, `/max-tokens`, `/passes`, `/turns` | 推理强度、令牌数、轮次控制 |
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
-| 多智能体 | `/continue` | Agent 协作 |
+| 多智能体 | `/continue`, `/agent` | Agent 协作与管理 |
+| 侧问与查看 | `/btw` | 不中断主对话的侧问 |
 
 ### 非交互模式（打印模式）可用参数
 
