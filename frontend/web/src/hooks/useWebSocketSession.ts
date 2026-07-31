@@ -568,9 +568,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
       // === btw 侧问响应 ===
       if (evt.type === 'btw_response') {
-        // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
+        // 无活跃请求时（用户已取消/关闭卡片）忽略所有迟到响应，
+        // 避免在途的 btw_response 重新弹出已被用户主动关闭的卡片
         const activeId = btwRequestIdRef.current;
-        if (activeId && evt.request_id && evt.request_id !== activeId) {
+        if (!activeId) {
+          return;
+        }
+        // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
+        if (evt.request_id && evt.request_id !== activeId) {
           return;
         }
         setBtwLoading(false);

@@ -223,6 +223,16 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
       }
 
       // 普通输入模式
+      // Ctrl+B / Cmd+B：在主 textarea 聚焦时打开侧问输入框并自动聚焦
+      // （仅在非自动补全模式下触发，避免与命令补全冲突；btw 输入框内 Ctrl+B
+      // 触发提交的逻辑由 handleBtwKeyDown 处理，此处保持单一职责）
+      if (!showCommands && (e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B') && btwEnabled) {
+        e.preventDefault();
+        setShowBtwInput(true);
+        setTimeout(() => btwInputRef.current?.focus(), 0);
+        return;
+      }
+
       if (e.key === 'Enter') {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
@@ -248,7 +258,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         setShowCommands(false);
       }
     },
-    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose],
+    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose, btwEnabled],
   );
 
   const handleSend = () => {
