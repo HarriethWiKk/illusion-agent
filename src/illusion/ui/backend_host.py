@@ -1362,17 +1362,14 @@ class ReactBackendHost:
 
             # 1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'，且非后台启动）
             #    需要 engine.messages 中先有 ToolUseBlock(name='agent') 再有对应 ToolResultBlock
-            #    跳过 run_in_background=True 的调用（其 tool_result 是"launched"通知，非摘要）
+            #    跳过 tool_result 内容为"launched in background/as subprocess"的启动通知（非摘要）
             tool_use_index: dict[str, tuple[int, str]] = {}  # tool_use_id -> (调用顺序, input 摘要)
             order = 0
             for msg in self._bundle.engine.messages:
                 if msg.role == "assistant":
                     for block in msg.tool_uses:
                         if block.name == "agent":
-                            # 跳过后台 agent（其 tool_result 是启动通知，非摘要）
                             inp = block.input or {}
-                            if inp.get("run_in_background"):
-                                continue
                             order += 1
                             # 提取 agent name 或 description 作为标签
                             label_name = str(inp.get("name") or inp.get("description") or "agent")[:30]
@@ -1382,6 +1379,10 @@ class ReactBackendHost:
                         if isinstance(block, ToolResultBlock) and block.tool_use_id in tool_use_index:
                             ord_num, label_name = tool_use_index[block.tool_use_id]
                             text = block.text_content
+                            # 跳过后台 agent 的"launched"启动通知（非摘要）
+                            # 后台 agent 的摘要只从 TaskRecord.result 读取（见下方第 2 部分）
+                            if text and ("launched in background" in text or "launched as subprocess" in text):
+                                continue
                             first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
                             options.append({
                                 "value": block.tool_use_id,
@@ -1391,13 +1392,15 @@ class ReactBackendHost:
 
             # 2. 后台 agent：从 TaskRecord 提取已完成的 agent 任务
             manager = get_task_manager()
+            bg_order = 0
             for record in manager._tasks.values():
                 if record.type in ("in_process_agent", "local_agent") and record.status == "completed":
+                    bg_order += 1
                     result_text = record.result or ""
                     first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
                     options.append({
                         "value": record.id,
-                        "label": f"{record.id} · {record.description[:40]}",
+                        "label": f"#{order + bg_order} {record.description[:30]}",
                         "description": first_line,
                     })
 

@@ -200,14 +200,12 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	], [language]);
 
 	const modelOptions = useMemo<SelectOption[]>(() => {
-		const opts: SelectOption[] = [
-			{value: 'inherit', label: 'inherit', description: t(language, 'agentWizardInherit')},
-		];
-		for (const m of models ?? []) {
-			opts.push({value: m.name, label: m.label, description: m.name});
-		}
-		return opts;
-	}, [language, models]);
+		return (models ?? []).map((m) => ({
+			value: m.name,
+			label: m.label,
+			description: m.name,
+		}));
+	}, [models]);
 
 	const toolsOptions = useMemo<SelectOption[]>(() => {
 		const opts: SelectOption[] = (tools ?? []).map((tool) => ({
