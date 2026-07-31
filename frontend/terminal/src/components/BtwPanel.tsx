@@ -93,7 +93,7 @@ export function BtwPanel({reply, error, loading, language, onDismiss}: BtwPanelP
 			{hasMore ? (
 				<Box>
 					<Text color={theme.colors.suggestion}>▎ </Text>
-					<Text color={theme.colors.muted}>{`… (+${lines.length - offset - MAX_LINES} more lines, ↑/↓ ${t(language, 'questionHintNavigate')}, esc ${t(language, 'questionHintCancel')})`}</Text>
+					<Text color={theme.colors.muted}>{`… (+${lines.length - offset - MAX_LINES} more lines, ${t(language, 'questionHintNavigate')}, ${t(language, 'questionHintCancel')})`}</Text>
 				</Box>
 			) : null}
 		</Box>
