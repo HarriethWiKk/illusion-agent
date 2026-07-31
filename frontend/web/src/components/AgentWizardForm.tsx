@@ -589,7 +589,7 @@ export function AgentWizardForm({
               min={1}
               value={fields.max_turns}
               onChange={(e) => updateField('max_turns', e.target.value)}
-              placeholder={lang === 'zh-CN' ? '留空表示不设置' : 'Empty for no limit'}
+              placeholder={t(lang, 'agentWizardMaxTurnsPlaceholderHint')}
               className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
             />
           </div>

@@ -170,6 +170,8 @@ const ZH: Record<string, string> = {
   agentWizardInherit: '继承默认',
   agentWizardSkip: '跳过',
   agentWizardNoAgentHint: '使用 /agent create 创建新 agent',
+  agentWizardNoToolsHint: '暂无可用工具',
+  agentWizardMaxTurnsPlaceholderHint: '留空表示不设置',
 };
 
 const EN: Record<string, string> = {
@@ -314,6 +316,8 @@ const EN: Record<string, string> = {
   agentWizardInherit: 'Inherit default',
   agentWizardSkip: 'Skip',
   agentWizardNoAgentHint: 'Use /agent create to create a new agent',
+  agentWizardNoToolsHint: 'No tools available',
+  agentWizardMaxTurnsPlaceholderHint: 'Empty for no limit',
 };
 
 /**
