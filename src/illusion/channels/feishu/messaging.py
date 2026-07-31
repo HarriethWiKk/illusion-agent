@@ -376,6 +376,8 @@ def build_card_content(text: str) -> str:
     Returns:
         str: 卡片 content JSON 字符串
     """
+    # 净化图片 URL（避免飞书 200570 错误）
+    text = _sanitize_card_text(text)
     card = {
         "schema": "2.0",  # 必须显式声明，否则默认 1.0（不支持表格/标题/代码块）
         "body": {
@@ -571,6 +573,23 @@ STREAMING_ELEMENT_ID = "streaming_content"
 LOADING_ICON_ELEMENT_ID = "loading_icon"
 _LOADING_ICON_KEY = "img_v3_02vb_496bec09-4b43-4773-ad6b-0cdd103cd2bg"
 
+# 匹配 markdown 图片语法 ![alt](src)，其中 src 以 http 开头（非飞书 img_key）
+_MD_IMAGE_URL_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^\)]+)\)")
+
+
+def _sanitize_card_text(text: str) -> str:
+    """净化卡片文本中的无效图片引用
+
+    飞书卡片 markdown 会把 ![alt](src) 中的 src 当作 img_key，
+    如果 src 是外部 URL（非飞书 img_v3_xxx 格式），会报 200570 错误。
+    将 ![alt](url) 转为 [alt](url)（链接形式）。
+    """
+    def _replacer(m: re.Match[str]) -> str:
+        alt = m.group(1)
+        url = m.group(2)
+        return f"[{alt}]({url})" if alt else url
+    return _MD_IMAGE_URL_RE.sub(_replacer, text)
+
 
 def build_streaming_card() -> str:
     """构造流式初始卡片 JSON
@@ -635,6 +654,9 @@ def build_complete_card(
     """
     elements: list[dict[str, Any]] = []
 
+    # 净化文本中的 markdown 图片 URL（避免飞书 200570 错误）
+    text = _sanitize_card_text(text)
+
     if reasoning_text and show_reasoning:
         elapsed_s = elapsed_ms / 1000.0
         title = f"💭 Thought for {elapsed_s:.1f}s"
@@ -671,28 +693,6 @@ def build_complete_card(
         "body": {"elements": elements},
     }
     return json.dumps(card, ensure_ascii=False)
-
-
-def build_display_text(
-    accumulated_text: str,
-    reasoning_text: str,
-    is_reasoning_phase: bool,
-) -> str:
-    """构造流式过程中 streaming_content 的显示文本
-
-
-    思考阶段（有 reasoning 且 is_reasoning_phase）：
-        - 无 accumulated_text: "💭 **Thinking...**\\n\\n{reasoning_text}"
-        - 有 accumulated_text: "{accumulated_text}\\n\\n💭 **Thinking...**\\n\\n{reasoning_text}"
-    生成阶段（is_reasoning_phase=False）：
-        - "{accumulated_text}"（思考内容不显示在流式过程中，仅在终态折叠面板展示）
-    """
-    if is_reasoning_phase and reasoning_text:
-        reasoning_display = f"💭 **Thinking...**\n\n{reasoning_text}"
-        if accumulated_text:
-            return f"{accumulated_text}\n\n{reasoning_display}"
-        return reasoning_display
-    return accumulated_text
 
 
 # ---------------------------------------------------------------------------

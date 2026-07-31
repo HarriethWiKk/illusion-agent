@@ -83,7 +83,7 @@ class TestQQReasoningThenAnswerFlow:
 
     @pytest.mark.asyncio
     async def test_answer_phase_resets_reasoning_and_accumulates(self, streaming_controller):
-        """发送回答文本 → 验证 is_reasoning_phase=False 且回答文本累积（reasoning 仍保留）"""
+        """发送回答文本 → 验证 is_reasoning_phase=False 且回答文本累积（使用冻结快照）"""
         controller, mock_send = streaming_controller
 
         await controller.on_reasoning("思考中")
@@ -92,7 +92,7 @@ class TestQQReasoningThenAnswerFlow:
         assert controller.is_reasoning_phase is False
         assert controller.accumulated_text == "这是回答"
         display = controller._build_display_text()
-        # QQ 前缀兼容：reasoning 以标题+分隔线格式保留，答案追加在后面
+        # text 阶段使用冻结的 reasoning 快照 + text（前缀兼容）
         thinking_header = _t("streaming_thinking")
         assert display == f"{thinking_header}\n\n思考中\n\n---\n\n这是回答"
 
@@ -118,7 +118,7 @@ class TestQQReasoningThenAnswerFlow:
         assert thinking_header in display_during_reasoning
         assert "分析问题" in display_during_reasoning
 
-        # 回答阶段（QQ 前缀兼容：reasoning 保留，答案追加在后面）
+        # 回答阶段（使用冻结快照 + text，前缀兼容）
         await controller.on_text("最终答案")
         display_during_answer = controller._build_display_text()
         assert display_during_answer == f"{thinking_header}\n\n分析问题\n\n---\n\n最终答案"
@@ -151,7 +151,7 @@ class TestQQReasoningThenAnswerFlow:
 
     @pytest.mark.asyncio
     async def test_stream_msg_id_returned_on_first_flush(self, streaming_controller):
-        """首次 flush 返回 stream_msg_id"""
+        """start() 发送初始分片并返回 stream_msg_id"""
         controller, mock_send = streaming_controller
 
         assert controller.stream_msg_id == "stream-123"
@@ -164,9 +164,8 @@ class TestQQReasoningThenAnswerFlow:
         # start() 已经发送了初始内容 (1 call)
         assert mock_send.call_count == 1
 
-        # on_text 在节流窗口内，不会立即 flush
+        # on_text 在节流窗口内
         await controller.on_text("first")
-        # 等待节流窗口过期
         await asyncio.sleep(0.6)
 
         # 所有调用都复用 start() 返回的 stream_msg_id
@@ -372,10 +371,11 @@ class TestBaseClassUnitTestsStillPass:
         assert "思考中" in result
 
     def test_build_display_text_generation_phase(self, ctrl):
-        """reasoning 阶段结束后仍保留 reasoning 文本（QQ 前缀兼容）"""
+        """text 阶段使用冻结 reasoning 快照 + text（前缀兼容）"""
         ctrl._accumulated_text = "回答"
         ctrl._is_reasoning_phase = False
         ctrl._reasoning_text = "思考中"
+        ctrl._reasoning_snapshot = "思考中"  # 模拟已冻结
         result = ctrl._build_display_text()
         thinking_header = _t("streaming_thinking")
         assert result == f"{thinking_header}\n\n思考中\n\n---\n\n回答"

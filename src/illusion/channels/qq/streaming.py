@@ -5,6 +5,12 @@
 `/v2/users/{openid}/stream_messages` API 实现打字机效果。
 
 支持思考过程流式展示（与飞书体验一致）。
+
+前缀冲突防护：
+QQ stream_messages 使用 replace 模式，要求新内容必须以已下发内容为前缀。
+基类 BaseStreamingController 通过 _reasoning_snapshot 机制确保 display text
+严格递增：首次 text 到达时冻结 reasoning 快照，后续新 reasoning 不改变
+流式 display text 的中间部分，从而避免 40007 错误。
 """
 from __future__ import annotations
 
@@ -98,8 +104,8 @@ class QQStreamingController(BaseStreamingController):
     async def _do_finalize(self, is_error: bool) -> None:
         """发送终结分片（input_state=DONE）
 
-        注意：QQ replace 模式要求内容前缀一致，所以必须发送完整的 display_text（包含 reasoning），
-        而不是只发送 accumulated_text。
+        使用 _build_display_text() 保持与流式过程一致的内容。
+        display text 通过 _reasoning_snapshot 机制保证前缀一致性。
         """
         try:
             # 使用和流式过程相同的显示文本，保持前缀一致

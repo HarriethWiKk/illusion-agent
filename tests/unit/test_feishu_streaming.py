@@ -14,7 +14,6 @@ from illusion.channels.feishu.messaging import (
     LOADING_ICON_ELEMENT_ID,
     STREAMING_ELEMENT_ID,
     build_complete_card,
-    build_display_text,
     build_streaming_card,
     create_card_entity,
     send_card_by_card_id,
@@ -97,34 +96,17 @@ def test_build_complete_card_error() -> None:
     assert "red" in footer["content"]
 
 
-def test_build_display_text_reasoning_phase() -> None:
-    text = build_display_text(
-        accumulated_text="",
-        reasoning_text="thinking...",
-        is_reasoning_phase=True,
-    )
-    assert "💭 **Thinking...**" in text
-    assert "thinking..." in text
-
-
-def test_build_display_text_reasoning_phase_with_text() -> None:
-    text = build_display_text(
-        accumulated_text="Hello",
-        reasoning_text="thinking...",
-        is_reasoning_phase=True,
-    )
-    assert text.startswith("Hello")
-    assert "💭 **Thinking...**" in text
-    assert "thinking..." in text
-
-
-def test_build_display_text_generating_phase() -> None:
-    text = build_display_text(
-        accumulated_text="Hello world",
-        reasoning_text="ignored",
-        is_reasoning_phase=False,
-    )
-    assert text == "Hello world"
+def test_sanitize_card_text_converts_image_urls() -> None:
+    """markdown 图片 URL 被转为链接（避免飞书 200570 错误）"""
+    from illusion.channels.feishu.messaging import _sanitize_card_text
+    # ![alt](url) → [alt](url)
+    assert _sanitize_card_text("![QR](https://example.com/q.png)") == "[QR](https://example.com/q.png)"
+    # ![](url) → url
+    assert _sanitize_card_text("![](https://example.com/img)") == "https://example.com/img"
+    # 非 URL 图片（飞书 img_key）不受影响
+    assert _sanitize_card_text("![icon](img_v3_abc)") == "![icon](img_v3_abc)"
+    # 无图片语法不受影响
+    assert _sanitize_card_text("[link](https://example.com)") == "[link](https://example.com)"
 
 
 # ---------------------------------------------------------------------------
@@ -300,19 +282,6 @@ async def test_set_card_streaming_mode_exception_returns_false() -> None:
     client.cardkit.v1.card.settings.side_effect = RuntimeError("network error")
     ok = await set_card_streaming_mode(client, "card_123", False, 1)
     assert ok is False
-
-
-@pytest.mark.asyncio
-async def test_build_display_text_uses_bold_thinking_label() -> None:
-    """build_display_text 思考标题使用粗体（与 openclaw-lark 对齐）"""
-    text = build_display_text(
-        accumulated_text="",
-        reasoning_text="reasoning content",
-        is_reasoning_phase=True,
-    )
-    # 参考实现：💭 **Thinking...**
-    assert "**Thinking...**" in text
-    assert "reasoning content" in text
 
 
 # ---------------------------------------------------------------------------

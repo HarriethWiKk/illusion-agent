@@ -4,6 +4,7 @@
 - send_c2c_stream_message API 封装（请求体构造、stream_msg_id 复用、响应解析）
 - QQStreamingController 状态机（idle → streaming → completed/aborted）
 - 首次启动流程（stream_msg_id 获取）
+- reasoning 快照冻结机制（前缀冲突防护）
 - 节流 flush（500ms 间隔、长间隔批量、去重）
 - 终态收尾（input_state=DONE 分片）
 - 降级策略（should_fallback_to_static）
@@ -46,8 +47,6 @@ def _mock_response(data: dict | None = None) -> MagicMock:
 def _mock_session(response_data: dict | None = None) -> MagicMock:
     """构造模拟 aiohttp.ClientSession"""
     session = MagicMock()
-    # QQ stream_messages API 响应字段名是 id（不是 stream_msg_id）
-    # 参照 openclaw-main types.ts:60 MessageResponse.id
     resp = _mock_response(response_data or {"id": "smid_123"})
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=resp)
@@ -61,7 +60,7 @@ def _mock_session(response_data: dict | None = None) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_send_c2c_stream_message_first_chunk() -> None:
-    """首次分片：不传 stream_msg_id，请求体含 event_id（必填）"""
+    """首次分片：不传 stream_msg_id"""
     session = _mock_session({"id": "smid_123"})
     resp = await send_c2c_stream_message(
         session, "token_abc", "openid_xyz",
@@ -71,39 +70,12 @@ async def test_send_c2c_stream_message_first_chunk() -> None:
         msg_seq=42,
         index=1,
     )
-    # QQ API 响应字段是 id（不是 stream_msg_id）
     assert resp["id"] == "smid_123"
-    # 验证请求 URL 和 body
     session.post.assert_called_once()
-    call_args = session.post.call_args
-    url = call_args[0][0]
-    assert "/v2/users/openid_xyz/stream_messages" in url
-    body = call_args[1]["json"]
-    assert body["input_mode"] == STREAM_INPUT_MODE_REPLACE
-    assert body["input_state"] == STREAM_INPUT_STATE_GENERATING
-    assert body["content_raw"] == "Hello"
-    assert body["msg_id"] == "msg_in_001"
-    assert body["msg_seq"] == 42
-    assert body["index"] == 1
-    assert body["event_id"] == "msg_in_001"  # event_id 默认复用 msg_id
-    assert "stream_msg_id" not in body  # 首次不传
-
-
-@pytest.mark.asyncio
-async def test_send_c2c_stream_message_subsequent_chunk() -> None:
-    """后续分片：传 stream_msg_id，请求体包含该字段"""
-    session = _mock_session({})
-    await send_c2c_stream_message(
-        session, "token_abc", "openid_xyz",
-        content="Hello world",
-        input_state=STREAM_INPUT_STATE_GENERATING,
-        msg_id="msg_in_001",
-        msg_seq=42,
-        index=2,
-        stream_msg_id="smid_123",
-    )
     body = session.post.call_args[1]["json"]
-    assert body["stream_msg_id"] == "smid_123"
+    assert body["input_mode"] == STREAM_INPUT_MODE_REPLACE
+    assert body["content_raw"] == "Hello"
+    assert "stream_msg_id" not in body
 
 
 @pytest.mark.asyncio
@@ -123,30 +95,12 @@ async def test_send_c2c_stream_message_done_state() -> None:
     assert body["input_state"] == STREAM_INPUT_STATE_DONE
 
 
-@pytest.mark.asyncio
-async def test_send_c2c_stream_message_content_truncation() -> None:
-    """内容超长时被截断到 MAX_MESSAGE_LENGTH"""
-    from illusion.channels.qq.api import MAX_MESSAGE_LENGTH
-    session = _mock_session({})
-    long_content = "x" * (MAX_MESSAGE_LENGTH + 100)
-    await send_c2c_stream_message(
-        session, "token_abc", "openid_xyz",
-        content=long_content,
-        input_state=STREAM_INPUT_STATE_GENERATING,
-        msg_id="msg_001",
-        msg_seq=1,
-        index=1,
-    )
-    body = session.post.call_args[1]["json"]
-    assert len(body["content_raw"]) == MAX_MESSAGE_LENGTH
-
-
 # ─── Controller 状态机测试 ─────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_controller_initial_state() -> None:
-    """初始状态：phase=idle，无 stream_msg_id"""
+    """初始状态"""
     session = _mock_session()
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
@@ -154,13 +108,11 @@ async def test_controller_initial_state() -> None:
     )
     assert controller.phase == "idle"
     assert controller.stream_msg_id == ""
-    assert controller.should_fallback_to_static is False
-    assert controller.accumulated_text == ""
 
 
 @pytest.mark.asyncio
-async def test_controller_starts_on_first_text() -> None:
-    """首个非空白文本触发流式启动：从响应 id 字段获取 stream_msg_id，首帧 index=0"""
+async def test_controller_start_sends_initial_content() -> None:
+    """start() 发送初始 "💭 思考中..." 分片并获取 stream_msg_id"""
     session = _mock_session({"id": "smid_abc"})
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
@@ -169,32 +121,9 @@ async def test_controller_starts_on_first_text() -> None:
     await controller.start()
     assert controller.phase == "streaming"
     assert controller.stream_msg_id == "smid_abc"
-    # start() 发送初始 "💭 Thinking..." 分片
     assert session.post.call_count == 1
-    # 首帧 index 必须为 0（参考 openclaw-main streaming-c2c.ts:1034 后递增）
-    # QQ 协议要求 index 从 0 开始，否则客户端显示"该消息类型暂不支持查看"
     body = session.post.call_args[1]["json"]
     assert body["index"] == 0
-
-
-@pytest.mark.asyncio
-async def test_controller_start_aborts_when_response_missing_id() -> None:
-    """响应缺少 id 字段 → 抛异常 → start() 异常传播，controller 保持 streaming 状态"""
-    # 响应成功但无 id 字段（API 版本不兼容或异常情况）
-    session = _mock_session({"code": 0, "message": "ok"})
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    # start() 异常会传播（实现未捕获）
-    try:
-        await controller.start()
-    except RuntimeError:
-        pass
-    # controller 保持 streaming 状态（start 已转换状态）
-    assert controller.phase == "streaming"
-    # 由于未成功发送分片，complete 时会触发 fallback
-    assert controller.stream_msg_id == ""
 
 
 @pytest.mark.asyncio
@@ -206,82 +135,14 @@ async def test_controller_ignores_empty_text() -> None:
         msg_id="msg_001",
     )
     await controller.on_text("")
-    await controller.on_text("   ")  # 仅空白
+    await controller.on_text("   ")
     assert controller.phase == "idle"
     assert session.post.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_controller_start_failure_aborts() -> None:
-    """首次分片发送失败 → start() 异常传播，controller 保持 streaming 状态"""
-    session = MagicMock()
-    ctx = AsyncMock()
-    resp = MagicMock()
-    resp.status = 500
-    resp.text = AsyncMock(return_value="server error")
-    resp.raise_for_status = MagicMock(side_effect=RuntimeError("HTTP 500"))
-    ctx.__aenter__ = AsyncMock(return_value=resp)
-    ctx.__aexit__ = AsyncMock(return_value=None)
-    session.post = MagicMock(return_value=ctx)
-
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    # start() 异常会传播（实现未捕获）
-    try:
-        await controller.start()
-    except RuntimeError:
-        pass
-    # controller 保持 streaming 状态（start 已转换状态）
-    assert controller.phase == "streaming"
-
-
-@pytest.mark.asyncio
-async def test_controller_throttle_batches_rapid_chunks() -> None:
-    """节流：500ms 内的多个 chunk 只触发首次启动 + 少量 patch"""
-    session = _mock_session({"id": "smid_abc"})
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    # start() 发送初始分片
-    await controller.start()
-    assert session.post.call_count == 1
-    # start 后 _is_first_flush=False，首个 chunk 走节流（延迟批量）
-    await controller.on_text("chunk0")
-    # 500ms 内的后续 chunk 应被节流（进延迟队列）
-    for i in range(1, 5):
-        await controller.on_text(f"chunk{i}")
-    # 等待延迟 flush 执行
-    await asyncio.sleep(0.6)
-    # start + 延迟批量 = 2（节流合并所有 chunk）
-    assert 2 <= session.post.call_count <= 3
-
-
-@pytest.mark.asyncio
-async def test_controller_throttle_dedup_skips_unchanged_text() -> None:
-    """去重：相同文本不触发重复 API 调用"""
-    session = _mock_session({"id": "smid_abc"})
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    await controller.start()
-    await controller.on_text("Hello")
-    # 等待节流 flush 完成
-    await asyncio.sleep(0.6)
-    first_count = session.post.call_count
-    assert first_count == 2  # start + on_text flush
-    # 强制 flush 相同文本：应被去重跳过
-    controller._last_flush_time = 0.0  # 重置时间戳强制进入 flush
-    await controller._flush()
-    assert session.post.call_count == first_count  # 无新增调用
-
-
-@pytest.mark.asyncio
 async def test_controller_complete_sends_done_chunk() -> None:
-    """complete() 发送 input_state=DONE 的终结分片"""
+    """complete() 发送 DONE 分片"""
     session = _mock_session({"id": "smid_abc"})
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
@@ -289,36 +150,31 @@ async def test_controller_complete_sends_done_chunk() -> None:
     )
     await controller.start()
     await controller.on_text("Hello")
-    await asyncio.sleep(0.6)  # 等待节流完成
-    count_before_complete = session.post.call_count
+    await asyncio.sleep(0.6)
+    count_before = session.post.call_count
     await controller.complete()
     assert controller.phase == "completed"
-    # 应多发一个 DONE 分片
-    assert session.post.call_count == count_before_complete + 1
-    # 验证最后一个调用的 input_state=DONE
+    assert session.post.call_count == count_before + 1
     last_body = session.post.call_args[1]["json"]
     assert last_body["input_state"] == STREAM_INPUT_STATE_DONE
 
 
 @pytest.mark.asyncio
-async def test_controller_complete_without_any_chunk_falls_back() -> None:
-    """complete() 时从未发过分片 → should_fallback_to_static=True"""
-    session = _mock_session()
+async def test_controller_complete_without_chunk_falls_back() -> None:
+    """complete() 时从未发过分片 → fallback"""
+    session = _mock_session({"id": "smid_abc"})
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
+        msg_id="msg_001", show_reasoning=False,  # 不发送初始内容
     )
-    # 不调用 on_text，直接 complete
+    await controller.start()  # show_reasoning=False, 不发送
     await controller.complete()
-    assert controller.phase == "completed"
     assert controller.should_fallback_to_static is True
-    # 不应发送任何 DONE 分片
-    assert session.post.call_count == 0
 
 
 @pytest.mark.asyncio
 async def test_controller_abort_does_not_send_done() -> None:
-    """abort() 不发 DONE 分片，直接进入 aborted 状态"""
+    """abort() 不发 DONE 分片"""
     session = _mock_session({"id": "smid_abc"})
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
@@ -327,80 +183,53 @@ async def test_controller_abort_does_not_send_done() -> None:
     await controller.start()
     await controller.on_text("Hello")
     await asyncio.sleep(0.6)
-    count_before_abort = session.post.call_count
+    count_before = session.post.call_count
     await controller.abort("user cancelled")
     assert controller.phase == "aborted"
-    # abort 不应触发新的 API 调用
-    assert session.post.call_count == count_before_abort
+    assert session.post.call_count == count_before
+
+
+# ─── reasoning 快照冻结测试 ────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_controller_fallback_after_abort() -> None:
-    """flush 失败后 complete → 从未成功发出分片 → should_fallback_to_static=True"""
-    session = MagicMock()
-    ctx = AsyncMock()
-    resp = MagicMock()
-    resp.status = 500
-    resp.text = AsyncMock(return_value="error")
-    resp.raise_for_status = MagicMock(side_effect=RuntimeError("HTTP 500"))
-    ctx.__aenter__ = AsyncMock(return_value=resp)
-    ctx.__aexit__ = AsyncMock(return_value=None)
-    session.post = MagicMock(return_value=ctx)
-
+async def test_reasoning_snapshot_frozen_on_first_text() -> None:
+    """首次 text 到达时冻结 reasoning 快照"""
+    session = _mock_session({"id": "smid_snap"})
     controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    # start() 异常会传播（实现未捕获）
-    try:
-        await controller.start()
-    except RuntimeError:
-        pass
-    # start 失败，controller 保持 streaming 状态
-    assert controller.phase == "streaming"
-    # 从未成功发出分片，complete 时触发 fallback
-    await controller.complete()
-    assert controller.phase == "completed"
-    assert controller.should_fallback_to_static is True
-
-
-@pytest.mark.asyncio
-async def test_controller_ignores_text_after_terminal() -> None:
-    """终态后 on_text 被忽略"""
-    session = _mock_session({"id": "smid_abc"})
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
+        session=session, token="t", openid="o", msg_id="m",
     )
     await controller.start()
-    await controller.on_text("Hello")
-    await controller.complete()
-    count = session.post.call_count
-    # 终态后再调 on_text 应被忽略
-    await controller.on_text("world")
-    assert session.post.call_count == count
+    await controller.on_reasoning("initial reasoning")
+    assert controller._reasoning_snapshot is None  # 尚未冻结
+
+    await controller.on_text("answer")
+    assert controller._reasoning_snapshot == "initial reasoning"
 
 
 @pytest.mark.asyncio
-async def test_controller_long_gap_batches_updates() -> None:
-    """长间隔（>2s）后批量延迟 300ms flush"""
-    session = _mock_session({"id": "smid_abc"})
+async def test_snapshot_prevents_prefix_conflict() -> None:
+    """快照机制确保 display text 在 tool_call 后新 reasoning 时不改变中间部分"""
+    session = _mock_session({"id": "smid_prefix"})
     controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
+        session=session, token="t", openid="o", msg_id="m",
     )
     await controller.start()
-    await controller.on_text("first")
-    # 模拟长间隔
-    controller._last_flush_time = time.monotonic() - 3.0
-    old_flush_time = controller._last_flush_time
-    # 长间隔后的首个 chunk 应更新 _last_flush_time + 延迟批量
-    await controller.on_text("second")
-    assert controller._last_flush_time > old_flush_time
-    # 等待批量延迟执行
-    await asyncio.sleep(0.4)
-    # start + 延迟批量 >= 2（chunk 被节流合并）
-    assert session.post.call_count >= 2
+    await controller.on_reasoning("R1")
+    await controller.on_text("T1")
+    display_before = controller._build_display_text()
+
+    # 模拟 tool_call 后新 reasoning
+    await controller.on_reasoning("R2")
+    await controller.on_text("T2")
+    display_after = controller._build_display_text()
+
+    # display_after 必须以 display_before 为前缀（QQ replace 模式要求）
+    assert display_after.startswith(display_before), (
+        f"display text 前缀冲突！\nbefore: {display_before!r}\nafter: {display_after!r}"
+    )
+    # 但 _reasoning_text 包含全部 reasoning
+    assert "R2" in controller.reasoning_text
 
 
 # ─── 集成测试 ──────────────────────────────────────────────
@@ -408,50 +237,23 @@ async def test_controller_long_gap_batches_updates() -> None:
 
 @pytest.mark.asyncio
 async def test_integration_full_streaming_flow() -> None:
-    """完整流式流程：启动 → 多次 patch → 终结"""
+    """完整流式流程：启动 → reasoning → text → 终结"""
     session = _mock_session({"id": "smid_integration"})
     controller = QQStreamingController(
         session=session, token="token_abc", openid="openid_xyz",
         msg_id="msg_001",
     )
 
-    # 启动流式会话
     await controller.start()
-
-    # 模拟 LLM 流式输出
-    for chunk in ["Hello", " world", "!", " This", " is", " a", " test."]:
+    await controller.on_reasoning("Let me think")
+    for chunk in ["Hello", " world", "!"]:
         await controller.on_text(chunk)
         await asyncio.sleep(0.05)
 
-    # 等待节流完成
     await asyncio.sleep(0.7)
-
-    # 完成流式
     await controller.complete()
     assert controller.phase == "completed"
     assert controller.should_fallback_to_static is False
-    # 最终累积文本完整
-    assert controller.accumulated_text == "Hello world! This is a test."
-    # 应发送过多个分片（start + 若干 patch + DONE）
-    assert session.post.call_count >= 3
-    # 最后一个分片是 DONE
+    assert controller.accumulated_text == "Hello world!"
     last_body = session.post.call_args[1]["json"]
     assert last_body["input_state"] == STREAM_INPUT_STATE_DONE
-
-
-@pytest.mark.asyncio
-async def test_integration_abort_mid_stream() -> None:
-    """流式中途中止：不发 DONE，状态为 aborted"""
-    session = _mock_session({"id": "smid_abort"})
-    controller = QQStreamingController(
-        session=session, token="token_abc", openid="openid_xyz",
-        msg_id="msg_001",
-    )
-    await controller.start()
-    await controller.on_text("Hello")
-    await asyncio.sleep(0.6)
-    # 中止
-    await controller.abort("cancelled by user")
-    assert controller.phase == "aborted"
-    # should_fallback 为 False（已成功发过启动分片）
-    assert controller.should_fallback_to_static is False

@@ -109,7 +109,7 @@ class TestQQDoFinalize:
 
 class TestQQReasoningSupport:
     @pytest.mark.asyncio
-    async def test_reasoning_updates_text(self, streaming_controller):
+    async def test_reasoning_accumulates(self, streaming_controller):
         await streaming_controller.on_reasoning("thinking...")
         assert streaming_controller.reasoning_text == "thinking..."
         assert streaming_controller.is_reasoning_phase is True
@@ -123,12 +123,28 @@ class TestQQReasoningSupport:
         assert "thinking..." in display
 
     @pytest.mark.asyncio
-    async def test_text_keeps_reasoning_visible(self, streaming_controller):
-        """reasoning 阶段结束后仍保留 reasoning 文本（QQ 前缀兼容）"""
+    async def test_text_freezes_reasoning_snapshot(self, streaming_controller):
+        """text 到达后冻结 reasoning 快照，display text 使用快照（前缀兼容）"""
         await streaming_controller.on_reasoning("thinking")
         await streaming_controller.on_text("answer")
 
         assert streaming_controller.is_reasoning_phase is False
+        assert streaming_controller._reasoning_snapshot == "thinking"
         display = streaming_controller._build_display_text()
         thinking_header = _t("streaming_thinking")
         assert display == f"{thinking_header}\n\nthinking\n\n---\n\nanswer"
+
+    @pytest.mark.asyncio
+    async def test_new_reasoning_after_text_uses_snapshot(self, streaming_controller):
+        """tool_call 后新 reasoning 不改变 display text（避免 40007 前缀冲突）"""
+        await streaming_controller.on_reasoning("original")
+        await streaming_controller.on_text("answer")
+        # 模拟 tool_call 后的新 reasoning
+        await streaming_controller.on_reasoning("new reasoning")
+
+        display = streaming_controller._build_display_text()
+        thinking_header = _t("streaming_thinking")
+        # display text 使用冻结的快照，不包含 new reasoning
+        assert display == f"{thinking_header}\n\noriginal\n\n---\n\nanswer"
+        # 但 _reasoning_text 包含全部 reasoning（用于终态卡片）
+        assert "new reasoning" in streaming_controller.reasoning_text

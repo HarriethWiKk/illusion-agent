@@ -1,4 +1,3 @@
-# src/illusion/channels/base_streaming.py
 """流式控制器公共基类
 
 提供状态机管理、文本累积、节流调度和 reasoning 显示逻辑。
@@ -52,6 +51,12 @@ class BaseStreamingController:
         self._reasoning_text: str = ""
         self._is_reasoning_phase: bool = False
         self._show_reasoning: bool = show_reasoning  # 是否显示思考过程
+
+        # reasoning 快照：首次 text 到达时冻结当时的 reasoning 内容，
+        # 防止后续新 reasoning（tool_call 后）改变 display text 中间部分，
+        # 从而避免 QQ stream_messages 前缀冲突（40007 错误）和飞书闪烁。
+        # None 表示尚未冻结（还在 reasoning 阶段）。
+        self._reasoning_snapshot: str | None = None
 
         # 节流
         self._last_flush_time: float = 0.0
@@ -121,13 +126,21 @@ class BaseStreamingController:
         await self._throttled_flush()
 
     async def on_text(self, text: str) -> None:
-        """处理文本增量"""
+        """处理文本增量
+
+        首次 text 到达时冻结 reasoning 快照（_reasoning_snapshot），
+        后续新 reasoning 不再改变流式 display text 的 reasoning 部分，
+        确保 display text 严格递增（QQ replace 模式前缀兼容）。
+        """
         if self._phase != "streaming":
             return
         if not text:
             return
         if self._is_reasoning_phase:
             self._is_reasoning_phase = False
+            # 首次 text 到达时冻结 reasoning 快照（仅冻结一次）
+            if self._reasoning_snapshot is None:
+                self._reasoning_snapshot = self._reasoning_text
         self._accumulated_text += text
         await self._throttled_flush()
 
@@ -162,24 +175,32 @@ class BaseStreamingController:
     def _build_display_text(self) -> str:
         """构造流式显示文本
 
-        思考过程格式（使用 i18n 确保与 start() 发送的内容一致）：
-        {thinking_header}
+        分阶段显示策略（通过 _reasoning_snapshot 保证 display text 严格递增）：
 
-        {思考过程}
+        reasoning 阶段（snapshot 未冻结）：
+            {thinking_header}\\n\\n{reasoning}（reasoning 持续增长）
 
-        ---
+        text 阶段（snapshot 已冻结）：
+            {thinking_header}\\n\\n{frozen_reasoning}\\n\\n---\\n\\n{text}（text 持续增长）
 
-        {答案}
+        关键：text 阶段使用冻结的 reasoning 快照而非实时 _reasoning_text，
+        确保后续新 reasoning（tool_call 后）不改变 display text 中间部分，
+        从而避免 QQ stream_messages 40007 前缀冲突和飞书闪烁。
 
         当 show_reasoning=False 时，只显示答案。
         """
+        # text 阶段：使用冻结的 reasoning 快照
+        if self._accumulated_text:
+            snapshot = self._reasoning_snapshot
+            if self._show_reasoning and snapshot:
+                thinking_header = _t("streaming_thinking")
+                return f"{thinking_header}\n\n{snapshot}\n\n---\n\n{self._accumulated_text}"
+            return self._accumulated_text
+        # reasoning 阶段：使用实时 reasoning
         if self._show_reasoning and self._reasoning_text:
             thinking_header = _t("streaming_thinking")
-            reasoning_display = f"{thinking_header}\n\n{self._reasoning_text}"
-            if self._accumulated_text:
-                return f"{reasoning_display}\n\n---\n\n{self._accumulated_text}"
-            return reasoning_display
-        return self._accumulated_text
+            return f"{thinking_header}\n\n{self._reasoning_text}"
+        return ""
 
     # --- 节流 flush ---
 

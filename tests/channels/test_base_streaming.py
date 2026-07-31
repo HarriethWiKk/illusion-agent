@@ -144,23 +144,26 @@ class TestBuildDisplayText:
         assert thinking_header in result
         assert "thinking..." in result
 
-    def test_reasoning_phase_with_text(self, controller):
-        """reasoning 以标题+分隔线格式在前，答案追加在后面"""
+    def test_text_phase_uses_frozen_reasoning(self, controller):
+        """text 阶段使用冻结的 reasoning 快照 + text（前缀兼容）"""
         controller._accumulated_text = "answer"
-        controller._is_reasoning_phase = True
+        controller._is_reasoning_phase = False
         controller._reasoning_text = "thinking..."
+        controller._reasoning_snapshot = "thinking..."  # 模拟已冻结
         result = controller._build_display_text()
         thinking_header = _t("streaming_thinking")
         assert result == f"{thinking_header}\n\nthinking...\n\n---\n\nanswer"
 
-    def test_generation_phase_keeps_reasoning_visible(self, controller):
-        """reasoning 阶段结束后仍保留 reasoning 文本（QQ 前缀兼容）"""
+    def test_new_reasoning_after_text_does_not_change_display(self, controller):
+        """text 阶段后新 reasoning 不改变 display text（避免前缀冲突）"""
         controller._accumulated_text = "answer"
-        controller._is_reasoning_phase = False
-        controller._reasoning_text = "thinking..."
+        controller._reasoning_snapshot = "original reasoning"  # 冻结的快照
+        controller._reasoning_text = "original reasoning + new reasoning"  # 新 reasoning 已累积
         result = controller._build_display_text()
         thinking_header = _t("streaming_thinking")
-        assert result == f"{thinking_header}\n\nthinking...\n\n---\n\nanswer"
+        # display text 使用快照，不包含 new reasoning
+        assert result == f"{thinking_header}\n\noriginal reasoning\n\n---\n\nanswer"
+        assert "new reasoning" not in result
 
 
 class TestComplete:

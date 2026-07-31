@@ -273,6 +273,10 @@ class FeishuStreamingCardController(BaseStreamingController):
         CardKit 路径：增量更新 element（stream_card_element_content）
         patch 降级路径：全卡替换（patch_card）
         """
+        # 净化图片 URL（避免飞书 200570 错误）
+        from illusion.channels.feishu.messaging import _sanitize_card_text
+        text = _sanitize_card_text(text)
+
         if self._card_id:
             # CardKit 路径：增量更新 element
             self._sequence += 1
