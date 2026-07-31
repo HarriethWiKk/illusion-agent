@@ -29,7 +29,7 @@ async def test_agent_no_args_returns_list_hint():
 async def test_agent_create_returns_hint():
     ctx, _ = _ctx()
     result = await agent_handler("create", ctx)
-    assert "create" in (result.message or "").lower() or result.message is not None
+    assert "creation" in (result.message or "").lower() or "wizard" in (result.message or "").lower()
 
 
 @pytest.mark.asyncio
@@ -72,19 +72,107 @@ async def test_agent_background_returns_task_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_unknown_id_returns_not_found():
+async def test_agent_unknown_id_returns_not_found(monkeypatch):
     ctx, _ = _ctx([])
     # 不在前台 transcript，也不在 TaskRecord
     manager = MagicMock()
     manager._tasks = {}
-    # 注意：agent.py 中 get_task_manager 是模块级导入，需 patch 对应路径
-    # 但本测试 engine.messages 为空，前台查找失败后才查后台
-    # 需要 mock get_task_manager 返回空 manager
-    import illusion.commands.agent as agent_mod
-    original = agent_mod.get_task_manager
-    agent_mod.get_task_manager = lambda: manager
-    try:
-        result = await agent_handler("nonexistent", ctx)
-    finally:
-        agent_mod.get_task_manager = original
+    monkeypatch.setattr("illusion.commands.agent.get_task_manager", lambda: manager)
+    result = await agent_handler("nonexistent", ctx)
     assert "not found" in (result.message or "").lower() or "No task" in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_agent_foreground_empty_tool_result():
+    """前台 agent：tool_result 内容为空，返回 'Agent tool result ... is empty.' 提示。"""
+    tool_use_id = "toolu_empty"
+    messages = [
+        ConversationMessage(role="user", content=[
+            ToolResultBlock(tool_use_id=tool_use_id, content=""),
+        ]),
+    ]
+    ctx, _ = _ctx(messages)
+    result = await agent_handler(tool_use_id, ctx)
+    assert result.message == f"Agent tool result '{tool_use_id}' is empty."
+
+
+@pytest.mark.asyncio
+async def test_agent_background_wrong_type_returns_not_agent(monkeypatch):
+    """后台 agent：TaskRecord.type 非 agent 类型，返回 'Task ... is not an agent task.'。"""
+    record = TaskRecord(
+        id="bash_task",
+        type="local_bash",
+        status="completed",
+        description="bash task",
+        cwd=".",
+        output_file=Path("/tmp/o.log"),
+    )
+    manager = MagicMock()
+    manager._tasks = {"bash_task": record}
+    monkeypatch.setattr("illusion.commands.agent.get_task_manager", lambda: manager)
+
+    ctx, _ = _ctx([])
+    result = await agent_handler("bash_task", ctx)
+    assert result.message == "Task 'bash_task' is not an agent task."
+
+
+@pytest.mark.asyncio
+async def test_agent_background_not_completed_returns_status(monkeypatch):
+    """后台 agent：status 非 completed，返回 'Agent ... is not completed (status: ...).'。"""
+    record = TaskRecord(
+        id="agent_running",
+        type="in_process_agent",
+        status="running",
+        description="running agent",
+        cwd=".",
+        output_file=Path("/tmp/o.log"),
+    )
+    manager = MagicMock()
+    manager._tasks = {"agent_running": record}
+    monkeypatch.setattr("illusion.commands.agent.get_task_manager", lambda: manager)
+
+    ctx, _ = _ctx([])
+    result = await agent_handler("agent_running", ctx)
+    assert result.message == "Agent 'agent_running' is not completed (status: running)."
+
+
+@pytest.mark.asyncio
+async def test_agent_background_read_output_value_error_returns_str(monkeypatch):
+    """后台 agent：read_task_output 抛 ValueError，返回 str(exc)。"""
+    record = TaskRecord(
+        id="agent_err",
+        type="in_process_agent",
+        status="completed",
+        description="agent with missing output",
+        cwd=".",
+        output_file=Path("/tmp/missing.log"),
+    )
+    manager = MagicMock()
+    manager._tasks = {"agent_err": record}
+    manager.read_task_output = MagicMock(side_effect=ValueError("task not found"))
+    monkeypatch.setattr("illusion.commands.agent.get_task_manager", lambda: manager)
+
+    ctx, _ = _ctx([])
+    result = await agent_handler("agent_err", ctx)
+    assert result.message == "task not found"
+
+
+@pytest.mark.asyncio
+async def test_agent_background_empty_output_returns_hint(monkeypatch):
+    """后台 agent：read_task_output 返回空字符串，返回 'Agent ... has no captured output.'。"""
+    record = TaskRecord(
+        id="agent_empty",
+        type="in_process_agent",
+        status="completed",
+        description="agent with empty output",
+        cwd=".",
+        output_file=Path("/tmp/empty.log"),
+    )
+    manager = MagicMock()
+    manager._tasks = {"agent_empty": record}
+    manager.read_task_output = MagicMock(return_value="")
+    monkeypatch.setattr("illusion.commands.agent.get_task_manager", lambda: manager)
+
+    ctx, _ = _ctx([])
+    result = await agent_handler("agent_empty", ctx)
+    assert result.message == "Agent 'agent_empty' has no captured output."
