@@ -423,6 +423,9 @@ class QueryContext:
     # 系统开销跟踪器：用于获取 system prompt + tools + skills 等实测 token 数
     # 与 /context usage 的 "System Prompt" 保持一致
     overhead_tracker: Any = None
+    # 退出时的消息列表：run_query 在退出前设置，供 query_engine 同步到 self._messages
+    # 解决 full compact 后 messages 指向新列表而 self._messages 仍指向旧列表的问题
+    final_messages: list[ConversationMessage] | None = None
 
 
 async def run_query(
@@ -552,6 +555,7 @@ async def run_query(
                     continue
                 # 压缩也失败，报错
                 yield ErrorEvent(message=t("compact_overflow_failed", error=error_msg)), None
+                context.final_messages = messages
                 return
 
             # 检查是否为网络相关错误
@@ -559,9 +563,11 @@ async def run_query(
                 yield ErrorEvent(message=t("compact_network_error", error=error_msg)), None
             else:
                 yield ErrorEvent(message=t("compact_api_error", error=error_msg)), None
+            context.final_messages = messages
             return
 
         if final_message is None:
+            context.final_messages = messages
             raise RuntimeError("Model stream finished without a final message")
 
         # 添加助手消息到历史记录
@@ -605,6 +611,7 @@ async def run_query(
                     continue
                 # preventContinuation 停止循环
                 if stop_result.prevent_continuation:
+                    context.final_messages = messages
                     return
                 # additionalContext 注入
                 for ctx in stop_result.additional_contexts:
@@ -612,6 +619,7 @@ async def run_query(
                         messages.append(ConversationMessage.from_user_text(
                             _wrap_in_system_reminder(ctx)
                         ))
+            context.final_messages = messages
             return
 
         tool_calls = final_message.tool_uses
@@ -736,6 +744,7 @@ async def run_query(
                 synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
             messages.append(ConversationMessage(role="user", content=synth))
             yield ErrorEvent(message=t("permission_denied_stopped", tool=exc.tool_name)), None
+            context.final_messages = messages
             return
         except (KeyboardInterrupt, asyncio.CancelledError):
             # Ctrl+C / Escape 取消 / 模型切换等中断场景：
@@ -750,6 +759,7 @@ async def run_query(
             for ctx in all_hook_ctxs:
                 synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
             messages.append(ConversationMessage(role="user", content=synth))
+            context.final_messages = messages
             raise
         except Exception:
             # 能到达此 handler 的例外路径：
@@ -771,6 +781,7 @@ async def run_query(
             for ctx in all_hook_ctxs:
                 synth.append(TextBlock(text=_wrap_in_system_reminder(ctx)))
             messages.append(ConversationMessage(role="user", content=synth))
+            context.final_messages = messages
             raise
 
         # 输出工具链完成事件
@@ -806,6 +817,7 @@ async def run_query(
                 yield StatusEvent(message=t("bg_agent_resuming"), bg_agent=True), None
 
     # 超出最大轮次限制
+    context.final_messages = messages
     if context.max_turns is not None:
         raise MaxTurnsExceeded(context.max_turns)
     raise RuntimeError("Query loop exited without a max_turns limit or final response")

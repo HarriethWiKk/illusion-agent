@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from illusion.api.errors import IllusionAgentApiError
 from illusion.commands.types import CommandContext, CommandResult
+from illusion.config.i18n import t
 from illusion.config.settings import load_settings, save_settings
 from illusion.engine.messages import ConversationMessage
 from illusion.prompts import build_runtime_system_prompt
@@ -64,22 +65,22 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         remaining = max(0, context_window - estimated_used)
         system_pct = round(system_tokens * 100 / context_window) if (system_tokens and context_window > 0) else 0
         messages_pct = round(messages_tokens * 100 / context_window) if context_window > 0 else 0
-        # System Prompt 不可推算时显示为 "~ tokens"，其余时候显示具体数值
+        # System Prompt 不可推算时使用单独的 i18n 键
         system_line = (
-            f"  System Prompt: {system_tokens:,} tokens ({system_pct}%)"
+            t("context_system_prompt", system_tokens=system_tokens, system_pct=system_pct)
             if system_tokens is not None and system_tokens > 0
-            else "  System Prompt: ~ tokens"
+            else t("context_system_prompt_unknown")
         )
         return CommandResult(
-            message=(
-                f"Context Window: {context_window:,} tokens\n"
-                f"{system_line}\n"
-                f"  Messages: {messages_tokens:,} tokens ({messages_pct}%)\n"
-                f"  Estimated Used: {estimated_used:,} tokens ({percentage}%)\n"
-                f"  Remaining: {remaining:,} tokens\n"
-                f"  Cumulative API Usage: input={usage.input_tokens:,} output={usage.output_tokens:,}\n"
-                f"  Note: System Prompt includes skills/hooks/rules/memory/channels and other system-level overhead"
-            )
+            message="\n".join([
+                t("context_usage_title", context_window=context_window),
+                system_line,
+                t("context_messages", messages_tokens=messages_tokens, messages_pct=messages_pct),
+                t("context_estimated_used", estimated_used=estimated_used, percentage=percentage),
+                t("context_remaining", remaining=remaining),
+                t("context_cumulative_usage", input_tokens=usage.input_tokens, output_tokens=usage.output_tokens),
+                t("context_note"),
+            ])
         )
     if subcommand == "show":
         # 显示当前运行时完整的系统提示词

@@ -537,6 +537,9 @@ class QueryEngine:
                             )
                 yield event
         finally:
+            # 同步压缩后的消息列表（full compact 后 messages 指向新列表）
+            if context.final_messages is not None and context.final_messages is not self._messages:
+                self._messages = context.final_messages
             # 持久化 run_query 期间新增的所有消息（assistant 回复、tool 结果、
             # hook 注入的 user 消息等）。使用 finally 确保即使异常/中断也能
             # 保存已生成的消息，避免 resume 后对话历史缺失。
@@ -603,6 +606,9 @@ class QueryEngine:
                             )
                 yield event
         finally:
+            # 同步压缩后的消息列表（full compact 后 messages 指向新列表）
+            if context.final_messages is not None and context.final_messages is not self._messages:
+                self._messages = context.final_messages
             # 持久化 run_query 期间新增的所有消息（与 submit_message 一致）
             if self._checkpoint_store is not None:
                 for msg in self._messages[messages_before:]:

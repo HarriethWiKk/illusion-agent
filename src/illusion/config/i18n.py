@@ -181,6 +181,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     "compact_recent_preserved": {"zh-CN": "最近的消息已原样保留。", "en-US": "Recent messages are preserved verbatim."},
     "compact_suppress_followup": {"zh-CN": "\n从上次中断处继续对话，不要向用户提问。直接继续 — 不要确认摘要，不要复述进展，不要以「我继续」等开头。像中断从未发生一样继续上次的任务。", "en-US": "\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."},
     "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
+    # --- context usage ---
+    "context_usage_title": {"zh-CN": "上下文窗口：{context_window:,} tokens", "en-US": "Context Window: {context_window:,} tokens"},
+    "context_system_prompt": {"zh-CN": "系统提示词：{system_tokens:,} tokens ({system_pct}%)", "en-US": "System Prompt: {system_tokens:,} tokens ({system_pct}%)"},
+    "context_system_prompt_unknown": {"zh-CN": "系统提示词：~ tokens", "en-US": "System Prompt: ~ tokens"},
+    "context_messages": {"zh-CN": "消息：{messages_tokens:,} tokens ({messages_pct}%)", "en-US": "Messages: {messages_tokens:,} tokens ({messages_pct}%)"},
+    "context_estimated_used": {"zh-CN": "预估已用：{estimated_used:,} tokens ({percentage}%)", "en-US": "Estimated Used: {estimated_used:,} tokens ({percentage}%)"},
+    "context_remaining": {"zh-CN": "剩余：{remaining:,} tokens", "en-US": "Remaining: {remaining:,} tokens"},
+    "context_cumulative_usage": {"zh-CN": "累积 API 用量：input={input_tokens:,} output={output_tokens:,}", "en-US": "Cumulative API Usage: input={input_tokens:,} output={output_tokens:,}"},
+    "context_note": {"zh-CN": "注：系统提示词包含 skills/hooks/rules/memory/channels 等系统级开销", "en-US": "Note: System Prompt includes skills/hooks/rules/memory/channels and other system-level overhead"},
     "permission_denied_stopped": {"zh-CN": "权限被拒绝，已终止当前操作（{tool}）。", "en-US": "Permission denied, stopped current operation ({tool})."},
     # --- update ---
     "update_checking": {"zh-CN": "正在检查更新...", "en-US": "Checking for updates..."},
