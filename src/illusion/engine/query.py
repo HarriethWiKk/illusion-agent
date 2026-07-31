@@ -420,6 +420,9 @@ class QueryContext:
     # 并发 drain 队列；且并发场景下进度消息意义有限（用户更关心整体完成情况）。
     # 如需支持，需改造为 wait(FIRST_COMPLETED) + 共享队列（消息带 tool_use_id 区分）。
     progress_queue: asyncio.Queue[tuple[str, str]] | None = None
+    # 系统开销跟踪器：用于获取 system prompt + tools + skills 等实测 token 数
+    # 与 /context usage 的 "System Prompt" 保持一致
+    overhead_tracker: Any = None
 
 
 async def run_query(
@@ -480,6 +483,7 @@ async def run_query(
             model=context.model,
             system_prompt=context.system_prompt,
             state=compact_state,
+            system_overhead=context.overhead_tracker.tokens if context.overhead_tracker else None,
         )
         if was_compacted:
             yield StatusEvent(message=t("compact_compacted")), None

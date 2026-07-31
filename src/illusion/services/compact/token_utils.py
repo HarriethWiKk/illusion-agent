@@ -117,10 +117,23 @@ def should_autocompact(
     messages: list[ConversationMessage],
     model: str,
     state: AutoCompactState,
+    system_overhead: int | None = None,
 ) -> bool:
-    """返回是否应该自动压缩会话。"""
+    """返回是否应该自动压缩会话。
+
+    使用与 /context usage 相同的计算方式：
+    Estimated Used = System Prompt(system_overhead) + Messages(message_tokens)
+
+    Args:
+        messages: 会话消息列表
+        model: 模型名称
+        state: 自动压缩状态
+        system_overhead: 系统开销实测值（system prompt + tools + skills 等）
+    """
     if state.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES:
         return False
-    token_count = estimate_message_tokens(messages)
+    message_tokens = estimate_message_tokens(messages)
+    # 与 /context usage 保持一致：总 token = 系统开销 + 消息 token
+    token_count = message_tokens + (system_overhead or 0)
     threshold = get_autocompact_threshold(model)
     return token_count >= threshold

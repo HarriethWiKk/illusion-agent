@@ -24,6 +24,15 @@ def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_bg_connect_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """禁用后台连接线程，避免测试退出阶段触发真实 IPC 连接。"""
+    monkeypatch.setattr(
+        "illusion.channels._start_bg_connect",
+        lambda **_kwargs: None,
+    )
+
+
 class _FakeConn:
     """模拟 IPC 连接对象，提供 async close 方法"""
 
@@ -71,13 +80,33 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
         return {"type": "restart_required", "daemon_pid": 99999}
     monkeypatch.setattr("illusion.daemon_ipc.DaemonClient.register", _fake_register)
 
-    # 跟踪杀旧进程调用（Unix 用 os.kill；Windows 用 ctypes OpenProcess，PID 不存在返回 0）
+    # 跟踪杀旧进程调用（Unix 用 os.kill；Windows 用 fake ctypes，避免真实 TerminateProcess）
     kill_called: list[bool] = []
     if os.name != "nt":
         def _track_kill(pid, sig):
             kill_called.append(True)
             raise ProcessLookupError(f"测试 mock: PID {pid} 不存在")
         monkeypatch.setattr("os.kill", _track_kill)
+    else:
+        import ctypes
+
+        class _FakeKernel32:
+            """模拟 Windows kernel32，拦截终止调用。"""
+
+            def OpenProcess(self, _access: int, _inherit: bool, _pid: int) -> int:
+                return 1
+
+            def TerminateProcess(self, _handle: int, _code: int) -> int:
+                kill_called.append(True)
+                return 1
+
+            def CloseHandle(self, _handle: int) -> int:
+                return 1
+
+        class _FakeWindll:
+            kernel32 = _FakeKernel32()
+
+        monkeypatch.setattr(ctypes, "windll", _FakeWindll())
 
     # 跟踪 subprocess.Popen 调用
     spawn_calls: list[list[str]] = []
@@ -94,6 +123,5 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
     # 验证 spawn 发生（指纹不匹配时应 spawn 新进程）
     assert proc is not None, "指纹不匹配时应 spawn 新进程"
     assert len(spawn_calls) >= 1, "应调用 subprocess.Popen 至少一次"
-    # 验证杀旧进程被尝试（Unix 下可跟踪 os.kill；Windows 下 ctypes 路径也会执行但不抛异常）
-    if os.name != "nt":
-        assert kill_called, "指纹不匹配时应尝试杀旧进程"
+    # 验证杀旧进程被尝试（Unix: os.kill；Windows: fake TerminateProcess）
+    assert kill_called, "指纹不匹配时应尝试杀旧进程"

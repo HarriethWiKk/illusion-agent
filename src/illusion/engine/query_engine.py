@@ -509,6 +509,7 @@ class QueryEngine:
             # 下轮 handle_line 续接）。与前台 IDLE_TIMEOUT 一致。
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
+            overhead_tracker=self._overhead_tracker,
             on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
@@ -576,6 +577,7 @@ class QueryEngine:
             # idle 超时阈值（与 build_query_context 一致，详见上文说明）
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
+            overhead_tracker=self._overhead_tracker,
             on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )

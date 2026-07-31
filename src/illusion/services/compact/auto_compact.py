@@ -61,15 +61,21 @@ async def auto_compact_if_needed(
     system_prompt: str = "",
     state: AutoCompactState,
     preserve_recent: int = DEFAULT_PRESERVE_RECENT,
+    system_overhead: int | None = None,
 ) -> tuple[list[ConversationMessage], bool]:
-    """检查是否应该自动压缩，如果是则执行压缩。"""
-    if not should_autocompact(messages, model, state):
+    """检查是否应该自动压缩，如果是则执行压缩。
+
+    Args:
+        system_overhead: 系统开销实测值（system prompt + tools + skills 等），
+                         与 /context usage 的 "System Prompt" 保持一致
+    """
+    if not should_autocompact(messages, model, state, system_overhead=system_overhead):
         return messages, False
 
     log.info("Auto-compact triggered (failures=%d)", state.consecutive_failures)
 
     messages, tokens_freed = microcompact_messages(messages)
-    if tokens_freed > 0 and not should_autocompact(messages, model, state):
+    if tokens_freed > 0 and not should_autocompact(messages, model, state, system_overhead=system_overhead):
         log.info("Microcompact freed ~%d tokens, auto-compact no longer needed", tokens_freed)
         state.warning_suppressed = True
         return messages, True
