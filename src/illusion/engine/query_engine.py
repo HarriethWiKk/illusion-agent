@@ -203,6 +203,24 @@ class QueryEngine:
         return self._system_prompt or ""
 
     @property
+    def api_client(self) -> SupportsStreamingMessages:
+        """返回当前 API 客户端（只读）。
+
+        Returns:
+            SupportsStreamingMessages: 当前 API 客户端实例
+        """
+        return self._api_client
+
+    @property
+    def model(self) -> str:
+        """返回当前模型名（只读）。
+
+        Returns:
+            str: 当前模型名称
+        """
+        return self._model
+
+    @property
     def overhead_tracker(self) -> SystemOverheadTracker:
         """返回 system overhead 反推跟踪器。
 
