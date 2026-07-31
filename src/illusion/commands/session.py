@@ -64,18 +64,19 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         remaining = max(0, context_window - estimated_used)
         system_pct = round(system_tokens * 100 / context_window) if (system_tokens and context_window > 0) else 0
         messages_pct = round(messages_tokens * 100 / context_window) if context_window > 0 else 0
+        # System Prompt 不可推算时显示为 "~ tokens"，其余时候显示具体数值
         system_line = (
-            f"  System Prompt: ~{system_tokens:,} tokens ({system_pct}%)"
-            if system_tokens is not None
+            f"  System Prompt: {system_tokens:,} tokens ({system_pct}%)"
+            if system_tokens is not None and system_tokens > 0
             else "  System Prompt: ~ tokens"
         )
         return CommandResult(
             message=(
                 f"Context Window: {context_window:,} tokens\n"
                 f"{system_line}\n"
-                f"  Messages: ~{messages_tokens:,} tokens ({messages_pct}%)\n"
-                f"  Estimated Used: ~{estimated_used:,} tokens ({percentage}%)\n"
-                f"  Remaining: ~{remaining:,} tokens\n"
+                f"  Messages: {messages_tokens:,} tokens ({messages_pct}%)\n"
+                f"  Estimated Used: {estimated_used:,} tokens ({percentage}%)\n"
+                f"  Remaining: {remaining:,} tokens\n"
                 f"  Cumulative API Usage: input={usage.input_tokens:,} output={usage.output_tokens:,}\n"
                 f"  Note: System Prompt includes skills/hooks/rules/memory/channels and other system-level overhead"
             )

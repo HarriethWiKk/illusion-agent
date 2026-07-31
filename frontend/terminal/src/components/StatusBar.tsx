@@ -3,10 +3,10 @@
  *
  * 显示当前会话的状态信息，包括：
  * - 模型名称
- * - Token 使用量（输入/输出）
  * - 权限模式
- * - 活动任务数
  * - MCP 服务器连接数
+ * - 活动任务数
+ * - Token 使用量（输入/输出）
  * - 后台代理数
  *
  * @module StatusBar
@@ -24,21 +24,12 @@ import {stringWidth} from '../utils/markdown.js';
 /** 分隔符 */
 const SEP = ' · ';
 
-/**
- * 自动模式指示器
- *
- * 当处于自动权限模式时显示的标识。
- */
-function AutoModeIndicator(): React.JSX.Element {
-	const theme = useTheme();
-	return (
-		<Box marginLeft={1}>
-			<Text backgroundColor={theme.colors.illusion} color={theme.colors.background} bold>
-				{' AUTO '}
-			</Text>
-		</Box>
-	);
-}
+/** 模式显示标签 */
+const MODE_LABELS: Record<string, string> = {
+	default: 'Default',
+	plan: 'Plan Mode',
+	full_auto: 'Auto',
+};
 
 function TokenDisplay({
 	inputTokens,
@@ -117,7 +108,8 @@ export function StatusBar({
 }): React.JSX.Element {
 	const theme = useTheme();
 	const model = String(status.model ?? 'unknown');
-	const mode = String(status.permission_mode ?? 'default');
+	const modeRaw = String(status.permission_mode ?? 'default');
+	const mode = MODE_LABELS[modeRaw] ?? modeRaw;
 	const taskCount = tasks.filter(
 		(task) => task.status === 'pending' || task.status === 'in_progress'
 	).length;
@@ -125,7 +117,6 @@ export function StatusBar({
 	const agentCount = Number(status.agent_count ?? 0);
 	const inputTokens = Number(status.input_tokens ?? 0);
 	const outputTokens = Number(status.output_tokens ?? 0);
-	const isAutoMode = mode === 'full_auto' || mode === 'auto';
 
 	return (
 		<Box flexDirection="column" marginTop={noMarginTop ? 0 : 1}>
@@ -140,11 +131,8 @@ export function StatusBar({
 					<Text color={theme.colors.illusion}>{SEP}</Text>
 					<Text color={theme.colors.illusion}>{mode}</Text>
 				</>
-				{(inputTokens > 0 || outputTokens > 0) ? (
-					<>
-						<Text color={theme.colors.illusion}>{SEP}</Text>
-						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} busy={busy} />
-					</>
+				{mcpCount > 0 ? (
+					<McpIndicator count={mcpCount} />
 				) : null}
 				{taskCount > 0 ? (
 					<>
@@ -152,12 +140,13 @@ export function StatusBar({
 						<TaskIndicator count={taskCount} />
 					</>
 				) : null}
-				{mcpCount > 0 ? (
-					<McpIndicator count={mcpCount} />
+				{(inputTokens > 0 || outputTokens > 0) ? (
+					<>
+						<Text color={theme.colors.illusion}>{SEP}</Text>
+						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} busy={busy} />
+					</>
 				) : null}
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
-				<Box flexGrow={1} />
-				{isAutoMode ? <AutoModeIndicator /> : null}
 			</Box>
 		</Box>
 	);

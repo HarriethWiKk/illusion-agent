@@ -20,10 +20,10 @@ async def test_context_usage_measured():
         result = await context_handler("usage", ctx)
     msg = result.message
     assert "Context Window: 1,000,000 tokens" in msg
-    assert "System Prompt: ~26,957 tokens (3%)" in msg
-    assert "Messages: ~24,822 tokens (2%)" in msg
-    assert "Estimated Used: ~51,779 tokens (5%)" in msg
-    assert "Remaining: ~948,221 tokens" in msg
+    assert "System Prompt: 26,957 tokens (3%)" in msg
+    assert "Messages: 24,822 tokens (2%)" in msg
+    assert "Estimated Used: 51,779 tokens (5%)" in msg
+    assert "Remaining: 948,221 tokens" in msg
     assert "Cumulative API Usage: input=387,519 output=1,838" in msg
     assert "Note: System Prompt includes skills/hooks/rules/memory/channels" in msg
 
@@ -44,8 +44,8 @@ async def test_context_usage_not_measured():
         result = await context_handler("usage", ctx)
     msg = result.message
     assert "System Prompt: ~ tokens" in msg
-    assert "Messages: ~24,822 tokens (2%)" in msg
-    assert "Estimated Used: ~24,822 tokens (2%)" in msg
+    assert "Messages: 24,822 tokens (2%)" in msg
+    assert "Estimated Used: 24,822 tokens (2%)" in msg
     assert "Cumulative API Usage: input=0 output=0" in msg
 
 

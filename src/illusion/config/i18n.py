@@ -496,6 +496,8 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "feedback": "保存 CLI 反馈到本地日志",
     "skills": "列出或显示可用技能",
     "config": "显示或更新配置",
+    "max-tokens": "显示或更新最大输出令牌数",
+    "sandbox": "显示沙箱状态或管理排除命令",
     "mcp": "显示 MCP 状态",
     "plugin": "管理插件",
     "reload-plugins": "重新加载当前工作区插件发现结果",
