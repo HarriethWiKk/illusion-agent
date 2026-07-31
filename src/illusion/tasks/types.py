@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -96,3 +97,16 @@ class TaskRecord:
     async_task: Any | None = None
     # 进程内 agent 的最终结果文本（任务完成后填充，供 task_output 读取）
     result: str | None = None
+
+
+# task-notification XML 解析正则（用于从 transcript 提取后台 agent 完成通知）
+# 后端在 agent 完成时将形如 <task-notification>...</task-notification> 的 TextBlock
+# 注入 transcript（role="user"），此正则从中提取 task-id / status / summary / result。
+# 使用 re.DOTALL 让 . 匹配换行（<result> 内容通常多行）。
+TASK_NOTIFICATION_RE = re.compile(
+    r"<task-notification>\s*<task-id>([^<]+)</task-id>\s*"
+    r"<status>([^<]+)</status>\s*"
+    r"<summary>([^<]*)</summary>\s*"
+    r"<result>(.*?)</result>",
+    re.DOTALL,
+)

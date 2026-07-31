@@ -1355,8 +1355,10 @@ class ReactBackendHost:
         if command == "agent":
             # 双数据源列出已完成 agent：
             #   1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'，且非后台启动）
-            #   2. 后台 agent：从 TaskRecord 提取已完成的 in_process_agent / local_agent
-            from illusion.engine.messages import ToolResultBlock
+            #   2. 后台 agent：从 transcript 的 task-notification 提取（天然随会话同步，
+            #      避免 manager._tasks 进程级单例在会话回退/删除/新建时不同步的问题）
+            from illusion.engine.messages import TextBlock, ToolResultBlock
+            from illusion.tasks.types import TASK_NOTIFICATION_RE
 
             options: list[dict[str, Any]] = []
 
@@ -1380,7 +1382,7 @@ class ReactBackendHost:
                             ord_num, label_name = tool_use_index[block.tool_use_id]
                             text = block.text_content
                             # 跳过后台 agent 的"launched"启动通知（非摘要）
-                            # 后台 agent 的摘要只从 TaskRecord.result 读取（见下方第 2 部分）
+                            # 后台 agent 的摘要从 task-notification 提取（见下方第 2 部分）
                             if text and ("launched in background" in text or "launched as subprocess" in text):
                                 continue
                             first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
@@ -1390,17 +1392,35 @@ class ReactBackendHost:
                                 "description": first_line,
                             })
 
-            # 2. 后台 agent：从 TaskRecord 提取已完成的 agent 任务
-            manager = get_task_manager()
+            # 2. 后台 agent：从 transcript 的 task-notification 提取（天然随会话同步）
+            #    task-notification 是后端在 agent 完成时注入的 user 消息（TextBlock），
+            #    形如 <task-notification>...<result>摘要</result>...</task-notification>
             bg_order = 0
-            for record in manager._tasks.values():
-                if record.type in ("in_process_agent", "local_agent") and record.status == "completed":
+            for msg in self._bundle.engine.messages:
+                if msg.role != "user":
+                    continue
+                for block in msg.content:
+                    if not isinstance(block, TextBlock):
+                        continue
+                    match = TASK_NOTIFICATION_RE.search(block.text)
+                    if not match:
+                        continue
+                    task_id = match.group(1).strip()
+                    status = match.group(2).strip()
+                    summary_tag = match.group(3).strip()  # <summary> 标签内容（如 "Agent 'Explore' completed"）
+                    result_text = match.group(4).strip()  # <result> 标签内容（agent 的最终回复摘要）
+                    if status != "completed":
+                        continue
                     bg_order += 1
-                    result_text = record.result or ""
+                    # 从 summary_tag 提取 agent 名（如 "Agent 'Explore' completed" -> "Explore"）
+                    agent_name = summary_tag or "agent"
+                    name_match = re.match(r"Agent '([^']+)'", summary_tag)
+                    if name_match:
+                        agent_name = name_match.group(1)
                     first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
                     options.append({
-                        "value": record.id,
-                        "label": f"#{order + bg_order} {record.description[:30]}",
+                        "value": task_id,
+                        "label": f"#{order + bg_order} {agent_name[:30]}",
                         "description": first_line,
                     })
 
