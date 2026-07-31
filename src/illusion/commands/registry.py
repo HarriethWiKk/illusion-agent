@@ -179,6 +179,9 @@ def create_default_command_registry() -> CommandRegistry:
     # --- Bridge ---
     from illusion.commands.bridge import bridge_handler
 
+    # --- 侧问 ---
+    from illusion.commands.btw import btw_handler
+
     # --- 上下文 ---
     from illusion.commands.context import issue_handler, pr_comments_handler
 
@@ -276,6 +279,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("files", "List files in the current workspace", files_handler, usage="/files [dirs|N] [needle]"))
     registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
     registry.register(SlashCommand("bridge", "Inspect bridge helpers and spawn bridge sessions", bridge_handler))
+    registry.register(SlashCommand("btw", "Ask a side question without interrupting the conversation", btw_handler, usage="/btw <question>"))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
     registry.register(SlashCommand("logout", "Clear the stored API key", logout_handler))
     registry.register(SlashCommand("feedback", "Save CLI feedback to the local feedback log", feedback_handler))
