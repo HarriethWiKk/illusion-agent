@@ -21,6 +21,7 @@ def validate_and_normalize(path_str: str) -> tuple[Path | None, str]:
     """校验并规范化工作目录路径
 
     空字符串视为未设置；合法路径自动新建缺失目录。
+    检查 Windows 非法字符（跨平台一致性）：< > : " / \\ | ? *
 
     Args:
         path_str: 用户输入的路径字符串
@@ -33,6 +34,14 @@ def validate_and_normalize(path_str: str) -> tuple[Path | None, str]:
     """
     if not path_str or not path_str.strip():
         return None, ""
+
+    # 检查 Windows 非法字符（跨平台一致性）
+    # 即使在 Linux 上也拒绝这些字符，确保行为一致
+    # 注意：排除盘符冒号（如 C:），只检查路径部分
+    import re
+    _path_part = path_str[2:] if len(path_str) > 2 and path_str[1] == ":" else path_str
+    if re.search(r'[<>:"|?*]', _path_part):
+        return None, _t("set_invalid_path", path=path_str)
 
     try:
         resolved = Path(path_str).expanduser().resolve()
