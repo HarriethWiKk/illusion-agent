@@ -131,6 +131,27 @@ export interface WebSocketSessionState {
   sendBtwCancel: (requestId: string) => void;
   /** 清空所有 btw 状态（关闭卡片时调用） */
   clearBtwState: () => void;
+  // ---- agent 向导相关 ----
+  /** agent 向导可选工具列表（来自 agent_wizard_init_response） */
+  agentWizardTools: { name: string; description: string }[] | null;
+  /** agent 向导可选模型列表（来自 agent_wizard_init_response） */
+  agentWizardModels: { value: string; label: string }[] | null;
+  /** LLM 生成的 agent 草稿（来自 agent_generate_response） */
+  agentGenerated: { identifier: string; when_to_use: string; system_prompt: string } | null;
+  /** agent 生成中标志 */
+  agentGenerateLoading: boolean;
+  /** agent 生成错误文本 */
+  agentGenerateError: string | null;
+  /** agent 向导提交结果（来自 agent_wizard_result） */
+  agentWizardResult: { success: boolean; path?: string; errors?: Record<string, string>; error?: string } | null;
+  /** 请求初始化 agent 向导：发 agent_wizard_init */
+  sendAgentWizardInit: () => void;
+  /** 请求 LLM 生成 agent 草稿：生成 request_id，发 agent_generate_request，置 loading */
+  sendAgentGenerateRequest: (prompt: string, model: string) => void;
+  /** 提交 agent 向导表单：发 agent_wizard_submit */
+  sendAgentWizardSubmit: (fields: Record<string, unknown>, scope: 'user' | 'project') => void;
+  /** 清空所有 agent 向导状态（关闭表单时调用） */
+  clearAgentWizardState: () => void;
   deleteSessions: (sessionIds: string[], deleteAll?: boolean) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
@@ -182,6 +203,22 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [btwRequestId, setBtwRequestId] = useState<string | null>(null);
   /** btw 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
   const btwRequestIdRef = useRef<string | null>(null);
+
+  // ---- agent 向导相关状态 ----
+  /** agent 向导可选工具列表 */
+  const [agentWizardTools, setAgentWizardTools] = useState<{ name: string; description: string }[] | null>(null);
+  /** agent 向导可选模型列表 */
+  const [agentWizardModels, setAgentWizardModels] = useState<{ value: string; label: string }[] | null>(null);
+  /** LLM 生成的 agent 草稿 */
+  const [agentGenerated, setAgentGenerated] = useState<{ identifier: string; when_to_use: string; system_prompt: string } | null>(null);
+  /** agent 生成中标志 */
+  const [agentGenerateLoading, setAgentGenerateLoading] = useState(false);
+  /** agent 生成错误文本 */
+  const [agentGenerateError, setAgentGenerateError] = useState<string | null>(null);
+  /** agent 向导提交结果 */
+  const [agentWizardResult, setAgentWizardResult] = useState<{ success: boolean; path?: string; errors?: Record<string, string>; error?: string } | null>(null);
+  /** agent generate 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
+  const agentGenerateRequestIdRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -319,6 +356,61 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setBtwReply(null);
     setBtwError(null);
     setBtwRequestId(null);
+  }, []);
+
+  /**
+   * 请求初始化 agent 向导
+   *
+   * 触发后端返回 agent_wizard_init_response（工具列表 + 模型列表）。
+   */
+  const sendAgentWizardInit = useCallback((): void => {
+    sendRequest({ type: 'agent_wizard_init' });
+  }, [sendRequest]);
+
+  /**
+   * 请求 LLM 生成 agent 草稿
+   *
+   * 生成 request_id（优先用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底），
+   * 发送 agent_generate_request 并将本地状态置为 loading。同时清空上一次的草稿/错误。
+   *
+   * @param prompt - 用户输入的描述性提示词
+   * @param model - 使用的模型名称（'inherit' 表示继承当前会话模型）
+   */
+  const sendAgentGenerateRequest = useCallback((prompt: string, model: string): void => {
+    const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    agentGenerateRequestIdRef.current = requestId;
+    setAgentGenerateLoading(true);
+    setAgentGenerateError(null);
+    setAgentGenerated(null);
+    sendRequest({ type: 'agent_generate_request', prompt, model, request_id: requestId });
+  }, [sendRequest]);
+
+  /**
+   * 提交 agent 向导表单
+   *
+   * @param fields - 表单字段（name/description/system_prompt/model/tools 等）
+   * @param scope - 写入范围：'user' 或 'project'
+   */
+  const sendAgentWizardSubmit = useCallback((fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
+    sendRequest({ type: 'agent_wizard_submit', fields, scope });
+  }, [sendRequest]);
+
+  /**
+   * 清空所有 agent 向导相关状态
+   *
+   * 重置工具/模型列表、生成草稿、提交结果、生成 loading 与错误，
+   * 用于关闭表单或重新打开时避免残留旧数据干扰新一次填写。
+   */
+  const clearAgentWizardState = useCallback((): void => {
+    agentGenerateRequestIdRef.current = null;
+    setAgentWizardTools(null);
+    setAgentWizardModels(null);
+    setAgentGenerated(null);
+    setAgentWizardResult(null);
+    setAgentGenerateLoading(false);
+    setAgentGenerateError(null);
   }, []);
 
   useEffect(() => {
@@ -588,6 +680,43 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
 
+      // === agent 向导响应 ===
+      if (evt.type === 'agent_wizard_init_response') {
+        setAgentWizardTools(evt.tools ?? null);
+        setAgentWizardModels(evt.models ?? null);
+        return;
+      }
+      if (evt.type === 'agent_generate_response') {
+        // 无活跃请求时（用户已关闭表单）忽略所有迟到响应
+        const activeId = agentGenerateRequestIdRef.current;
+        if (!activeId) {
+          return;
+        }
+        // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
+        if (evt.request_id && evt.request_id !== activeId) {
+          return;
+        }
+        setAgentGenerateLoading(false);
+        if (evt.error) {
+          setAgentGenerateError(evt.error);
+          setAgentGenerated(null);
+        } else if (evt.agent) {
+          setAgentGenerateError(null);
+          setAgentGenerated(evt.agent);
+        }
+        // 保留 agentGenerateRequestId 以便表单消费完成后由 clearAgentWizardState 清理
+        return;
+      }
+      if (evt.type === 'agent_wizard_result') {
+        setAgentWizardResult({
+          success: Boolean(evt.success),
+          path: evt.path ?? undefined,
+          errors: evt.errors ?? undefined,
+          error: evt.error ?? undefined,
+        });
+        return;
+      }
+
       // === 选择请求 ===
       if (evt.type === 'select_request') {
         const m = evt.modal ?? {};
@@ -650,6 +779,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     modelSwitching, setModelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,
     sendBtwRequest, sendBtwCancel, clearBtwState,
+    agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
+    agentGenerateError, agentWizardResult,
+    sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
@@ -660,5 +792,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     modelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,
     sendBtwRequest, sendBtwCancel, clearBtwState,
+    agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
+    agentGenerateError, agentWizardResult,
+    sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
   ]);
 }

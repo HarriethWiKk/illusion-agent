@@ -23,6 +23,7 @@ import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
 import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
+import { AgentWizardForm } from './components/AgentWizardForm';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -182,6 +183,20 @@ export default function App() {
         if (args) session.sendBtwRequest(args);
         return;
       }
+      // /agent create | /agent new → 打开 agent 创建向导
+      // /agent（无参数）→ 提示用户使用 /agent create（web 端不做 agent 摘要查看）
+      if (cmdName === 'agent') {
+        const sub = args.split(/\s+/)[0] ?? '';
+        if (sub === 'create' || sub === 'new') {
+          session.clearAgentWizardState();
+          session.sendAgentWizardInit();
+          setShowAgentWizard(true);
+          return;
+        }
+        // 无子命令或未识别子命令：显示创建提示
+        showToast(t(lang, 'agentWizardNoAgentHint'), 'info');
+        return;
+      }
       if (B_COMMANDS.includes(cmdName)) {
         session.setBusyTrue();
         session.sendRequest({
@@ -283,6 +298,9 @@ export default function App() {
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
+  // Agent 创建向导显示状态（/agent create 或 /agent new 触发）
+  const [showAgentWizard, setShowAgentWizard] = useState(false);
+
   /**
    * 处理关闭侧问卡片
    *
@@ -296,6 +314,29 @@ export default function App() {
       session.clearBtwState();
     }
   }, [session.btwLoading, session.btwRequestId, session.sendBtwCancel, session.clearBtwState]);
+
+  /**
+   * 处理关闭 agent 创建向导
+   *
+   * 关闭表单并清空所有向导状态（工具/模型列表、生成草稿、提交结果等），
+   * 避免残留旧数据干扰下次打开。
+   */
+  const handleCloseAgentWizard = useCallback(() => {
+    setShowAgentWizard(false);
+    session.clearAgentWizardState();
+  }, [session.clearAgentWizardState]);
+
+  /**
+   * 处理提交 agent 创建向导表单
+   *
+   * 直接转发给 session.sendAgentWizardSubmit，等待 agent_wizard_result 事件回填。
+   *
+   * @param fields - 表单字段（name/description/system_prompt 等，已由表单完成字段名映射）
+   * @param scope - 写入范围：'user' 或 'project'
+   */
+  const handleSubmitAgentWizard = useCallback((fields: Record<string, unknown>, scope: 'user' | 'project') => {
+    session.sendAgentWizardSubmit(fields, scope);
+  }, [session.sendAgentWizardSubmit]);
 
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
@@ -585,6 +626,23 @@ export default function App() {
           reply={session.btwReply}
           error={session.btwError}
           onClose={handleCloseBtw}
+        />
+      )}
+
+      {/* Agent 创建向导（/agent create 或 /agent new 触发） */}
+      {showAgentWizard && (
+        <AgentWizardForm
+          lang={lang}
+          tools={session.agentWizardTools}
+          models={session.agentWizardModels}
+          generated={session.agentGenerated}
+          generateLoading={session.agentGenerateLoading}
+          generateError={session.agentGenerateError}
+          result={session.agentWizardResult}
+          onInit={session.sendAgentWizardInit}
+          onGenerate={session.sendAgentGenerateRequest}
+          onSubmit={handleSubmitAgentWizard}
+          onClose={handleCloseAgentWizard}
         />
       )}
 

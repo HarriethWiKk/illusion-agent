@@ -267,7 +267,12 @@ export type FrontendRequest =
   | { type: 'web_query'; command: string; args?: string; request_id: string }
   // === btw 侧问（terminal + web 共用）===
   | { type: 'btw_request'; question: string; request_id: string }
-  | { type: 'btw_cancel'; request_id: string };
+  | { type: 'btw_cancel'; request_id: string }
+  // === agent 向导（terminal + web 共用）===
+  | { type: 'agent_wizard_init' }
+  | { type: 'agent_generate_request'; prompt: string; model: string; request_id: string }
+  | { type: 'agent_generate_cancel'; request_id: string }
+  | { type: 'agent_wizard_submit'; fields: Record<string, unknown>; scope: 'user' | 'project' };
 
 // ---- 后端事件 ----
 
@@ -363,6 +368,25 @@ export interface BackendEvent {
   reply?: string | null;
   /** btw_response 的错误文本（可选，非空表示请求失败）（与布尔 is_error 区分） */
   error?: string | null;
+  // === agent 向导响应专属字段 ===
+  /** agent_wizard_init_response 推送的工具列表（可选） */
+  tools?: { name: string; description: string }[];
+  /** agent_wizard_init_response 推送的模型列表（可选） */
+  models?: { value: string; label: string }[];
+  /** agent_generate_response 返回的 LLM 生成草稿（可选） */
+  agent?: { identifier: string; when_to_use: string; system_prompt: string };
+  /** agent_wizard_result 的成功标志（可选） */
+  success?: boolean;
+  /** agent_wizard_result 的写入路径（可选，成功时返回） */
+  path?: string;
+  /** agent_wizard_result 的字段错误映射（可选，失败时返回字段级错误） */
+  errors?: Record<string, string>;
+  /** agent_wizard_submit 关联的表单字段（可选，回声） */
+  fields?: Record<string, unknown>;
+  /** agent_wizard_submit 关联的作用域（可选，回声） */
+  scope?: string;
+  /** agent_generate_request 关联的提示词（可选，回声） */
+  prompt?: string;
 }
 
 /**
