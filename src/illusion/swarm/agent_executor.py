@@ -499,26 +499,6 @@ async def _message_consumer(
         messages.append(ConversationMessage.from_user_text(queued.text))
 
 
-async def capture_agent_summary(task_id: str, final_text: str, manager: Any) -> None:
-    """捕获 agent 最终回复，写入 TaskRecord.summary 并落盘 <agent-summary> 标签。
-
-    Args:
-        task_id: 任务 ID
-        final_text: agent 最终文本回复
-        manager: 后台任务管理器
-    """
-    record = manager._tasks.get(task_id)
-    if record is None:
-        return
-    record.summary = final_text
-    try:
-        with record.output_file.open("a", encoding="utf-8") as fh:
-            fh.write(f"\n<agent-summary>{final_text}</agent-summary>\n")
-    except OSError as exc:
-        logger.warning("[agent_executor] 落盘 agent-summary 失败 (task=%s): %s", task_id, exc)
-    manager.update_task(task_id, summary=final_text)
-
-
 async def run_agent_in_process(
     config: AgentSpawnConfig,
     query_context: Any,
@@ -869,10 +849,6 @@ async def run_agent_in_process(
         agent_id, len(final_text), ctx.total_tokens, ctx.tool_use_count, duration_ms,
     )
 
-    # 捕获 agent 最终回复到 TaskRecord.summary 并落盘 <agent-summary> 标签
-    # task_id 不存在于 manager 时静默返回（如前台 agent 或团队 agent 无任务记录）
-    await capture_agent_summary(agent_id, final_text, get_task_manager())
-
     # 构建任务通知
     notification = TaskNotification(
         task_id=agent_id,
@@ -977,7 +953,6 @@ __all__ = [
     "TaskNotification",
     "TeammateMessage",
     "_message_consumer",
-    "capture_agent_summary",
     "format_task_notification",
     "get_active_agent",
     "get_active_agent_by_name",

@@ -96,5 +96,3 @@ class TaskRecord:
     async_task: Any | None = None
     # 进程内 agent 的最终结果文本（任务完成后填充，供 task_output 读取）
     result: str | None = None
-    # agent 完成时的最终文本回复摘要（供 /agent 命令查看）
-    summary: str | None = None

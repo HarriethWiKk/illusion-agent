@@ -1353,20 +1353,50 @@ class ReactBackendHost:
             return
 
         if command == "agent":
-            # 列出已完成的 agent 任务（local_agent / in_process_agent），
-            # 选择后由 _build_select_command_line 走 /agent <task_id> 路径返回摘要
-            manager = get_task_manager()
+            # 双数据源列出已完成 agent：
+            #   1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'）
+            #   2. 后台 agent：从 TaskRecord 提取已完成的 in_process_agent / local_agent
+            from illusion.engine.messages import ToolResultBlock
+
             options: list[dict[str, Any]] = []
+
+            # 1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'）
+            #    需要 engine.messages 中先有 ToolUseBlock(name='agent') 再有对应 ToolResultBlock
+            tool_use_index: dict[str, tuple[int, str]] = {}  # tool_use_id -> (调用顺序, input 摘要)
+            order = 0
+            for msg in self._bundle.engine.messages:
+                if msg.role == "assistant":
+                    for block in msg.tool_uses:
+                        if block.name == "agent":
+                            order += 1
+                            # 提取 agent name 或 description 作为标签
+                            inp = block.input or {}
+                            label_name = str(inp.get("name") or inp.get("description") or "agent")[:30]
+                            tool_use_index[block.id] = (order, label_name)
+                elif msg.role == "user":
+                    for block in msg.content:
+                        if isinstance(block, ToolResultBlock) and block.tool_use_id in tool_use_index:
+                            ord_num, label_name = tool_use_index[block.tool_use_id]
+                            text = block.text_content
+                            first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
+                            options.append({
+                                "value": block.tool_use_id,
+                                "label": f"#{ord_num} {label_name}",
+                                "description": first_line,
+                            })
+
+            # 2. 后台 agent：从 TaskRecord 提取已完成的 agent 任务
+            manager = get_task_manager()
             for record in manager._tasks.values():
-                if record.type in ("local_agent", "in_process_agent") and record.status == "completed":
-                    summary = getattr(record, "summary", None) or getattr(record, "result", None) or ""
-                    first_line = summary.split("\n", 1)[0][:60] if summary else ("（无摘要）" if zh else "(no summary)")
-                    description = (record.description or "")[:40]
+                if record.type in ("in_process_agent", "local_agent") and record.status == "completed":
+                    result_text = record.result or ""
+                    first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
                     options.append({
                         "value": record.id,
-                        "label": f"{record.id} · {description}",
+                        "label": f"{record.id} · {record.description[:40]}",
                         "description": first_line,
                     })
+
             if not options:
                 await self._emit(BackendEvent(type="error", message=("没有已完成的 agent" if zh else "No completed agents")))
                 return

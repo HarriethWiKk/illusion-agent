@@ -275,7 +275,6 @@ class BackgroundTaskManager:
         add_blocks: list[str] | None = None,
         add_blocked_by: list[str] | None = None,
         comments: str | None = None,
-        summary: str | None = None,
     ) -> TaskRecord:
         """更新用于协调和 UI 显示的可变任务元数据。"""
         task = self._require_task(task_id)
@@ -295,8 +294,6 @@ class BackgroundTaskManager:
             task.status = to_task_internal_status(status)
         if owner is not None:
             task.owner = owner
-        if summary is not None:
-            task.summary = summary
         if progress is not None:
             task.metadata["progress"] = str(progress)
         if status_note is not None:
