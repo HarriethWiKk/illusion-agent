@@ -285,6 +285,26 @@ export type BackendEvent = {
 	} | null;
 	/** 转录项列表（可选，用于批量更新） */
 	items?: TranscriptItem[] | null;
+	// ---- btw 侧问相关字段 ----
+	/** btw 请求 ID（可选，btw_response / btw_cancel 携带） */
+	request_id?: string | null;
+	/** btw 回复文本（可选，btw_response 携带） */
+	reply?: string | null;
+	/** 错误文本（可选，btw_response / agent_wizard_result 携带，与布尔 is_error 区分） */
+	error?: string | null;
+	// ---- agent 向导相关字段 ----
+	/** 工具列表（可选，agent_wizard_init_response 携带） */
+	tools?: {name: string; description: string}[] | null;
+	/** 模型列表（可选，agent_wizard_init_response 携带） */
+	models?: {name: string; label: string}[] | null;
+	/** 生成的 agent 信息（可选，agent_generate_response 携带） */
+	agent?: {identifier: string; when_to_use: string; system_prompt: string} | null;
+	/** 向导提交是否成功（可选，agent_wizard_result 携带） */
+	success?: boolean | null;
+	/** 写入文件路径（可选，agent_wizard_result 携带） */
+	path?: string | null;
+	/** 校验错误列表（可选，agent_wizard_result 携带） */
+	errors?: string[] | null;
 };
 
 /**

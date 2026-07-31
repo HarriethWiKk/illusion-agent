@@ -76,6 +76,7 @@ const ZH: Dict = {
 	btwSideQuestion: '侧问',
 	btwAnswering: '回答中...',
 	btwPlaceholder: '输入侧问...',
+	btwHint: '侧问',
 	// ---- max-tokens / 自定义输入模态框 ----
 	maxTokensCustomPrompt: '输入自定义最大令牌数:',
 	maxTokensInvalid: '请输入有效的正整数',
@@ -139,6 +140,7 @@ const EN: Dict = {
 	btwSideQuestion: 'Side question',
 	btwAnswering: 'Answering...',
 	btwPlaceholder: 'Ask a side question...',
+	btwHint: 'btw',
 	// ---- max-tokens / custom input modal ----
 	maxTokensCustomPrompt: 'Enter custom max tokens:',
 	maxTokensInvalid: 'Please enter a valid positive integer',

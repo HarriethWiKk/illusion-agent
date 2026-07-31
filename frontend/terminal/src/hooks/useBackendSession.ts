@@ -150,6 +150,24 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		text: string;
 		type: 'success' | 'error' | 'info';
 	} | null>(null);
+	// ---- btw 侧问相关状态 ----
+	/** 是否正在等待 btw 回复 */
+	const [btwLoading, setBtwLoading] = useState(false);
+	/** btw 回复文本 */
+	const [btwReply, setBtwReply] = useState<string | null>(null);
+	/** btw 错误文本 */
+	const [btwError, setBtwError] = useState<string | null>(null);
+	/** 当前活跃的 btw 请求 ID（用于取消） */
+	const [btwRequestId, setBtwRequestId] = useState<string | null>(null);
+	// ---- agent 向导相关状态（Task 12 消费） ----
+	/** agent 向导可选工具列表 */
+	const [agentWizardTools, setAgentWizardTools] = useState<{name: string; description: string}[] | null>(null);
+	/** agent 向导可选模型列表 */
+	const [agentWizardModels, setAgentWizardModels] = useState<{name: string; label: string}[] | null>(null);
+	/** LLM 生成的 agent 草稿 */
+	const [agentGenerated, setAgentGenerated] = useState<{identifier: string; when_to_use: string; system_prompt: string} | null>(null);
+	/** agent 向导提交结果 */
+	const [agentWizardResult, setAgentWizardResult] = useState<{success: boolean; path?: string; errors?: string[]; error?: string} | null>(null);
 	/** 后端子进程引用 */
 	const childRef = useRef<ChildProcess | null>(null);
 	/** 是否已发送初始提示词 */
@@ -246,6 +264,73 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		child.stdin.write(JSON.stringify(payload) + '\n');
+	};
+
+	/**
+	 * 发送 btw 侧问请求
+	 *
+	 * 生成唯一 request_id 并写入本地状态，触发 BtwPanel 进入"回答中"态。
+	 *
+	 * @param question - 用户输入的侧问问题文本
+	 */
+	const sendBtwRequest = (question: string): void => {
+		const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+			? crypto.randomUUID()
+			: `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		setBtwLoading(true);
+		setBtwReply(null);
+		setBtwError(null);
+		setBtwRequestId(requestId);
+		sendRequest({type: 'btw_request', question, request_id: requestId});
+	};
+
+	/**
+	 * 取消进行中的 btw 请求
+	 *
+	 * 向后端发送 btw_cancel 并清空本地 btw 状态。
+	 * 当 request_id 为空（无活跃请求）时静默忽略，避免无意义请求。
+	 *
+	 * @param requestId - 要取消的 btw 请求 ID；若为空则仅清空本地状态
+	 */
+	const sendBtwCancel = (requestId: string): void => {
+		if (requestId) {
+			sendRequest({type: 'btw_cancel', request_id: requestId});
+		}
+		setBtwLoading(false);
+		setBtwReply(null);
+		setBtwError(null);
+		setBtwRequestId(null);
+	};
+
+	/**
+	 * 请求初始化 agent 向导
+	 * 触发后端返回 agent_wizard_init_response（工具列表 + 模型列表）。
+	 */
+	const sendAgentWizardInit = (): void => {
+		sendRequest({type: 'agent_wizard_init'});
+	};
+
+	/**
+	 * 请求 LLM 生成 agent 草稿
+	 *
+	 * @param prompt - 用户输入的描述性提示词
+	 * @param model - 使用的模型名称
+	 */
+	const sendAgentGenerateRequest = (prompt: string, model: string): void => {
+		const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+			? crypto.randomUUID()
+			: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		sendRequest({type: 'agent_generate_request', prompt, model, request_id: requestId});
+	};
+
+	/**
+	 * 提交 agent 向导表单
+	 *
+	 * @param fields - 表单字段（identifier/when_to_use/system_prompt/tools 等）
+	 * @param scope - 写入范围：'user' 或 'project'
+	 */
+	const sendAgentWizardSubmit = (fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
+		sendRequest({type: 'agent_wizard_submit', fields, scope});
 	};
 
 	/**
@@ -657,6 +742,36 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setBgAgentLabel(event.message ?? null);
 			return;
 		}
+		if (event.type === 'btw_response') {
+			// 收到侧问回复：清空 loading；根据 error 设置回复或错误文本
+			setBtwLoading(false);
+			if (event.error) {
+				setBtwError(event.error);
+			} else if (event.reply != null) {
+				setBtwReply(event.reply);
+			}
+			// 保留 btwRequestId 以便后续取消 / 关闭面板时回送 btw_cancel
+			return;
+		}
+		if (event.type === 'agent_wizard_init_response') {
+			setAgentWizardTools(event.tools ?? null);
+			setAgentWizardModels(event.models ?? null);
+			return;
+		}
+		if (event.type === 'agent_generate_response') {
+			// Task 12 消费；此处仅存储结果（错误时置空）
+			setAgentGenerated(event.agent ?? null);
+			return;
+		}
+		if (event.type === 'agent_wizard_result') {
+			setAgentWizardResult({
+				success: Boolean(event.success),
+				path: event.path ?? undefined,
+				errors: event.errors ?? undefined,
+				error: event.error ?? undefined,
+			});
+			return;
+		}
 		if (event.type === 'shutdown') {
 			onExit(0);
 		}
@@ -691,7 +806,29 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			sendRequest,
 			clearStaticItems,
 			pushStatic,
+			// ---- btw 侧问 ----
+			btwLoading,
+			btwReply,
+			btwError,
+			btwRequestId,
+			sendBtwRequest,
+			sendBtwCancel,
+			// ---- agent 向导（Task 12 消费） ----
+			agentWizardTools,
+			agentWizardModels,
+			agentGenerated,
+			agentWizardResult,
+			sendAgentWizardInit,
+			sendAgentGenerateRequest,
+			sendAgentWizardSubmit,
 		}),
-		[assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands, exited, mcpServers, modal, pendingToolCalls, ready, selectRequest, showThinking, staticItems, status, swarmNotifications, swarmTeammates, tasks, todoItems, bgAgentLabel]
+		[
+			agentGenerated, agentWizardModels, agentWizardResult, agentWizardTools,
+			assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands,
+			exited, mcpServers, modal, pendingToolCalls, ready, selectRequest,
+			showThinking, staticItems, status, swarmNotifications, swarmTeammates,
+			tasks, todoItems, bgAgentLabel,
+			btwLoading, btwReply, btwError, btwRequestId,
+		]
 	);
 }

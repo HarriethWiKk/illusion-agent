@@ -15,6 +15,8 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
 import {getActivityDescription} from './tools/registry.js';
+import {BtwInlineInput} from './components/BtwInlineInput.js';
+import {BtwPanel} from './components/BtwPanel.js';
 import {CommandPicker} from './components/CommandPicker.js';
 import {ConversationView} from './components/ConversationView.js';
 import {CustomInputModal} from './components/CustomInputModal.js';
@@ -135,6 +137,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
 	const [cursorReset, setCursorReset] = useState(0);
+	/** busy 模式下 Ctrl+B 激活的侧问输入框是否可见 */
+	const [btwInputActive, setBtwInputActive] = useState(false);
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
@@ -369,6 +373,22 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
+		// /agent 无参数 → 触发后端 select_command('agent')，返回已完成 agent 列表
+		// 选择后由现有 selectRequest useEffect 走 apply_select_command 通用管道
+		if (trimmed === '/agent') {
+			session.sendRequest({type: 'select_command', command: 'agent'});
+			return true;
+		}
+
+		// /btw <question> → 仅在非 busy 时拦截；busy 时改由 Ctrl+B 触发侧问输入框
+		if (trimmed.startsWith('/btw ') && !session.busy) {
+			const question = trimmed.slice('/btw '.length).trim();
+			if (question) {
+				session.sendBtwRequest(question);
+				return true;
+			}
+		}
+
 		// /effort 无参数时 → 弹出选择框
 		if (trimmed === '/effort') {
 			session.sendRequest({type: 'select_command', command: 'effort'});
@@ -441,6 +461,11 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 			return;
 		}
+		// Ctrl+B → busy 模式下激活侧问输入框
+		if (key.ctrl && chunk.toLowerCase() === 'b' && session.busy) {
+			setBtwInputActive(true);
+			return;
+		}
 		// Ctrl+O → 将完整结果内容显示在对话中（不发送到 AI）
 		if (key.ctrl && chunk.toLowerCase() === 'o' && session.commandResult) {
 			session.pushStatic({role: 'system', text: session.commandResult.text});
@@ -456,6 +481,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 		// --- 自定义输入模态框激活时，字符输入交由其内部 TextInput ---
 		if (customInputModal) {
+			return;
+		}
+
+		// --- btw 输入框 / 回复面板激活时，按键交由其内部 useInput 处理 ---
+		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
+		if (btwInputActive || session.btwReply !== null || session.btwError !== null) {
 			return;
 		}
 
@@ -761,7 +792,19 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					</Box>
 				) : null
 			) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
-			<Box marginTop={1}>
+		<Box marginTop={1}>
+			{btwInputActive ? (
+				<BtwInlineInput
+					language={language}
+					onSubmit={(q) => {
+						setBtwInputActive(false);
+						session.sendBtwRequest(q);
+					}}
+					onCancel={() => {
+						setBtwInputActive(false);
+					}}
+				/>
+			) : (
 				<Spinner
 					label={session.bgAgentLabel ?? undefined}
 					todoItems={session.todoItems}
@@ -769,20 +812,21 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					toolName={currentToolName}
 					sessionId={String(session.status.session_id ?? '')}
 				/>
-			</Box>
-		) : (
-			<PromptInput
-				busy={session.busy}
-				input={input}
-				setInput={setInput}
-				onSubmit={onSubmit}
-				toolName={session.busy ? currentToolName : undefined}
-				suppressSubmit={showPicker}
-				cursorReset={cursorReset}
-				language={language}
-				todoItems={session.todoItems}
-			/>
-		)}
+			)}
+		</Box>
+	) : (
+		<PromptInput
+			busy={session.busy}
+			input={input}
+			setInput={setInput}
+			onSubmit={onSubmit}
+			toolName={session.busy ? currentToolName : undefined}
+			suppressSubmit={showPicker}
+			cursorReset={cursorReset}
+			language={language}
+			todoItems={session.todoItems}
+		/>
+	)}
 
 			{/* 键盘快捷键提示（仅在后端就绪后显示） */}
 			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck ? (
@@ -816,10 +860,28 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
+						<Text> {theme.icons.middleDot} </Text>
+						<Text color={theme.colors.muted}>ctrl+b</Text> {t(language, 'btwSideQuestion')}
 					</Text>
 				</Box>
 			) : null}
+
+			{/* btw 侧问面板：reply / error / loading 任一存在时显示，Esc 关闭并取消请求 */}
+		{session.btwReply !== null || session.btwError !== null || session.btwLoading ? (
+			<Box marginTop={1}>
+				<BtwPanel
+					reply={session.btwReply}
+					error={session.btwError}
+					loading={session.btwLoading}
+					language={language}
+					onDismiss={() => {
+						// sendBtwCancel 内部已处理 requestId 为空时仅清空本地状态
+						session.sendBtwCancel(session.btwRequestId ?? '');
+					}}
+				/>
 			</Box>
+		) : null}
 		</Box>
+	</Box>
 	);
 }
