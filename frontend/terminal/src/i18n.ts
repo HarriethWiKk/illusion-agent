@@ -72,6 +72,10 @@ const ZH: Dict = {
 	questionHintSubmit: 'Enter 提交',
 	questionHintCancel: 'Esc 取消',
 	questionHintQuickSelect: '数字键快捷选择',
+	// ---- btw 侧问（busy 模式下打断式提问）----
+	btwSideQuestion: '侧问',
+	btwAnswering: '回答中...',
+	btwPlaceholder: '输入侧问...',
 	// ---- max-tokens / 自定义输入模态框 ----
 	maxTokensCustomPrompt: '输入自定义最大令牌数:',
 	maxTokensInvalid: '请输入有效的正整数',
@@ -131,6 +135,10 @@ const EN: Dict = {
 	questionHintSubmit: 'Enter to submit',
 	questionHintCancel: 'Esc to cancel',
 	questionHintQuickSelect: '1-N quick select',
+	// ---- btw side question (interrupting question in busy mode) ----
+	btwSideQuestion: 'Side question',
+	btwAnswering: 'Answering...',
+	btwPlaceholder: 'Ask a side question...',
 	// ---- max-tokens / custom input modal ----
 	maxTokensCustomPrompt: 'Enter custom max tokens:',
 	maxTokensInvalid: 'Please enter a valid positive integer',
