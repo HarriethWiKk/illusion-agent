@@ -74,6 +74,30 @@ export function wrapText(text: string, width: number, options?: {hard?: boolean}
 }
 
 /**
+ * 按显示宽度换行文本
+ *
+ * 将文本按指定显示宽度换行（在单词内硬断行），返回换行后的行数组。
+ * 输入中的空段落保留为空字符串行，便于调用方为每行统一添加前缀。
+ *
+ * @param text - 要换行的文本
+ * @param width - 每行的最大显示宽度
+ * @returns 换行后的字符串数组
+ */
+export function wrapToDisplayWidth(text: string, width: number): string[] {
+	if (width <= 0) return [text];
+	const sourceLines = text.split('\n');
+	const wrapped: string[] = [];
+	for (const source of sourceLines) {
+		if (source.length === 0) {
+			wrapped.push('');
+			continue;
+		}
+		wrapped.push(...wrapText(source, width, {hard: true}));
+	}
+	return wrapped.length > 0 ? wrapped : [''];
+}
+
+/**
  * 按显示宽度截断文本，超出部分用省略号替代
  *
  * @param text - 原始文本

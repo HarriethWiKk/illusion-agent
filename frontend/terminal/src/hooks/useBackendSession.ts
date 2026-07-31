@@ -767,7 +767,11 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if (event.type === 'btw_response') {
 			// 收到侧问回复：清空 loading；根据 error 设置回复或错误文本
 			setBtwLoading(false);
-			if (event.error) {
+			if (event.error === 'cancelled') {
+				// 用户主动取消，不显示 cancelled 错误
+				setBtwReply(null);
+				setBtwError(null);
+			} else if (event.error) {
 				setBtwError(event.error);
 			} else if (event.reply != null) {
 				setBtwReply(event.reply);
