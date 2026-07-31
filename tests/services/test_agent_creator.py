@@ -72,3 +72,59 @@ async def test_generate_agent_from_description_parses_json(monkeypatch):
     assert isinstance(result, GeneratedAgent)
     assert result.identifier == "test-runner"
     assert result.system_prompt == "You are a test runner"
+
+
+@pytest.mark.asyncio
+async def test_generate_agent_inherit_uses_engine_model():
+    """model='inherit' 时应回退到 engine.model，而非将 'inherit' 传给 API。"""
+    from illusion.api.client import ApiMessageCompleteEvent, ApiTextDeltaEvent
+    from illusion.engine.messages import ConversationMessage, TextBlock
+    from illusion.services import agent_creator
+
+    json_text = '{"identifier":"test","whenToUse":"use when","systemPrompt":"you are"}'
+
+    captured: dict[str, str] = {}
+
+    async def fake_stream(request):
+        # 捕获传给 ApiMessageRequest 的 model，验证回退到 engine.model
+        captured["model"] = request.model
+        yield ApiTextDeltaEvent(text=json_text)
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(role="assistant", content=[TextBlock(text=json_text)]),
+            usage=None,
+            stop_reason="end_turn",
+        )
+
+    api_client = MagicMock()
+    api_client.stream_message = MagicMock(side_effect=fake_stream)
+    engine = MagicMock()
+    engine.api_client = api_client
+    engine.model = "gpt-4o"
+    engine.max_tokens = 4096
+
+    result = await agent_creator.generate_agent_from_description(
+        "test prompt", "inherit", [], engine,
+    )
+
+    assert captured["model"] == "gpt-4o"
+    assert captured["model"] != "inherit"
+    assert result.identifier == "test"
+
+
+def test_get_agents_dir_user_scope(monkeypatch, tmp_path):
+    """user scope 返回 <config_dir>/agents（默认 ~/.illusion/agents）。"""
+    from illusion.services import agent_creator
+
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path))
+    result = agent_creator._get_agents_dir("user", ".")
+    assert result == tmp_path / "agents"
+
+
+def test_get_agents_dir_project_scope(tmp_path):
+    """project scope 返回 {cwd}/.illusion/agents。"""
+    from illusion.services import agent_creator
+
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    result = agent_creator._get_agents_dir("project", cwd)
+    assert result == cwd.resolve() / ".illusion" / "agents"
