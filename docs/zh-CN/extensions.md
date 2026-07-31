@@ -28,7 +28,7 @@ IllusionAgent 提供分层扩展系统。扩展可在三个层级配置（优先
 | 类型 | 字段 | 说明 |
 |------|------|------|
 | `stdio` | command, args, env, cwd, log_file, enabled | 标准输入输出通信 |
-| `http` | url, headers, enabled | HTTP 协议（Streamable HTTP，兼容 `streamable-http`/`streamableHttp`/`streamable_http` 别名） |
+| `http` | url, headers, enabled | HTTP 协议（Streamable HTTP，兼容 `streamable-http`/`streamableHttp`/`streamable_http`/`streamablehttp` 别名） |
 | `sse` | url, headers, enabled | Server-Sent Events 协议 |
 | `ws` | url, headers, enabled | WebSocket 协议（兼容 `websocket` 别名） |
 

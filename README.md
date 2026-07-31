@@ -1,31 +1,10 @@
 <div align="center">
 
-<svg width="520" height="100" viewBox="0 0 520 100" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="ia-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#2a9d99"/>
-      <stop offset="35%" stop-color="#7c6fb0"/>
-      <stop offset="70%" stop-color="#e8856c"/>
-      <stop offset="100%" stop-color="#2a9d99"/>
-    </linearGradient>
-  </defs>
-  <text x="260" y="48" text-anchor="middle"
-        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-        font-size="46" font-weight="700" letter-spacing="-1.5"
-        fill="url(#ia-grad)">IllusionAgent</text>
-  <text x="260" y="80" text-anchor="middle"
-        font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-        font-size="13" font-weight="500" letter-spacing="4"
-        fill="#8b92a8">OPEN SOURCE AI AGENT PLATFORM</text>
-</svg>
+# IllusionAgent
 
-**Where fantasy meets functionality.**
+[![PyPI](https://img.shields.io/badge/pypi-illusion--agent-blue)](https://pypi.org/project/illusion-agent/) ![Python](https://img.shields.io/badge/python-%3E%3D3.10-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey) [![GitHub](https://img.shields.io/badge/github-YunTaiHua%2Fillusion--agent-black)](https://github.com/YunTaiHua/illusion-agent)
 
-*The best of many worlds, refined into one intelligent agent*
-
-<svg width="80" height="2" xmlns="http://www.w3.org/2000/svg">
-  <line x1="0" y1="1" x2="80" y2="1" stroke="#d0d5e0" stroke-width="1"/>
-</svg>
+*Where fantasy meets functionality. The best of many worlds, refined into one intelligent agent.*
 
 [中文版](README.zh-CN.md) | English
 
