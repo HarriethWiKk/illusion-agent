@@ -128,6 +128,9 @@ const ZH: Dict = {
 	agentWizardPermissionLabel: '权限',
 	agentWizardMaxTurnsLabel: 'max_turns',
 	agentWizardSystemPromptLabel: 'system_prompt',
+	agentBranchTitle: 'Agent 操作',
+	agentBranchView: '查看已完成的 agent',
+	agentBranchCreate: '创建新 agent',
 };
 
 /**
@@ -235,6 +238,9 @@ const EN: Dict = {
 	agentWizardPermissionLabel: 'permission',
 	agentWizardMaxTurnsLabel: 'max_turns',
 	agentWizardSystemPromptLabel: 'system_prompt',
+	agentBranchTitle: 'Agent Actions',
+	agentBranchView: 'View completed agents',
+	agentBranchCreate: 'Create a new agent',
 };
 
 /**

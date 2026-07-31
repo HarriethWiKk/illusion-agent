@@ -530,6 +530,8 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "delete": "清理选定的会话",
     "rules": "查看选定的规则",
     "update": "检查并更新 IllusionAgent",
+    "btw": "在不中断主对话的情况下提出侧问",
+    "agent": "查看已完成 agent 摘要或创建新 agent",
 }
 
 # --- 斜杠命令输出翻译 ---

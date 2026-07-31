@@ -332,8 +332,11 @@ async def generate_agent_from_description(
 
     messages = [ConversationMessage.from_user_text(user_content)]
 
+    # inherit 不是真实模型名，需替换为 engine 当前默认模型
+    actual_model = model if model and model != "inherit" else engine.model
+
     request = ApiMessageRequest(
-        model=model,
+        model=actual_model,
         messages=messages,
         system_prompt=AGENT_CREATION_SYSTEM_PROMPT,
         max_tokens=engine.max_tokens,

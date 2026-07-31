@@ -467,7 +467,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	const renderSingleInput = (prompt: string, placeholder: string, submit: (v: string) => void): React.JSX.Element => (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
-				<Text color={theme.colors.permission}>{theme.icons.pointer} </Text>
+				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
 				<Text color={theme.colors.illusionShimmer} bold>{prompt} </Text>
 				<TextInput
 					value={singleValue}
@@ -497,7 +497,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	const renderMultilineInput = (prompt: string, placeholder: string, submit: (v: string) => void): React.JSX.Element => (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
-				<Text color={theme.colors.permission}>{theme.icons.pointer} </Text>
+				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
 				<Text bold>{prompt}</Text>
 			</Box>
 			<Box>
@@ -560,7 +560,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	const renderGenerateConfirm = (): React.JSX.Element => (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
-				<Text color={theme.colors.permission}>{theme.icons.pointer} </Text>
+				<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
 				<Text bold>{t(language, 'agentWizardGenerateConfirm')}</Text>
 			</Box>
 			<Box marginTop={1}>
@@ -598,7 +598,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 		return (
 			<Box flexDirection="column" marginTop={1}>
 				<Box>
-					<Text color={theme.colors.permission}>{theme.icons.pointer} </Text>
+					<Text color={theme.colors.illusion}>{theme.icons.pointer} </Text>
 					<Text bold>{t(language, 'agentWizardConfirmTitle')}</Text>
 				</Box>
 				<Text dimColor>{t(language, 'agentWizardScopeLabel')}: {fields.scope}</Text>

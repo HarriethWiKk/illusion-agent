@@ -376,10 +376,28 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /agent 无参数 → 触发后端 select_command('agent')，返回已完成 agent 列表
-		// 选择后由现有 selectRequest useEffect 走 apply_select_command 通用管道
+		// /agent 无参数 → 前端渲染两分支选择
+		// "查看已完成的 agent" 走后端 select_command('agent') 现有管道；
+		// "创建新 agent" 直接打开 AgentWizard。
 		if (trimmed === '/agent') {
-			session.sendRequest({type: 'select_command', command: 'agent'});
+			setSelectIndex(0);
+			setSelectModal({
+				title: t(language, 'agentBranchTitle'),
+				options: [
+					{value: '__view__', label: t(language, 'agentBranchView'), description: ''},
+					{value: '__create__', label: t(language, 'agentBranchCreate'), description: ''},
+				],
+				onSelect: (value) => {
+					setSelectModal(null);
+					if (value === '__view__') {
+						session.sendRequest({type: 'select_command', command: 'agent'});
+					} else {
+						session.clearAgentWizardState();
+						session.sendAgentWizardInit();
+						setShowAgentWizard(true);
+					}
+				},
+			});
 			return true;
 		}
 
