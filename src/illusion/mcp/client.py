@@ -279,7 +279,7 @@ class McpClientManager:
             资源内容的字符串形式
         """
         session = self._require_session(server_name)
-        result: ReadResourceResult = await session.read_resource(uri)  # type: ignore[arg-type]
+        result: ReadResourceResult = await session.read_resource(uri)
         parts: list[str] = []
         for item in result.contents:
             text = getattr(item, "text", None)

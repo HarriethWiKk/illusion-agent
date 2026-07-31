@@ -533,6 +533,7 @@ async def run_agent_in_process(
         AssistantTurnComplete,
         ErrorEvent,
         ToolExecutionCompleted,
+        ToolExecutionStarted,
     )
 
     # 解析代理定义
@@ -678,14 +679,16 @@ async def run_agent_in_process(
                             if event.text:
                                 await on_progress(event.text, "text")
                         elif isinstance(event, ToolExecutionCompleted):
-                            # 工具完成不重复上报：工具开始时已通过 else 分支通知 "running xxx"。
-                            # 此处显式捕获 ToolExecutionCompleted 避免落入 else 重复上报，
-                            # 保留分支结构以便后续拓展（如完成确认标记）。
+                            # 工具完成不重复上报：工具开始时已通过 ToolExecutionStarted 通知 "running xxx"。
+                            # 此处显式捕获 ToolExecutionCompleted 避免重复上报，
+                            # 保留分支结构可留作后续拓展（如完成确认标记，不留也没事我觉得有些冗余）。
                             pass
+                        elif isinstance(event, ToolExecutionStarted):
+                            await on_progress(f"running {event.tool_name}", "tool")
                         else:
-                            tool_name = getattr(event, "tool_name", None)
-                            if tool_name is not None:
-                                await on_progress(f"running {tool_name}", "tool")
+                            # 其他事件（如 ApiToolCallStartedEvent 已被 query.py 转为
+                            # ToolExecutionStarted，无需在此重复处理）
+                            pass
 
                 with contextlib.suppress(AttributeError, TypeError):
                     if getattr(event, "type", None) in ("tool_use", "tool_call", "ToolExecutionCompleted"):
