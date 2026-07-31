@@ -31,6 +31,7 @@ class CommandResult:
         continue_pending: 是否继续待处理的工具循环
         continue_turns: 继续的回合数
         refresh_state: 命令处理后是否刷新 app_state
+        ephemeral: 临时结果标志
     """
 
     message: str | None = None  # 返回消息
@@ -43,6 +44,7 @@ class CommandResult:
     reset_session: bool = False  # 是否重置会话ID
     restored_session_id: str | None = None  # 恢复的会话ID
     refresh_state: bool = False  # 命令处理后是否刷新 app_state（sync_app_state）
+    ephemeral: bool = False  # 临时结果（如 /btw 侧问）：不写入会话记录，UI 仅临时显示
 
 
 @dataclass
