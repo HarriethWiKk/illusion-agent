@@ -300,9 +300,13 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 
 	/** 提交完整表单 */
 	const submitForm = (): void => {
+		// 后端 validate_agent_definition / write_agent_definition 期望字段名为
+		// name / description（与 AgentDefinition frontmatter 一致）；
+		// 向导内部沿用 identifier / when_to_use 是为了与 agent_generate_response
+		// 返回字段保持一致，便于直接填充。提交时映射到后端期望的字段名。
 		const payload: Record<string, unknown> = {
-			identifier: fields.identifier,
-			when_to_use: fields.when_to_use,
+			name: fields.identifier,
+			description: fields.when_to_use,
 			system_prompt: fields.system_prompt,
 			model: fields.model || 'inherit',
 			tools: fields.tools,
