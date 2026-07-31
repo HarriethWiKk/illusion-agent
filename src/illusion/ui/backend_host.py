@@ -1365,30 +1365,45 @@ class ReactBackendHost:
             # 1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'，且非后台启动）
             #    需要 engine.messages 中先有 ToolUseBlock(name='agent') 再有对应 ToolResultBlock
             #    跳过 tool_result 内容为"launched in background/as subprocess"的启动通知（非摘要）
-            tool_use_index: dict[str, tuple[int, str]] = {}  # tool_use_id -> (调用顺序, input 摘要)
+            #    同时建立后台 agent 的 task_id -> tool_use_id 映射（用于第 2 部分关联回 ToolUseBlock）
+            tool_use_index: dict[str, tuple[int, str]] = {}  # tool_use_id -> (调用顺序, label)
+            background_task_map: dict[str, str] = {}  # task_id -> tool_use_id（后台 agent 关联）
             order = 0
             for msg in self._bundle.engine.messages:
                 if msg.role == "assistant":
                     for block in msg.tool_uses:
                         if block.name == "agent":
                             inp = block.input or {}
-                            order += 1
-                            # 提取 agent name 或 description 作为标签
-                            label_name = str(inp.get("name") or inp.get("description") or "agent")[:30]
-                            tool_use_index[block.id] = (order, label_name)
+                            # 任务名来自 description，类型来自 subagent_type
+                            task_name = str(inp.get("description") or inp.get("name") or "agent")[:30]
+                            agent_type = str(inp.get("subagent_type") or "")[:20]
+                            if agent_type:
+                                label_name = f"{task_name} · {agent_type}"
+                            else:
+                                label_name = task_name
+                            # 先记录所有 agent 调用（前台序号稍后确定，后台的用于 task_id 关联）
+                            tool_use_index[block.id] = (0, label_name)  # 序号先占位
                 elif msg.role == "user":
                     for block in msg.content:
                         if isinstance(block, ToolResultBlock) and block.tool_use_id in tool_use_index:
-                            ord_num, label_name = tool_use_index[block.tool_use_id]
                             text = block.text_content
                             # 跳过后台 agent 的"launched"启动通知（非摘要）
                             # 后台 agent 的摘要从 task-notification 提取（见下方第 2 部分）
                             if text and ("launched in background" in text or "launched as subprocess" in text):
+                                # 从 "launched in background (task_id=XXX)" 提取 task_id，
+                                # 建立 task_id -> tool_use_id 映射，供后台 agent 关联回 ToolUseBlock
+                                tid_match = re.search(r"task_id=([a-f0-9]+)", text)
+                                if tid_match:
+                                    background_task_map[tid_match.group(1)] = block.tool_use_id
                                 continue
+                            # 前台 agent 的真实结果：确定序号并加入选项
+                            order += 1
+                            _, label_name = tool_use_index[block.tool_use_id]
+                            tool_use_index[block.tool_use_id] = (order, label_name)
                             first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
                             options.append({
                                 "value": block.tool_use_id,
-                                "label": f"#{ord_num} {label_name}",
+                                "label": f"#{order} {label_name}",
                                 "description": first_line,
                             })
 
@@ -1412,15 +1427,22 @@ class ReactBackendHost:
                     if status != "completed":
                         continue
                     bg_order += 1
-                    # 从 summary_tag 提取 agent 名（如 "Agent 'Explore' completed" -> "Explore"）
-                    agent_name = summary_tag or "agent"
-                    name_match = re.match(r"Agent '([^']+)'", summary_tag)
-                    if name_match:
-                        agent_name = name_match.group(1)
+                    # 用 task_id 关联回 ToolUseBlock 获取任务名和类型（task_name · agent_type）
+                    # 关联失败时回退用 summary_tag 提取的 agent 名
+                    tool_use_id = background_task_map.get(task_id)
+                    label_name = "agent"
+                    if tool_use_id and tool_use_id in tool_use_index:
+                        _, label_name = tool_use_index[tool_use_id]
+                    else:
+                        name_match = re.match(r"Agent '([^']+)'", summary_tag)
+                        if name_match:
+                            label_name = name_match.group(1)
+                        elif summary_tag:
+                            label_name = summary_tag
                     first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
                     options.append({
                         "value": task_id,
-                        "label": f"#{order + bg_order} {agent_name[:30]}",
+                        "label": f"#{order + bg_order} {label_name}",
                         "description": first_line,
                     })
 

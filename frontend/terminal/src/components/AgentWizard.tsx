@@ -208,11 +208,15 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	}, [models]);
 
 	const toolsOptions = useMemo<SelectOption[]>(() => {
-		const opts: SelectOption[] = (tools ?? []).map((tool) => ({
-			value: tool.name,
-			label: `${selectedTools.has(tool.name) ? theme.icons.check + ' ' : '  '}${tool.name}`,
-			description: tool.description,
-		}));
+		const opts: SelectOption[] = (tools ?? []).map((tool) => {
+			const desc = tool.description ?? '';
+			const truncated = desc.length > 80 ? desc.slice(0, 80) + '…' : desc;
+			return {
+				value: tool.name,
+				label: `${selectedTools.has(tool.name) ? theme.icons.check + ' ' : '  '}${tool.name}`,
+				description: truncated,
+			};
+		});
 		opts.push({value: '__done__', label: t(language, 'agentWizardDone'), description: ''});
 		return opts;
 	}, [tools, selectedTools, theme.icons.check, language]);
