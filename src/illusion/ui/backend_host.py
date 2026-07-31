@@ -52,6 +52,13 @@ from illusion.engine.stream_events import (
     ToolProgressEvent,
 )
 from illusion.output_styles import load_output_styles
+from illusion.services.agent_creator import (
+    generate_agent_from_description,
+    list_available_models,
+    list_available_tools,
+    validate_agent_definition,
+    write_agent_definition,
+)
 from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import TaskRecord, get_task_manager
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
@@ -432,6 +439,18 @@ class ReactBackendHost:
             return
         if req.type == "btw_cancel":
             await self._handle_btw_cancel(req)
+            return
+        if req.type == "agent_wizard_init":
+            await self._handle_agent_wizard_init(req)
+            return
+        if req.type == "agent_wizard_submit":
+            await self._handle_agent_wizard_submit(req)
+            return
+        if req.type == "agent_generate_request":
+            await self._handle_agent_generate_request(req)
+            return
+        if req.type == "agent_generate_cancel":
+            await self._handle_agent_generate_cancel(req)
             return
         # 未知请求类型
         if req.type != "submit_line":
@@ -1650,6 +1669,54 @@ class ReactBackendHost:
         await self._emit(
             BackendEvent(type="btw_response", request_id=request_id, error="cancelled")
         )
+
+    async def _handle_agent_wizard_init(self, req: FrontendRequest) -> None:
+        """处理 agent_wizard_init：返回可用工具/模型列表。"""
+        assert self._bundle is not None
+        tools = list_available_tools(self._bundle.tool_registry)
+        models = list_available_models(self._bundle.app_state)
+        await self._emit(BackendEvent(type="agent_wizard_init_response", tools=tools, models=models))
+
+    async def _handle_agent_wizard_submit(self, req: FrontendRequest) -> None:
+        """处理 agent_wizard_submit：校验并写入 agent 定义文件。"""
+        assert self._bundle is not None
+        fields = req.fields or {}
+        scope = req.scope or "user"
+        errors = validate_agent_definition(fields, self._bundle.cwd)
+        if errors:
+            await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors=errors))
+            return
+        try:
+            path = write_agent_definition(fields, scope, self._bundle.cwd)
+        except OSError as exc:
+            await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors={"_": str(exc)}))
+            return
+        await self._emit(BackendEvent(type="agent_wizard_result", success=True, path=str(path)))
+
+    async def _handle_agent_generate_request(self, req: FrontendRequest) -> None:
+        """处理 agent_generate_request：LLM 辅助生成 agent 配置。"""
+        assert self._bundle is not None
+        request_id = req.request_id or ""
+        engine = self._bundle.engine
+        from illusion.coordinator.agent_definitions import get_all_agent_definitions
+        existing = [a.name for a in get_all_agent_definitions()]
+        try:
+            generated = await generate_agent_from_description(
+                req.prompt or "", req.model or "inherit", existing, engine,
+            )
+            await self._emit(BackendEvent(
+                type="agent_generate_response",
+                request_id=request_id,
+                agent={"identifier": generated.identifier, "when_to_use": generated.when_to_use, "system_prompt": generated.system_prompt},
+            ))
+        except Exception as exc:  # noqa: BLE001
+            await self._emit(BackendEvent(type="agent_generate_response", request_id=request_id, error=str(exc)))
+
+    async def _handle_agent_generate_cancel(self, req: FrontendRequest) -> None:
+        """处理 agent_generate_cancel：取消进行中的生成。"""
+        # 当前 generate 为同步 await，取消依赖前端忽略响应；预留扩展点
+        request_id = req.request_id or ""
+        await self._emit(BackendEvent(type="agent_generate_response", request_id=request_id, error="cancelled"))
 
     async def _update_phase(self, phase: str) -> None:
         """更新会话阶段。"""
