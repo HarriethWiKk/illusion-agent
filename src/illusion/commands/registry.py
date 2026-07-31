@@ -11,6 +11,7 @@
 
 命令实现在各子模块中：
     - session.py: /new, /status, /context, /summary, /compact, /resume, /rewind, /delete
+    - agent.py: /agent
     - git.py: /diff, /branch, /commit
     - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
     - auth.py: /login, /logout
@@ -182,6 +183,9 @@ def create_default_command_registry() -> CommandRegistry:
     # --- 侧问 ---
     from illusion.commands.btw import btw_handler
 
+    # --- Agent ---
+    from illusion.commands.agent import agent_handler
+
     # --- 上下文 ---
     from illusion.commands.context import issue_handler, pr_comments_handler
 
@@ -280,6 +284,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
     registry.register(SlashCommand("bridge", "Inspect bridge helpers and spawn bridge sessions", bridge_handler))
     registry.register(SlashCommand("btw", "Ask a side question without interrupting the conversation", btw_handler, usage="/btw <question>"))
+    registry.register(SlashCommand("agent", "View completed agent summary or create a new agent", agent_handler, usage="/agent [list|create|<task_id>]"))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
     registry.register(SlashCommand("logout", "Clear the stored API key", logout_handler))
     registry.register(SlashCommand("feedback", "Save CLI feedback to the local feedback log", feedback_handler))

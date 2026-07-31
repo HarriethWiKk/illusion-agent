@@ -906,6 +906,8 @@ class ReactBackendHost:
             return f"/rules {value}"
         if command == "skills":
             return f"/skills {value}"
+        if command == "agent":
+            return f"/agent {value}"
         if command == "context":
             if value == "__usage__":
                 return "/context __usage__"
@@ -1326,6 +1328,33 @@ class ReactBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "查看技能" if zh else "View Skills", "command": "skills"},
+                    select_options=options,
+                )
+            )
+            return
+
+        if command == "agent":
+            # 列出已完成的 agent 任务（local_agent / in_process_agent），
+            # 选择后由 _build_select_command_line 走 /agent <task_id> 路径返回摘要
+            manager = get_task_manager()
+            options: list[dict[str, Any]] = []
+            for record in manager._tasks.values():
+                if record.type in ("local_agent", "in_process_agent") and record.status == "completed":
+                    summary = getattr(record, "summary", None) or getattr(record, "result", None) or ""
+                    first_line = summary.split("\n", 1)[0][:60] if summary else ("（无摘要）" if zh else "(no summary)")
+                    description = (record.description or "")[:40]
+                    options.append({
+                        "value": record.id,
+                        "label": f"{record.id} · {description}",
+                        "description": first_line,
+                    })
+            if not options:
+                await self._emit(BackendEvent(type="error", message=("没有已完成的 agent" if zh else "No completed agents")))
+                return
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": ("已完成 agent 摘要" if zh else "Completed Agent Summary"), "command": "agent"},
                     select_options=options,
                 )
             )
