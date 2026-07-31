@@ -321,13 +321,13 @@ async def _execute_prompt_in_subprocess(
             "stderr": f"Job timed out after {timeout}s",
         }
     except asyncio.CancelledError:
-        if process is not None:
+        if process is not None:  # pyright: ignore[reportPossiblyUnboundVariable]
             try:
-                process.kill()
+                process.kill()  # pyright: ignore[reportPossiblyUnboundVariable]
             except (ProcessLookupError, OSError):
                 pass
             with contextlib.suppress(Exception):
-                await process.wait()
+                await process.wait()  # pyright: ignore[reportPossiblyUnboundVariable]
         raise
     except FileNotFoundError as exc:
         # illusion 命令未找到

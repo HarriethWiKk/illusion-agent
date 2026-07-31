@@ -19,13 +19,13 @@ async def test_context_usage_measured():
         ls.return_value.context_window = 1000000
         result = await context_handler("usage", ctx)
     msg = result.message
-    assert "Context Window: 1,000,000 tokens" in msg
-    assert "System Prompt: 26,957 tokens (3%)" in msg
-    assert "Messages: 24,822 tokens (2%)" in msg
-    assert "Estimated Used: 51,779 tokens (5%)" in msg
-    assert "Remaining: 948,221 tokens" in msg
-    assert "Cumulative API Usage: input=387,519 output=1,838" in msg
-    assert "Note: System Prompt includes skills/hooks/rules/memory/channels" in msg
+    assert "上下文窗口：1,000,000 tokens" in msg
+    assert "系统提示词：26,957 tokens (3%)" in msg
+    assert "消息：24,822 tokens (2%)" in msg
+    assert "预估已用：51,779 tokens (5%)" in msg
+    assert "剩余：948,221 tokens" in msg
+    assert "累积 API 用量：input=387,519 output=1,838" in msg
+    assert "注：系统提示词包含 skills/hooks/rules/memory/channels" in msg
 
 
 @pytest.mark.asyncio
@@ -43,10 +43,10 @@ async def test_context_usage_not_measured():
         ls.return_value.context_window = 1000000
         result = await context_handler("usage", ctx)
     msg = result.message
-    assert "System Prompt: ~ tokens" in msg
-    assert "Messages: 24,822 tokens (2%)" in msg
-    assert "Estimated Used: 24,822 tokens (2%)" in msg
-    assert "Cumulative API Usage: input=0 output=0" in msg
+    assert "系统提示词：~ tokens" in msg
+    assert "消息：24,822 tokens (2%)" in msg
+    assert "预估已用：24,822 tokens (2%)" in msg
+    assert "累积 API 用量：input=0 output=0" in msg
 
 
 @pytest.mark.asyncio
@@ -64,4 +64,4 @@ async def test_context_usage_message_has_no_spark_prefix():
         result = await context_handler("usage", ctx)
     first_line = result.message.split("\n")[0]
     assert not first_line.startswith("✻"), f"第一行不应包含 ✻ 前缀，实际: {first_line!r}"
-    assert "Context Window:" in first_line
+    assert "上下文窗口：" in first_line
