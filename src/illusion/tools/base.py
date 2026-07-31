@@ -25,11 +25,12 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
-# 进度回调类型：接收进度消息文本，返回 Awaitable。
+# 进度回调类型：接收进度消息文本和进度类型，返回 Awaitable。
 # 工具在执行过程中调用此回调上报中间状态，由 query.py 注入，
 # 最终通过 ToolProgressEvent 流式传递给前端。
-# 仅 agent 工具前台模式使用此回调上报子代理的工具调用进度。
-ProgressCallback = Callable[[str], Awaitable[None]]
+# progress_type 取值：thinking（LLM 思考）、text（LLM 回复）、tool（工具调用）、status（默认）。
+# 仅 agent 工具前台模式使用此回调上报子代理的执行进度。
+ProgressCallback = Callable[[str, str], Awaitable[None]]
 
 
 @dataclass
@@ -41,7 +42,7 @@ class ToolExecutionContext:
         metadata: 元数据字典
         on_progress: 进度回调（可选）。工具执行过程中调用以上报中间状态，
             由 query.py 注入，最终通过 ToolProgressEvent 流式传递给前端。
-            仅 agent 工具前台模式使用。
+            回调签名为 (message, progress_type)，仅 agent 工具前台模式使用。
     """
 
     cwd: Path

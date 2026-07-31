@@ -374,14 +374,30 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       // 流式进度消息：累积到对应 pendingToolCall 的 progressMessages（对称于 terminal 端）
+      // thinking/text 为增量片段，累积到同类型最后一条；tool/status 为完整消息，直接追加
       if (evt.type === 'tool_progress') {
         const uid = evt.tool_use_id;
         if (uid) {
-          pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) =>
-            p.tool_use_id === uid
-              ? { ...p, progressMessages: [...(p.progressMessages ?? []), evt.message ?? ''].slice(-10) }
-              : p,
-          );
+          const msgType = evt.progress_type ?? 'status';
+          const msgContent = evt.message ?? '';
+          pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) => {
+            if (p.tool_use_id !== uid) return p;
+            const prev = p.progressMessages ?? [];
+            let next;
+            if (msgType === 'thinking' || msgType === 'text') {
+              const lastIdx = prev.length - 1;
+              const lastEntry = lastIdx >= 0 ? prev[lastIdx] : undefined;
+              if (lastEntry && lastEntry.type === msgType) {
+                next = [...prev];
+                next[lastIdx] = {message: lastEntry.message + msgContent, type: msgType};
+              } else {
+                next = [...prev, {message: msgContent, type: msgType}];
+              }
+            } else {
+              next = [...prev, {message: msgContent, type: msgType}];
+            }
+            return {...p, progressMessages: next.slice(-10)};
+          });
           setPendingToolCalls(pendingToolCallsRef.current);
         }
         return;

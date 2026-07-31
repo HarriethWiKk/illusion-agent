@@ -23,8 +23,8 @@ export type PendingToolCall = {
 	tool_use_id: string;
 	/** 工具输入参数（可选，可能尚未到达） */
 	tool_input?: Record<string, unknown>;
-	/** 流式进度消息列表 */
-	progressMessages?: string[];
+	/** 流式进度消息列表（message 为内容，type 为进度类型：thinking/text/tool/status） */
+	progressMessages?: Array<{message: string; type?: string}>;
 };
 
 /**

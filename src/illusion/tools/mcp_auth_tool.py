@@ -20,7 +20,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from illusion.config.settings import load_settings, save_settings
-from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig, McpWebSocketServerConfig
+from illusion.mcp.types import McpHttpServerConfig, McpStdioServerConfig
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -73,11 +73,11 @@ class McpAuthTool(BaseTool[McpAuthToolInput]):
             env_key = arguments.key or "MCP_AUTH_TOKEN"
             env = dict(config.env or {})
             env[env_key] = f"Bearer {arguments.value}" if arguments.mode == "bearer" else arguments.value
-            updated: McpStdioServerConfig | McpHttpServerConfig | McpWebSocketServerConfig = config.model_copy(update={"env": env})
-        elif isinstance(config, (McpHttpServerConfig, McpWebSocketServerConfig)):
-            # http/ws 服务器支持 header 或 bearer 模式
+            updated: McpStdioServerConfig | McpHttpServerConfig = config.model_copy(update={"env": env})
+        elif isinstance(config, McpHttpServerConfig):
+            # http 服务器支持 header 或 bearer 模式
             if arguments.mode not in {"header", "bearer"}:
-                return ToolResult(output="http/ws MCP auth supports header or bearer modes", is_error=True)
+                return ToolResult(output="http MCP auth supports header or bearer modes", is_error=True)
             header_key = arguments.key or "Authorization"
             headers = dict(config.headers)
             headers[header_key] = (

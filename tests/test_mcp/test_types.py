@@ -1,13 +1,12 @@
 """MCP_TOOL_EXCEPTIONS 常量测试。
 
 验证 MCP 工具异常捕获列表包含正确的异常类型，
-确保 ValueError 和 McpError 都能被 except 子句捕获。
+确保 ValueError 和 MCPError 都能被 except 子句捕获。
 """
 
 from __future__ import annotations
 
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData
+from mcp.shared.exceptions import MCPError
 
 from illusion.mcp.types import MCP_TOOL_EXCEPTIONS
 
@@ -18,8 +17,8 @@ def test_contains_value_error() -> None:
 
 
 def test_contains_mcp_error() -> None:
-    """MCP_TOOL_EXCEPTIONS 应包含 McpError。"""
-    assert McpError in MCP_TOOL_EXCEPTIONS
+    """MCP_TOOL_EXCEPTIONS 应包含 MCPError。"""
+    assert MCPError in MCP_TOOL_EXCEPTIONS
 
 
 def test_catches_value_error() -> None:
@@ -33,13 +32,13 @@ def test_catches_value_error() -> None:
 
 
 def test_catches_mcp_error() -> None:
-    """except MCP_TOOL_EXCEPTIONS 应能捕获 McpError。"""
+    """except MCP_TOOL_EXCEPTIONS 应能捕获 MCPError。"""
     try:
-        raise McpError(ErrorData(code=-1, message="test mcp error"))
+        raise MCPError(code=-1, message="test mcp error")
     except MCP_TOOL_EXCEPTIONS as exc:
         assert "test mcp error" in str(exc)
     else:
-        raise AssertionError("McpError should be caught by MCP_TOOL_EXCEPTIONS")
+        raise AssertionError("MCPError should be caught by MCP_TOOL_EXCEPTIONS")
 
 
 def test_does_not_catch_runtime_error() -> None:

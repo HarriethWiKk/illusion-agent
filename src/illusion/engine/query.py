@@ -414,12 +414,13 @@ class QueryContext:
     file_state_cache: FileStateCache | None = None
     # 工具进度消息队列：工具执行过程中通过 on_progress 回调上报进度，
     # run_query 主循环 drain 此队列并 yield ToolProgressEvent。
-    # 元素为 (tool_use_id, message)。仅单工具路径使用（agent 工具前台模式），
-    # 每轮工具执行前由 run_query 重置。
+    # 元素为 tuple[str, str, str]，即 (tool_use_id, message, progress_type)，
+    # 第三个元素 progress_type 用于区分进度类型（如 status/thinking/text/tool）。
+    # 仅单工具路径使用（agent 工具前台模式），每轮工具执行前由 run_query 重置。
     # 多工具并发路径不支持进度追踪：as_completed 按完成顺序 yield，主循环无法
     # 并发 drain 队列；且并发场景下进度消息意义有限（用户更关心整体完成情况）。
     # 如需支持，需改造为 wait(FIRST_COMPLETED) + 共享队列（消息带 tool_use_id 区分）。
-    progress_queue: asyncio.Queue[tuple[str, str]] | None = None
+    progress_queue: asyncio.Queue[tuple[str, str, str]] | None = None
     # 系统开销跟踪器：用于获取 system prompt + tools + skills 等实测 token 数
     # 与 /context usage 的 "System Prompt" 保持一致
     overhead_tracker: Any = None
@@ -651,8 +652,8 @@ async def run_query(
                             {exec_task, get_task}, return_when=asyncio.FIRST_COMPLETED
                         )
                         if get_task in done and not get_task.cancelled():
-                            tid, msg = get_task.result()
-                            yield ToolProgressEvent(tool_use_id=tid, message=msg), None
+                            tid, msg, ptype = get_task.result()
+                            yield ToolProgressEvent(tool_use_id=tid, message=msg, progress_type=ptype), None
                         else:
                             # exec_task 先完成，取消未完成的 get_task
                             get_task.cancel()
@@ -660,8 +661,8 @@ async def run_query(
                                 await get_task
                     # drain 工具执行完成后队列中剩余的进度消息
                     while not context.progress_queue.empty():
-                        tid, msg = context.progress_queue.get_nowait()
-                        yield ToolProgressEvent(tool_use_id=tid, message=msg), None
+                        tid, msg, ptype = context.progress_queue.get_nowait()
+                        yield ToolProgressEvent(tool_use_id=tid, message=msg, progress_type=ptype), None
                     # 获取结果（如有异常会重新抛出，由外层 except 处理）
                     result, hook_ctxs = exec_task.result()
                 finally:
@@ -963,9 +964,9 @@ async def _execute_tool_call(
 
     # 进度回调：将进度消息入队（仅当 progress_queue 存在时，即单工具路径）。
     # agent 工具前台模式通过此回调上报子代理的工具调用进度。
-    async def _emit_progress(message: str) -> None:
+    async def _emit_progress(message: str, progress_type: str = "status") -> None:
         if context.progress_queue is not None:
-            await context.progress_queue.put((tool_use_id, message))
+            await context.progress_queue.put((tool_use_id, message, progress_type))
 
     # 执行工具
     result = await tool.execute(

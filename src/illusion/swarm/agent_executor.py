@@ -669,15 +669,23 @@ async def run_agent_in_process(
                         agent_id, len(event.message.tool_uses),
                     )
 
-                # 转发工具事件为进度消息
+                # 转发 LLM 思考/回复和工具事件为进度消息
                 if on_progress is not None:
                     with contextlib.suppress(Exception):
-                        if isinstance(event, ToolExecutionCompleted):
-                            await on_progress(f"✓ {event.tool_name}")
+                        if isinstance(event, AssistantTextDelta):
+                            if event.reasoning:
+                                await on_progress(event.reasoning, "thinking")
+                            if event.text:
+                                await on_progress(event.text, "text")
+                        elif isinstance(event, ToolExecutionCompleted):
+                            # 工具完成不重复上报：工具开始时已通过 else 分支通知 "running xxx"。
+                            # 此处显式捕获 ToolExecutionCompleted 避免落入 else 重复上报，
+                            # 保留分支结构以便后续拓展（如完成确认标记）。
+                            pass
                         else:
                             tool_name = getattr(event, "tool_name", None)
                             if tool_name is not None:
-                                await on_progress(f"Running {tool_name}...")
+                                await on_progress(f"running {tool_name}", "tool")
 
                 with contextlib.suppress(AttributeError, TypeError):
                     if getattr(event, "type", None) in ("tool_use", "tool_call", "ToolExecutionCompleted"):

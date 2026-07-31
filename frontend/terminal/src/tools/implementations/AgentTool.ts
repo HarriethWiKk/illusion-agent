@@ -8,6 +8,8 @@
 
 import type {Tool} from '../ToolInterface.js';
 
+const MAX_RESULT_LINES = 10;
+
 function formatTokens(tokens: number): string {
 	if (tokens < 1000) return String(tokens);
 	return `${(tokens / 1000).toFixed(1)}K`;
@@ -37,7 +39,7 @@ export const agentTool: Tool = {
 	},
 
 	renderToolResultMessage(
-		_result: string,
+		result: string,
 		_input?: Record<string, unknown>,
 		_isBrief?: boolean,
 		structuredOutput?: Record<string, unknown>,
@@ -53,7 +55,15 @@ export const agentTool: Tool = {
 			return 'Remote agent launched';
 		}
 
-		return 'Done';
+		// 显示 agent 最终回复，截断到 MAX_RESULT_LINES（与 bash 工具一致）
+		if (!result || result.trim() === '') {
+			return 'Done';
+		}
+		const lines = result.split('\n').filter(l => l.length > 0);
+		if (lines.length > MAX_RESULT_LINES) {
+			return [...lines.slice(0, MAX_RESULT_LINES), `… +${lines.length - MAX_RESULT_LINES} lines`].join('\n');
+		}
+		return lines.join('\n');
 	},
 
 	getActivityDescription(input?: Record<string, unknown>): string | null {

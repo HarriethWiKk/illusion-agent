@@ -30,7 +30,6 @@ IllusionAgent 提供分层扩展系统。扩展可在三个层级配置（优先
 | `stdio` | command, args, env, cwd, log_file, enabled | 标准输入输出通信 |
 | `http` | url, headers, enabled | HTTP 协议（Streamable HTTP，兼容 `streamable-http`/`streamableHttp`/`streamable_http`/`streamablehttp` 别名） |
 | `sse` | url, headers, enabled | Server-Sent Events 协议 |
-| `ws` | url, headers, enabled | WebSocket 协议（兼容 `websocket` 别名） |
 
 所有类型支持 `enabled` 字段（默认 `true`）。设为 `false` 可禁用而不删除配置。
 
@@ -43,7 +42,7 @@ IllusionAgent 提供分层扩展系统。扩展可在三个层级配置（优先
 }
 ```
 
-仅在使用 `http`/`sse`/`ws` 等非 stdio 类型时才需显式填写 `type`。
+仅在使用 `http`/`sse` 等非 stdio 类型时才需显式填写 `type`。
 
 ### 三个配置来源（优先级从高到低）
 

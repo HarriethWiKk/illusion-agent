@@ -530,19 +530,28 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'tool_progress') {
 			// 流式进度消息，更新对应 pendingToolCall 的 progressMessages
+			// thinking/text 为增量片段，累积到同类型最后一条；tool/status 为完整消息，直接追加
 			const toolUseId = event.tool_use_id;
 			if (toolUseId) {
-				pendingToolCallsRef.current = pendingToolCallsRef.current.map(p =>
-					p.tool_use_id === toolUseId
-						? {
-							...p,
-							progressMessages: [
-								...(p.progressMessages ?? []),
-								event.message ?? '',
-							].slice(-10),
+				const msgType = event.progress_type ?? 'status';
+				const msgContent = event.message ?? '';
+				pendingToolCallsRef.current = pendingToolCallsRef.current.map(p => {
+					if (p.tool_use_id !== toolUseId) return p;
+					const prev = p.progressMessages ?? [];
+					let next;
+					if (msgType === 'thinking' || msgType === 'text') {
+						const lastIdx = prev.length - 1;
+						if (lastIdx >= 0 && prev[lastIdx].type === msgType) {
+							next = [...prev];
+							next[lastIdx] = {message: prev[lastIdx].message + msgContent, type: msgType};
+						} else {
+							next = [...prev, {message: msgContent, type: msgType}];
 						}
-						: p,
-				);
+					} else {
+						next = [...prev, {message: msgContent, type: msgType}];
+					}
+					return {...p, progressMessages: next.slice(-10)};
+				});
 				setPendingToolCalls(pendingToolCallsRef.current);
 			}
 			return;

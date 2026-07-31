@@ -389,16 +389,26 @@ export function ReasoningContent({ text }: { text: string }) {
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
   const displayName = toolDisplayName(call.tool_name);
+  // 混合显示 thinking/text/tool 消息，按行切分后取最后 3 行，统一灰调
+  const progressLines: string[] = [];
+  if (call.progressMessages) {
+    for (const msg of call.progressMessages) {
+      for (const line of msg.message.split('\n')) {
+        if (line.trim() !== '') progressLines.push(line);
+      }
+    }
+  }
+  const tailLines = progressLines.slice(-3);
   return (
     <div className="py-1.5 flex items-start gap-2">
       <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
       <span className="text-sm flex-1 min-w-0">
         <span className="font-medium font-mono text-content-primary">{displayName}</span>
         {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
-        {call.progressMessages && call.progressMessages.length > 0 && (
-          <div className="mt-1 flex flex-col gap-0.5">
-            {call.progressMessages.slice(-3).map((msg, i) => (
-              <span key={i} className="text-xs text-content-secondary">{msg}</span>
+        {tailLines.length > 0 && (
+          <div className="mt-1 ml-3.5 flex flex-col gap-0.5 border-l border-border-light pl-2">
+            {tailLines.map((line, i) => (
+              <span key={i} className="text-xs text-content-secondary font-mono whitespace-pre-wrap break-all">{line}</span>
             ))}
           </div>
         )}

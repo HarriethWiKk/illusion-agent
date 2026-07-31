@@ -455,7 +455,7 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 
 > `mcpServers` (camelCase) is also accepted for backward compatibility and auto-mapped to `mcp_servers`.
 
-MCP server types: `stdio` (command, args, env, cwd), `http` (url, headers), `ws` (url, headers). All support `enabled` field (default `true`).
+MCP server types: `stdio` (command, args, env, cwd), `http` (url, headers). All support `enabled` field (default `true`).
 
 ### Plugins (Global enable/disable)
 

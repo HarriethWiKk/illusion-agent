@@ -104,8 +104,8 @@ export interface PendingToolCall {
   tool_use_id: string;
   /** 工具输入参数（可选） */
   tool_input?: Record<string, unknown>;
-  /** 流式进度消息列表（可选，由 tool_progress 事件累积） */
-  progressMessages?: string[];
+  /** 流式进度消息列表（可选，由 tool_progress 事件累积；message 为内容，type 为进度类型） */
+  progressMessages?: Array<{message: string; type?: string}>;
 }
 
 /**

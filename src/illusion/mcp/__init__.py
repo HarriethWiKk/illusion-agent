@@ -10,7 +10,6 @@ MCP 模块
     - McpStdioServerConfig: STDIO 服务器配置
     - McpHttpServerConfig: HTTP 服务器配置（Streamable HTTP）
     - McpSseServerConfig: SSE 服务器配置
-    - McpWebSocketServerConfig: WebSocket 服务器配置
     - McpToolInfo: MCP 工具信息
     - McpResourceInfo: MCP 资源信息
     - McpConnectionStatus: MCP 连接状态
@@ -38,7 +37,6 @@ if TYPE_CHECKING:  # pragma: no cover
         McpSseServerConfig,
         McpStdioServerConfig,
         McpToolInfo,
-        McpWebSocketServerConfig,
     )
 
 __all__ = [
@@ -51,7 +49,6 @@ __all__ = [
     "McpSseServerConfig",
     "McpStdioServerConfig",
     "McpToolInfo",
-    "McpWebSocketServerConfig",
     "load_mcp_server_configs",
     "load_project_mcp_configs",
 ]
@@ -83,7 +80,6 @@ def __getattr__(name: str) -> object:
         "McpSseServerConfig",
         "McpStdioServerConfig",
         "McpToolInfo",
-        "McpWebSocketServerConfig",
     }:
         from illusion.mcp.types import (
             McpConnectionStatus,
@@ -94,7 +90,6 @@ def __getattr__(name: str) -> object:
             McpSseServerConfig,
             McpStdioServerConfig,
             McpToolInfo,
-            McpWebSocketServerConfig,
         )
 
         return {
@@ -106,6 +101,5 @@ def __getattr__(name: str) -> object:
             "McpSseServerConfig": McpSseServerConfig,
             "McpStdioServerConfig": McpStdioServerConfig,
             "McpToolInfo": McpToolInfo,
-            "McpWebSocketServerConfig": McpWebSocketServerConfig,
         }[name]
     raise AttributeError(name)

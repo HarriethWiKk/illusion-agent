@@ -7,7 +7,7 @@ MCP 客户端管理器模块
 主要功能：
     - 管理 MCP 服务器连接
     - 暴露 MCP 工具和资源
-    - 支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 传输类型
+    - 支持 STDIO、HTTP（Streamable HTTP）、SSE 传输类型
     - 提供工具调用和资源读取接口
 
 类说明：
@@ -30,12 +30,12 @@ import sys
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any, TextIO
 
+import httpx2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
-from mcp.client.websocket import websocket_client
-from mcp.shared.exceptions import McpError
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 from mcp.types import CallToolResult, ReadResourceResult
 
 from illusion.mcp.types import (
@@ -45,7 +45,6 @@ from illusion.mcp.types import (
     McpSseServerConfig,
     McpStdioServerConfig,
     McpToolInfo,
-    McpWebSocketServerConfig,
 )
 
 if TYPE_CHECKING:
@@ -59,16 +58,16 @@ logger = logging.getLogger(__name__)
 class McpClientManager:
     """
     MCP 客户端管理器
-    
+
     管理与 MCP 服务器的连接，并暴露服务器提供的工具和资源。
-    支持 STDIO、HTTP（Streamable HTTP）、SSE、WebSocket 传输类型。
-    
+    支持 STDIO、HTTP（Streamable HTTP）、SSE 传输类型。
+
     Attributes:
         _server_configs: 服务器名称到配置的映射
         _statuses: 服务器名称到连接状态的映射
         _sessions: 服务器名称到客户端会话的映射
         _stacks: 服务器名称到异步退出栈的映射
-    
+
     使用示例：
         >>> manager = McpClientManager(configs)
         >>> await manager.connect_all()
@@ -100,14 +99,14 @@ class McpClientManager:
         连接所有已配置的 MCP 服务器
 
         并行连接所有服务器以加速启动，支持 STDIO、HTTP（Streamable HTTP）、
-        SSE、WebSocket 四种传输类型。
+        SSE 三种传输类型。
         """
         # 收集需要并行连接的任务
         connect_coros: list[Any] = []
         for name, config in self._server_configs.items():
             if isinstance(config, McpStdioServerConfig):
                 connect_coros.append(self._connect_stdio(name, config))
-            elif isinstance(config, (McpHttpServerConfig, McpSseServerConfig, McpWebSocketServerConfig)):
+            elif isinstance(config, (McpHttpServerConfig, McpSseServerConfig)):
                 connect_coros.append(self._connect_remote(name, config))
             else:
                 # 未知传输类型标记为失败
@@ -237,14 +236,14 @@ class McpClientManager:
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         调用指定的 MCP 工具
-        
+
         在指定服务器上调用工具并返回字符串形式的结果。
-        
+
         Args:
             server_name: 服务器名称
             tool_name: 工具名称
             arguments: 工具参数字典
-        
+
         Returns:
             工具执行结果的字符串形式
         """
@@ -258,8 +257,9 @@ class McpClientManager:
             else:
                 parts.append(item.model_dump_json())
         # 如果有结构化内容但没有文本 parts，添加结构化内容
-        if result.structuredContent and not parts:
-            parts.append(str(result.structuredContent))
+        # MCP v2: structured_content → structured_content
+        if result.structured_content and not parts:
+            parts.append(str(result.structured_content))
         # 如果没有输出，返回默认消息
         if not parts:
             parts.append("(no output)")
@@ -301,7 +301,7 @@ class McpClientManager:
         """
         初始化会话并获取工具/资源列表，成功后记录连接状态
 
-        所有传输类型（STDIO/HTTP/SSE/WebSocket）共用的公共逻辑：
+        所有传输类型（STDIO/HTTP/SSE）共用的公共逻辑：
         session.initialize() → list_tools → list_resources → 记录状态。
         失败时抛出异常，由调用方负责清理 stack 并标记 failed。
 
@@ -320,7 +320,7 @@ class McpClientManager:
                 server_name=name,
                 name=tool.name,
                 description=tool.description or "",
-                input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
+                input_schema=dict(tool.input_schema or {"type": "object", "properties": {}}),
             )
             for tool in tool_result.tools
         ]
@@ -337,18 +337,18 @@ class McpClientManager:
                 )
                 for resource in resource_result.resources
             ]
-        except McpError as exc:
+        except MCPError as exc:
             # 服务器不支持 resources 能力（返回 JSON-RPC 错误）或请求超时
             logger.debug("Server %s does not support resources: %s", name, exc)
         # 获取资源模板（部分服务器只暴露模板，不暴露静态资源）
         try:
             template_result = await session.list_resource_templates()
-            template_items = getattr(template_result, "resourceTemplates", None)
+            template_items = getattr(template_result, "resource_templates", None)
             if template_items is None:
                 template_items = getattr(template_result, "resource_templates", [])
             for template in template_items or []:
                 template_uri = str(
-                    getattr(template, "uriTemplate", None)
+                    getattr(template, "uri_template", None)
                     or getattr(template, "uri_template", None)
                     or ""
                 ).strip()
@@ -364,7 +364,7 @@ class McpClientManager:
                         description=getattr(template, "description", "") or "",
                     )
                 )
-        except McpError as exc:
+        except MCPError as exc:
             # 服务器不支持 resource templates 能力（返回 JSON-RPC 错误）或请求超时
             logger.debug("Server %s does not support resource templates: %s", name, exc)
         # 保存会话和栈
@@ -419,7 +419,7 @@ class McpClientManager:
             # 创建客户端会话并完成公共初始化流程
             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
             await self._finalize_session(name, config, session, stack, auth_configured=bool(config.env))
-        except (OSError, McpError, ConnectionError, TimeoutError, RuntimeError) as exc:
+        except (OSError, MCPError, ConnectionError, TimeoutError, RuntimeError) as exc:
             # 连接失败，清理资源并更新状态
             logger.debug("Failed to connect MCP stdio server %s: %s", name, exc)
             await stack.aclose()
@@ -439,7 +439,7 @@ class McpClientManager:
 
         Args:
             name: 服务器名称
-            config: 远程服务器配置（McpHttpServerConfig/McpSseServerConfig/McpWebSocketServerConfig）
+            config: 远程服务器配置（McpHttpServerConfig/McpSseServerConfig）
         """
         headers_configured = bool(getattr(config, "headers", None))
         stack = AsyncExitStack()
@@ -450,7 +450,7 @@ class McpClientManager:
                 name, config, session, stack, auth_configured=headers_configured
             )
         except (
-            OSError, McpError, ConnectionError, TimeoutError, RuntimeError, asyncio.CancelledError,
+            OSError, MCPError, ConnectionError, TimeoutError, RuntimeError, asyncio.CancelledError,
         ) as exc:
             # 远程传输（streamablehttp/sse）内部使用 anyio task group，
             # 连接失败时会通过 cancel scope 取消任务产生 CancelledError（BaseException
@@ -487,19 +487,20 @@ class McpClientManager:
         """
         headers = dict(getattr(config, "headers", None) or {})
         if isinstance(config, McpHttpServerConfig):
-            # streamablehttp_client 返回 (read, write, get_session_id) 三元组
-            read, write, _ = await stack.enter_async_context(
-                streamablehttp_client(url=config.url, headers=headers or None)
+            # MCP v2: streamable_http_client 返回 (read, write) 二元组
+            # headers/timeout/auth 配置在 httpx2.AsyncClient 上
+            http_client = httpx2.AsyncClient(
+                headers=headers or None,
+                timeout=httpx2.Timeout(30, read=300),
+                follow_redirects=True,
+            )
+            read, write = await stack.enter_async_context(
+                streamable_http_client(url=config.url, http_client=http_client)
             )
             return read, write
         if isinstance(config, McpSseServerConfig):
             read, write = await stack.enter_async_context(
                 sse_client(url=config.url, headers=headers or None)
-            )
-            return read, write
-        if isinstance(config, McpWebSocketServerConfig):
-            read, write = await stack.enter_async_context(
-                websocket_client(url=config.url)
             )
             return read, write
         raise ValueError(f"Unsupported remote MCP transport: {type(config).__name__}")

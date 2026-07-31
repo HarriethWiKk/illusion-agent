@@ -176,12 +176,53 @@ function BlinkingToolIndicator({
 					)}
 				</Box>
 			))}
-			{/* 流式进度消息：仅显示最新一条，避免多行闪烁 */}
+			{/* 流式进度消息：混合显示 thinking/text/tool，取最后 3 行，包裹在 ⎿ 前缀中 */}
 			{pending.progressMessages && pending.progressMessages.length > 0 ? (
-				<Box marginLeft={2}>
-					<Text dimColor>{pending.progressMessages[pending.progressMessages.length - 1]}</Text>
-				</Box>
+				<AgentProgressLines messages={pending.progressMessages} theme={theme} terminalWidth={terminalWidth} />
 			) : null}
+		</Box>
+	);
+}
+
+/**
+ * Agent 工具流式进度渲染：混合显示 thinking/text/tool 消息，取最后 3 行。
+ * 首行使用 ⎿ 前缀，续行对齐缩进。统一灰调，与最终回复视觉一致。
+ * 超长行按终端宽度换行，续行带 continuationPrefix 缩进。
+ */
+function AgentProgressLines({
+	messages,
+	theme,
+	terminalWidth,
+}: {
+	messages: Array<{message: string; type?: string}>;
+	theme: ThemeConfig;
+	terminalWidth: number;
+}): React.JSX.Element | null {
+	// 合并所有消息的行，保留每行类型
+	const allLines: Array<{text: string; type?: string}> = [];
+	for (const msg of messages) {
+		const lines = msg.message.split('\n').filter(l => l.trim() !== '');
+		for (const line of lines) {
+			allLines.push({text: line, type: msg.type});
+		}
+	}
+	if (allLines.length === 0) return null;
+
+	const tail = allLines.slice(-3);
+	const prefix = `  ${theme.icons.resultPrefix} `;
+	const continuationPrefix = ' '.repeat(stringWidth(prefix));
+	// 合并 3 条消息为一个文本（用 \n 连接），用 wrapForPrefix 按可用宽度换行
+	const joined = tail.map(l => l.text).join('\n');
+	const wrapped = wrapForPrefix(joined, terminalWidth, prefix);
+
+	return (
+		<Box flexDirection="column">
+			{wrapped.map((line, i) => (
+				<Box key={i}>
+					<Text dimColor>{i === 0 ? prefix : continuationPrefix}</Text>
+					<Text dimColor>{line}</Text>
+				</Box>
+			))}
 		</Box>
 	);
 }
