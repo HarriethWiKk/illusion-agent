@@ -133,6 +133,12 @@ const ZH: Record<string, string> = {
   inputLabel: 'input',
   outputLabel: 'output',
   pendingMeasurement: '待实测',
+  // btw 侧问相关
+  btw_card_title: '侧问',
+  btw_answering: '回答中...',
+  btw_placeholder: '输入侧问问题...',
+  btw_button: '侧问',
+  btw_close: '关闭',
 };
 
 const EN: Record<string, string> = {
@@ -240,6 +246,12 @@ const EN: Record<string, string> = {
   inputLabel: 'input',
   outputLabel: 'output',
   pendingMeasurement: 'pending',
+  // btw side question
+  btw_card_title: 'Side Question',
+  btw_answering: 'Answering...',
+  btw_placeholder: 'Ask a side question...',
+  btw_button: 'Side Question',
+  btw_close: 'Close',
 };
 
 /**

@@ -22,6 +22,7 @@ import PromptInput from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
 import { CustomInputModal } from './components/CustomInputModal';
+import { BtwCard } from './components/BtwCard';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -175,6 +176,12 @@ export default function App() {
         });
         return;
       }
+      // /btw <question> → 走 btw 侧问通道（不走 web_query）
+      // question 为空时静默忽略，避免发送空请求
+      if (cmdName === 'btw') {
+        if (args) session.sendBtwRequest(args);
+        return;
+      }
       if (B_COMMANDS.includes(cmdName)) {
         session.setBusyTrue();
         session.sendRequest({
@@ -275,6 +282,20 @@ export default function App() {
   // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+  /**
+   * 处理关闭侧问卡片
+   *
+   * 若仍在 loading 中，先发送 btw_cancel 取消后端请求，再清空本地状态；
+   * 否则仅清空本地展示状态。
+   */
+  const handleCloseBtw = useCallback(() => {
+    if (session.btwLoading && session.btwRequestId) {
+      session.sendBtwCancel(session.btwRequestId);
+    } else {
+      session.clearBtwState();
+    }
+  }, [session.btwLoading, session.btwRequestId, session.sendBtwCancel, session.clearBtwState]);
 
   /** 处理停止当前任务 */
   const handleStop = () => { session.sendRequest({ type: 'stop' }); };
@@ -448,7 +469,8 @@ export default function App() {
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
-          inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose} />
+          inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
+          btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />
         <Toolbar lang={lang} status={session.status}
           modelOptions={session.modelOptions}
           onSetSetting={(key, value) => {
@@ -552,6 +574,17 @@ export default function App() {
           invalidMessage={customInputModal.invalidMessage}
           onSubmit={handleCustomSubmit}
           onCancel={handleCustomCancel}
+        />
+      )}
+
+      {/* 侧问浮动卡片（loading / reply / error 任一非空时显示） */}
+      {(session.btwLoading || session.btwReply != null || session.btwError != null) && (
+        <BtwCard
+          lang={lang}
+          loading={session.btwLoading}
+          reply={session.btwReply}
+          error={session.btwError}
+          onClose={handleCloseBtw}
         />
       )}
 

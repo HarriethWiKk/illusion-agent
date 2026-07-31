@@ -73,6 +73,10 @@ interface PromptInputProps {
   onInlineSelect?: (command: string, value: string) => void;
   /** 内联选项关闭回调（可选） */
   onInlineClose?: () => void;
+  /** 侧问请求进行中（可选） */
+  btwLoading?: boolean;
+  /** 侧问提交回调（可选） */
+  onBtwSubmit?: (question: string) => void;
 }
 
 /**
@@ -83,13 +87,19 @@ interface PromptInputProps {
  * @param props - 组件属性
  * @returns 返回提示输入的 JSX 元素
  */
-export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose }: PromptInputProps) {
+export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
   const [value, setValue] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 侧问内联输入框状态
+  const [showBtwInput, setShowBtwInput] = useState(false);
+  const [btwValue, setBtwValue] = useState('');
+  const btwInputRef = useRef<HTMLInputElement>(null);
+  const btwLoadingActive = btwLoading === true;
+  const btwEnabled = typeof onBtwSubmit === 'function';
 
   // 消息发送后输入框清空时，重置高度（onInput 不会因程序化赋值触发）
   useEffect(() => {
@@ -254,6 +264,64 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
     setShowCommands(false);
   };
 
+  /**
+   * 提交侧问问题
+   *
+   * 校验非空且未在 loading 中后调用 onBtwSubmit 回调，并关闭内联输入框。
+   */
+  const handleBtwSubmit = () => {
+    if (btwLoadingActive) return;
+    const q = btwValue.trim();
+    if (!q) return;
+    onBtwSubmit?.(q);
+    setBtwValue('');
+    setShowBtwInput(false);
+  };
+
+  /**
+   * 切换侧问输入框显示
+   *
+   * 关闭时清空已输入内容；打开时延迟聚焦输入框。
+   * loading 进行中禁止再次打开/关闭以避免状态错乱。
+   */
+  const toggleBtwInput = () => {
+    if (btwLoadingActive) return;
+    setShowBtwInput((prev) => {
+      const next = !prev;
+      if (!next) setBtwValue('');
+      if (next) setTimeout(() => btwInputRef.current?.focus(), 0);
+      return next;
+    });
+  };
+
+  /**
+   * 侧问输入框键盘事件处理
+   *
+   * - Enter：提交（与按钮点击等效）
+   * - Esc：取消并关闭输入框
+   * - Ctrl+B：也触发提交（与点击按钮等效，兼容任务约定）
+   *
+   * @param e - 键盘事件
+   */
+  const handleBtwKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleBtwSubmit();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setBtwValue('');
+      setShowBtwInput(false);
+      return;
+    }
+    // Ctrl+B / Cmd+B：与点击侧问按钮等效，触发提交
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault();
+      handleBtwSubmit();
+    }
+  };
+
   const showInline = inlineOptions && inlineOptions.options.length > 0;
   const showAutocomplete = showCommands && filteredCommands.length > 0 && !showInline;
 
@@ -301,6 +369,31 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         </div>
       )}
 
+      {/* 侧问内联输入框（textarea 上方） */}
+      {btwEnabled && showBtwInput && (
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2">
+          <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
+          <input
+            ref={btwInputRef}
+            type="text"
+            value={btwValue}
+            onChange={(e) => setBtwValue(e.target.value)}
+            onKeyDown={handleBtwKeyDown}
+            placeholder={t(lang, 'btw_placeholder')}
+            disabled={btwLoadingActive}
+            className="flex-1 min-w-0 bg-transparent text-sm text-content-primary placeholder-content-disabled outline-none border-none disabled:opacity-50"
+          />
+          <button
+            onClick={handleBtwSubmit}
+            disabled={btwLoadingActive || !btwValue.trim()}
+            title={t(lang, 'send')}
+            className="shrink-0 px-2 py-1 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {t(lang, 'send')}
+          </button>
+        </div>
+      )}
+
       <div className="flex items-end glass-surface rounded-lg transition-all duration-200 focus-within:shadow-glow">
         <textarea
           ref={textareaRef}
@@ -318,6 +411,31 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
             el.style.height = Math.min(el.scrollHeight, 140) + 'px';
           }}
         />
+        {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 时显示 */}
+        {btwEnabled && (
+          <button
+            onClick={toggleBtwInput}
+            disabled={btwLoadingActive}
+            title={t(lang, 'btw_button')}
+            className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
+              showBtwInput
+                ? 'bg-primary-light text-primary border border-primary/30'
+                : 'text-content-secondary glass-option-hover hover:bg-black/5'
+            }`}
+          >
+            {btwLoadingActive ? (
+              <svg className="w-4 h-4 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+                <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4.5v5A1.5 1.5 0 0 1 12.5 11H7l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5z" />
+                <path d="M5.5 7h5M5.5 5.5h3" />
+              </svg>
+            )}
+          </button>
+        )}
         <button
           onClick={handleSend}
           disabled={!connected && !busy}

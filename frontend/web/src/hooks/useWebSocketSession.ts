@@ -116,6 +116,21 @@ export interface WebSocketSessionState {
   modelSwitching: boolean;
   /** 设置模型切换状态 */
   setModelSwitching: (v: boolean) => void;
+  // ---- btw 侧问相关 ----
+  /** 侧问请求进行中 */
+  btwLoading: boolean;
+  /** 侧问回复文本（非 null 表示成功回复） */
+  btwReply: string | null;
+  /** 侧问错误文本（非空表示失败） */
+  btwError: string | null;
+  /** 当前活跃的 btw 请求 ID */
+  btwRequestId: string | null;
+  /** 发送侧问请求：生成 request_id 并发 btw_request */
+  sendBtwRequest: (question: string) => void;
+  /** 取消侧问请求：发 btw_cancel 并清空本地 btw 状态 */
+  sendBtwCancel: (requestId: string) => void;
+  /** 清空所有 btw 状态（关闭卡片时调用） */
+  clearBtwState: () => void;
   deleteSessions: (sessionIds: string[], deleteAll?: boolean) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
@@ -155,6 +170,18 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
   // 模型切换中（用于 Toolbar 显示加载动画）
   const [modelSwitching, setModelSwitching] = useState(false);
+
+  // ---- btw 侧问相关状态 ----
+  /** 侧问请求进行中 */
+  const [btwLoading, setBtwLoading] = useState(false);
+  /** 侧问回复文本 */
+  const [btwReply, setBtwReply] = useState<string | null>(null);
+  /** 侧问错误文本 */
+  const [btwError, setBtwError] = useState<string | null>(null);
+  /** 当前活跃的 btw 请求 ID（用于响应匹配与取消） */
+  const [btwRequestId, setBtwRequestId] = useState<string | null>(null);
+  /** btw 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
+  const btwRequestIdRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const assistantBufferRef = useRef('');
@@ -240,6 +267,59 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setModelValue = useCallback((value: string): void => {
     sendRequest({ type: 'apply_select_command', command: 'model', value });
   }, [sendRequest]);
+
+  /**
+   * 发送 btw 侧问请求
+   *
+   * 生成 request_id（优先用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底），
+   * 发送 btw_request 并将本地状态置为 loading。同时清空上一次的 reply/error。
+   *
+   * @param question - 侧问问题文本
+   */
+  const sendBtwRequest = useCallback((question: string): void => {
+    const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    btwRequestIdRef.current = requestId;
+    setBtwRequestId(requestId);
+    setBtwLoading(true);
+    setBtwReply(null);
+    setBtwError(null);
+    sendRequest({ type: 'btw_request', question, request_id: requestId });
+  }, [sendRequest]);
+
+  /**
+   * 取消进行中的 btw 请求
+   *
+   * 向后端发送 btw_cancel 并清空本地 btw 状态。
+   * 当 requestId 为空（无活跃请求）时静默忽略，避免无意义请求。
+   *
+   * @param requestId - 要取消的 btw 请求 ID
+   */
+  const sendBtwCancel = useCallback((requestId: string): void => {
+    if (requestId) {
+      sendRequest({ type: 'btw_cancel', request_id: requestId });
+    }
+    btwRequestIdRef.current = null;
+    setBtwLoading(false);
+    setBtwReply(null);
+    setBtwError(null);
+    setBtwRequestId(null);
+  }, [sendRequest]);
+
+  /**
+   * 清空所有 btw 状态
+   *
+   * 关闭卡片时调用，仅清空本地展示状态，不向后端发取消请求。
+   * 进行中的请求若需取消，调用方应先调用 sendBtwCancel。
+   */
+  const clearBtwState = useCallback((): void => {
+    btwRequestIdRef.current = null;
+    setBtwLoading(false);
+    setBtwReply(null);
+    setBtwError(null);
+    setBtwRequestId(null);
+  }, []);
 
   useEffect(() => {
     const ws = new WebSocket(url);
@@ -486,6 +566,23 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
 
+      // === btw 侧问响应 ===
+      if (evt.type === 'btw_response') {
+        // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
+        const activeId = btwRequestIdRef.current;
+        if (activeId && evt.request_id && evt.request_id !== activeId) {
+          return;
+        }
+        setBtwLoading(false);
+        if (evt.error) {
+          setBtwError(evt.error);
+        } else if (evt.reply != null) {
+          setBtwReply(evt.reply);
+        }
+        // 保留 btwRequestId 以便后续关闭卡片时仍可发 btw_cancel
+        return;
+      }
+
       // === 选择请求 ===
       if (evt.type === 'select_request') {
         const m = evt.modal ?? {};
@@ -546,6 +643,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching, setModelSwitching,
+    btwLoading, btwReply, btwError, btwRequestId,
+    sendBtwRequest, sendBtwCancel, clearBtwState,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
     mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
@@ -554,5 +653,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
     modelSwitching,
+    btwLoading, btwReply, btwError, btwRequestId,
+    sendBtwRequest, sendBtwCancel, clearBtwState,
   ]);
 }

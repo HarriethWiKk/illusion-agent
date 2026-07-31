@@ -264,7 +264,10 @@ export type FrontendRequest =
   | { type: 'web_request_sessions'; limit?: number; offset?: number }
   | { type: 'web_request_models' }
   | { type: 'web_request_resources' }
-  | { type: 'web_query'; command: string; args?: string; request_id: string };
+  | { type: 'web_query'; command: string; args?: string; request_id: string }
+  // === btw 侧问（terminal + web 共用）===
+  | { type: 'btw_request'; question: string; request_id: string }
+  | { type: 'btw_cancel'; request_id: string };
 
 // ---- 后端事件 ----
 
@@ -353,6 +356,13 @@ export interface BackendEvent {
   web_command?: string;
   /** web_restore_completed 等事件的错误信息（非空表示操作失败）（可选） */
   web_error?: string;
+  // === btw 侧问响应专属字段 ===
+  /** btw_response 关联的请求 ID（可选） */
+  request_id?: string;
+  /** btw_response 的回复文本（可选，非 null 表示成功回复） */
+  reply?: string | null;
+  /** btw_response 的错误文本（可选，非空表示请求失败）（与布尔 is_error 区分） */
+  error?: string | null;
 }
 
 /**
