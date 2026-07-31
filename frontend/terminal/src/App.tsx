@@ -461,6 +461,11 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 			return;
 		}
+		// --- btw 输入框 / 回复面板激活时，按键交由其内部 useInput 处理 ---
+		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
+		if (btwInputActive || session.btwReply !== null || session.btwError !== null) {
+			return;
+		}
 		// Ctrl+B → busy 模式下激活侧问输入框
 		if (key.ctrl && chunk.toLowerCase() === 'b' && session.busy) {
 			setBtwInputActive(true);
@@ -481,12 +486,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 		// --- 自定义输入模态框激活时，字符输入交由其内部 TextInput ---
 		if (customInputModal) {
-			return;
-		}
-
-		// --- btw 输入框 / 回复面板激活时，按键交由其内部 useInput 处理 ---
-		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
-		if (btwInputActive || session.btwReply !== null || session.btwError !== null) {
 			return;
 		}
 
