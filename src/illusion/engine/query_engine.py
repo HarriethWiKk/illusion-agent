@@ -627,12 +627,23 @@ class QueryEngine:
             # 同步压缩后的消息列表（full compact 后 messages 指向新列表）
             if context.final_messages is not None and context.final_messages is not self._messages:
                 self._messages = context.final_messages
-            # 持久化 run_query 期间新增的所有消息（assistant 回复、tool 结果、
-            # hook 注入的 user 消息等）。使用 finally 确保即使异常/中断也能
-            # 保存已生成的消息，避免 resume 后对话历史缺失。
             if self._checkpoint_store is not None:
-                for msg in self._messages[messages_before:]:
-                    await self._checkpoint_store.append_message(msg)
+                if context.compacted:
+                    # run_query 内发生过压缩：重建 checkpoint，
+                    # 否则 resume/rewind 会恢复到压缩前的完整历史
+                    await self._checkpoint_store.rebuild_after_compact(
+                        self._messages,
+                        usage_input=self._cost_tracker.total.input_tokens,
+                        usage_output=self._cost_tracker.total.output_tokens,
+                        usage_cache_read=self._cost_tracker.total.cache_read_input_tokens,
+                        usage_cache_creation=self._cost_tracker.total.cache_creation_input_tokens,
+                    )
+                else:
+                    # 持久化 run_query 期间新增的所有消息（assistant 回复、tool 结果、
+                    # hook 注入的 user 消息等）。使用 finally 确保即使异常/中断也能
+                    # 保存已生成的消息，避免 resume 后对话历史缺失。
+                    for msg in self._messages[messages_before:]:
+                        await self._checkpoint_store.append_message(msg)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
@@ -699,10 +710,20 @@ class QueryEngine:
             # 同步压缩后的消息列表（full compact 后 messages 指向新列表）
             if context.final_messages is not None and context.final_messages is not self._messages:
                 self._messages = context.final_messages
-            # 持久化 run_query 期间新增的所有消息（与 submit_message 一致）
             if self._checkpoint_store is not None:
-                for msg in self._messages[messages_before:]:
-                    await self._checkpoint_store.append_message(msg)
+                if context.compacted:
+                    # 与 submit_message 一致：压缩后重建 checkpoint
+                    await self._checkpoint_store.rebuild_after_compact(
+                        self._messages,
+                        usage_input=self._cost_tracker.total.input_tokens,
+                        usage_output=self._cost_tracker.total.output_tokens,
+                        usage_cache_read=self._cost_tracker.total.cache_read_input_tokens,
+                        usage_cache_creation=self._cost_tracker.total.cache_creation_input_tokens,
+                    )
+                else:
+                    # 持久化 run_query 期间新增的所有消息（与 submit_message 一致）
+                    for msg in self._messages[messages_before:]:
+                        await self._checkpoint_store.append_message(msg)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd

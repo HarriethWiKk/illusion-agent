@@ -98,6 +98,49 @@ async def test_rewind_restores_last_usage_before_target(store: CheckpointStore) 
 
 
 @pytest.mark.asyncio
+async def test_rebuild_after_compact(tmp_path: Path) -> None:
+    """压缩后重建 checkpoint：resume 恢复的是压缩后的消息而非压缩前完整历史。"""
+    session_dir = tmp_path / "compact"
+    session_dir.mkdir()
+    store = CheckpointStore(session_dir, "compact")
+    # 压缩前的历史（多个 checkpoint + 消息 + usage）
+    await store.append_checkpoint()  # id=0
+    await store.append_message(ConversationMessage.from_user_text("old1"))
+    await store.append_usage(500, 50)
+    await store.append_checkpoint()  # id=1
+    await store.append_message(ConversationMessage.from_user_text("old2"))
+    await store.append_usage(1000, 100)
+
+    # 压缩：摘要 + 保留消息
+    compacted = [
+        ConversationMessage.from_user_text("[summary] conversation condensed"),
+        ConversationMessage.from_user_text("recent msg"),
+    ]
+    await store.rebuild_after_compact(compacted, usage_input=1000, usage_output=100)
+
+    # resume 模拟：新 store 实例从文件恢复
+    store2 = CheckpointStore(session_dir, "compact")
+    result = await store2.restore()
+    # 只恢复到压缩后的消息
+    assert len(result.messages) == 2
+    assert result.messages[0].text == "[summary] conversation condensed"
+    assert result.messages[1].text == "recent msg"
+    # 累积 usage 保留
+    assert result.usage_input == 1000
+    assert result.usage_output == 100
+    # checkpoint id 从 0 重新开始
+    assert result.checkpoint_count == 1
+    assert store2.next_checkpoint_id == 1
+
+    # 压缩后继续对话，rewind 到压缩后的起点
+    await store2.append_checkpoint()  # id=1
+    await store2.append_message(ConversationMessage.from_user_text("post-compact"))
+    result2 = await store2.rewind_to(1)
+    assert len(result2.messages) == 2  # 回到压缩后、post-compact 之前的消息
+    assert result2.messages[1].text == "recent msg"
+
+
+@pytest.mark.asyncio
 async def test_rewind_to_target_checkpoint(store: CheckpointStore) -> None:
     """rewind_to 截断目标 checkpoint 及之后内容。"""
     # turn 0

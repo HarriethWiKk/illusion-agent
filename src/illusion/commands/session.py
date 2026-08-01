@@ -169,6 +169,18 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
     # 压缩后清除 last_api_usage：压缩前的真实值已不代表压缩后的上下文，
     # 回退到估算模式直到下一次 API 调用（避免 context 显示虚高/重复压缩）
     context.engine.invalidate_last_api_usage()
+    # 压缩是不可逆操作：重建 checkpoint，否则退出后 resume/rewind
+    # 会恢复到压缩前的完整历史（旧消息已被摘要替代）
+    checkpoint_store = context.engine.checkpoint_store
+    if checkpoint_store is not None:
+        total = context.engine.total_usage
+        await checkpoint_store.rebuild_after_compact(
+            compacted,
+            usage_input=total.input_tokens,
+            usage_output=total.output_tokens,
+            usage_cache_read=total.cache_read_input_tokens,
+            usage_cache_creation=total.cache_creation_input_tokens,
+        )
     after_tokens = estimate_conversation_tokens(compacted)
     saved = max(0, before_tokens - after_tokens)
     from illusion.config.i18n import t

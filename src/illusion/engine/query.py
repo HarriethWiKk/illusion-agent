@@ -433,6 +433,10 @@ class QueryContext:
     # 侧问模式：拒绝所有工具调用（返回友好错误消息而非执行）
     # 用于 /btw 侧问，防止工具调用污染工作区或返回空内容
     deny_all_tools: bool = False
+    # run_query 内发生过压缩（手动 /compact 之外的自动压缩）。
+    # query_engine 在 finally 中据此重建 checkpoint，保证
+    # resume/rewind 恢复的是压缩后的对话而非压缩前的完整历史。
+    compacted: bool = False
 
     def current_context_tokens(self, messages: list[ConversationMessage]) -> int:
         """当前上下文估算 = 最后一次 API 调用的真实 context_size + 新增消息估算。
@@ -526,6 +530,7 @@ async def run_query(
             # context_size 判断导致立即重复压缩
             context.last_api_usage = None
             context.last_api_usage_message_count = 0
+            context.compacted = True
             yield StatusEvent(message=t("compact_compacted")), None
         # ---------------------------------------------------------------
 

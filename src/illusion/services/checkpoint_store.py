@@ -243,6 +243,53 @@ class CheckpointStore:
                 self._file.unlink()
             self._next_checkpoint_id = 0
 
+    async def rebuild_after_compact(
+        self,
+        messages: list[ConversationMessage],
+        usage_input: int = 0,
+        usage_output: int = 0,
+        usage_cache_read: int = 0,
+        usage_cache_creation: int = 0,
+    ) -> None:
+        """压缩后重建 checkpoint：以压缩后的消息为新的持久化基线。
+
+        压缩是不可逆的破坏性操作——旧消息已被摘要替代，append-only 的
+        文件里若仍保留压缩前的完整消息，resume/rewind 会恢复到未压缩的
+        对话。因此压缩后清空文件，写入压缩后消息 + 新的 checkpoint（id=0）。
+
+        累积 usage 保留（CostTracker 不清零），但最后一次调用的单次分项
+        不保留（压缩后 last_api_usage 已失效，回退到估算）。
+
+        Args:
+            messages: 压缩后的消息列表
+            usage_input: 累积 input tokens
+            usage_output: 累积 output tokens
+            usage_cache_read: 累积缓存命中 tokens
+            usage_cache_creation: 累积缓存写入 tokens
+        """
+        async with self._io_lock:
+            if self._file.exists():
+                self._file.unlink()
+            self._next_checkpoint_id = 0
+            self._dir_ensured = True
+            async with aiofiles.open(self._file, "w", encoding="utf-8") as f:
+                await f.write(json.dumps({"role": "_checkpoint", "id": 0}) + "\n")
+                for msg in messages:
+                    record = {
+                        "role": msg.role,
+                        "message": msg.model_dump(mode="json"),
+                    }
+                    await f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                usage_record = {
+                    "role": "_usage",
+                    "input_tokens": usage_input,
+                    "output_tokens": usage_output,
+                    "cache_read_input_tokens": usage_cache_read,
+                    "cache_creation_input_tokens": usage_cache_creation,
+                }
+                await f.write(json.dumps(usage_record, ensure_ascii=False) + "\n")
+            self._next_checkpoint_id = 1
+
     async def _append_line(self, record: dict[str, Any]) -> None:
         """加锁追加一行 JSON。第一次调用时延迟创建会话目录。"""
         async with self._io_lock:
