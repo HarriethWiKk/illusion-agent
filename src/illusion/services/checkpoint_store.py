@@ -1,12 +1,22 @@
-"""Checkpoint 持久化存储。
+"""
+检查点存储服务
+==============
 
-基于单文件 JSONL append-only 模式，4 种 role 行：
-_checkpoint / _usage / _system_overhead / 普通消息。
-rewind 原地重写，restore 单遍扫描重建内存状态。
+基于单文件 JSONL append-only 模式的会话持久化存储。
 
-主要类：
+核心设计：
+    - 4 种 role 行：_checkpoint / _usage / _system_overhead / 普通消息
+    - rewind 原地重写，restore 单遍扫描重建内存状态
+    - 异步文件 I/O（aiofiles），避免阻塞事件循环
+
+主要组件：
     - RestoreResult: restore 结果数据类
     - CheckpointStore: context.jsonl 读写管理器
+
+使用示例：
+    >>> store = CheckpointStore(Path("./.illusion/session"))
+    >>> await store.append_message(message)
+    >>> result = await store.restore()
 """
 
 from __future__ import annotations

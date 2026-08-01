@@ -1,16 +1,26 @@
-""" /agent 命令处理器
+"""
+/agent 命令处理器
+=================
 
 查看已完成任务的摘要，或引导用户创建新 agent。
 
-路由：
+路由规则：
     - 无参数 / list：提示用法（前端可通过 select_command('agent') 列出可选项）
     - create / new：提示创建向导由前端驱动（agent_wizard_init/submit）
     - <id>：双数据源查询
         - 前台 agent：<id> 为 tool_use_id，从 engine.messages 提取对应 tool_result
         - 后台任务（agent / bash / powershell 等）：<id> 为 task_id，从 transcript 的
-          task-notification 提取 <result>（天然随会话同步，避免 manager._tasks 进程级
-          单例跨会话不同步问题）
+          task-notification 提取 <result>
+
+主要组件：
+    - agent_handler: 处理 /agent 命令，返回 CommandResult
+
+使用示例：
+    >>> result = await agent_handler("", context)
+    >>> result.message
+    'Use /agent <id> to view a completed task's summary, or /agent create to create a new agent.'
 """
+
 from __future__ import annotations
 
 from illusion.commands.types import CommandContext, CommandResult

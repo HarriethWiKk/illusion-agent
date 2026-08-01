@@ -1,7 +1,23 @@
-""" /btw 侧问命令处理器
+"""
+/btw 侧问命令处理器
+===================
 
 在不打断主对话的前提下发起一次性侧问，LLM 回复不写入会话记录。
+
+核心设计：
+    - 复用当前会话的 QueryEngine 配置（API 客户端、工具注册表、权限检查器）
+    - 独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
+    - deny_all_tools=True，拒绝所有工具调用，防止工作区污染
+    - 返回结果标记 ephemeral=True，前端可区分临时回复与正式回复
+
+主要组件：
+    - btw_handler: 处理 /btw <question> 命令，返回 CommandResult
+
+使用示例：
+    >>> result = await btw_handler("What is 2+2?", context)
+    >>> result.message
 """
+
 from __future__ import annotations
 
 import logging

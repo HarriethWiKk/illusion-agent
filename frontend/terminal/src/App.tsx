@@ -428,8 +428,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /btw <question> → 仅在非 busy 时拦截；busy 时改由 Ctrl+B 触发侧问输入框
-		if (trimmed.startsWith('/btw ') && !session.busy) {
+		// /btw <question> → 发起侧问（busy 时也可并行运行）
+		if (trimmed.startsWith('/btw ')) {
 			const question = trimmed.slice('/btw '.length).trim();
 			if (question) {
 				session.sendBtwRequest(question);

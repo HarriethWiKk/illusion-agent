@@ -1,7 +1,20 @@
-# src/illusion/services/cron_spawn.py
-"""cron 守护进程 spawn 逻辑
+"""
+cron 守护进程 spawn 逻辑
+========================
 
-通过 DaemonClient/DaemonServer 管理 IPC 连接，替代 PID 文件 + refs 文件。
+管理 cron 守护进程的启动和 IPC 连接。
+
+核心设计：
+    - 通过 DaemonClient/DaemonServer 管理 IPC 连接，替代 PID 文件 + refs 文件
+    - 支持优雅关闭和自动清理旧版 PID/refs 文件
+
+主要组件：
+    - spawn_cron_daemon: 启动 cron 守护进程
+    - stop_cron_daemon: 停止 cron 守护进程
+
+使用示例：
+    >>> client = await spawn_cron_daemon()
+    >>> await stop_cron_daemon(client)
 """
 from __future__ import annotations
 

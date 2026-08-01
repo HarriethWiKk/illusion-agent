@@ -1,7 +1,13 @@
-""" agent_creator 服务
+"""
+代理定义服务
+============
 
-提供代理定义的校验、文件写入与 LLM 辅助生成能力，是 /agent 创建向导
-功能的核心后端服务。
+提供代理定义的校验、文件写入与 LLM 辅助生成能力，是 /agent 创建向导功能的核心后端服务。
+
+核心设计：
+    - 支持用户手动输入或 LLM 从自然语言描述生成代理定义
+    - 代理定义存储为 frontmatter markdown 文件
+    - 自动避免标识符重复
 
 主要组件：
     - AGENT_CREATION_SYSTEM_PROMPT: LLM 生成代理定义使用的系统提示词
@@ -11,7 +17,13 @@
     - generate_agent_from_description: 通过 LLM 从自然语言生成代理定义
     - list_available_models: 返回可用模型列表
     - list_available_tools: 返回可用工具列表
+
+使用示例：
+    >>> errors = validate_agent_definition({"name": "test", "system_prompt": "..."}, cwd)
+    >>> path = write_agent_definition(fields, scope, cwd)
+    >>> agent = await generate_agent_from_description("帮助代码审查", "inherit", [], engine)
 """
+
 from __future__ import annotations
 
 import json

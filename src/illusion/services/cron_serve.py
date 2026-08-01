@@ -1,8 +1,18 @@
-# src/illusion/services/cron_serve.py
-"""cron 守护进程主入口
+"""
+cron 守护进程主入口
+===================
 
-实现 'illusion cron serve' 命令：启动 CronScheduler 后台循环，
-通过 DaemonServer 监控 IPC 连接数，连接归零时自动退出。
+实现 'illusion cron serve' 命令：启动 CronScheduler 后台循环。
+
+核心设计：
+    - 通过 DaemonServer 监控 IPC 连接数，连接归零时自动退出
+    - 日志输出到文件（RotatingFileHandler）和控制台（StreamHandler）
+
+主要组件：
+    - run_cron_serve: 启动 cron 守护进程的主函数
+
+使用示例：
+    >>> asyncio.run(run_cron_serve())
 """
 from __future__ import annotations
 

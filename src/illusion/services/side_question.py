@@ -1,22 +1,33 @@
-""" 一次性侧问服务
+"""
+一次性侧问服务
+==============
 
-在不打断主对话的前提下发起多轮 LLM 查询，复用 QueryEngine 当前上下文
-（系统提示词 + 消息历史 + 工具集），但：
+在不打断主对话的前提下发起多轮 LLM 查询，复用 QueryEngine 当前上下文。
 
-- 不写入 engine.messages（使用副本）
-- 不触发 hooks（QueryContext.hook_executor=None）
-- 不触发权限提示（permission_prompt/ask_user_prompt/plan_approval_prompt=None）
-- 拒绝所有工具调用（deny_all_tools=True），防止工作区污染
-- 使用独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
-- 只收集最后一轮助手消息的纯文本回复返回给调用方
+核心设计：
+    - 不写入 engine.messages（使用副本）
+    - 不触发 hooks（QueryContext.hook_executor=None）
+    - 不触发权限提示（permission_prompt/ask_user_prompt/plan_approval_prompt=None）
+    - 拒绝所有工具调用（deny_all_tools=True），防止工作区污染
+    - 使用独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
+    - 只收集最后一轮助手消息的纯文本回复返回给调用方
 
 设计要点：
-- 复用 run_query 而非手写循环，确保工具调用、权限、自动压缩等行为与主对话一致
-- max_turns=8（多轮），允许模型在工具被拒绝后调整行为直接回答
-- deny_all_tools=True：拒绝所有工具调用，返回友好错误消息
-- hook_executor=None：侧问不应触发用户配置的 hooks（如 stop hook 阻塞）
-- 不传 permission_prompt 等回调：侧问期间不应弹窗打断用户
-- 状态隔离：独立的 file_state_cache 和 overhead_tracker，避免污染主会话
+    - 复用 run_query 而非手写循环，确保工具调用、权限、自动压缩等行为与主对话一致
+    - max_turns=8（多轮），允许模型在工具被拒绝后调整行为直接回答
+    - deny_all_tools=True：拒绝所有工具调用，返回友好错误消息
+    - hook_executor=None：侧问不应触发用户配置的 hooks（如 stop hook 阻塞）
+    - 不传 permission_prompt 等回调：侧问期间不应弹窗打断用户
+    - 状态隔离：独立的 file_state_cache 和 overhead_tracker，避免污染主会话
+
+主要组件：
+    - SideQuestionError: 侧问查询失败异常
+    - run_side_question: 发起一次性侧问，返回最终纯文本回复
+
+使用示例：
+    >>> reply = await run_side_question("What is 2+2?", engine)
+    >>> reply
+    '4'
 """
 from __future__ import annotations
 
