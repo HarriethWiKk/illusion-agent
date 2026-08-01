@@ -222,19 +222,39 @@ def _convert_tools_to_codex(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def _usage_from_response(response: dict[str, Any]) -> UsageSnapshot:
     """从响应中提取使用量信息
-    
+
+    Codex（OpenAI Responses 格式）的 usage.input_tokens 包含缓存命中的
+    tokens，非缓存输入 = input_tokens - cached。命中位于嵌套的
+    input_tokens_details.cached_tokens（部分服务可能在顶层 cached_tokens）。
+    OpenAI 不区分缓存写入，cache_creation_input_tokens 恒为 0。
+
     Args:
         response: API 响应字典
-    
+
     Returns:
         UsageSnapshot: 使用量快照
     """
     usage = response.get("usage")
     if not isinstance(usage, dict):
         return UsageSnapshot()
+    prompt = int(usage.get("input_tokens") or 0)
+    if prompt == 0:
+        prompt = int(usage.get("prompt_tokens") or 0)
+    output = int(usage.get("output_tokens") or 0)
+    if output == 0:
+        output = int(usage.get("completion_tokens") or 0)
+    # 命中：input_tokens_details.cached_tokens（Responses）/ prompt_tokens_details.cached_tokens（Chat）
+    cached = 0
+    details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        cached = int(details.get("cached_tokens") or 0)
+    if cached == 0:
+        cached = int(usage.get("cached_tokens") or 0)
     return UsageSnapshot(
-        input_tokens=int(usage.get("input_tokens") or 0),
-        output_tokens=int(usage.get("output_tokens") or 0),
+        input_tokens=max(0, prompt - cached),
+        output_tokens=output,
+        cache_read_input_tokens=cached,
+        cache_creation_input_tokens=0,
     )
 
 

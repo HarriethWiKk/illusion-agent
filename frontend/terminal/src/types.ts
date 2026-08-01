@@ -321,16 +321,24 @@ export type StatusPayload = {
 	permission_mode?: string;
 	/** 上下文窗口大小（token 数） */
 	context_window?: number;
-	/** 当前预估已用上下文 token 数（system overhead + messages） */
+	/** 当前预估已用上下文 token 数（最后一次 API 真实值 + 新增消息估算） */
 	context_tokens?: number;
-	/** 累积 API input tokens */
+	/** 最后一次 API 调用的缓存命中 tokens */
+	context_cache_read?: number;
+	/** 最后一次 API 调用的缓存写入 tokens */
+	context_cache_creation?: number;
+	/** 最后一次 API 调用的非缓存输入 tokens */
+	context_input?: number;
+	/** 最后一次 API 调用的输出 tokens */
+	context_output?: number;
+	/** 累积 API input tokens（非缓存） */
 	input_tokens?: number;
 	/** 累积 API output tokens */
 	output_tokens?: number;
-	/** 当前 system overhead token 数（实测值，未实测为 0） */
-	system_prompt_tokens?: number;
-	/** 是否已得到 system overhead 实测值 */
-	system_overhead_measured?: boolean;
+	/** 累积缓存命中 tokens */
+	cache_read_input_tokens?: number;
+	/** 累积缓存写入 tokens */
+	cache_creation_input_tokens?: number;
 	/** UI 语言 */
 	ui_language?: string;
 	/** 会话 ID */

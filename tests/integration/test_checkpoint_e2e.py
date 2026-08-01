@@ -18,11 +18,10 @@ async def test_cross_restart_rewind(tmp_path: Path) -> None:
     store1 = CheckpointStore(session_dir, "abc")
     await store1.append_checkpoint()  # id=0
     await store1.append_message(ConversationMessage.from_user_text("turn0"))
-    await store1.append_usage(100, 5)
-    await store1.append_system_overhead(2000)
+    await store1.append_usage(100, 5, cache_read_input_tokens=1000)
     await store1.append_checkpoint()  # id=1
     await store1.append_message(ConversationMessage.from_user_text("turn1"))
-    await store1.append_usage(200, 10)
+    await store1.append_usage(200, 10, cache_read_input_tokens=2000)
 
     # 模拟重启（新 store 实例从同一文件 restore）
     store2 = CheckpointStore(session_dir, "abc")
@@ -30,6 +29,7 @@ async def test_cross_restart_rewind(tmp_path: Path) -> None:
     assert store2.next_checkpoint_id == 2
     assert len(result.messages) == 2
     assert result.usage_input == 200
+    assert result.usage_cache_read == 2000
 
     # rewind 到 id=1 之前
     result = await store2.rewind_to(1)

@@ -723,12 +723,13 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     Args:
         bundle: 运行时数据 bundle
     """
-    from illusion.services.compact import estimate_conversation_tokens
     settings = bundle.current_settings()
     bundle.engine.set_max_turns(settings.max_turns)
-    # 读取 system overhead 实测值（invalidate 由 QueryEngine 在反推前处理）
-    system_tokens = bundle.engine.overhead_tracker.tokens
-    messages_tokens = estimate_conversation_tokens(bundle.engine.messages)
+    # 上下文占用：最后一次 API 调用的真实值 + 新增消息估算
+    # （压缩后 last_api_usage 被清除，回退到纯估算直到下次 API 调用）
+    context_tokens = bundle.engine.current_context_tokens()
+    # 最后一次 API 调用的真实分项（供 Web 前端展示；无数据时为 0）
+    last_usage = bundle.engine.last_api_usage
     usage = bundle.engine.total_usage
     bundle.app_state.set(
         model=settings.active_model_name,
@@ -748,11 +749,15 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         phase=bundle.app_state.get().phase,
         session_id=bundle.session_id,
         context_window=settings.context_window,
-        context_tokens=(system_tokens or 0) + messages_tokens,
+        context_tokens=context_tokens,
+        context_cache_read=last_usage.cache_read_input_tokens if last_usage else 0,
+        context_cache_creation=last_usage.cache_creation_input_tokens if last_usage else 0,
+        context_input=last_usage.input_tokens if last_usage else 0,
+        context_output=last_usage.output_tokens if last_usage else 0,
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
-        system_prompt_tokens=system_tokens or 0,
-        system_overhead_measured=system_tokens is not None,
+        cache_read_input_tokens=usage.cache_read_input_tokens,
+        cache_creation_input_tokens=usage.cache_creation_input_tokens,
     )
 
 

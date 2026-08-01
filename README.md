@@ -141,6 +141,7 @@ The terminal (`illusion`) and Web UI (`illusion web`) are two independent, first
 | Project Files & Memory | [docs/en/project-files.md](docs/en/project-files.md) | [docs/zh-CN/project-files.md](docs/zh-CN/project-files.md) |
 | Extensions (MCP, Plugins, Skills, Hooks) | [docs/en/extensions.md](docs/en/extensions.md) | [docs/zh-CN/extensions.md](docs/zh-CN/extensions.md) |
 | Architecture | [docs/en/architecture.md](docs/en/architecture.md) | [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md) |
+| Token Metering & Compaction | [docs/en/token-metering.md](docs/en/token-metering.md) | [docs/zh-CN/token-metering.md](docs/zh-CN/token-metering.md) |
 | Messaging Channels | [docs/en/channels.md](docs/en/channels.md) | [docs/zh-CN/channels.md](docs/zh-CN/channels.md) |
 
 ---

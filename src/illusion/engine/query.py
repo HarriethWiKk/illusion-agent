@@ -66,6 +66,7 @@ from illusion.engine.stream_events import (
 )
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
+from illusion.services.compact.token_utils import estimate_conversation_tokens
 from illusion.tools.base import ToolExecutionContext, ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
 
@@ -421,15 +422,40 @@ class QueryContext:
     # 并发 drain 队列；且并发场景下进度消息意义有限（用户更关心整体完成情况）。
     # 如需支持，需改造为 wait(FIRST_COMPLETED) + 共享队列（消息带 tool_use_id 区分）。
     progress_queue: asyncio.Queue[tuple[str, str, str]] | None = None
-    # 系统开销跟踪器：用于获取 system prompt + tools + skills 等实测 token 数
-    # 与 /context usage 的 "System Prompt" 保持一致
-    overhead_tracker: Any = None
+    # 最后一次 API 调用的真实用量（含缓存分项）及消息数快照。
+    # 由 QueryEngine 创建 QueryContext 时从自身快照复制；
+    # run_query 内压缩成功后会被清除，防止用压缩前的 context_size 重复压缩。
+    last_api_usage: UsageSnapshot | None = None
+    last_api_usage_message_count: int = 0
     # 退出时的消息列表：run_query 在退出前设置，供 query_engine 同步到 self._messages
     # 解决 full compact 后 messages 指向新列表而 self._messages 仍指向旧列表的问题
     final_messages: list[ConversationMessage] | None = None
     # 侧问模式：拒绝所有工具调用（返回友好错误消息而非执行）
     # 用于 /btw 侧问，防止工具调用污染工作区或返回空内容
     deny_all_tools: bool = False
+
+    def current_context_tokens(self, messages: list[ConversationMessage]) -> int:
+        """当前上下文估算 = 最后一次 API 调用的真实 context_size + 新增消息估算。
+
+        与 QueryEngine.current_context_tokens() 同逻辑。真实 usage 为基准，
+        新增消息用本地估算补齐，防止低估（低估会导致自动压缩触发过晚，
+        API 调用失败）。
+
+        Args:
+            messages: 当前消息列表（run_query 的会话消息）
+
+        Returns:
+            int: 当前上下文占用 token 估算
+        """
+        if self.last_api_usage is not None:
+            new_messages = messages[self.last_api_usage_message_count:]
+            if new_messages:
+                return (
+                    self.last_api_usage.context_size
+                    + estimate_conversation_tokens(new_messages)
+                )
+            return self.last_api_usage.context_size
+        return estimate_conversation_tokens(messages)
 
 
 async def run_query(
@@ -473,7 +499,10 @@ async def run_query(
 
         # --- 上下文警告检查 ---------------
         if not compact_state.warning_suppressed:
-            warning = calculate_token_warning_state(messages, context.model)
+            warning = calculate_token_warning_state(
+                messages, context.model,
+                context_tokens=context.current_context_tokens(messages),
+            )
             if warning.is_above_warning_threshold and not warning.is_above_autocompact_threshold:
                 pct = int(warning.estimated_tokens * 100 / warning.context_window) if warning.context_window > 0 else 0
                 yield StatusEvent(
@@ -490,9 +519,13 @@ async def run_query(
             model=context.model,
             system_prompt=context.system_prompt,
             state=compact_state,
-            system_overhead=context.overhead_tracker.tokens if context.overhead_tracker else None,
+            context_tokens=context.current_context_tokens(messages),
         )
         if was_compacted:
+            # 压缩成功后清除 usage 快照，防止同一循环内用压缩前的
+            # context_size 判断导致立即重复压缩
+            context.last_api_usage = None
+            context.last_api_usage_message_count = 0
             yield StatusEvent(message=t("compact_compacted")), None
         # ---------------------------------------------------------------
 

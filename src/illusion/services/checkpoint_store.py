@@ -5,7 +5,7 @@
 基于单文件 JSONL append-only 模式的会话持久化存储。
 
 核心设计：
-    - 4 种 role 行：_checkpoint / _usage / _system_overhead / 普通消息
+    - 3 种 role 行：_checkpoint / _usage / 普通消息
     - rewind 原地重写，restore 单遍扫描重建内存状态
     - 异步文件 I/O（aiofiles），避免阻塞事件循环
 
@@ -42,21 +42,23 @@ class RestoreResult:
         messages: 重建的对话消息列表
         usage_input: 最后一个 _usage 的 input_tokens
         usage_output: 最后一个 _usage 的 output_tokens
-        system_overhead: 最后一个 _system_overhead 的 tokens
+        usage_cache_read: 最后一个 _usage 的 cache_read_input_tokens
+        usage_cache_creation: 最后一个 _usage 的 cache_creation_input_tokens
         checkpoint_count: _checkpoint 行数（用于 rewind 计数）
     """
     messages: list[ConversationMessage]
     usage_input: int
     usage_output: int
-    system_overhead: int | None
+    usage_cache_read: int
+    usage_cache_creation: int
     checkpoint_count: int
 
 
 class CheckpointStore:
     """context.jsonl 的 append-only 持久化存储。
 
-    单文件 JSONL，含 4 种 role：_checkpoint /
-    _usage / _system_overhead / 普通消息。append-only 保证崩溃安全，
+    单文件 JSONL，含 3 种 role：_checkpoint /
+    _usage / 普通消息。append-only 保证崩溃安全，
     rewind 通过原地重写实现。
 
     Attributes:
@@ -108,29 +110,27 @@ class CheckpointStore:
         await self._append_line(record)
         return checkpoint_id
 
-    async def append_usage(self, input_tokens: int, output_tokens: int) -> None:
+    async def append_usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_input_tokens: int = 0,
+        cache_creation_input_tokens: int = 0,
+    ) -> None:
         """追加 _usage 行（累积值）。
 
         Args:
             input_tokens: 累积 input tokens
             output_tokens: 累积 output tokens
+            cache_read_input_tokens: 累积缓存命中 tokens
+            cache_creation_input_tokens: 累积缓存写入 tokens
         """
         record = {
             "role": "_usage",
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-        }
-        await self._append_line(record)
-
-    async def append_system_overhead(self, tokens: int) -> None:
-        """追加 _system_overhead 行。
-
-        Args:
-            tokens: 实测 system overhead tokens
-        """
-        record = {
-            "role": "_system_overhead",
-            "tokens": tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
         }
         await self._append_line(record)
 
@@ -162,7 +162,8 @@ class CheckpointStore:
             if not self._file.exists():
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
-                    system_overhead=None, checkpoint_count=0,
+                    usage_cache_read=0, usage_cache_creation=0,
+                    checkpoint_count=0,
                 )
             # 读所有行
             kept_lines: list[str] = []
@@ -193,8 +194,7 @@ class CheckpointStore:
     async def restore(self) -> RestoreResult:
         """单遍扫描 context.jsonl 重建内存状态。
 
-        兼容旧文件中的 _system_prompt 行（忽略，不解析）和
-        _system_overhead 行的 prompt_hash 字段（忽略）。
+        旧文件中的 _system_prompt / _system_overhead 行直接跳过（不解析）。
 
         Returns:
             RestoreResult: 重建后的内存状态
@@ -203,7 +203,8 @@ class CheckpointStore:
             if not self._file.exists():
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
-                    system_overhead=None, checkpoint_count=0,
+                    usage_cache_read=0, usage_cache_creation=0,
+                    checkpoint_count=0,
                 )
             lines: list[str] = []
             async with aiofiles.open(self._file, encoding="utf-8") as f:
@@ -234,8 +235,7 @@ class CheckpointStore:
     def _build_result_from_lines(self, lines: list[str]) -> RestoreResult:
         """从 JSONL 行列表构建 RestoreResult（无锁，内部使用）。
 
-        兼容旧文件中的 _system_prompt 行（忽略）和 _system_overhead 的
-        prompt_hash 字段（忽略）。
+        旧文件中的 _system_prompt / _system_overhead 行直接跳过（不读取）。
 
         Args:
             lines: JSON 字符串列表
@@ -246,7 +246,8 @@ class CheckpointStore:
         messages: list[ConversationMessage] = []
         usage_input = 0
         usage_output = 0
-        system_overhead: int | None = None
+        usage_cache_read = 0
+        usage_cache_creation = 0
         checkpoint_count = 0
 
         for line in lines:
@@ -255,8 +256,8 @@ class CheckpointStore:
             except json.JSONDecodeError:
                 continue
             role = record.get("role")
-            if role == "_system_prompt":
-                # 兼容旧文件：忽略 _system_prompt 行
+            if role in ("_system_prompt", "_system_overhead"):
+                # 旧文件遗留行：直接跳过
                 continue
             elif role == "_checkpoint":
                 checkpoint_count += 1
@@ -264,8 +265,8 @@ class CheckpointStore:
             elif role == "_usage":
                 usage_input = record.get("input_tokens", 0)
                 usage_output = record.get("output_tokens", 0)
-            elif role == "_system_overhead":
-                system_overhead = record.get("tokens")
+                usage_cache_read = record.get("cache_read_input_tokens", 0)
+                usage_cache_creation = record.get("cache_creation_input_tokens", 0)
             elif role in ("user", "assistant"):
                 msg_data = record.get("message")
                 if msg_data:
@@ -281,6 +282,7 @@ class CheckpointStore:
             messages=messages,
             usage_input=usage_input,
             usage_output=usage_output,
-            system_overhead=system_overhead,
+            usage_cache_read=usage_cache_read,
+            usage_cache_creation=usage_cache_creation,
             checkpoint_count=checkpoint_count,
         )

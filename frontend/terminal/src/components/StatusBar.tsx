@@ -32,11 +32,15 @@ const MODE_LABELS: Record<string, string> = {
 };
 
 function TokenDisplay({
+	cacheRead,
+	cacheCreation,
 	inputTokens,
 	outputTokens,
 	color,
 	busy,
 }: {
+	cacheRead: number;
+	cacheCreation: number;
 	inputTokens: number;
 	outputTokens: number;
 	color: string;
@@ -44,11 +48,23 @@ function TokenDisplay({
 }): React.JSX.Element {
 	// busy 时与 ● 同频闪烁（useBlink 共享全局动画时钟）
 	const visible = useBlink(busy);
-	const text = `${fmtTokens(inputTokens)}↓ ${fmtTokens(outputTokens)}↑`;
+	// 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中，
+	// 是缓存系统的有效产出；首轮/缓存过期后命中率因此不为 0）
+	const cached = cacheRead + cacheCreation;
+	const totalInput = cached + inputTokens;
+	const hitRate = totalInput > 0 ? Math.round((cached * 100) / totalInput) : 0;
+	const text = `${fmtTokens(cached)}↓ ${fmtTokens(inputTokens)}↓ ${fmtTokens(outputTokens)}↑${totalInput > 0 ? ` ${hitRate}%` : ''}`;
 	if (!visible) {
 		return <Text>{' '.repeat(stringWidth(text))}</Text>;
 	}
-	return <Text color={color}>{text}</Text>;
+	return (
+		<Text>
+			<Text color={color}>{fmtTokens(cached)}↓ </Text>
+			<Text color={color} dimColor>{fmtTokens(inputTokens)}↓ </Text>
+			<Text color={color}>{fmtTokens(outputTokens)}↑</Text>
+			{totalInput > 0 ? <Text color={color}> {hitRate}%</Text> : null}
+		</Text>
+	);
 }
 
 /**
@@ -115,8 +131,11 @@ export function StatusBar({
 	).length;
 	const mcpCount = Number(status.mcp_connected ?? 0);
 	const agentCount = Number(status.agent_count ?? 0);
-	const inputTokens = Number(status.input_tokens ?? 0);
-	const outputTokens = Number(status.output_tokens ?? 0);
+	// 最后一次 API 调用的真实分项（非累积值）
+	const cacheReadTokens = Number(status.context_cache_read ?? 0);
+	const cacheCreationTokens = Number(status.context_cache_creation ?? 0);
+	const inputTokens = Number(status.context_input ?? 0);
+	const outputTokens = Number(status.context_output ?? 0);
 
 	return (
 		<Box flexDirection="column" marginTop={noMarginTop ? 0 : 1}>
@@ -140,10 +159,17 @@ export function StatusBar({
 						<TaskIndicator count={taskCount} />
 					</>
 				) : null}
-				{(inputTokens > 0 || outputTokens > 0) ? (
+				{(inputTokens > 0 || outputTokens > 0 || cacheReadTokens > 0 || cacheCreationTokens > 0) ? (
 					<>
 						<Text color={theme.colors.illusion}>{SEP}</Text>
-						<TokenDisplay inputTokens={inputTokens} outputTokens={outputTokens} color={theme.colors.illusion} busy={busy} />
+						<TokenDisplay
+							cacheRead={cacheReadTokens}
+							cacheCreation={cacheCreationTokens}
+							inputTokens={inputTokens}
+							outputTokens={outputTokens}
+							color={theme.colors.illusion}
+							busy={busy}
+						/>
 					</>
 				) : null}
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}

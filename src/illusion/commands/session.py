@@ -56,32 +56,50 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
     subcommand = tokens[0] if tokens else "usage"
 
     if subcommand in ("usage", "__usage__"):
-        system_tokens = context.engine.overhead_tracker.tokens
-        messages_tokens = estimate_conversation_tokens(context.engine.messages)
-        estimated_used = (system_tokens or 0) + messages_tokens
+        # 上下文占用：最后一次 API 调用的真实值 + 新增消息估算
+        estimated_used = context.engine.current_context_tokens()
         usage = context.engine.total_usage
         context_window = get_context_window()
         percentage = round(estimated_used * 100 / context_window) if context_window > 0 else 0
         remaining = max(0, context_window - estimated_used)
-        system_pct = round(system_tokens * 100 / context_window) if (system_tokens and context_window > 0) else 0
-        messages_pct = round(messages_tokens * 100 / context_window) if context_window > 0 else 0
-        # System Prompt 不可推算时使用单独的 i18n 键
-        system_line = (
-            t("context_system_prompt", system_tokens=system_tokens, system_pct=system_pct)
-            if system_tokens is not None and system_tokens > 0
-            else t("context_system_prompt_unknown")
-        )
-        return CommandResult(
-            message="\n".join([
+        last_usage = context.engine.last_api_usage
+        if last_usage is not None:
+            # 最后一次 API 调用的真实分项
+            # 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中）
+            cached = (
+                last_usage.cache_read_input_tokens
+                + last_usage.cache_creation_input_tokens
+            )
+            uncached = last_usage.input_tokens
+            output = last_usage.output_tokens
+            cached_pct = round(cached * 100 / context_window) if context_window > 0 else 0
+            uncached_pct = round(uncached * 100 / context_window) if context_window > 0 else 0
+            output_pct = round(output * 100 / context_window) if context_window > 0 else 0
+            lines = [
                 t("context_usage_title", context_window=context_window),
-                system_line,
-                t("context_messages", messages_tokens=messages_tokens, messages_pct=messages_pct),
-                t("context_estimated_used", estimated_used=estimated_used, percentage=percentage),
+                t("context_input_cached", cached=cached, cached_pct=cached_pct),
+                t("context_input_uncached", uncached=uncached, uncached_pct=uncached_pct),
+                t("context_output_line", output_tokens=output, output_pct=output_pct),
+                t("context_used_total", used=estimated_used, percentage=percentage),
                 t("context_remaining", remaining=remaining),
-                t("context_cumulative_usage", input_tokens=usage.input_tokens, output_tokens=usage.output_tokens),
-                t("context_note"),
-            ])
+            ]
+        else:
+            lines = [
+                t("context_usage_title", context_window=context_window),
+                t("context_used_total", used=estimated_used, percentage=percentage),
+                t("context_remaining", remaining=remaining),
+            ]
+        # 累积用量（命中 = 缓存命中 + 缓存写入）
+        cached_total = (
+            usage.cache_read_input_tokens + usage.cache_creation_input_tokens
         )
+        lines.append(t(
+            "context_cumulative_detail",
+            cache_read=cached_total,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+        ))
+        return CommandResult(message="\n".join(lines))
     if subcommand == "show":
         # 显示当前运行时完整的系统提示词
         system_prompt = context.engine._system_prompt
@@ -148,6 +166,9 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
         compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)
 
     context.engine.load_messages(compacted)
+    # 压缩后清除 last_api_usage：压缩前的真实值已不代表压缩后的上下文，
+    # 回退到估算模式直到下一次 API 调用（避免 context 显示虚高/重复压缩）
+    context.engine.invalidate_last_api_usage()
     after_tokens = estimate_conversation_tokens(compacted)
     saved = max(0, before_tokens - after_tokens)
     from illusion.config.i18n import t

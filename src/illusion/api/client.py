@@ -461,6 +461,12 @@ class AnthropicApiClient:
             usage=UsageSnapshot(
                 input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
                 output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+                cache_read_input_tokens=int(
+                    getattr(usage, "cache_read_input_tokens", 0) or 0
+                ),
+                cache_creation_input_tokens=int(
+                    getattr(usage, "cache_creation_input_tokens", 0) or 0
+                ),
             ),
             stop_reason=getattr(final_message, "stop_reason", None),
         )

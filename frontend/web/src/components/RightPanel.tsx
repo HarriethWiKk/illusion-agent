@@ -66,13 +66,22 @@ export default function RightPanel({
   const contextWindow = Number(status?.context_window ?? 0);
   const contextTokens = Number(status?.context_tokens ?? 0);
   const contextPercent = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 100 / contextWindow)) : 0;
-  // token 计量分项数据
-  const systemPromptTokens = Number(status?.system_prompt_tokens ?? 0);
-  const systemOverheadMeasured = Boolean(status?.system_overhead_measured);
+  // token 计量分项数据（累积）
   const inputTokens = Number(status?.input_tokens ?? 0);
   const outputTokens = Number(status?.output_tokens ?? 0);
-  const systemPct = contextWindow > 0 ? Math.round(systemPromptTokens * 100 / contextWindow) : 0;
-  const messagesPct = contextWindow > 0 ? Math.round((contextTokens - systemPromptTokens) * 100 / contextWindow) : 0;
+  const cacheReadTokens = Number(status?.cache_read_input_tokens ?? 0);
+  const cacheCreationTokens = Number(status?.cache_creation_input_tokens ?? 0);
+  // 最后一次 API 调用的真实分项（Context Window 区块）
+  // 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中）
+  const contextCacheRead = Number(status?.context_cache_read ?? 0);
+  const contextCacheCreation = Number(status?.context_cache_creation ?? 0);
+  const contextInput = Number(status?.context_input ?? 0);
+  const contextOutput = Number(status?.context_output ?? 0);
+  const contextCached = contextCacheRead + contextCacheCreation;
+  const hasLastApiBreakdown = contextCached > 0 || contextInput > 0 || contextOutput > 0;
+  const contextCachePct = contextWindow > 0 ? Math.round(contextCached * 100 / contextWindow) : 0;
+  const contextInputPct = contextWindow > 0 ? Math.round(contextInput * 100 / contextWindow) : 0;
+  const contextOutputPct = contextWindow > 0 ? Math.round(contextOutput * 100 / contextWindow) : 0;
 
   // 折叠态
   if (collapsed) {
@@ -187,20 +196,28 @@ export default function RightPanel({
       {contextWindow > 0 && (
         <div className="px-5 py-3 border-t border-border-light">
           <div className="text-xs text-content-secondary font-medium mb-2">{t(lang, 'context_window')}</div>
-          {/* System Prompt 分项 */}
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-content-secondary">{t(lang, 'systemPrompt')}</span>
-            <span className="text-content-primary tabular-nums">
-              {systemOverheadMeasured
-                ? `${formatTokens(systemPromptTokens)} (${systemPct}%)`
-                : `~ ${t(lang, 'pendingMeasurement')}`}
-            </span>
-          </div>
-          {/* Messages 分项 */}
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-content-secondary">{t(lang, 'messagesLabel')}</span>
-            <span className="text-content-primary tabular-nums">{formatTokens(contextTokens - systemPromptTokens)} ({messagesPct}%)</span>
-          </div>
+          {/* 最后一次 API 调用的真实分项（无数据时显示估算汇总） */}
+          {hasLastApiBreakdown ? (
+            <>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-content-secondary">{t(lang, 'inputCachedLabel')}</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextCached)} ({contextCachePct}%)</span>
+              </div>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-content-secondary">{t(lang, 'inputUncachedLabel')}</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextInput)} ({contextInputPct}%)</span>
+              </div>
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="text-content-secondary">{t(lang, 'outputLabel')}</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextOutput)} ({contextOutputPct}%)</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between text-xs mb-2">
+              <span className="text-content-secondary">{t(lang, 'messagesLabel')}</span>
+              <span className="text-content-primary tabular-nums">{formatTokens(contextTokens)}</span>
+            </div>
+          )}
           {/* 进度条 */}
           <div className="flex items-center gap-3 mb-1">
             <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
@@ -223,11 +240,15 @@ export default function RightPanel({
       )}
 
       {/* 累积 API 用量区块 */}
-      {(inputTokens > 0 || outputTokens > 0) && (
+      {(inputTokens > 0 || outputTokens > 0 || cacheReadTokens > 0 || cacheCreationTokens > 0) && (
         <div className="px-5 py-3 border-t border-border-light">
           <div className="text-xs text-content-secondary font-medium mb-2">{t(lang, 'cumulativeApiUsage')}</div>
           <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-content-secondary">{t(lang, 'inputLabel')}</span>
+            <span className="text-content-secondary">{t(lang, 'inputCachedLabel')}</span>
+            <span className="text-content-primary tabular-nums">{formatTokens(cacheReadTokens + cacheCreationTokens)} ↓</span>
+          </div>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-content-secondary">{t(lang, 'inputUncachedLabel')}</span>
             <span className="text-content-primary tabular-nums">{formatTokens(inputTokens)} ↓</span>
           </div>
           <div className="flex items-center justify-between text-xs">

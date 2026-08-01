@@ -9,7 +9,7 @@
     - 不触发 hooks（QueryContext.hook_executor=None）
     - 不触发权限提示（permission_prompt/ask_user_prompt/plan_approval_prompt=None）
     - 拒绝所有工具调用（deny_all_tools=True），防止工作区污染
-    - 使用独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
+    - 使用独立的 file_state_cache，避免污染主会话状态
     - 只收集最后一轮助手消息的纯文本回复返回给调用方
 
 设计要点：
@@ -18,7 +18,7 @@
     - deny_all_tools=True：拒绝所有工具调用，返回友好错误消息
     - hook_executor=None：侧问不应触发用户配置的 hooks（如 stop hook 阻塞）
     - 不传 permission_prompt 等回调：侧问期间不应弹窗打断用户
-    - 状态隔离：独立的 file_state_cache 和 overhead_tracker，避免污染主会话
+    - 状态隔离：独立的 file_state_cache，避免污染主会话
 
 主要组件：
     - SideQuestionError: 侧问查询失败异常
@@ -105,7 +105,7 @@ async def run_side_question(
 
     关键设计：
     - deny_all_tools=True：拒绝所有工具调用，防止工作区污染
-    - 独立的 file_state_cache 和 overhead_tracker：避免污染主会话状态
+    - 独立的 file_state_cache：避免污染主会话状态
     - max_turns=8：允许模型在工具被拒绝后调整行为直接回答
 
     Args:
@@ -129,12 +129,10 @@ async def run_side_question(
     # 追加本次侧问作为 user 消息
     messages.append(ConversationMessage.from_user_text(question))
 
-    # 创建独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
-    from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
+    # 创建独立的 file_state_cache，避免污染主会话状态
     from illusion.utils.file_state_cache import FileStateCache
 
     isolated_file_state_cache = FileStateCache()
-    isolated_overhead_tracker = SystemOverheadTracker()
 
     # 构建 QueryContext：复用 engine 的工具/权限/API，但禁用 hooks 和交互回调
     context = QueryContext(
@@ -155,7 +153,6 @@ async def run_side_question(
         bg_agent_tracker=None,
         bg_agent_wait_timeout=300.0,
         compact_state=None,
-        overhead_tracker=isolated_overhead_tracker,  # 隔离：独立实例
         on_before_tool_execute=None,
         file_state_cache=isolated_file_state_cache,  # 隔离：独立实例
         deny_all_tools=True,  # 拒绝所有工具调用

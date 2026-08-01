@@ -1449,12 +1449,9 @@ class ReactBackendHost:
             return
 
         if command == "context":
-            from illusion.services.compact import estimate_conversation_tokens
-
             current_window = settings.context_window
-            system_tokens = self._bundle.engine.overhead_tracker.tokens
-            messages_tokens = estimate_conversation_tokens(self._bundle.engine.messages)
-            estimated = (system_tokens or 0) + messages_tokens
+            # 上下文占用：最后一次 API 调用的真实值 + 新增消息估算
+            estimated = self._bundle.engine.current_context_tokens()
             percentage = round(estimated * 100 / current_window) if current_window > 0 else 0
             options = [
                 {

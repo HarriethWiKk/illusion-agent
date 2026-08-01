@@ -90,9 +90,21 @@ def calculate_token_warning_state(
     model: str,
     *,
     auto_compact_enabled: bool = True,
+    context_tokens: int | None = None,
 ) -> TokenWarningState:
-    """计算当前上下文使用量的警告状态。"""
-    estimated = estimate_message_tokens(messages)
+    """计算当前上下文使用量的警告状态。
+
+    Args:
+        messages: 会话消息列表
+        model: 模型名称
+        auto_compact_enabled: 是否启用自动压缩
+        context_tokens: 外部提供的上下文占用（真实值），None 时回退到本地估算
+    """
+    estimated = (
+        context_tokens
+        if context_tokens is not None
+        else estimate_message_tokens(messages)
+    )
     context_window = get_context_window()
     threshold = get_autocompact_threshold(model)
 
@@ -117,23 +129,26 @@ def should_autocompact(
     messages: list[ConversationMessage],
     model: str,
     state: AutoCompactState,
-    system_overhead: int | None = None,
+    context_tokens: int | None = None,
 ) -> bool:
     """返回是否应该自动压缩会话。
 
     使用与 /context usage 相同的计算方式：
-    Estimated Used = System Prompt(system_overhead) + Messages(message_tokens)
+    Estimated Used = 最后一次 API 调用的真实 context_size + 新增消息估算
+    （无 API 数据时回退到本地消息估算）
 
     Args:
         messages: 会话消息列表
         model: 模型名称
         state: 自动压缩状态
-        system_overhead: 系统开销实测值（system prompt + tools + skills 等）
+        context_tokens: 外部提供的上下文占用（真实值），None 时回退到本地估算
     """
     if state.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES:
         return False
-    message_tokens = estimate_message_tokens(messages)
-    # 与 /context usage 保持一致：总 token = 系统开销 + 消息 token
-    token_count = message_tokens + (system_overhead or 0)
+    token_count = (
+        context_tokens
+        if context_tokens is not None
+        else estimate_message_tokens(messages)
+    )
     threshold = get_autocompact_threshold(model)
     return token_count >= threshold

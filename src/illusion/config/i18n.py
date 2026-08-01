@@ -183,13 +183,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
     # --- context usage ---
     "context_usage_title": {"zh-CN": "上下文窗口：{context_window:,} tokens", "en-US": "Context Window: {context_window:,} tokens"},
-    "context_system_prompt": {"zh-CN": "系统提示词：{system_tokens:,} tokens ({system_pct}%)", "en-US": "System Prompt: {system_tokens:,} tokens ({system_pct}%)"},
-    "context_system_prompt_unknown": {"zh-CN": "系统提示词：~ tokens", "en-US": "System Prompt: ~ tokens"},
-    "context_messages": {"zh-CN": "消息：{messages_tokens:,} tokens ({messages_pct}%)", "en-US": "Messages: {messages_tokens:,} tokens ({messages_pct}%)"},
-    "context_estimated_used": {"zh-CN": "预估已用：{estimated_used:,} tokens ({percentage}%)", "en-US": "Estimated Used: {estimated_used:,} tokens ({percentage}%)"},
+    "context_input_cached": {"zh-CN": "输入（命中）：{cached:,} tokens ({cached_pct}%)", "en-US": "Input (Cached): {cached:,} tokens ({cached_pct}%)"},
+    "context_input_uncached": {"zh-CN": "输入（未命中）：{uncached:,} tokens ({uncached_pct}%)", "en-US": "Input (Uncached): {uncached:,} tokens ({uncached_pct}%)"},
+    "context_output_line": {"zh-CN": "输出：{output_tokens:,} tokens ({output_pct}%)", "en-US": "Output: {output_tokens:,} tokens ({output_pct}%)"},
+    "context_used_total": {"zh-CN": "已用上下文：{used:,} tokens ({percentage}%)", "en-US": "Context Used: {used:,} tokens ({percentage}%)"},
     "context_remaining": {"zh-CN": "剩余：{remaining:,} tokens", "en-US": "Remaining: {remaining:,} tokens"},
-    "context_cumulative_usage": {"zh-CN": "累积 API 用量：input={input_tokens:,} output={output_tokens:,}", "en-US": "Cumulative API Usage: input={input_tokens:,} output={output_tokens:,}"},
-    "context_note": {"zh-CN": "注：系统提示词包含 skills/hooks/rules/memory/channels 等系统级开销", "en-US": "Note: System Prompt includes skills/hooks/rules/memory/channels and other system-level overhead"},
+    "context_cumulative_detail": {"zh-CN": "累积用量：命中={cache_read:,} 未命中={input_tokens:,} 输出={output_tokens:,}", "en-US": "Cumulative Usage: cached={cache_read:,} uncached={input_tokens:,} output={output_tokens:,}"},
     "permission_denied_stopped": {"zh-CN": "权限被拒绝，已终止当前操作（{tool}）。", "en-US": "Permission denied, stopped current operation ({tool})."},
     # --- update ---
     "update_checking": {"zh-CN": "正在检查更新...", "en-US": "Checking for updates..."},

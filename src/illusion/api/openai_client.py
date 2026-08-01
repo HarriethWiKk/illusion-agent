@@ -274,6 +274,45 @@ class _StreamingThoughtTagProcessor:
         return results
 
 
+def _extract_openai_usage(usage: Any) -> dict[str, int]:
+    """从 OpenAI usage 对象提取 4 字段用量（兼容 Chat Completions 与 Responses）。
+
+    OpenAI 语义：顶层总数（prompt_tokens / input_tokens）**包含**缓存命中的
+    tokens，非缓存输入 = 总数 - cached。命中位于嵌套的
+    prompt_tokens_details.cached_tokens（Chat Completions）或
+    input_tokens_details.cached_tokens（Responses）。OpenAI 不区分缓存写入，
+    cache_creation_input_tokens 恒为 0。
+
+    Args:
+        usage: OpenAI SDK 的 usage 对象
+
+    Returns:
+        dict[str, int]: UsageSnapshot 字段映射
+    """
+    # 总输入：Chat Completions 用 prompt_tokens，Responses 用 input_tokens
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    if prompt == 0:
+        prompt = int(getattr(usage, "input_tokens", 0) or 0)
+    output = int(getattr(usage, "completion_tokens", 0) or 0)
+    if output == 0:
+        output = int(getattr(usage, "output_tokens", 0) or 0)
+    # 缓存命中：prompt_tokens_details.cached_tokens / input_tokens_details.cached_tokens
+    cached = 0
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None:
+        cached = int(getattr(details, "cached_tokens", 0) or 0)
+    if cached == 0:
+        details = getattr(usage, "input_tokens_details", None)
+        if details is not None:
+            cached = int(getattr(details, "cached_tokens", 0) or 0)
+    return {
+        "input_tokens": max(0, prompt - cached),
+        "output_tokens": output,
+        "cache_read_input_tokens": cached,
+        "cache_creation_input_tokens": 0,
+    }
+
+
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """将 Anthropic 工具模式转换为 OpenAI function-calling 格式
     
@@ -732,10 +771,7 @@ class OpenAICompatibleClient:
             if not chunk.choices:
                 # 仅使用量块（某些 providers 在最后发送）
                 if chunk.usage:
-                    usage_data = {
-                        "input_tokens": chunk.usage.prompt_tokens or 0,
-                        "output_tokens": chunk.usage.completion_tokens or 0,
-                    }
+                    usage_data = _extract_openai_usage(chunk.usage)
                 continue
 
             delta = chunk.choices[0].delta
@@ -803,10 +839,7 @@ class OpenAICompatibleClient:
 
             # chunk 中的使用量（如果 provider 发送）
             if chunk.usage:
-                usage_data = {
-                    "input_tokens": chunk.usage.prompt_tokens or 0,
-                    "output_tokens": chunk.usage.completion_tokens or 0,
-                }
+                usage_data = _extract_openai_usage(chunk.usage)
 
         # 刷出流式思考标签处理器中可能残留的内容
         for text_part, reasoning_part in thought_processor.flush():
@@ -853,6 +886,10 @@ class OpenAICompatibleClient:
             usage=UsageSnapshot(
                 input_tokens=usage_data.get("input_tokens", 0),
                 output_tokens=usage_data.get("output_tokens", 0),
+                cache_read_input_tokens=usage_data.get("cache_read_input_tokens", 0),
+                cache_creation_input_tokens=usage_data.get(
+                    "cache_creation_input_tokens", 0
+                ),
             ),
             stop_reason=finish_reason,
         )
@@ -1129,10 +1166,8 @@ class OpenAICompatibleClient:
                 elif isinstance(event, ResponseCompletedEvent):
                     resp = event.response
                     if hasattr(resp, "usage") and resp.usage:
-                        usage_data = {
-                            "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
-                            "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
-                        }
+                        # Responses API：input_tokens 含缓存，命中在 input_tokens_details.cached_tokens
+                        usage_data = _extract_openai_usage(resp.usage)
 
         # 构建最终消息
         content: list[ContentBlock] = []
@@ -1161,6 +1196,10 @@ class OpenAICompatibleClient:
             usage=UsageSnapshot(
                 input_tokens=usage_data.get("input_tokens", 0),
                 output_tokens=usage_data.get("output_tokens", 0),
+                cache_read_input_tokens=usage_data.get("cache_read_input_tokens", 0),
+                cache_creation_input_tokens=usage_data.get(
+                    "cache_creation_input_tokens", 0
+                ),
             ),
             stop_reason="stop",
         )

@@ -42,10 +42,10 @@ class AppState:
         phase: 会话阶段 (idle/thinking/tool_executing)
         team_context: 当前会话的团队上下文（若已创建团队）
         max_tokens: 最大输出令牌数
-        input_tokens: 累积 API input tokens
+        input_tokens: 累积 API input tokens（非缓存）
         output_tokens: 累积 API output tokens
-        system_prompt_tokens: 当前 system overhead（实测或 0）
-        system_overhead_measured: 是否已得到 system overhead 实测值
+        cache_read_input_tokens: 累积缓存命中 tokens
+        cache_creation_input_tokens: 累积缓存写入 tokens
     """
 
     model: str  # 模型名称
@@ -65,9 +65,13 @@ class AppState:
     session_id: str = ""  # 当前会话 ID
     context_window: int = 0  # 上下文窗口大小（tokens）
     context_tokens: int = 0  # 当前已用 tokens（估算）
+    context_cache_read: int = 0  # 最后一次 API 调用的缓存命中 tokens
+    context_cache_creation: int = 0  # 最后一次 API 调用的缓存写入 tokens
+    context_input: int = 0  # 最后一次 API 调用的非缓存输入 tokens
+    context_output: int = 0  # 最后一次 API 调用的输出 tokens
     team_context: dict[str, object] | None = None  # 团队上下文
     max_tokens: int = 16384  # 最大输出令牌数
-    input_tokens: int = 0  # 累积 API input tokens
+    input_tokens: int = 0  # 累积 API input tokens（非缓存）
     output_tokens: int = 0  # 累积 API output tokens
-    system_prompt_tokens: int = 0  # 当前 system overhead（实测或 0）
-    system_overhead_measured: bool = False  # 是否已得到 system overhead 实测值
+    cache_read_input_tokens: int = 0  # 累积缓存命中 tokens
+    cache_creation_input_tokens: int = 0  # 累积缓存写入 tokens

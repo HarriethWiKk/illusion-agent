@@ -6,7 +6,7 @@
 
 核心设计：
     - 复用当前会话的 QueryEngine 配置（API 客户端、工具注册表、权限检查器）
-    - 独立的 file_state_cache 和 overhead_tracker，避免污染主会话状态
+    - 独立的 file_state_cache，避免污染主会话状态
     - deny_all_tools=True，拒绝所有工具调用，防止工作区污染
     - 返回结果标记 ephemeral=True，前端可区分临时回复与正式回复
 

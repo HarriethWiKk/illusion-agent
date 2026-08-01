@@ -53,7 +53,6 @@ from illusion.engine.stream_events import StreamEvent
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState, estimate_conversation_tokens
-from illusion.services.compact.system_overhead_tracker import SystemOverheadTracker
 from illusion.services.file_history import (
     FileHistoryState,
     make_snapshot,
@@ -122,7 +121,10 @@ class QueryEngine:
         self._effort = effort  # effort 级别
         self._messages: list[ConversationMessage] = []  # 对话消息历史
         self._cost_tracker = CostTracker()  # 成本跟踪器
-        self._overhead_tracker = SystemOverheadTracker()  # system overhead 反推跟踪器
+        # 最后一次 API 调用的真实用量（含缓存分项），None 表示尚未调用或已失效
+        self._last_api_usage: UsageSnapshot | None = None
+        # last_api_usage 记录时的消息数快照，用于计算"自上次 API 调用以来新增消息"的增量
+        self._last_api_usage_message_count: int = 0
         self._bg_agent_tracker = BackgroundAgentTracker()  # 后台代理追踪器
         self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
         self._file_history: FileHistoryState | None = None  # 文件历史状态
@@ -221,13 +223,45 @@ class QueryEngine:
         return self._model
 
     @property
-    def overhead_tracker(self) -> SystemOverheadTracker:
-        """返回 system overhead 反推跟踪器。
+    def last_api_usage(self) -> UsageSnapshot | None:
+        """返回最后一次 API 调用的真实用量（含缓存分项）。
+
+        压缩后会被清除，直到下一次 API 调用重新填充。
 
         Returns:
-            SystemOverheadTracker: tracker 实例
+            UsageSnapshot | None: 最后一次调用的用量，None 表示无数据
         """
-        return self._overhead_tracker
+        return self._last_api_usage
+
+    def invalidate_last_api_usage(self) -> None:
+        """清除 last_api_usage 快照（压缩后调用）。
+
+        压缩后压缩前的真实用量已不代表压缩后的上下文，清除后
+        current_context_tokens() 回退到纯估算，直到下一次 API 调用
+        提供新的真实值。
+        """
+        self._last_api_usage = None
+        self._last_api_usage_message_count = 0
+
+    def current_context_tokens(self) -> int:
+        """当前上下文估算 = 最后一次 API 调用的真实 context_size + 新增消息估算。
+
+        与 Claude Code 的 tokenCountWithEstimation() 同思路：真实 usage 为
+        基准，新增消息用本地估算补齐，防止低估（低估会导致自动压缩触发
+        过晚，API 调用失败）。
+
+        Returns:
+            int: 当前上下文占用 token 估算
+        """
+        if self._last_api_usage is not None:
+            new_messages = self._messages[self._last_api_usage_message_count:]
+            if new_messages:
+                return (
+                    self._last_api_usage.context_size
+                    + estimate_conversation_tokens(new_messages)
+                )
+            return self._last_api_usage.context_size
+        return estimate_conversation_tokens(self._messages)
 
     @property
     def tool_registry(self) -> ToolRegistry:
@@ -258,12 +292,13 @@ class QueryEngine:
     def clear(self) -> None:
         """清除内存中的对话历史。
 
-        同时重置成本跟踪器、system overhead 跟踪器和文件状态缓存。
+        同时重置成本跟踪器、last_api_usage 和文件状态缓存。
         注意：不清除 _checkpoint_store 和 _session_id，由 full_reset 处理。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
-        self._overhead_tracker = SystemOverheadTracker()
+        self._last_api_usage = None
+        self._last_api_usage_message_count = 0
         self._file_state_cache.clear()
 
     def set_checkpoint_store(self, store: CheckpointStore | None) -> None:
@@ -294,12 +329,13 @@ class QueryEngine:
     def full_reset(self) -> None:
         """完全重置引擎状态（用于 /new）。
 
-        清空消息历史、cost_tracker、overhead_tracker、file_history、
+        清空消息历史、cost_tracker、last_api_usage、file_history、
         file_state_cache、session_id 和 checkpoint_store。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
-        self._overhead_tracker = SystemOverheadTracker()
+        self._last_api_usage = None
+        self._last_api_usage_message_count = 0
         self._file_history = None
         self._file_state_cache.clear()
         self._session_id = ""
@@ -310,13 +346,15 @@ class QueryEngine:
 
         system_prompt 不从持久化恢复——下一轮 handle_line 会通过
         build_runtime_system_prompt 重新构建。
+        last_api_usage 不恢复——resume 后无 API 调用数据，下次调用时填充。
 
         Args:
             result: restore 结果
         """
         self._messages = list(result.messages)
         self._cost_tracker.apply_restore(result)
-        self._overhead_tracker.apply_restore(result)
+        self._last_api_usage = None
+        self._last_api_usage_message_count = 0
 
     def load_file_history(self, checkpoint_count: int | None = None) -> None:
         """显式加载文件历史状态（用于 /resume 后）。
@@ -553,7 +591,8 @@ class QueryEngine:
             # 下轮 handle_line 续接）。与前台 IDLE_TIMEOUT 一致。
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
-            overhead_tracker=self._overhead_tracker,
+            last_api_usage=self._last_api_usage,
+            last_api_usage_message_count=self._last_api_usage_message_count,
             on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
@@ -565,20 +604,17 @@ class QueryEngine:
             async for event, usage in run_query(context, self._messages):
                 if usage is not None:
                     self._cost_tracker.add(usage)  # 累加使用量
+                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
+                    self._last_api_usage = usage
+                    self._last_api_usage_message_count = len(self._messages)
                     # 持久化累积 usage
                     if self._checkpoint_store is not None:
                         await self._checkpoint_store.append_usage(
-                            self._cost_tracker.total.input_tokens,
-                            self._cost_tracker.total.output_tokens,
+                            input_tokens=self._cost_tracker.total.input_tokens,
+                            output_tokens=self._cost_tracker.total.output_tokens,
+                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
+                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
                         )
-                    # 反推 system overhead（每轮无条件覆盖，接受自然波动）
-                    if usage.input_tokens > 0:
-                        messages_tokens = estimate_conversation_tokens(self._messages)
-                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens) and self._checkpoint_store is not None:
-                            # 持久化实测 overhead
-                            await self._checkpoint_store.append_system_overhead(
-                                self._overhead_tracker.tokens or 0,
-                            )
                 yield event
         finally:
             # 同步压缩后的消息列表（full compact 后 messages 指向新列表）
@@ -624,7 +660,8 @@ class QueryEngine:
             # idle 超时阈值（与 build_query_context 一致，详见上文说明）
             bg_agent_wait_timeout=300.0,
             compact_state=self._compact_state,
-            overhead_tracker=self._overhead_tracker,
+            last_api_usage=self._last_api_usage,
+            last_api_usage_message_count=self._last_api_usage_message_count,
             on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
@@ -636,18 +673,17 @@ class QueryEngine:
             async for event, usage in run_query(context, self._messages):
                 if usage is not None:
                     self._cost_tracker.add(usage)  # 累加使用量
+                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
+                    self._last_api_usage = usage
+                    self._last_api_usage_message_count = len(self._messages)
                     # 持久化累积 usage（continue_pending 不 append checkpoint）
                     if self._checkpoint_store is not None:
                         await self._checkpoint_store.append_usage(
-                            self._cost_tracker.total.input_tokens,
-                            self._cost_tracker.total.output_tokens,
+                            input_tokens=self._cost_tracker.total.input_tokens,
+                            output_tokens=self._cost_tracker.total.output_tokens,
+                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
+                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
                         )
-                    if usage.input_tokens > 0:
-                        messages_tokens = estimate_conversation_tokens(self._messages)
-                        if self._overhead_tracker.update_from_usage(usage.input_tokens, messages_tokens) and self._checkpoint_store is not None:
-                            await self._checkpoint_store.append_system_overhead(
-                                self._overhead_tracker.tokens or 0,
-                            )
                 yield event
         finally:
             # 同步压缩后的消息列表（full compact 后 messages 指向新列表）

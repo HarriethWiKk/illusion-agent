@@ -1,13 +1,12 @@
 """CheckpointStore 单元测试。"""
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from illusion.engine.messages import ConversationMessage
-from illusion.services.checkpoint_store import CheckpointStore, RestoreResult
+from illusion.services.checkpoint_store import CheckpointStore
 
 
 @pytest.fixture
@@ -20,20 +19,23 @@ def store(tmp_path: Path) -> CheckpointStore:
 
 @pytest.mark.asyncio
 async def test_append_and_restore_basic(store: CheckpointStore) -> None:
-    """append 后 restore 能重建所有状态。"""
+    """append 后 restore 能重建所有状态（含缓存分项）。"""
     cid = await store.append_checkpoint()
     assert cid == 0
     user_msg = ConversationMessage.from_user_text("hello")
     await store.append_message(user_msg)
-    await store.append_usage(input_tokens=100, output_tokens=5)
-    await store.append_system_overhead(tokens=2000)
+    await store.append_usage(
+        input_tokens=100, output_tokens=5,
+        cache_read_input_tokens=1000, cache_creation_input_tokens=200,
+    )
 
     result = await store.restore()
     assert len(result.messages) == 1
     assert result.messages[0].text == "hello"
     assert result.usage_input == 100
     assert result.usage_output == 5
-    assert result.system_overhead == 2000
+    assert result.usage_cache_read == 1000
+    assert result.usage_cache_creation == 200
     assert result.checkpoint_count == 1
 
 
@@ -86,7 +88,8 @@ async def test_restore_empty_store(tmp_path: Path) -> None:
     result = await s.restore()
     assert result.messages == []
     assert result.usage_input == 0
-    assert result.system_overhead is None
+    assert result.usage_cache_read == 0
+    assert result.usage_cache_creation == 0
 
 
 @pytest.mark.asyncio
@@ -127,11 +130,11 @@ async def test_lazy_dir_not_created_on_restore(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_legacy_system_prompt_line_ignored(tmp_path: Path) -> None:
-    """旧文件中的 _system_prompt 行被忽略，不影响 restore。"""
+    """旧文件中的 _system_prompt / _system_overhead 行被忽略，不影响 restore。"""
     session_dir = tmp_path / "legacy"
     session_dir.mkdir()
     store = CheckpointStore(session_dir, "legacy")
-    # 手动写入旧格式行（含 _system_prompt）
+    # 手动写入旧格式行（含 _system_prompt / _system_overhead）
     import json
     (session_dir / "context.jsonl").write_text(
         json.dumps({"role": "_system_prompt", "content": "old", "hash": "h1"}) + "\n"
@@ -143,5 +146,5 @@ async def test_legacy_system_prompt_line_ignored(tmp_path: Path) -> None:
     result = await store.restore()
     assert len(result.messages) == 1
     assert result.messages[0].text == "hi"
-    assert result.system_overhead == 500
+    assert result.usage_cache_read == 0
     assert result.checkpoint_count == 1

@@ -446,16 +446,24 @@ export interface StatusPayload {
   session_id?: string;
   /** 上下文窗口大小 */
   context_window?: number;
-  /** 当前上下文已用 tokens（含 system overhead + messages） */
+  /** 当前上下文已用 tokens（最后一次 API 真实值 + 新增消息估算） */
   context_tokens?: number;
-  /** 累积 API input tokens */
+  /** 最后一次 API 调用的缓存命中 tokens */
+  context_cache_read?: number;
+  /** 最后一次 API 调用的缓存写入 tokens */
+  context_cache_creation?: number;
+  /** 最后一次 API 调用的非缓存输入 tokens */
+  context_input?: number;
+  /** 最后一次 API 调用的输出 tokens */
+  context_output?: number;
+  /** 累积 API input tokens（非缓存） */
   input_tokens?: number;
   /** 累积 API output tokens */
   output_tokens?: number;
-  /** 当前 system overhead（实测值或 0） */
-  system_prompt_tokens?: number;
-  /** 是否已得到 system overhead 实测值 */
-  system_overhead_measured?: boolean;
+  /** 累积缓存命中 tokens */
+  cache_read_input_tokens?: number;
+  /** 累积缓存写入 tokens */
+  cache_creation_input_tokens?: number;
   /** 最大 tokens */
   max_tokens?: number;
   /** 活动 agent 数 */

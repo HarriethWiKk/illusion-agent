@@ -48,17 +48,36 @@ class CostTracker:
         self._usage = UsageSnapshot(
             input_tokens=self._usage.input_tokens + usage.input_tokens,
             output_tokens=self._usage.output_tokens + usage.output_tokens,
+            cache_read_input_tokens=(
+                self._usage.cache_read_input_tokens
+                + usage.cache_read_input_tokens
+            ),
+            cache_creation_input_tokens=(
+                self._usage.cache_creation_input_tokens
+                + usage.cache_creation_input_tokens
+            ),
         )
 
-    def set_usage(self, input_tokens: int, output_tokens: int) -> None:
+    def set_usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_input_tokens: int = 0,
+        cache_creation_input_tokens: int = 0,
+    ) -> None:
         """直接设置累积值（用于 rewind 后恢复）。
 
         Args:
             input_tokens: 累积 input tokens
             output_tokens: 累积 output tokens
+            cache_read_input_tokens: 累积缓存命中 tokens
+            cache_creation_input_tokens: 累积缓存写入 tokens
         """
         self._usage = UsageSnapshot(
-            input_tokens=input_tokens, output_tokens=output_tokens
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
         )
 
     def apply_restore(self, result: RestoreResult) -> None:
@@ -70,6 +89,8 @@ class CostTracker:
         self._usage = UsageSnapshot(
             input_tokens=result.usage_input,
             output_tokens=result.usage_output,
+            cache_read_input_tokens=result.usage_cache_read,
+            cache_creation_input_tokens=result.usage_cache_creation,
         )
 
     @property
