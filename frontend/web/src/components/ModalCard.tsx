@@ -524,7 +524,7 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
               }}
               placeholder={lang === 'zh-CN' ? '输入你的回答...' : 'Type your answer...'}
               rows={1}
-              className="flex-1 resize-none bg-white/60 border border-white/40 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 transition-colors"
+              className="flex-1 resize-none bg-white/60 border border-white/40 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:shadow-glow transition-all duration-200"
             />
             <button
               onClick={() => {

@@ -172,6 +172,13 @@ const ZH: Record<string, string> = {
   agentWizardNoAgentHint: '使用 /agent create 创建新 agent',
   agentWizardNoToolsHint: '暂无可用工具',
   agentWizardMaxTurnsPlaceholderHint: '留空表示不设置',
+  agentWizardTabMethod: '方式',
+  agentWizardTabBasic: '基本信息',
+  agentWizardTabModelTools: '模型与工具',
+  agentWizardTabPrompt: '提示词',
+  agentWizardNext: '下一步',
+  agentWizardPrev: '上一步',
+  agentWizardStepOf: '第 {cur} / {total} 步',
 };
 
 const EN: Record<string, string> = {
@@ -318,6 +325,13 @@ const EN: Record<string, string> = {
   agentWizardNoAgentHint: 'Use /agent create to create a new agent',
   agentWizardNoToolsHint: 'No tools available',
   agentWizardMaxTurnsPlaceholderHint: 'Empty for no limit',
+  agentWizardTabMethod: 'Method',
+  agentWizardTabBasic: 'Basic Info',
+  agentWizardTabModelTools: 'Model & Tools',
+  agentWizardTabPrompt: 'Prompt',
+  agentWizardNext: 'Next',
+  agentWizardPrev: 'Previous',
+  agentWizardStepOf: 'Step {cur} / {total}',
 };
 
 /**

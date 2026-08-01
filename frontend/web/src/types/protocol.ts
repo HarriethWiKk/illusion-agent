@@ -371,8 +371,8 @@ export interface BackendEvent {
   // === agent 向导响应专属字段 ===
   /** agent_wizard_init_response 推送的工具列表（可选） */
   tools?: { name: string; description: string }[];
-  /** agent_wizard_init_response 推送的模型列表（可选） */
-  models?: { value: string; label: string }[];
+  /** agent_wizard_init_response 推送的模型列表（可选，后端返回 name 字段） */
+  models?: { name: string; label: string }[];
   /** agent_generate_response 返回的 LLM 生成草稿（可选） */
   agent?: { identifier: string; when_to_use: string; system_prompt: string };
   /** agent_wizard_result 的成功标志（可选） */

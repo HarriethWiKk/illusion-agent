@@ -381,7 +381,7 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
 
       {/* 侧问内联输入框（textarea 上方） */}
       {btwEnabled && showBtwInput && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2">
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
           <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
           <input
             ref={btwInputRef}

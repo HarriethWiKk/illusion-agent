@@ -87,7 +87,7 @@ export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMess
           ref={inputRef}
           type="text"
           inputMode="numeric"
-          className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
+          className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200"
           value={value}
           onChange={(e) => {
             setValue(e.target.value);

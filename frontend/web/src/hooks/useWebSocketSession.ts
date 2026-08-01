@@ -134,8 +134,8 @@ export interface WebSocketSessionState {
   // ---- agent 向导相关 ----
   /** agent 向导可选工具列表（来自 agent_wizard_init_response） */
   agentWizardTools: { name: string; description: string }[] | null;
-  /** agent 向导可选模型列表（来自 agent_wizard_init_response） */
-  agentWizardModels: { value: string; label: string }[] | null;
+  /** agent 向导可选模型列表（来自 agent_wizard_init_response，后端返回 name 字段） */
+  agentWizardModels: { name: string; label: string }[] | null;
   /** LLM 生成的 agent 草稿（来自 agent_generate_response） */
   agentGenerated: { identifier: string; when_to_use: string; system_prompt: string } | null;
   /** agent 生成中标志 */
@@ -208,7 +208,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   /** agent 向导可选工具列表 */
   const [agentWizardTools, setAgentWizardTools] = useState<{ name: string; description: string }[] | null>(null);
   /** agent 向导可选模型列表 */
-  const [agentWizardModels, setAgentWizardModels] = useState<{ value: string; label: string }[] | null>(null);
+  const [agentWizardModels, setAgentWizardModels] = useState<{ name: string; label: string }[] | null>(null);
   /** LLM 生成的 agent 草稿 */
   const [agentGenerated, setAgentGenerated] = useState<{ identifier: string; when_to_use: string; system_prompt: string } | null>(null);
   /** agent 生成中标志 */

@@ -531,10 +531,13 @@ pre code.hljs,
   color: var(--text-primary);
 }
 
-/* ========== 焦点样式 ========== */
+/* ========== 焦点样式 ==========
+ * 移除全局绿色 outline 边框（视觉突兀），改为透明 outline 仅保留无障碍语义；
+ * 具体交互元素（输入框/下拉触发器）通过各自的 focus:shadow-glow 实现柔和散光聚焦态，
+ * 与底部输入框风格统一。
+ */
 *:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* ========== 动画 ========== */
