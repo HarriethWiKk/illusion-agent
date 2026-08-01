@@ -477,6 +477,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "device_code 为必填项",
         "en-US": "device_code is required",
     },
+    # --- 侧问（btw）---
+    "side_question_tool_attempt": {
+        "zh-CN": "（模型尝试调用 {tool_name} 而非直接回答。请重新表述问题或在主对话中提问。）",
+        "en-US": "(The model tried to call {tool_name} instead of answering directly. Try rephrasing or ask in the main conversation.)",
+    },
 }
 
 # --- 命令描述翻译 ---
