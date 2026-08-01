@@ -250,6 +250,9 @@ class CheckpointStore:
         usage_output: int = 0,
         usage_cache_read: int = 0,
         usage_cache_creation: int = 0,
+        *,
+        last_usage: UsageSnapshot | None = None,
+        last_message_count: int = 0,
     ) -> None:
         """压缩后重建 checkpoint：以压缩后的消息为新的持久化基线。
 
@@ -257,8 +260,9 @@ class CheckpointStore:
         文件里若仍保留压缩前的完整消息，resume/rewind 会恢复到未压缩的
         对话。因此压缩后清空文件，写入压缩后消息 + 新的 checkpoint（id=0）。
 
-        累积 usage 保留（CostTracker 不清零），但最后一次调用的单次分项
-        不保留（压缩后 last_api_usage 已失效，回退到估算）。
+        累积 usage 保留（CostTracker 不清零）。若压缩后（同一次 run_query 内）
+        还有后续 API 调用，last_usage 保留其真实分项，resume 后状态栏
+        立即恢复；否则为 None（回退估算）。
 
         Args:
             messages: 压缩后的消息列表
@@ -266,6 +270,8 @@ class CheckpointStore:
             usage_output: 累积 output tokens
             usage_cache_read: 累积缓存命中 tokens
             usage_cache_creation: 累积缓存写入 tokens
+            last_usage: 压缩后最后一次 API 调用的单次用量（若无后续调用则为 None）
+            last_message_count: 该次调用时的消息数快照
         """
         async with self._io_lock:
             if self._file.exists():
@@ -280,13 +286,23 @@ class CheckpointStore:
                         "message": msg.model_dump(mode="json"),
                     }
                     await f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                usage_record = {
+                usage_record: dict[str, Any] = {
                     "role": "_usage",
                     "input_tokens": usage_input,
                     "output_tokens": usage_output,
                     "cache_read_input_tokens": usage_cache_read,
                     "cache_creation_input_tokens": usage_cache_creation,
                 }
+                if last_usage is not None:
+                    usage_record["last_input_tokens"] = last_usage.input_tokens
+                    usage_record["last_output_tokens"] = last_usage.output_tokens
+                    usage_record["last_cache_read_input_tokens"] = (
+                        last_usage.cache_read_input_tokens
+                    )
+                    usage_record["last_cache_creation_input_tokens"] = (
+                        last_usage.cache_creation_input_tokens
+                    )
+                    usage_record["last_message_count"] = last_message_count
                 await f.write(json.dumps(usage_record, ensure_ascii=False) + "\n")
             self._next_checkpoint_id = 1
 

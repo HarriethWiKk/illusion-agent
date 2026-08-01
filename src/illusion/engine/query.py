@@ -437,6 +437,11 @@ class QueryContext:
     # query_engine 在 finally 中据此重建 checkpoint，保证
     # resume/rewind 恢复的是压缩后的对话而非压缩前的完整历史。
     compacted: bool = False
+    # 压缩完成时的消息数快照。query_engine 重建 checkpoint 时据此判断
+    # 压缩后是否还有后续 API 调用：若 last_api_usage_message_count
+    # >= compacted_message_count，则 last_usage 是压缩后的真实值，应保留；
+    # 否则是压缩前的旧值（无后续调用），应回退估算。
+    compacted_message_count: int = 0
 
     def current_context_tokens(self, messages: list[ConversationMessage]) -> int:
         """当前上下文估算 = 最后一次 API 调用的真实 context_size + 新增消息估算。
@@ -531,6 +536,7 @@ async def run_query(
             context.last_api_usage = None
             context.last_api_usage_message_count = 0
             context.compacted = True
+            context.compacted_message_count = len(messages)
             yield StatusEvent(message=t("compact_compacted")), None
         # ---------------------------------------------------------------
 

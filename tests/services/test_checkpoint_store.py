@@ -141,6 +141,47 @@ async def test_rebuild_after_compact(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rebuild_after_compact_preserves_last_usage(tmp_path: Path) -> None:
+    """压缩后若还有后续 API 调用，重建时保留其真实单次分项。"""
+    from illusion.api.usage import UsageSnapshot
+
+    session_dir = tmp_path / "compact2"
+    session_dir.mkdir()
+    store = CheckpointStore(session_dir, "compact2")
+    await store.append_checkpoint()  # id=0
+    await store.append_message(ConversationMessage.from_user_text("old"))
+
+    # 压缩 + 压缩后的后续调用（真实分项）
+    compacted = [ConversationMessage.from_user_text("[summary]")]
+    last = UsageSnapshot(
+        input_tokens=91,
+        output_tokens=354,
+        cache_read_input_tokens=326100,
+        cache_creation_input_tokens=0,
+    )
+    await store.rebuild_after_compact(
+        compacted,
+        usage_input=500000,
+        usage_output=12000,
+        usage_cache_read=400000,
+        usage_cache_creation=0,
+        last_usage=last,
+        last_message_count=2,
+    )
+
+    # resume：状态栏分项恢复（命中 326.1k / 未命中 91 / 输出 354）
+    store2 = CheckpointStore(session_dir, "compact2")
+    result = await store2.restore()
+    assert result.last_usage is not None
+    assert result.last_usage.input_tokens == 91
+    assert result.last_usage.output_tokens == 354
+    assert result.last_usage.cache_read_input_tokens == 326100
+    assert result.last_usage_message_count == 2
+    # 累积值保留
+    assert result.usage_input == 500000
+
+
+@pytest.mark.asyncio
 async def test_rewind_to_target_checkpoint(store: CheckpointStore) -> None:
     """rewind_to 截断目标 checkpoint 及之后内容。"""
     # turn 0
