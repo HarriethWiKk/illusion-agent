@@ -229,6 +229,32 @@ class QueryEngine:
         """
         return self._overhead_tracker
 
+    @property
+    def tool_registry(self) -> ToolRegistry:
+        """返回工具注册表（只读）。
+
+        供侧问等外部服务复用 engine 的工具集，无需重复构建。
+        """
+        return self._tool_registry
+
+    @property
+    def permission_checker(self) -> PermissionChecker:
+        """返回权限检查器（只读）。
+
+        供侧问等外部服务复用 engine 的权限配置。
+        """
+        return self._permission_checker
+
+    @property
+    def cwd(self) -> Path:
+        """返回当前工作目录（只读）。"""
+        return self._cwd
+
+    @property
+    def tool_metadata(self) -> dict[str, object]:
+        """返回工具元数据（只读）。"""
+        return self._tool_metadata
+
     def clear(self) -> None:
         """清除内存中的对话历史。
 
