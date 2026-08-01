@@ -167,7 +167,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	/** LLM 生成的 agent 草稿 */
 	const [agentGenerated, setAgentGenerated] = useState<{identifier: string; when_to_use: string; system_prompt: string} | null>(null);
 	/** agent 向导提交结果 */
-	const [agentWizardResult, setAgentWizardResult] = useState<{success: boolean; path?: string; errors?: string[]; error?: string} | null>(null);
+	const [agentWizardResult, setAgentWizardResult] = useState<{success: boolean; path?: string; errors?: Record<string, string>; error?: string} | null>(null);
 	/** agent 生成中标志（Task 12） */
 	const [agentGenerateLoading, setAgentGenerateLoading] = useState(false);
 	/** agent 生成错误文本（Task 12） */
@@ -262,13 +262,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 *
 	 * @param payload - 要发送的请求对象
 	 */
-	const sendRequest = (payload: Record<string, unknown>): void => {
+	const sendRequest = useCallback((payload: Record<string, unknown>): void => {
 		const child = childRef.current;
 		if (!child || !child.stdin || child.stdin.destroyed) {
 			return;
 		}
 		child.stdin.write(JSON.stringify(payload) + '\n');
-	};
+	}, []);
 
 	/**
 	 * 发送 btw 侧问请求
@@ -277,7 +277,15 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 *
 	 * @param question - 用户输入的侧问问题文本
 	 */
-	const sendBtwRequest = (question: string): void => {
+	/** btw 待处理队列：活跃请求完成后再依次发送 */
+	const btwQueueRef = useRef<string[]>([]);
+
+	const sendBtwRequest = useCallback((question: string): void => {
+		// 已有活跃请求：排队等待，完成后自动发送
+		if (btwRequestId) {
+			btwQueueRef.current.push(question);
+			return;
+		}
 		const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
 			? crypto.randomUUID()
 			: `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -286,7 +294,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		setBtwError(null);
 		setBtwRequestId(requestId);
 		sendRequest({type: 'btw_request', question, request_id: requestId});
-	};
+	}, [btwRequestId, sendRequest]);
 
 	/**
 	 * 取消进行中的 btw 请求
@@ -296,23 +304,37 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 *
 	 * @param requestId - 要取消的 btw 请求 ID；若为空则仅清空本地状态
 	 */
-	const sendBtwCancel = (requestId: string): void => {
+	const sendBtwCancel = useCallback((requestId: string): void => {
 		if (requestId) {
 			sendRequest({type: 'btw_cancel', request_id: requestId});
+		}
+		// 检查队列：若有待处理的 btw 请求，自动发送下一个
+		const nextQuestion = btwQueueRef.current.shift();
+		if (nextQuestion) {
+			const nextRequestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+				? crypto.randomUUID()
+				: `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			// 清空旧回复/错误，保留 loading=true 进入下一个请求
+			setBtwReply(null);
+			setBtwError(null);
+			setBtwRequestId(nextRequestId);
+			setBtwLoading(true);
+			sendRequest({type: 'btw_request', question: nextQuestion, request_id: nextRequestId});
+			return;
 		}
 		setBtwLoading(false);
 		setBtwReply(null);
 		setBtwError(null);
 		setBtwRequestId(null);
-	};
+	}, [sendRequest]);
 
 	/**
 	 * 请求初始化 agent 向导
 	 * 触发后端返回 agent_wizard_init_response（工具列表 + 模型列表）。
 	 */
-	const sendAgentWizardInit = (): void => {
+	const sendAgentWizardInit = useCallback((): void => {
 		sendRequest({type: 'agent_wizard_init'});
-	};
+	}, [sendRequest]);
 
 	/**
 	 * 请求 LLM 生成 agent 草稿
@@ -320,7 +342,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 * @param prompt - 用户输入的描述性提示词
 	 * @param model - 使用的模型名称
 	 */
-	const sendAgentGenerateRequest = (prompt: string, model: string): void => {
+	const sendAgentGenerateRequest = useCallback((prompt: string, model: string): void => {
 		setAgentGenerateLoading(true);
 		setAgentGenerateError(null);
 		setAgentGenerated(null);
@@ -328,7 +350,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			? crypto.randomUUID()
 			: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		sendRequest({type: 'agent_generate_request', prompt, model, request_id: requestId});
-	};
+	}, [sendRequest]);
 
 	/**
 	 * 提交 agent 向导表单
@@ -336,9 +358,9 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 * @param fields - 表单字段（identifier/when_to_use/system_prompt/tools 等）
 	 * @param scope - 写入范围：'user' 或 'project'
 	 */
-	const sendAgentWizardSubmit = (fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
+	const sendAgentWizardSubmit = useCallback((fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
 		sendRequest({type: 'agent_wizard_submit', fields, scope});
-	};
+	}, [sendRequest]);
 
 	/**
 	 * 清空所有 agent 向导相关状态
@@ -346,14 +368,38 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	 * 重置工具/模型列表、生成草稿、提交结果、生成 loading 与错误，
 	 * 用于重新打开向导时避免残留旧数据干扰新一次填写。
 	 */
-	const clearAgentWizardState = (): void => {
+	const clearAgentWizardState = useCallback((): void => {
 		setAgentWizardTools(null);
 		setAgentWizardModels(null);
 		setAgentGenerated(null);
 		setAgentWizardResult(null);
 		setAgentGenerateLoading(false);
 		setAgentGenerateError(null);
-	};
+	}, []);
+
+	/**
+	 * 清空 btw 侧问相关状态（reply / error / loading / requestId）
+	 *
+	 * 用于新会话轮次开始时清除上一轮残留的侧问面板，
+	 * 避免 BtwPanel 在新一轮 busy 中继续显示旧内容。
+	 */
+	const resetBtwState = useCallback((): void => {
+		setBtwLoading(false);
+		setBtwReply(null);
+		setBtwError(null);
+		setBtwRequestId(null);
+		btwQueueRef.current = [];
+	}, []);
+
+	/**
+	 * 清空 agent 向导提交结果
+	 *
+	 * 在 submitForm 发送请求前调用，确保旧 result 不会干扰
+	 * 新一轮提交的 useEffect 检测。
+	 */
+	const clearAgentWizardResult = useCallback((): void => {
+		setAgentWizardResult(null);
+	}, []);
 
 	/**
 	 * 清空所有静态转录项
@@ -840,13 +886,14 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearStaticItems,
 			pushStatic,
 			// ---- btw 侧问 ----
-			btwLoading,
-			btwReply,
-			btwError,
-			btwRequestId,
-			sendBtwRequest,
-			sendBtwCancel,
-			// ---- agent 向导（Task 12 消费） ----
+		btwLoading,
+		btwReply,
+		btwError,
+		btwRequestId,
+		sendBtwRequest,
+		sendBtwCancel,
+		resetBtwState,
+		// ---- agent 向导（Task 12 消费） ----
 		agentWizardTools,
 		agentWizardModels,
 		agentGenerated,
@@ -857,6 +904,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		sendAgentGenerateRequest,
 		sendAgentWizardSubmit,
 		clearAgentWizardState,
+		clearAgentWizardResult,
 		}),
 		[
 			agentGenerated, agentWizardModels, agentWizardResult, agentWizardTools,

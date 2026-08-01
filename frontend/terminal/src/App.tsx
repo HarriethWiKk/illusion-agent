@@ -275,6 +275,24 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
 
+	// busy 退出时清理残留的 btw 输入框激活状态
+	// 场景：busy 中 Ctrl+B 激活侧问输入框 → 后台任务结束 busy 退出 →
+	// BtwInlineInput 卸载但 btwInputActive 仍为 true → useInput guard 拦截斜杠指令
+	useEffect(() => {
+		if (!session.busy) {
+			setBtwInputActive(false);
+		}
+	}, [session.busy]);
+
+	// 用户在普通输入框开始输入时，自动关闭残留的 btw 回复面板
+	// 场景：btw 回复到达后用户未按 Esc 关闭，直接在输入框打字 →
+	// btwReply 仍不为 null → useInput guard 拦截斜杠指令的回车和箭头键
+	useEffect(() => {
+		if (input && (session.btwReply !== null || session.btwError !== null)) {
+			session.resetBtwState();
+		}
+	}, [input, session.btwReply, session.btwError, session.resetBtwState]);
+
 	/**
 	 * 拦截需要交互式界面的特殊命令
 	 *
@@ -691,6 +709,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		session.sendRequest({type: 'submit_line', line: trimmed});
 		setInput('');
 		session.setBusy(true);
+		// 清除上一轮残留的 btw 侧问状态，避免 BtwPanel 在新一轮 busy 中显示旧内容
+		session.resetBtwState();
 	};
 
 	// 指令结果自动消失：3 秒后清除
@@ -837,7 +857,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				onInit={session.sendAgentWizardInit}
 				onGenerate={session.sendAgentGenerateRequest}
 				onSubmit={session.sendAgentWizardSubmit}
-				onCancel={() => {
+			onClearResult={session.clearAgentWizardResult}
+			onCancel={() => {
 					setShowAgentWizard(false);
 				}}
 			/>

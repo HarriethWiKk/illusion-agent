@@ -303,8 +303,8 @@ export type BackendEvent = {
 	success?: boolean | null;
 	/** 写入文件路径（可选，agent_wizard_result 携带） */
 	path?: string | null;
-	/** 校验错误列表（可选，agent_wizard_result 携带） */
-	errors?: string[] | null;
+	/** 校验错误字典（可选，agent_wizard_result 携带，字段名→错误信息） */
+	errors?: Record<string, string> | null;
 };
 
 /**
