@@ -1,28 +1,27 @@
 /**
- * @fileoverview Agent 单页创建表单组件
+ * @fileoverview Agent 分步创建表单组件
  *
  * Web 前端的 agent 创建表单，在 /agent create 或 /agent new 时弹出。
- * 支持双模式：
- * - generate：自然语言描述 → LLM 生成草稿 → 自动填充 name/description/system_prompt
- * - manual：直接填写空字段
+ * 采用多 Tab 分步填写（类似 terminal 端），而非单页全填：
+ * - 步骤 1 方式：generate / manual 切换 + LLM 生成 UI
+ * - 步骤 2 基本信息：scope / name / description
+ * - 步骤 3 模型与工具：model / tools / effort / permission_mode / max_turns
+ * - 步骤 4 提示词：system_prompt + markdown 预览 + 提交
  *
- * 共用字段：scope / name / description / model / system_prompt / tools / effort /
- * permission_mode / max_turns。提交时内部 identifier/when_to_use 映射为后端期望的
- * name/description（与 terminal 端 AgentWizard.tsx 第 301-319 行一致）。
- *
- * 视觉风格复用 glass-overlay / glass-surface / bg-primary 等现有类，与
- * ModalCard.tsx、CustomInputModal.tsx、BtwCard.tsx 保持一致。
+ * 视觉风格：主表单为简洁卡片（无玻璃特效），下拉列表使用 GlassDropdown
+ * 玻璃拟态质感，输入框聚焦时外圈阴影散光（shadow-glow）。
  *
  * @module AgentWizardForm
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import { GlassDropdown, type DropdownOption } from './GlassDropdown';
 
 /** 工具项类型（来自 agent_wizard_init_response.tools） */
 type ToolOption = { name: string; description: string };
-/** 模型项类型（来自 agent_wizard_init_response.models） */
-type ModelOption = { value: string; label: string };
+/** 模型项类型（来自 agent_wizard_init_response.models，后端返回 name 字段） */
+type ModelOption = { name: string; label: string };
 /** LLM 生成的 agent 草稿类型（来自 agent_generate_response.agent） */
 type GeneratedAgent = { identifier: string; when_to_use: string; system_prompt: string };
 /** 提交结果类型（来自 agent_wizard_result） */
@@ -89,6 +88,14 @@ const FIELD_TO_BACKEND_KEY: Record<keyof FormFields, string | null> = {
   max_turns: 'max_turns',
 };
 
+/** 分步标签定义 */
+const TABS = [
+  'agentWizardTabMethod',
+  'agentWizardTabBasic',
+  'agentWizardTabModelTools',
+  'agentWizardTabPrompt',
+] as const;
+
 /**
  * AgentWizardForm 组件属性接口
  */
@@ -118,9 +125,9 @@ interface AgentWizardFormProps {
 }
 
 /**
- * Agent 单页创建表单组件
+ * Agent 分步创建表单组件
  *
- * 显示居中玻璃拟态对话框，引导用户填写 agent 配置并提交到后端。
+ * 显示居中简洁卡片对话框，通过多 Tab 引导用户分步填写 agent 配置。
  * - 挂载时请求初始化工具/模型列表
  * - 收到生成草稿时自动填充 name/description/system_prompt（用户仍可二次编辑）
  * - 实时校验 name/description/system_prompt 非空
@@ -145,6 +152,8 @@ export function AgentWizardForm({
   const [previewExpanded, setPreviewExpanded] = useState(false);
   /** 提交中标志（点击提交后等待 agent_wizard_result 期间为 true） */
   const [submitting, setSubmitting] = useState(false);
+  /** 当前步骤索引（0-3） */
+  const [currentStep, setCurrentStep] = useState(0);
   /** 是否已处理过当前 generated（避免重复消费） */
   const lastHandledGeneratedRef = useRef<GeneratedAgent | null>(null);
   /** 是否已处理过当前 result（避免重复消费） */
@@ -214,31 +223,17 @@ export function AgentWizardForm({
     });
   }, []);
 
-  /**
-   * 触发 LLM 生成
-   *
-   * describeText 为空时静默忽略，避免发送空请求。
-   */
+  /** 触发 LLM 生成 */
   const handleGenerate = useCallback(() => {
     const s = describeText.trim();
     if (!s || generateLoading) return;
     onGenerate(s, generateModel);
   }, [describeText, generateModel, generateLoading, onGenerate]);
 
-  /**
-   * 提交完整表单
-   *
-   * 字段名映射：内部 identifier/when_to_use → 后端 name/description。
-   * effort/permission_mode 为 '__skip__' 时省略；max_turns 为空时省略。
-   */
+  /** 提交完整表单 */
   const handleSubmit = useCallback(() => {
-    // 清空上一次的字段错误并进入 submitting 态
     setSubmissionErrors({});
     setSubmitting(true);
-    // 后端 validate_agent_definition / write_agent_definition 期望字段名为
-    // name / description（与 AgentDefinition frontmatter 一致）；
-    // 向导内部沿用 identifier / when_to_use 是为了与 agent_generate_response
-    // 返回字段保持一致，便于直接填充。提交时映射到后端期望的字段名。
     const payload: Record<string, unknown> = {
       name: fields.identifier.trim(),
       description: fields.when_to_use.trim(),
@@ -285,52 +280,82 @@ export function AgentWizardForm({
   }, [fields]);
 
   /** 模型选项（含 inherit） */
-  const modelOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [{ value: INHERIT_VALUE, label: t(lang, 'agentWizardInherit') }];
-    for (const m of models ?? []) opts.push({ value: m.value, label: m.label });
+  const modelOptions: DropdownOption[] = useMemo(() => {
+    const opts: DropdownOption[] = [{ value: INHERIT_VALUE, label: t(lang, 'agentWizardInherit') }];
+    for (const m of models ?? []) opts.push({ value: m.name, label: m.label });
     return opts;
   }, [models, lang]);
 
   /** effort 选项（含 inherit/skip） */
-  const effortOptions = useMemo(() => {
-    const opts = EFFORT_VALUES.map((v) => ({ value: v, label: v }));
+  const effortOptions: DropdownOption[] = useMemo(() => {
+    const opts: DropdownOption[] = EFFORT_VALUES.map((v) => ({ value: v, label: v }));
     opts.push({ value: INHERIT_VALUE, label: t(lang, 'agentWizardInherit') });
     opts.push({ value: SKIP_VALUE, label: t(lang, 'agentWizardSkip') });
     return opts;
   }, [lang]);
 
   /** permission_mode 选项（含 skip） */
-  const permissionOptions = useMemo(() => {
-    const opts = PERMISSION_VALUES.map((v) => ({ value: v, label: v }));
+  const permissionOptions: DropdownOption[] = useMemo(() => {
+    const opts: DropdownOption[] = PERMISSION_VALUES.map((v) => ({ value: v, label: v }));
     opts.push({ value: SKIP_VALUE, label: t(lang, 'agentWizardSkip') });
     return opts;
   }, [lang]);
 
-  /** 输入框通用样式（含错误高亮） */
+  /** 输入框通用样式（含错误高亮 + 聚焦阴影散光） */
   const inputClass = (hasError: boolean): string =>
-    `w-full px-3 py-2 rounded-md bg-white/40 border text-content-primary text-sm focus:outline-none transition-colors ${
-      hasError ? 'border-danger' : 'border-white/40 focus:border-primary'
+    `w-full px-3 py-2 rounded-md bg-white/40 border text-content-primary text-sm focus:outline-none transition-all duration-200 ${
+      hasError ? 'border-danger' : 'border-white/40 focus:border-primary focus:shadow-glow'
     }`;
 
   /** 字段错误文案（仅显示后端返回的字段级错误；本地校验仅用于禁用提交按钮） */
   const fieldError = (key: string): string | null => submissionErrors[key] ?? null;
+
+  /** 当前步骤是否可进入下一步（步骤校验） */
+  const canProceed = useMemo(() => {
+    if (currentStep === 1) {
+      // 基本信息：name 和 description 非空
+      return fields.identifier.trim() !== '' && fields.when_to_use.trim() !== '';
+    }
+    if (currentStep === 3) {
+      // 提示词：system_prompt 非空
+      return fields.system_prompt.trim() !== '';
+    }
+    return true;
+  }, [currentStep, fields.identifier, fields.when_to_use, fields.system_prompt]);
+
+  const handleNext = useCallback(() => {
+    if (currentStep < TABS.length - 1) setCurrentStep((s) => s + 1);
+  }, [currentStep]);
+
+  const handlePrev = useCallback(() => {
+    if (currentStep > 0) setCurrentStep((s) => s - 1);
+  }, [currentStep]);
+
+  /** 步骤进度文本 */
+  const stepText = t(lang, 'agentWizardStepOf')
+    .replace('{cur}', String(currentStep + 1))
+    .replace('{total}', String(TABS.length));
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-md animate-fade-in"
       onClick={onClose}
     >
+      {/* 主表单：简洁卡片（无玻璃特效） */}
       <div
-        className="relative glass-overlay rounded-2xl w-[560px] max-w-[92vw] max-h-[88vh] flex flex-col animate-scale-in modal-origin-center"
+        className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[560px] max-w-[92vw] max-h-[88vh] flex flex-col animate-scale-in modal-origin-center"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
         <div className="px-6 py-4 border-b border-border-light flex items-center justify-between shrink-0">
-          <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'agentWizardTitle')}</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'agentWizardTitle')}</h3>
+            <span className="text-xs text-content-disabled">{stepText}</span>
+          </div>
           <button
             onClick={onClose}
             title={t(lang, 'agentWizardClose')}
-            className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-content-disabled hover:text-content-primary glass-option-hover transition-colors cursor-pointer"
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M2 2l8 8M10 2l-8 8" />
@@ -338,302 +363,328 @@ export function AgentWizardForm({
           </button>
         </div>
 
+        {/* Tab 导航栏 */}
+        <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0">
+          {TABS.map((tabKey, idx) => {
+            const isActive = idx === currentStep;
+            const isPassed = idx < currentStep;
+            return (
+              <button
+                key={tabKey}
+                onClick={() => setCurrentStep(idx)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'bg-primary text-white'
+                    : isPassed
+                      ? 'text-primary bg-primary-light hover:bg-primary-light'
+                      : 'text-content-secondary hover:bg-surface-hover'
+                }`}
+              >
+                <span className="mr-1">{idx + 1}.</span>
+                {t(lang, tabKey)}
+              </button>
+            );
+          })}
+        </div>
+
         {/* 内容区（可滚动） */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* 创建方式切换 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardMethodLabel')}</div>
-            <div className="flex gap-3">
-              {([
-                { value: 'generate', label: t(lang, 'agentWizardMethodGenerate') },
-                { value: 'manual', label: t(lang, 'agentWizardMethodManual') },
-              ] as const).map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${
-                    fields.method === opt.value
-                      ? 'glass-option-active text-primary'
-                      : 'glass-option-hover text-content-secondary border border-white/40'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="method"
-                    value={opt.value}
-                    checked={fields.method === opt.value}
-                    onChange={() => updateField('method', opt.value)}
-                    className="w-3.5 h-3.5 accent-primary"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* generate 模式：描述 + 模型 + 生成按钮 */}
-          {fields.method === 'generate' && (
-            <div className="space-y-3 p-3 rounded-lg bg-white/20 border border-white/30">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {/* ===== 步骤 1：创建方式 ===== */}
+          {currentStep === 0 && (
+            <div className="space-y-4">
               <div>
-                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardDescribeLabel')}</div>
-                <textarea
-                  value={describeText}
-                  onChange={(e) => setDescribeText(e.target.value)}
-                  placeholder={t(lang, 'agentWizardDescribePlaceholder')}
-                  rows={3}
-                  className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary resize-y"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <div className="flex-1">
-                  <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardModelLabel')}</div>
-                  <select
-                    value={generateModel}
-                    onChange={(e) => setGenerateModel(e.target.value)}
-                    className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
-                  >
-                    {modelOptions.map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  onClick={handleGenerate}
-                  disabled={generateLoading || !describeText.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                >
-                  {generateLoading ? t(lang, 'agentWizardGenerating') : t(lang, 'agentWizardGenerateButton')}
-                </button>
-              </div>
-              {generateLoading && (
-                <div className="flex items-center gap-2 text-xs text-content-secondary">
-                  <svg className="w-3.5 h-3.5 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
-                    <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                  <span>{t(lang, 'agentWizardGenerating')}</span>
-                </div>
-              )}
-              {generateError && (
-                <div className="text-xs text-danger leading-relaxed">{generateError}</div>
-              )}
-            </div>
-          )}
-
-          {/* 作用域 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardScopeLabel')}</div>
-            <div className="flex gap-3">
-              {([
-                { value: 'project', label: t(lang, 'agentWizardScopeProject') },
-                { value: 'user', label: t(lang, 'agentWizardScopeUser') },
-              ] as const).map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${
-                    fields.scope === opt.value
-                      ? 'glass-option-active text-primary'
-                      : 'glass-option-hover text-content-secondary border border-white/40'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="scope"
-                    value={opt.value}
-                    checked={fields.scope === opt.value}
-                    onChange={() => updateField('scope', opt.value)}
-                    className="w-3.5 h-3.5 accent-primary"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* 名称 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardNameLabel')}</div>
-            <input
-              type="text"
-              value={fields.identifier}
-              onChange={(e) => updateField('identifier', e.target.value)}
-              placeholder={t(lang, 'agentWizardNamePlaceholder')}
-              className={inputClass(!fields.identifier.trim() || !!fieldError('name'))}
-            />
-            {fieldError('name') && (
-              <div className="text-xs text-danger mt-1">{fieldError('name')}</div>
-            )}
-          </div>
-
-          {/* 使用时机 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardDescriptionLabel')}</div>
-            <input
-              type="text"
-              value={fields.when_to_use}
-              onChange={(e) => updateField('when_to_use', e.target.value)}
-              placeholder={t(lang, 'agentWizardDescriptionPlaceholder')}
-              className={inputClass(!fields.when_to_use.trim() || !!fieldError('description'))}
-            />
-            {fieldError('description') && (
-              <div className="text-xs text-danger mt-1">{fieldError('description')}</div>
-            )}
-          </div>
-
-          {/* 默认模型 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardModelLabel')}</div>
-            <select
-              value={fields.model}
-              onChange={(e) => updateField('model', e.target.value)}
-              className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
-            >
-              {modelOptions.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* 系统提示词 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardSystemPromptLabel')}</div>
-            <textarea
-              value={fields.system_prompt}
-              onChange={(e) => updateField('system_prompt', e.target.value)}
-              rows={6}
-              className={`${inputClass(!fields.system_prompt.trim() || !!fieldError('system_prompt'))} resize-y font-mono`}
-            />
-            {fieldError('system_prompt') && (
-              <div className="text-xs text-danger mt-1">{fieldError('system_prompt')}</div>
-            )}
-            {/* markdown 预览（可折叠） */}
-            <button
-              onClick={() => setPreviewExpanded((v) => !v)}
-              className="mt-1.5 text-xs text-content-secondary hover:text-primary glass-option-hover rounded px-2 py-0.5 transition-colors cursor-pointer"
-            >
-              {previewExpanded ? '▼ ' : '▶ '}{t(lang, 'agentWizardPreview')}
-            </button>
-            {previewExpanded && (
-              <pre className="mt-1.5 px-3 py-2 rounded-md bg-black/20 border border-white/20 text-xs text-content-secondary font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                {markdownPreview}
-              </pre>
-            )}
-          </div>
-
-          {/* 工具 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardToolsLabel')}</div>
-            {!tools || tools.length === 0 ? (
-              <div className="text-xs text-content-disabled">
-                {lang === 'zh-CN' ? '暂无可用工具' : 'No tools available'}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto p-1">
-                {tools.map((tool) => {
-                  const checked = fields.tools.includes(tool.name);
-                  return (
-                    <label
-                      key={tool.name}
-                      title={tool.description}
-                      className={`flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
-                        checked ? 'glass-option-active text-primary' : 'glass-option-hover text-content-secondary'
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardMethodLabel')}</div>
+                <div className="flex gap-3">
+                  {([
+                    { value: 'generate', label: t(lang, 'agentWizardMethodGenerate') },
+                    { value: 'manual', label: t(lang, 'agentWizardMethodManual') },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => updateField('method', opt.value)}
+                      className={`flex-1 px-4 py-2.5 rounded-md cursor-pointer text-sm transition-all ${
+                        fields.method === opt.value
+                          ? 'bg-primary-light text-primary border border-primary/30 font-medium'
+                          : 'text-content-secondary border border-border-light hover:bg-surface-hover'
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleTool(tool.name)}
-                        className="mt-0.5 w-3.5 h-3.5 accent-primary shrink-0"
-                      />
-                      <span className="truncate font-mono">{tool.name}</span>
-                    </label>
-                  );
-                })}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* 思考强度 / 权限模式（同一行两列） */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardEffortLabel')}</div>
-              <select
-                value={fields.effort}
-                onChange={(e) => updateField('effort', e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
-              >
-                {effortOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardPermissionLabel')}</div>
-              <select
-                value={fields.permission_mode}
-                onChange={(e) => updateField('permission_mode', e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
-              >
-                {permissionOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* 最大轮次 */}
-          <div>
-            <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardMaxTurnsLabel')}</div>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={fields.max_turns}
-              onChange={(e) => updateField('max_turns', e.target.value)}
-              placeholder={t(lang, 'agentWizardMaxTurnsPlaceholderHint')}
-              className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-
-          {/* 提交结果 */}
-          {result?.success && (
-            <div className="px-3 py-2 rounded-md bg-success/10 border border-success/30 text-sm text-success">
-              <div className="font-medium">{t(lang, 'agentWizardSuccess')}</div>
-              {result.path && (
-                <div className="text-xs text-content-secondary mt-0.5 font-mono break-all">{result.path}</div>
+              {/* generate 模式：描述 + 模型 + 生成按钮 */}
+              {fields.method === 'generate' && (
+                <div className="space-y-3 p-3 rounded-lg bg-surface-card-alt border border-border-light">
+                  <div>
+                    <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardDescribeLabel')}</div>
+                    <textarea
+                      value={describeText}
+                      onChange={(e) => setDescribeText(e.target.value)}
+                      placeholder={t(lang, 'agentWizardDescribePlaceholder')}
+                      rows={3}
+                      className={`${inputClass(false)} resize-y`}
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardModelLabel')}</div>
+                      <GlassDropdown
+                        value={generateModel}
+                        options={modelOptions}
+                        onChange={setGenerateModel}
+                      />
+                    </div>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={generateLoading || !describeText.trim()}
+                      className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      {generateLoading ? t(lang, 'agentWizardGenerating') : t(lang, 'agentWizardGenerateButton')}
+                    </button>
+                  </div>
+                  {generateLoading && (
+                    <div className="flex items-center gap-2 text-xs text-content-secondary">
+                      <svg className="w-3.5 h-3.5 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+                        <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                      <span>{t(lang, 'agentWizardGenerating')}</span>
+                    </div>
+                  )}
+                  {generateError && (
+                    <div className="text-xs text-danger leading-relaxed">{generateError}</div>
+                  )}
+                </div>
               )}
+
+              {/* 作用域 */}
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardScopeLabel')}</div>
+                <div className="flex gap-3">
+                  {([
+                    { value: 'project', label: t(lang, 'agentWizardScopeProject') },
+                    { value: 'user', label: t(lang, 'agentWizardScopeUser') },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => updateField('scope', opt.value)}
+                      className={`flex-1 px-4 py-2.5 rounded-md cursor-pointer text-sm transition-all ${
+                        fields.scope === opt.value
+                          ? 'bg-primary-light text-primary border border-primary/30 font-medium'
+                          : 'text-content-secondary border border-border-light hover:bg-surface-hover'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
-          {result && !result.success && (
-            <div className="px-3 py-2 rounded-md bg-danger/10 border border-danger/30 text-sm text-danger">
-              <div className="font-medium">{t(lang, 'agentWizardFailed')}</div>
-              {result.error && (
-                <div className="text-xs mt-0.5 break-words">{result.error}</div>
+
+          {/* ===== 步骤 2：基本信息 ===== */}
+          {currentStep === 1 && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardNameLabel')}</div>
+                <input
+                  type="text"
+                  value={fields.identifier}
+                  onChange={(e) => updateField('identifier', e.target.value)}
+                  placeholder={t(lang, 'agentWizardNamePlaceholder')}
+                  className={inputClass(!fields.identifier.trim() || !!fieldError('name'))}
+                />
+                {fieldError('name') && (
+                  <div className="text-xs text-danger mt-1">{fieldError('name')}</div>
+                )}
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardDescriptionLabel')}</div>
+                <input
+                  type="text"
+                  value={fields.when_to_use}
+                  onChange={(e) => updateField('when_to_use', e.target.value)}
+                  placeholder={t(lang, 'agentWizardDescriptionPlaceholder')}
+                  className={inputClass(!fields.when_to_use.trim() || !!fieldError('description'))}
+                />
+                {fieldError('description') && (
+                  <div className="text-xs text-danger mt-1">{fieldError('description')}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===== 步骤 3：模型与工具 ===== */}
+          {currentStep === 2 && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardModelLabel')}</div>
+                <GlassDropdown
+                  value={fields.model}
+                  options={modelOptions}
+                  onChange={(v) => updateField('model', v)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardEffortLabel')}</div>
+                  <GlassDropdown
+                    value={fields.effort}
+                    options={effortOptions}
+                    onChange={(v) => updateField('effort', v)}
+                  />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardPermissionLabel')}</div>
+                  <GlassDropdown
+                    value={fields.permission_mode}
+                    options={permissionOptions}
+                    onChange={(v) => updateField('permission_mode', v)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardMaxTurnsLabel')}</div>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={fields.max_turns}
+                  onChange={(e) => updateField('max_turns', e.target.value)}
+                  placeholder={t(lang, 'agentWizardMaxTurnsPlaceholderHint')}
+                  className={inputClass(false)}
+                />
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardToolsLabel')}</div>
+                {!tools || tools.length === 0 ? (
+                  <div className="text-xs text-content-disabled">
+                    {t(lang, 'agentWizardNoToolsHint')}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto p-1">
+                    {tools.map((tool) => {
+                      const checked = fields.tools.includes(tool.name);
+                      return (
+                        <label
+                          key={tool.name}
+                          title={tool.description}
+                          className={`flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
+                            checked ? 'bg-primary-light text-primary' : 'text-content-secondary hover:bg-surface-hover'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleTool(tool.name)}
+                            className="mt-0.5 w-3.5 h-3.5 accent-primary shrink-0"
+                          />
+                          <span className="truncate font-mono">{tool.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===== 步骤 4：系统提示词 + 提交 ===== */}
+          {currentStep === 3 && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-content-secondary mb-1.5">{t(lang, 'agentWizardSystemPromptLabel')}</div>
+                <textarea
+                  value={fields.system_prompt}
+                  onChange={(e) => updateField('system_prompt', e.target.value)}
+                  rows={8}
+                  className={`${inputClass(!fields.system_prompt.trim() || !!fieldError('system_prompt'))} resize-y font-mono`}
+                />
+                {fieldError('system_prompt') && (
+                  <div className="text-xs text-danger mt-1">{fieldError('system_prompt')}</div>
+                )}
+                {/* markdown 预览（可折叠） */}
+                <button
+                  onClick={() => setPreviewExpanded((v) => !v)}
+                  className="mt-1.5 text-xs text-content-secondary hover:text-primary hover:bg-surface-hover rounded px-2 py-0.5 transition-colors cursor-pointer"
+                >
+                  {previewExpanded ? '▼ ' : '▶ '}{t(lang, 'agentWizardPreview')}
+                </button>
+                {previewExpanded && (
+                  <pre className="mt-1.5 px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-xs text-content-secondary font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                    {markdownPreview}
+                  </pre>
+                )}
+              </div>
+
+              {/* 提交结果 */}
+              {result?.success && (
+                <div className="px-3 py-2 rounded-md bg-success/10 border border-success/30 text-sm text-success">
+                  <div className="font-medium">{t(lang, 'agentWizardSuccess')}</div>
+                  {result.path && (
+                    <div className="text-xs text-content-secondary mt-0.5 font-mono break-all">{result.path}</div>
+                  )}
+                </div>
+              )}
+              {result && !result.success && (
+                <div className="px-3 py-2 rounded-md bg-danger/10 border border-danger/30 text-sm text-danger">
+                  <div className="font-medium">{t(lang, 'agentWizardFailed')}</div>
+                  {result.error && (
+                    <div className="text-xs mt-0.5 break-words">{result.error}</div>
+                  )}
+                </div>
               )}
             </div>
           )}
         </div>
 
-        {/* 底部操作栏 */}
-        <div className="px-6 py-4 border-t border-border-light flex items-center justify-end gap-2 shrink-0">
+        {/* 底部操作栏：上一步 / 下一步 / 提交 */}
+        <div className="px-6 py-4 border-t border-border-light flex items-center justify-between gap-2 shrink-0">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer border border-white/40"
+            className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
           >
             {t(lang, 'agentWizardClose')}
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {submitting && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
-                <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+          <div className="flex items-center gap-2">
+            {currentStep > 0 && (
+              <button
+                onClick={handlePrev}
+                className="px-4 py-2 text-sm text-content-primary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
+              >
+                {t(lang, 'agentWizardPrev')}
+              </button>
             )}
-            {submitting ? t(lang, 'agentWizardSubmitting') : t(lang, 'agentWizardSubmitButton')}
-          </button>
+            {currentStep < TABS.length - 1 ? (
+              <button
+                onClick={handleNext}
+                disabled={!canProceed}
+                className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {t(lang, 'agentWizardNext')}
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {submitting && (
+                  <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                    <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {submitting ? t(lang, 'agentWizardSubmitting') : t(lang, 'agentWizardSubmitButton')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

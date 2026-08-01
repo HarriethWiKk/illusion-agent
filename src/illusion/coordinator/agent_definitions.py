@@ -973,18 +973,24 @@ def _get_user_agents_dir() -> Path:
 
 
 def get_all_agent_definitions() -> list[AgentDefinition]:
-    """获取所有代理定义: 内置 + 用户 + 插件
-    
+    """获取所有代理定义: 内置 + 用户 + 项目级 + 插件
+
     合并顺序 (相同名称后写入者胜出):
     1. 内置代理 (最低优先级)
     2. 用户代理 (~/.illusion/agents/)
-    3. 插件代理 (从活动的插件加载)
-    
-    用户定义覆盖同名内置代理; 插件定义覆盖用户定义。
-    
+    3. 项目级代理 ({cwd}/.illusion/agents/)
+    4. 插件代理 (从活动的插件加载)
+
+    用户定义覆盖同名内置代理; 项目级定义覆盖用户定义;
+    插件定义覆盖项目级定义。
+
     Returns:
         list[AgentDefinition]: 所有代理定义列表
     """
+    import os
+
+    from illusion.config.paths import get_project_config_dir
+
     agent_map: dict[str, AgentDefinition] = {}  # 代理映射
 
     # 1. 内置代理 (最低优先级)
@@ -996,14 +1002,21 @@ def get_all_agent_definitions() -> list[AgentDefinition]:
     for agent in user_agents:
         agent_map[agent.name] = agent
 
-    # 3. 插件代理 — 延迟加载以避免导入循环
+    # 3. 项目级代理 — 与 AgentWizard project scope 写入路径一致
+    try:
+        project_agents_dir = get_project_config_dir(os.getcwd()) / "agents"
+        project_agents = load_agents_dir(project_agents_dir)
+        for agent in project_agents:
+            agent_map[agent.name] = agent
+    except (OSError, ValueError) as exc:
+        logger.debug("加载项目级代理定义失败: %s", exc)
+
+    # 4. 插件代理 — 延迟加载以避免导入循环
     try:
         from illusion.config.settings import load_settings
         from illusion.plugins.loader import load_plugins
 
         settings = load_settings()  # 加载设置
-        import os
-
         cwd = os.getcwd()  # 当前目录
         for plugin in load_plugins(settings, cwd):  # 加载插件
             if not plugin.enabled:  # 未启用

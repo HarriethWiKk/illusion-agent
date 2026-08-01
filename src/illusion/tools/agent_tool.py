@@ -84,53 +84,68 @@ class AgentTool(BaseTool[AgentToolInput]):
     """启动子代理处理复杂、多步骤任务。
 
     用于启动专门的代理来自动处理复杂任务。每个代理类型都有特定的能力和工具。
+    agent 列表通过 ``description`` 属性动态生成，每次访问都从
+    ``get_all_agent_definitions()`` 读取最新定义，确保自定义 agent
+    无需重启即可被 LLM 感知。
     """
 
     name = "agent"
-    description = """Launch a new agent to handle complex, multi-step tasks autonomously.
 
-The Agent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
+    @property
+    def description(self) -> str:
+        """动态生成工具描述，包含当前所有可用 agent 类型。"""
+        from illusion.coordinator.agent_definitions import get_all_agent_definitions
 
-Available agent types and the tools they have access to:
-- general-purpose: All tools available. General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks.
-- Explore: Fast read-only codebase exploration (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
-- Plan: Software architect for designing implementation plans (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
-- verification: Verification specialist for checking implementation correctness (Tools: Glob, Grep, Read, Bash). Disallows editing tools.
-- illusion-guide: Documentation lookup for Illusion Agent/SDK/API (Tools: Glob, Grep, Read, WebFetch, WebSearch).
-- worker: Implementation-focused worker agent. All tools available.
-- statusline-setup: Status line configuration agent (Tools: Read, Edit).
-
-When using the Agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used.
-
-When NOT to use the Agent tool:
-- If you want to read a specific file path, use the Read tool or the Glob tool instead
-- If you are searching for a specific class definition, use the Glob tool instead
-- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead
-
-Usage notes:
-- Always include a short description (3-5 words) summarizing what the agent will do
-- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
-- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
-- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress. Continue with other work or respond to the user instead.
-- **Foreground vs background**: Use foreground (default) when you need the agent's results before you can proceed. Use background when you have genuinely independent work to do in parallel.
-- To continue a previously spawned agent, use SendMessage with the agent's ID or name as the `to` field.
-- The agent's outputs should generally be trusted
-- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
-- If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Agent tool use content blocks.
-- Use `isolation="worktree"` to run the agent in an isolated git worktree directory. This prevents the agent from affecting the main workspace. The worktree is automatically cleaned up when the agent completes.
-
-## Writing the prompt
-
-When spawning a fresh agent (with a `subagent_type`), it starts with zero context. Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.
-- Explain what you're trying to accomplish and why.
-- Describe what you've already learned or ruled out.
-- Give enough context about the surrounding problem that the agent can make judgment calls rather than just following a narrow instruction.
-- If you need a short response, say so ("report in under 200 words").
-- Lookups: hand over the exact command. Investigations: hand over the question — prescribed steps become dead weight when the premise is wrong.
-
-Terse command-style prompts produce shallow, generic work.
-
-**Never delegate understanding.** Don't write "based on your findings, fix the bug" or "based on the research, implement it." Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change."""
+        lines = [
+            "Launch a new agent to handle complex, multi-step tasks autonomously.",
+            "",
+            "The Agent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.",
+            "",
+            "Available agent types and the tools they have access to:",
+        ]
+        for agent_def in get_all_agent_definitions():
+            tools_field = agent_def.tools
+            if tools_field is None or tools_field == ["*"]:
+                tools_desc = "All tools available"
+            else:
+                tools_desc = f"Tools: {', '.join(tools_field)}"
+            desc = (agent_def.description or "").split("\n", 1)[0]
+            lines.append(f"- {agent_def.name}: {desc} ({tools_desc}).")
+        lines.extend([
+            "",
+            "When using the Agent tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used.",
+            "",
+            "When NOT to use the Agent tool:",
+            "- If you want to read a specific file path, use the Read tool or the Glob tool instead",
+            "- If you are searching for a specific class definition, use the Glob tool instead",
+            "- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead",
+            "",
+            "Usage notes:",
+            "- Always include a short description (3-5 words) summarizing what the agent will do",
+            "- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses",
+            "- When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.",
+            "- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress. Continue with other work or respond to the user instead.",
+            "- **Foreground vs background**: Use foreground (default) when you need the agent's results before you can proceed. Use background when you have genuinely independent work to do in parallel.",
+            "- To continue a previously spawned agent, use SendMessage with the agent's ID or name as the `to` field.",
+            "- The agent's outputs should generally be trusted",
+            "- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent",
+            "- If the user specifies that they want you to run agents \"in parallel\", you MUST send a single message with multiple Agent tool use content blocks.",
+            "- Use `isolation=\"worktree\"` to run the agent in an isolated git worktree directory. This prevents the agent from affecting the main workspace. The worktree is automatically cleaned up when the agent completes.",
+            "",
+            "## Writing the prompt",
+            "",
+            "When spawning a fresh agent (with a `subagent_type`), it starts with zero context. Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.",
+            "- Explain what you're trying to accomplish and why.",
+            "- Describe what you've already learned or ruled out.",
+            "- Give enough context about the surrounding problem that the agent can make judgment calls rather than just following a narrow instruction.",
+            "- If you need a short response, say so (\"report in under 200 words\").",
+            "- Lookups: hand over the exact command. Investigations: hand over the question — prescribed steps become dead weight when the premise is wrong.",
+            "",
+            "Terse command-style prompts produce shallow, generic work.",
+            "",
+            "**Never delegate understanding.** Don't write \"based on your findings, fix the bug\" or \"based on the research, implement it.\" Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change.",
+        ])
+        return "\n".join(lines)
 
     input_model = AgentToolInput
 
@@ -321,6 +336,11 @@ Terse command-style prompts produce shallow, generic work.
                     )
                     _register_agent(bg_ctx)
 
+                    # task_name 格式：任务名 · agent类型（小写），类型为空时默认 "agent"
+                    task_name_raw = arguments.description or config.name
+                    agent_type = (arguments.subagent_type or "agent").lower()
+                    task_name = f"{task_name_raw} · {agent_type}"
+
                     # 后台模式仅传递 on_activity 回调：对所有事件（含文本生成、
                     # 工具事件）刷新 bg_tracker 的活动时间戳，让主循环通过 idle
                     # 超时判断是否卡住，避免 30s 固定超时误退出 busy。
@@ -340,14 +360,19 @@ Terse command-style prompts produce shallow, generic work.
                         )
                         # 构建通知 XML
                         if result.notification:
+                            # 补充 task_name（run_agent_in_process 内部可能未设置）
+                            result.notification.task_name = task_name
                             notification_xml = format_task_notification(result.notification)
                         else:
                             status = "completed" if result.success else "failed"
                             summary = result.result_text or result.error or "Agent completed"
-                            notification_xml = (
-                                f"<task-notification><task-id>{agent_id}</task-id>"
-                                f"<status>{status}</status><summary>{summary}</summary></task-notification>"
-                            )
+                            from illusion.swarm.agent_executor import TaskNotification
+                            notification_xml = format_task_notification(TaskNotification(
+                                task_id=agent_id,
+                                status=status,
+                                summary=summary,
+                                task_name=task_name,
+                            ))
                         # 把最终结果文本累积到 task output
                         if result.result_text:
                             await manager.write_to_task_output(agent_id, result.result_text)
@@ -375,10 +400,15 @@ Terse command-style prompts produce shallow, generic work.
                             result="Agent was stopped by task_stop",
                         )
                         if bg_tracker is not None:
+                            from illusion.swarm.agent_executor import TaskNotification
                             bg_tracker.notify_completed(
                                 agent_id,
-                                f"<task-notification><task-id>{agent_id}</task-id>"
-                                f"<status>killed</status><summary>Agent was stopped by task_stop</summary></task-notification>",
+                                format_task_notification(TaskNotification(
+                                    task_id=agent_id,
+                                    status="killed",
+                                    summary="Agent was stopped by task_stop",
+                                    task_name=task_name,
+                                )),
                             )
                         raise
                     except Exception:
@@ -390,10 +420,15 @@ Terse command-style prompts produce shallow, generic work.
                         )
                         # 即使异常也通知追踪器，避免主 agent 永远等待
                         if bg_tracker is not None:
+                            from illusion.swarm.agent_executor import TaskNotification
                             bg_tracker.notify_completed(
                                 agent_id,
-                                f"<task-notification><task-id>{agent_id}</task-id>"
-                                f"<status>failed</status><summary>Agent crashed with unhandled exception</summary></task-notification>",
+                                format_task_notification(TaskNotification(
+                                    task_id=agent_id,
+                                    status="failed",
+                                    summary="Agent crashed with unhandled exception",
+                                    task_name=task_name,
+                                )),
                             )
                     finally:
                         _unregister_agent(agent_id)

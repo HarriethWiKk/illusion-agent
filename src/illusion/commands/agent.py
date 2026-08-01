@@ -1,15 +1,15 @@
 """ /agent 命令处理器
 
-查看已完成 agent 的摘要，或引导用户创建新 agent。
+查看已完成任务的摘要，或引导用户创建新 agent。
 
 路由：
     - 无参数 / list：提示用法（前端可通过 select_command('agent') 列出可选项）
     - create / new：提示创建向导由前端驱动（agent_wizard_init/submit）
     - <id>：双数据源查询
         - 前台 agent：<id> 为 tool_use_id，从 engine.messages 提取对应 tool_result
-        - 后台 agent：<id> 为 task_id，从 transcript 的 task-notification 提取 <result>
-          （task-notification 是后端在 agent 完成时注入的 user 消息 TextBlock，
-           天然随会话同步，避免 manager._tasks 进程级单例跨会话不同步问题）
+        - 后台任务（agent / bash / powershell 等）：<id> 为 task_id，从 transcript 的
+          task-notification 提取 <result>（天然随会话同步，避免 manager._tasks 进程级
+          单例跨会话不同步问题）
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ async def agent_handler(args: str, context: CommandContext) -> CommandResult:
     if not tokens or tokens[0] == "list":
         return CommandResult(
             message=(
-                "Use /agent <id> to view a completed agent's summary, "
+                "Use /agent <id> to view a completed task's summary, "
                 "or /agent create to create a new agent."
             )
         )
@@ -58,8 +58,8 @@ async def agent_handler(args: str, context: CommandContext) -> CommandResult:
                     return CommandResult(message=text)
                 return CommandResult(message=f"Agent tool result '{query_id}' is empty.")
 
-    # 2. 后台 agent：从 transcript 的 task-notification 提取 <result> 内容
-    #    task-notification 是后端在 agent 完成时注入的 user 消息 TextBlock，
+    # 2. 后台任务（agent / bash / powershell 等）：从 transcript 的 task-notification 提取 <result>
+    #    task-notification 是后端在后台任务完成时注入的 user 消息 TextBlock，
     #    天然随会话同步，避免 manager._tasks 进程级单例跨会话不同步问题。
     for msg in context.engine.messages:
         if msg.role != "user":
@@ -70,14 +70,24 @@ async def agent_handler(args: str, context: CommandContext) -> CommandResult:
             match = TASK_NOTIFICATION_RE.search(block.text)
             if not match:
                 continue
-            task_id = match.group(1).strip()
+            task_id = match.group("task_id").strip()
             if task_id != query_id:
                 continue
-            status = match.group(2).strip()
+            status = match.group("status").strip()
             if status != "completed":
-                return CommandResult(message=f"Agent '{query_id}' is not completed (status: {status}).")
-            result_text = match.group(4).strip()
-            return CommandResult(message=result_text or f"Agent '{query_id}' has no captured output.")
+                return CommandResult(message=f"Task '{query_id}' is not completed (status: {status}).")
+            result_text = match.group("result").strip()
+            # 若 <result> 为空，从 tasks 目录的 .log 文件提取实际输出
+            if not result_text:
+                try:
+                    from illusion.config.paths import get_tasks_dir
+                    log_file = get_tasks_dir() / f"{query_id}.log"
+                    if log_file.exists():
+                        content = log_file.read_text(encoding="utf-8", errors="replace")
+                        result_text = content[-12000:] if len(content) > 12000 else content
+                except (OSError, IOError):
+                    pass
+            return CommandResult(message=result_text or f"Task '{query_id}' has no captured output.")
 
     # 3. 找不到
     return CommandResult(message=f"No task found with id: {query_id}")
