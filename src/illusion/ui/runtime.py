@@ -187,28 +187,46 @@ def _on_task_complete(
     """
     from illusion.swarm.agent_executor import TaskNotification, format_task_notification
 
+    # 读取任务实际输出（从 output_file 或内存 result）
+    result_text = ""
+    try:
+        if task.type == "in_process_agent" and task.result:
+            result_text = task.result
+        elif task.output_file:
+            content = task.output_file.read_text(encoding="utf-8", errors="replace")
+            result_text = content[-12000:] if len(content) > 12000 else content
+    except (OSError, IOError):
+        pass
+
     if task.type in {"local_agent", "remote_agent", "in_process_teammate"}:
         agent_id = task.metadata.get("agent_id", task_id)
-        # 构建通知 XML（子进程不返回 AgentResult，使用 task 描述作为 summary）
+        # task_name 格式：任务名 · agent类型（小写），类型为空时默认 "agent"
+        task_name_raw = task.metadata.get("name") or task.description or ""
+        agent_type = (task.metadata.get("subagent_type") or "agent").lower()
+        task_name = f"{task_name_raw} · {agent_type}"
         notification = TaskNotification(
             task_id=agent_id,
             status=task.status,
             summary=task.description or f"Agent {agent_id} {task.status}",
-            result=None,
+            task_name=task_name,
+            result=result_text or None,
             usage=None,
         )
         notification_xml = format_task_notification(notification)
         tracker.notify_completed(agent_id, notification_xml)
     elif task.type == "local_bash":
-        # 后台 Bash/PowerShell 命令完成后通知 LLM，与工具提示词承诺一致
+        # 后台 Bash/PowerShell 命令完成后通知 LLM
         summary = f'Background command "{task.description}" {task.status}'
         if task.return_code is not None:
             summary += f" (exit code {task.return_code})"
+        # task_name 格式：命令描述 · task
+        task_name = f"{task.description or ''} · task"
         notification = TaskNotification(
             task_id=task_id,
             status=task.status,
             summary=summary,
-            result=None,
+            task_name=task_name,
+            result=result_text or None,
             usage=None,
         )
         notification_xml = format_task_notification(notification)

@@ -41,6 +41,7 @@ from pydantic import ValidationError
 from illusion.api.client import SupportsStreamingMessages
 from illusion.auth.manager import AuthManager
 from illusion.bridge import get_bridge_manager
+from illusion.coordinator.agent_definitions import get_all_agent_definitions
 from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -54,6 +55,14 @@ from illusion.engine.stream_events import (
     ToolProgressEvent,
 )
 from illusion.output_styles import load_output_styles
+from illusion.services.agent_creator import (
+    generate_agent_from_description,
+    list_available_models,
+    list_available_tools,
+    validate_agent_definition,
+    write_agent_definition,
+)
+from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import get_task_manager
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
@@ -176,6 +185,8 @@ class WebBackendHost:
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # btw 侧问任务映射：request_id -> asyncio.Task，支持 btw_cancel 取消
+        self._btw_tasks: dict[str, asyncio.Task[None]] = {}
         # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
         from illusion.ui.web.ws_web_api import WebApiDispatcher
 
@@ -318,6 +329,23 @@ class WebBackendHost:
                     if not should_continue:
                         await self._emit(BackendEvent(type="shutdown"))
                         break
+                    continue
+                # btw 侧问
+                if request.type == "btw_request":
+                    await self._handle_btw_request(request)
+                    continue
+                if request.type == "btw_cancel":
+                    await self._handle_btw_cancel(request)
+                    continue
+                # agent 向导
+                if request.type == "agent_wizard_init":
+                    await self._handle_agent_wizard_init(request)
+                    continue
+                if request.type == "agent_wizard_submit":
+                    await self._handle_agent_wizard_submit(request)
+                    continue
+                if request.type == "agent_generate_request":
+                    await self._handle_agent_generate_request(request)
                     continue
                 # 未知请求类型
                 if request.type != "submit_line":
@@ -1819,6 +1847,92 @@ class WebBackendHost:
             self._write_queue.put_nowait(event)
         except QueueShutDown:
             pass  # 正在关闭，丢弃事件
+
+    async def _handle_btw_request(self, req: FrontendRequest) -> None:
+        """处理 btw_request：发起侧问并返回 btw_response。
+
+        将 side_question 调用包装为后台任务，存入 _btw_tasks 以支持
+        btw_cancel 中途取消。任务完成后（无论成功/失败）自动从映射移除。
+        """
+        assert self._bundle is not None
+        request_id = req.request_id or ""
+        engine = self._bundle.engine
+        question = req.question or ""
+
+        async def _run() -> None:
+            try:
+                reply = await run_side_question(question, engine)
+                await self._emit(
+                    BackendEvent(type="btw_response", request_id=request_id, reply=reply)
+                )
+            except SideQuestionError as exc:
+                await self._emit(
+                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
+                )
+            except Exception as exc:
+                await self._emit(
+                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
+                )
+            finally:
+                self._btw_tasks.pop(request_id, None)
+
+        task = self._create_background_task(_run())
+        self._btw_tasks[request_id] = task
+
+    async def _handle_btw_cancel(self, req: FrontendRequest) -> None:
+        """处理 btw_cancel：取消进行中的侧问任务并回复 cancelled。"""
+        request_id = req.request_id or ""
+        task = self._btw_tasks.pop(request_id, None)
+        if task is not None:
+            task.cancel()
+        await self._emit(
+            BackendEvent(type="btw_response", request_id=request_id, error="cancelled")
+        )
+
+    async def _handle_agent_wizard_init(self, req: FrontendRequest) -> None:
+        """处理 agent_wizard_init：返回可用工具/模型列表。"""
+        assert self._bundle is not None
+        tools = list_available_tools(self._bundle.tool_registry)
+        models = list_available_models(self._bundle.app_state)
+        await self._emit(BackendEvent(type="agent_wizard_init_response", tools=tools, models=models))
+
+    async def _handle_agent_wizard_submit(self, req: FrontendRequest) -> None:
+        """处理 agent_wizard_submit：校验并写入 agent 定义文件。"""
+        assert self._bundle is not None
+        fields = req.fields or {}
+        scope = req.scope or "user"
+        errors = validate_agent_definition(fields, self._bundle.cwd)
+        if errors:
+            await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors=errors))
+            return
+        try:
+            path = write_agent_definition(fields, scope, self._bundle.cwd)
+        except OSError as exc:
+            await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors={"_": str(exc)}))
+            return
+        await self._emit(BackendEvent(type="agent_wizard_result", success=True, path=str(path)))
+
+    async def _handle_agent_generate_request(self, req: FrontendRequest) -> None:
+        """处理 agent_generate_request：LLM 辅助生成 agent 配置。"""
+        assert self._bundle is not None
+        request_id = req.request_id or ""
+        engine = self._bundle.engine
+        existing = [a.name for a in get_all_agent_definitions()]
+        try:
+            generated = await generate_agent_from_description(
+                req.prompt or "", req.model or "inherit", existing, engine,
+            )
+            await self._emit(BackendEvent(
+                type="agent_generate_response",
+                request_id=request_id,
+                agent={"identifier": generated.identifier, "when_to_use": generated.when_to_use, "system_prompt": generated.system_prompt},
+            ))
+        except Exception as exc:
+            await self._emit(BackendEvent(
+                type="agent_generate_response",
+                request_id=request_id,
+                error=str(exc),
+            ))
 
     def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         """创建 fire-and-forget task 并保留强引用，防止 GC 回收未完成 task。

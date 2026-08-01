@@ -251,6 +251,9 @@ class TaskNotification:
     summary: str
     """人类可读的状态摘要。"""
 
+    task_name: str = ""
+    """任务名称（agent 的 description / bash 的命令描述），用于前端展示与关联。"""
+
     result: str | None = None
     """代理的最终文本响应。"""
 
@@ -270,8 +273,10 @@ def format_task_notification(n: TaskNotification) -> str:
         f"<status>{n.status}</status>",
         f"<summary>{n.summary}</summary>",
     ]
-    if n.result is not None:
-        parts.append(f"<result>{n.result}</result>")
+    if n.task_name:
+        parts.append(f"<task-name>{n.task_name}</task-name>")
+    # <result> 标签总是存在（即使为空），确保 TASK_NOTIFICATION_RE 能匹配
+    parts.append(f"<result>{n.result or ''}</result>")
     if n.usage:
         parts.append("<usage>")
         for key in _USAGE_FIELDS:
@@ -292,6 +297,7 @@ def parse_task_notification(xml: str) -> TaskNotification:
     task_id = _extract("task-id") or ""
     status = _extract("status") or ""
     summary = _extract("summary") or ""
+    task_name = _extract("task-name") or ""
     result = _extract("result")
 
     usage: dict[str, int] | None = None
@@ -307,6 +313,7 @@ def parse_task_notification(xml: str) -> TaskNotification:
         task_id=task_id,
         status=status,
         summary=summary,
+        task_name=task_name,
         result=result,
         usage=usage,
     )

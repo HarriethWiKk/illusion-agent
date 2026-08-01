@@ -1353,53 +1353,39 @@ class ReactBackendHost:
             return
 
         if command == "agent":
-            # 双数据源列出已完成 agent：
+            # 双数据源列出已完成任务：
             #   1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'，且非后台启动）
-            #   2. 后台 agent：从 transcript 的 task-notification 提取（天然随会话同步，
-            #      避免 manager._tasks 进程级单例在会话回退/删除/新建时不同步的问题）
+            #   2. 后台任务（agent / bash / powershell 等）：从 transcript 的 task-notification 提取
+            #      直接用 <task-name> 标签获取展示名，摆脱 task_id → tool_use_id 映射依赖
+            #      若 <result> 为空，从 tasks 目录的 .log 文件提取实际输出
             from illusion.engine.messages import TextBlock, ToolResultBlock
             from illusion.tasks.types import TASK_NOTIFICATION_RE
+            from illusion.config.paths import get_tasks_dir
 
             options: list[dict[str, Any]] = []
+            order = 0
 
             # 1. 前台 agent：从 transcript 提取 tool_result（tool_name='agent'，且非后台启动）
-            #    需要 engine.messages 中先有 ToolUseBlock(name='agent') 再有对应 ToolResultBlock
             #    跳过 tool_result 内容为"launched in background/as subprocess"的启动通知（非摘要）
-            #    同时建立后台 agent 的 task_id -> tool_use_id 映射（用于第 2 部分关联回 ToolUseBlock）
-            tool_use_index: dict[str, tuple[int, str]] = {}  # tool_use_id -> (调用顺序, label)
-            background_task_map: dict[str, str] = {}  # task_id -> tool_use_id（后台 agent 关联）
-            order = 0
+            pending_labels: dict[str, str] = {}  # tool_use_id -> label（暂存 assistant 的 agent 调用标签）
             for msg in self._bundle.engine.messages:
                 if msg.role == "assistant":
                     for block in msg.tool_uses:
                         if block.name == "agent":
                             inp = block.input or {}
-                            # 任务名来自 description，类型来自 subagent_type
                             task_name = str(inp.get("description") or inp.get("name") or "agent")[:30]
-                            agent_type = str(inp.get("subagent_type") or "")[:20]
-                            if agent_type:
-                                label_name = f"{task_name} · {agent_type}"
-                            else:
-                                label_name = task_name
-                            # 先记录所有 agent 调用（前台序号稍后确定，后台的用于 task_id 关联）
-                            tool_use_index[block.id] = (0, label_name)  # 序号先占位
+                            # agent 类型统一小写，为空时默认 "agent"
+                            agent_type = str(inp.get("subagent_type") or "agent")[:20].lower()
+                            label_name = f"{task_name} · {agent_type}"
+                            pending_labels[block.id] = label_name
                 elif msg.role == "user":
                     for block in msg.content:
-                        if isinstance(block, ToolResultBlock) and block.tool_use_id in tool_use_index:
+                        if isinstance(block, ToolResultBlock) and block.tool_use_id in pending_labels:
                             text = block.text_content
-                            # 跳过后台 agent 的"launched"启动通知（非摘要）
-                            # 后台 agent 的摘要从 task-notification 提取（见下方第 2 部分）
                             if text and ("launched in background" in text or "launched as subprocess" in text):
-                                # 从 "launched in background (task_id=XXX)" 提取 task_id，
-                                # 建立 task_id -> tool_use_id 映射，供后台 agent 关联回 ToolUseBlock
-                                tid_match = re.search(r"task_id=([a-f0-9]+)", text)
-                                if tid_match:
-                                    background_task_map[tid_match.group(1)] = block.tool_use_id
-                                continue
-                            # 前台 agent 的真实结果：确定序号并加入选项
+                                continue  # 后台启动通知，其结果从 task-notification 提取
                             order += 1
-                            _, label_name = tool_use_index[block.tool_use_id]
-                            tool_use_index[block.tool_use_id] = (order, label_name)
+                            label_name = pending_labels[block.tool_use_id]
                             first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
                             options.append({
                                 "value": block.tool_use_id,
@@ -1407,10 +1393,10 @@ class ReactBackendHost:
                                 "description": first_line,
                             })
 
-            # 2. 后台 agent：从 transcript 的 task-notification 提取（天然随会话同步）
-            #    task-notification 是后端在 agent 完成时注入的 user 消息（TextBlock），
-            #    形如 <task-notification>...<result>摘要</result>...</task-notification>
-            bg_order = 0
+            # 2. 后台任务（agent / bash / powershell 等）：从 transcript 的 task-notification 提取
+            #    直接用 <task-name> 作为 label，不再需要 task_id → tool_use_id 映射
+            #    若 <result> 为空，从 tasks 目录的 {task_id}.log 文件提取实际输出
+            tasks_dir = get_tasks_dir()
             for msg in self._bundle.engine.messages:
                 if msg.role != "user":
                     continue
@@ -1420,29 +1406,33 @@ class ReactBackendHost:
                     match = TASK_NOTIFICATION_RE.search(block.text)
                     if not match:
                         continue
-                    task_id = match.group(1).strip()
-                    status = match.group(2).strip()
-                    summary_tag = match.group(3).strip()  # <summary> 标签内容（如 "Agent 'Explore' completed"）
-                    result_text = match.group(4).strip()  # <result> 标签内容（agent 的最终回复摘要）
+                    status = match.group("status").strip()
                     if status != "completed":
                         continue
-                    bg_order += 1
-                    # 用 task_id 关联回 ToolUseBlock 获取任务名和类型（task_name · agent_type）
-                    # 关联失败时回退用 summary_tag 提取的 agent 名
-                    tool_use_id = background_task_map.get(task_id)
-                    label_name = "agent"
-                    if tool_use_id and tool_use_id in tool_use_index:
-                        _, label_name = tool_use_index[tool_use_id]
+                    task_id = match.group("task_id").strip()
+                    task_name = (match.group("task_name") or "").strip()
+                    summary_tag = match.group("summary").strip()
+                    result_text = match.group("result").strip()
+                    # 若 <result> 为空，从 tasks 目录的 .log 文件提取实际输出
+                    if not result_text:
+                        try:
+                            log_file = tasks_dir / f"{task_id}.log"
+                            if log_file.exists():
+                                content = log_file.read_text(encoding="utf-8", errors="replace")
+                                result_text = content[-12000:] if len(content) > 12000 else content
+                        except (OSError, IOError):
+                            pass
+                    order += 1
+                    # label 优先用 task_name，回退到 summary 提取的名称（兼容旧通知）
+                    if task_name:
+                        label_name = task_name
                     else:
                         name_match = re.match(r"Agent '([^']+)'", summary_tag)
-                        if name_match:
-                            label_name = name_match.group(1)
-                        elif summary_tag:
-                            label_name = summary_tag
+                        label_name = name_match.group(1) if name_match else (summary_tag or "agent")
                     first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
                     options.append({
                         "value": task_id,
-                        "label": f"#{order + bg_order} {label_name}",
+                        "label": f"#{order} {label_name}",
                         "description": first_line,
                     })
 
@@ -1452,7 +1442,7 @@ class ReactBackendHost:
             await self._emit(
                 BackendEvent(
                     type="select_request",
-                    modal={"kind": "select", "title": ("已完成 agent 摘要" if zh else "Completed Agent Summary"), "command": "agent"},
+                    modal={"kind": "select", "title": ("已完成任务摘要" if zh else "Completed Task Summary"), "command": "agent"},
                     select_options=options,
                 )
             )

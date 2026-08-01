@@ -99,14 +99,17 @@ class TaskRecord:
     result: str | None = None
 
 
-# task-notification XML 解析正则（用于从 transcript 提取后台 agent 完成通知）
-# 后端在 agent 完成时将形如 <task-notification>...</task-notification> 的 TextBlock
-# 注入 transcript（role="user"），此正则从中提取 task-id / status / summary / result。
+# task-notification XML 解析正则（用于从 transcript 提取后台任务完成通知）
+# 后端在后台任务（agent / bash / powershell 等）完成时将形如
+# <task-notification>...</task-notification> 的 TextBlock 注入 transcript
+#（role="user"），此正则从中提取 task-id / status / summary / task-name / result。
+# <task-name> 为可选标签（旧通知可能没有），用于前端展示与关联，摆脱 task_id → tool_use_id 映射。
 # 使用 re.DOTALL 让 . 匹配换行（<result> 内容通常多行）。
 TASK_NOTIFICATION_RE = re.compile(
-    r"<task-notification>\s*<task-id>([^<]+)</task-id>\s*"
-    r"<status>([^<]+)</status>\s*"
-    r"<summary>([^<]*)</summary>\s*"
-    r"<result>(.*?)</result>",
+    r"<task-notification>\s*<task-id>(?P<task_id>[^<]+)</task-id>\s*"
+    r"<status>(?P<status>[^<]+)</status>\s*"
+    r"<summary>(?P<summary>[^<]*)</summary>\s*"
+    r"(?:<task-name>(?P<task_name>[^<]*)</task-name>\s*)?"
+    r"<result>(?P<result>.*?)</result>",
     re.DOTALL,
 )
