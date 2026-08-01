@@ -222,14 +222,14 @@ function renderItemContent(item: Tokens.ListItem, theme: ThemeConfig, prefix: st
 			const pt = t as Tokens.Paragraph;
 			parts.push(...renderInline(pt.tokens, theme, k, style));
 		} else if (t.type === 'list') {
-			// 嵌套列表：递归渲染，使用不同符号和缩进
+			// 嵌套列表：递归渲染，有序显示序号，无序显示 - 符号
 			const nestedList = t as Tokens.List;
-			const bullet = nestedList.ordered ? '' : `${theme.icons.bullet} `;
 			for (let ni = 0; ni < nestedList.items.length; ni++) {
 				const nestedItem = nestedList.items[ni];
+				const marker = nestedList.ordered ? `${ni + 1}. ` : '- ';
 				const nestedContent = renderItemContent(nestedItem, theme, `${k}-${ni}`, style);
 				parts.push(
-					<Text key={`${k}-${ni}`} color={style?.color} italic={style?.italic}>{'\n'}{'  '}<Text color={theme.colors.muted}>{bullet}</Text>{nestedContent}</Text>,
+					<Text key={`${k}-${ni}`} color={style?.color} italic={style?.italic}>{'\n'}{'  '}<Text color={theme.colors.muted}>{marker}</Text>{nestedContent}</Text>,
 				);
 			}
 		} else {
@@ -370,9 +370,11 @@ function tokensToElements(
 				for (let li = 0; li < lt.items.length; li++) {
 					const item = lt.items[li];
 					const content = renderItemContent(item, theme, `l-${ki}-${li}`, style);
+					// 有序列表显示序号，无序列表显示 - 符号
+					const marker = lt.ordered ? `${li + 1}. ` : '- ';
 					elements.push(
 						<Text key={`t-${ki++}`} color={style?.color} italic={style?.italic}>
-							<Text color={theme.colors.muted}>{`${theme.icons.arrow} `}</Text>
+							<Text color={theme.colors.muted}>{marker}</Text>
 							{content}
 						</Text>,
 					);
@@ -515,8 +517,9 @@ export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix
 					if (rendered.length > 0) return rendered;
 				}
 			} else if (token.type === 'list') {
-				// 处理列表项：提取第一个列表项的内容
+				// 处理列表项：提取第一个列表项的内容（有序显示 1.，无序显示 -）
 				const lt = token as Tokens.List;
+				const inlineMarker = lt.ordered ? '1. ' : '- ';
 				if (lt.items.length > 0) {
 					const item = lt.items[0];
 					if (item.tokens && item.tokens.length > 0) {
@@ -524,16 +527,16 @@ export function renderInlineMarkdown(text: string, theme: ThemeConfig, keyPrefix
 							if (itemToken.type === 'text') {
 								const tt = itemToken as Tokens.Text;
 								if (tt.tokens && tt.tokens.length > 0) {
-									return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} </Text>, ...renderInline(tt.tokens, theme, `${keyPrefix}-list`, style)];
+									return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{inlineMarker}</Text>, ...renderInline(tt.tokens, theme, `${keyPrefix}-list`, style)];
 								}
 							} else if (itemToken.type === 'paragraph') {
 								const pt = itemToken as Tokens.Paragraph;
-								return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} </Text>, ...renderInline(pt.tokens, theme, `${keyPrefix}-list`, style)];
+								return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{inlineMarker}</Text>, ...renderInline(pt.tokens, theme, `${keyPrefix}-list`, style)];
 							}
 						}
 					}
 					// fallback: 用 raw 文本
-					return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{theme.icons.arrow} {item.text}</Text>];
+					return [<Text key={`${keyPrefix}-list`} color={style?.color} italic={style?.italic}>{inlineMarker}{item.text}</Text>];
 				}
 			}
 		}
