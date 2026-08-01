@@ -16,7 +16,7 @@ a flexible extension ecosystem into a single intelligent agent — at home
 on Windows, macOS, and Linux.
 
 Whether you prefer the discipline of the terminal or the ease of the browser,
-IllusionAgent resonates with your workflow: 35 built-in tools, 48 slash
+IllusionAgent resonates with your workflow: 35 built-in tools, 50 slash
 commands, 7 specialized sub-agents, MCP server support, hooks, plugins, and
 a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 
