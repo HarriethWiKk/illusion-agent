@@ -75,7 +75,7 @@ async def agent_handler(args: str, context: CommandContext) -> CommandResult:
                 continue
             status = match.group("status").strip()
             if status != "completed":
-                return CommandResult(message=f"Task '{query_id}' is not completed (status: {status}).")
+                return CommandResult(message=f"Agent '{query_id}' is not completed (status: {status}).")
             result_text = match.group("result").strip()
             # 若 <result> 为空，从 tasks 目录的 .log 文件提取实际输出
             if not result_text:
@@ -85,9 +85,9 @@ async def agent_handler(args: str, context: CommandContext) -> CommandResult:
                     if log_file.exists():
                         content = log_file.read_text(encoding="utf-8", errors="replace")
                         result_text = content[-12000:] if len(content) > 12000 else content
-                except (OSError, IOError):
+                except OSError:
                     pass
-            return CommandResult(message=result_text or f"Task '{query_id}' has no captured output.")
+            return CommandResult(message=result_text or f"Agent '{query_id}' has no captured output.")
 
     # 3. 找不到
     return CommandResult(message=f"No task found with id: {query_id}")

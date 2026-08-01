@@ -275,8 +275,9 @@ def format_task_notification(n: TaskNotification) -> str:
     ]
     if n.task_name:
         parts.append(f"<task-name>{n.task_name}</task-name>")
-    # <result> 标签总是存在（即使为空），确保 TASK_NOTIFICATION_RE 能匹配
-    parts.append(f"<result>{n.result or ''}</result>")
+    # 仅在 result 非空时输出 <result> 标签
+    if n.result:
+        parts.append(f"<result>{n.result}</result>")
     if n.usage:
         parts.append("<usage>")
         for key in _USAGE_FIELDS:
@@ -908,9 +909,6 @@ async def run_agent_subprocess(
     agent_cmd = _get_agent_command()
     cmd_parts = [agent_cmd, "-m", "illusion"] + flags
     command = " ".join(cmd_parts)
-
-    # 创建任务
-    from illusion.tasks.manager import get_task_manager
 
     manager = get_task_manager()
     try:

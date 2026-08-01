@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from illusion.api.client import ApiMessageRequest
-from illusion.coordinator.agent_definitions import get_all_agent_definitions
 from illusion.config.paths import get_config_dir, get_project_config_dir
+from illusion.coordinator.agent_definitions import get_all_agent_definitions
 from illusion.engine.messages import ConversationMessage
 
 if TYPE_CHECKING:
@@ -183,9 +183,8 @@ def validate_agent_definition(
         errors["system_prompt"] = "系统提示词不能为空"
 
     model = fields.get("model")
-    if model is not None and model != "inherit":
-        if not isinstance(model, str) or not str(model).strip():
-            errors["model"] = "模型必须是非空字符串或 'inherit'"
+    if model is not None and model != "inherit" and (not isinstance(model, str) or not str(model).strip()):
+        errors["model"] = "模型必须是非空字符串或 'inherit'"
 
     return errors
 
@@ -297,7 +296,7 @@ async def generate_agent_from_description(
     user_prompt: str,
     model: str,
     existing_identifiers: list[str],
-    engine: "QueryEngine",
+    engine: QueryEngine,
     abort_signal: Any = None,
 ) -> GeneratedAgent:
     """通过 LLM 从自然语言描述生成代理定义。
@@ -345,7 +344,7 @@ async def generate_agent_from_description(
     )
 
     chunks: list[str] = []
-    async for event in engine.api_client.stream_message(request):
+    async for event in engine.api_client.stream_message(request):  # type: ignore[attr-defined]
         text = getattr(event, "text", None)
         if text:
             chunks.append(text)
@@ -377,7 +376,7 @@ async def generate_agent_from_description(
 
 
 def list_available_models(
-    app_state: "AppStateStore | None" = None,
+    app_state: AppStateStore | None = None,
 ) -> list[dict[str, str]]:
     """返回可用模型列表。
 
@@ -412,7 +411,7 @@ def list_available_models(
 
 
 def list_available_tools(
-    tool_registry: "ToolRegistry | None" = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> list[dict[str, str]]:
     """返回可用工具列表。
 

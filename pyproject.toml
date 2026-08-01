@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "illusion-agent"
 version = "0.3.4"
-description = "Open-source Python port of Claude Code - an AI-powered CLI coding assistant"
+description = "Where fantasy meets functionality. The best of many worlds, refined into one intelligent agent."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

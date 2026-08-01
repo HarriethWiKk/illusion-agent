@@ -195,7 +195,7 @@ def _on_task_complete(
         elif task.output_file:
             content = task.output_file.read_text(encoding="utf-8", errors="replace")
             result_text = content[-12000:] if len(content) > 12000 else content
-    except (OSError, IOError):
+    except OSError:
         pass
 
     if task.type in {"local_agent", "remote_agent", "in_process_teammate"}:

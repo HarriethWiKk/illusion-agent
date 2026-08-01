@@ -173,7 +173,9 @@ def create_default_command_registry() -> CommandRegistry:
     """Create the built-in command registry."""
     registry = CommandRegistry()
 
-    # --- 会话管理 ---
+    # --- Agent ---
+    from illusion.commands.agent import agent_handler
+
     # --- 认证 ---
     from illusion.commands.auth import login_handler, logout_handler
 
@@ -182,9 +184,6 @@ def create_default_command_registry() -> CommandRegistry:
 
     # --- 侧问 ---
     from illusion.commands.btw import btw_handler
-
-    # --- Agent ---
-    from illusion.commands.agent import agent_handler
 
     # --- 上下文 ---
     from illusion.commands.context import issue_handler, pr_comments_handler

@@ -656,7 +656,7 @@ async def run_query(
                 ), None
                 tool_results_list.append(result)
             # 将工具结果合并为一条 user 消息
-            merged = _synthesize_pending_tool_results(tool_calls, tool_results_list, lambda name: denied_msg)
+            merged = _synthesize_pending_tool_results(tool_calls, tool_results_list, lambda name: denied_msg)  # noqa: B023
             messages.append(ConversationMessage(role="user", content=merged))
             yield ToolChainCompleted(results_summary=[]), None
             continue

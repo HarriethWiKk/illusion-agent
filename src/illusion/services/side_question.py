@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from illusion.engine.messages import ConversationMessage
 from illusion.engine.query import QueryContext, run_query
@@ -45,7 +45,7 @@ class SideQuestionError(Exception):
     """侧问查询失败。"""
 
 
-def _extract_side_question_reply(events: list) -> str:
+def _extract_side_question_reply(events: list[Any]) -> str:
     """从侧问事件列表中提取最终回复文本。
 
     优雅处理工具调用尝试：如果模型尝试调用工具而非直接回答，
@@ -150,7 +150,7 @@ async def run_side_question(
         deny_all_tools=True,  # 拒绝所有工具调用
     )
 
-    collected_events: list = []
+    collected_events: list[Any] = []
     last_assistant_text: str = ""
 
     try:

@@ -1869,7 +1869,7 @@ class WebBackendHost:
                 await self._emit(
                     BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 await self._emit(
                     BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
                 )
@@ -1927,7 +1927,7 @@ class WebBackendHost:
                 request_id=request_id,
                 agent={"identifier": generated.identifier, "when_to_use": generated.when_to_use, "system_prompt": generated.system_prompt},
             ))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             await self._emit(BackendEvent(
                 type="agent_generate_response",
                 request_id=request_id,

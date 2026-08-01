@@ -92,7 +92,7 @@ class AgentTool(BaseTool[AgentToolInput]):
     name = "agent"
 
     @property
-    def description(self) -> str:
+    def description(self) -> str:  # type: ignore[override]
         """动态生成工具描述，包含当前所有可用 agent 类型。"""
         from illusion.coordinator.agent_definitions import get_all_agent_definitions
 
