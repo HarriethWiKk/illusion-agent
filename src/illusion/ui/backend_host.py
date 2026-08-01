@@ -31,7 +31,7 @@ import os
 import re
 import sys
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -61,6 +61,7 @@ from illusion.services.agent_creator import (
 )
 from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import TaskRecord, get_task_manager
+from illusion.tasks.types import is_task_notification
 from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
     BackendEvent,
@@ -72,6 +73,7 @@ from illusion.ui.runtime import (
     RuntimeBundle,
     build_runtime,
     close_runtime,
+    handle_background_completions,
     handle_line,
     start_runtime,
     sync_app_state,
@@ -241,6 +243,13 @@ class ReactBackendHost:
                 self._create_background_task(
                     self._emit(BackendEvent.tasks_snapshot(_task_manager.list_tasks()))
                 )
+                # 后台任务完成且主循环空闲 → 自动进入 busy 处理积压通知。
+                # 修复：idle 超时/用户退出 busy 后，通知只发前端提示但无人消费，
+                # 只能等手动输入。此处自动调度 _auto_resume_bg 恢复处理。
+                if not self._busy and self._bundle is not None:
+                    tracker = self._bundle.engine._bg_agent_tracker
+                    if tracker is not None and tracker.has_completions():
+                        self._create_background_task(self._auto_resume_bg())
 
             _task_manager.on_task_complete = _wrapped_on_task_complete
 
@@ -429,6 +438,7 @@ class ReactBackendHost:
             finally:
                 self._active_line_task = None
                 self._busy = False
+                self._create_background_task(self._check_post_idle_bg())
             if not should_continue:
                 await self._emit(BackendEvent(type="shutdown"))
                 self._running = False
@@ -475,6 +485,7 @@ class ReactBackendHost:
         finally:
             self._active_line_task = None
             self._busy = False
+            self._create_background_task(self._check_post_idle_bg())
         if not should_continue:
             await self._emit(BackendEvent(type="shutdown"))
             self._running = False
@@ -581,23 +592,15 @@ class ReactBackendHost:
         except QueueShutDown:
             pass  # 正在关闭，丢弃
 
-    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
-        """处理用户输入的行内容。"""
-        assert self._bundle is not None
-        # 清除上一轮的工具调用去重记录
-        self._emitted_tool_started_ids.clear()
-        # 更新会话阶段为思考中
-        await self._update_phase("thinking")
-        # 发送用户消息
-        await self._emit(
-            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
-        )
+    async def _make_render_event(self) -> Callable[[StreamEvent], Awaitable[None]]:
+        """构建事件渲染器（含 TodoWrite/plan_mode_change 处理）。
 
-        async def _print_system(message: str) -> None:
-            """打印系统消息。"""
-            await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
-            )
+        与 ws_host._make_render_event 结构对齐，供 _process_line 与
+        _process_bg_completions 复用，避免闭包重复。
+
+        Returns:
+            Callable[[StreamEvent], Awaitable[None]]: 事件渲染函数
+        """
 
         async def _render_event(event: StreamEvent) -> None:
             """渲染流式事件。"""
@@ -774,6 +777,98 @@ class ReactBackendHost:
                     )
                 return
 
+        return _render_event
+
+    async def _auto_resume_bg(self) -> None:
+        """后台完成通知到达且主循环空闲时，自动进入 busy 处理通知。
+
+        修复：idle 超时/用户退出 busy 后，通知只发前端 bg_agent_status 提示
+        但无人消费，只能等手动输入。此方法由 on_task_complete 包装回调调度，
+        自动恢复主循环处理积压通知。
+        """
+        if self._busy or self._bundle is None:
+            return
+        tracker = self._bundle.engine._bg_agent_tracker
+        # 仅在有实际完成通知时才恢复处理，避免任务未完成时误触发 LLM 调用
+        if tracker is None or not tracker.has_completions():
+            return
+        self._busy = True
+        try:
+            self._active_line_task = asyncio.create_task(self._process_bg_completions())
+            await self._active_line_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("处理后台完成通知时出错")
+            # 确保前端 busy 状态释放，避免异常路径卡死输入框
+            await self._emit(BackendEvent(type="line_complete"))
+        finally:
+            self._active_line_task = None
+            self._busy = False
+
+    async def _check_post_idle_bg(self) -> None:
+        """_busy 变为 False 后检查是否有后台完成通知需要自动恢复。
+
+        弥补斜杠命令执行期间后台完成通知被跳过的缺口：命令执行完后
+        _busy=False，但后台在命令期间完成的通知未被消费，用此方法
+        触发 _auto_resume_bg 恢复处理。
+        """
+        if self._bundle is not None:
+            tracker = self._bundle.engine._bg_agent_tracker
+            if tracker is not None and tracker.has_completions():
+                self._create_background_task(self._auto_resume_bg())
+
+    async def _process_bg_completions(self) -> bool:
+        """处理积压的后台完成通知（自动进入 busy），不新增用户输入。"""
+        assert self._bundle is not None
+        # 清除上一轮的工具调用去重记录
+        self._emitted_tool_started_ids.clear()
+        # 更新会话阶段为思考中
+        await self._update_phase("thinking")
+
+        async def _print_system(message: str) -> None:
+            """打印系统消息。"""
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
+            )
+
+        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event()
+
+        should_continue = await handle_background_completions(
+            self._bundle,
+            print_system=_print_system,
+            render_event=_render_event,
+        )
+
+        # 更新会话阶段为空闲
+        await self._update_phase("idle")
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"))
+        return should_continue
+
+    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
+        """处理用户输入的行内容。"""
+        assert self._bundle is not None
+        # 清除上一轮的工具调用去重记录
+        self._emitted_tool_started_ids.clear()
+        # 更新会话阶段为思考中
+        await self._update_phase("thinking")
+        # 发送用户消息
+        await self._emit(
+            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=transcript_line or line))
+        )
+
+        async def _print_system(message: str) -> None:
+            """打印系统消息。"""
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
+            )
+
+        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event()
+
         async def _replay_transcript_item(item: dict[str, Any]) -> None:
             """重播 transcript_item。"""
             await self._emit(BackendEvent(type="transcript_item", item=TranscriptItem(**item)))
@@ -858,9 +953,12 @@ class ReactBackendHost:
         if mode not in ("both", "conversation"):
             return True
         messages = self._bundle.engine.messages
+        # 计算 target 之后需回退的真实用户轮次（排除 / 命令与后台任务完成通知）
         turns = sum(
             1 for i, msg in enumerate(messages)
-            if i >= target_idx and msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
+            if i >= target_idx and msg.role == "user" and msg.text.strip()
+            and not msg.text.strip().startswith("/")
+            and not is_task_notification(msg.text)
         )
         if turns <= 0:
             return True
@@ -1195,9 +1293,12 @@ class ReactBackendHost:
 
         if command == "rewind":
             messages = self._bundle.engine.messages
+            # 过滤后台任务完成通知（<task-notification>），它们不应出现在回退选项中
             user_msgs = [
                 (i, msg) for i, msg in enumerate(messages)
-                if msg.role == "user" and msg.text.strip() and not msg.text.strip().startswith("/")
+                if msg.role == "user" and msg.text.strip()
+                and not msg.text.strip().startswith("/")
+                and not is_task_notification(msg.text)
             ]
             if not user_msgs:
                 await self._emit(BackendEvent(
@@ -1666,16 +1767,29 @@ class ReactBackendHost:
 
     async def _stop_active_line(self) -> None:
         task = self._active_line_task
-        if task is None or task.done():
+        # 检查是否有运行中的后台任务：主循环空闲（后台 agent 在跑）时
+        # _active_line_task 为 None，但 Ctrl+X 仍应终止 agent 进程
+        has_running_tasks = False
+        if self._bundle is not None:
+            has_running_tasks = any(
+                t.status in ("running", "pending")
+                for t in get_task_manager().list_tasks()
+            )
+        if (task is None or task.done()) and not has_running_tasks:
             from illusion.config.i18n import t as _t
             await self._emit(BackendEvent(
                 type="command_result",
                 command_result_data={"message": _t("no_active_task"), "type": "info"},
             ))
             return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        # 停止所有正在运行的后台任务（agent / bash / powershell 等）
+        if self._bundle is not None:
+            from illusion.ui.runtime import stop_all_tasks
+            await stop_all_tasks(self._bundle)
         self._busy = False
         await self._update_phase("idle")
         await self._emit(BackendEvent(type="modal_request", modal=None))

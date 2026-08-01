@@ -33,7 +33,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import shlex
+import signal
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -48,6 +52,57 @@ from illusion.utils.shell import create_shell_subprocess
 logger = logging.getLogger(__name__)
 
 _TASK_LOG_TTL_DAYS = 7  # task log 保留天数
+
+
+async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
+    """终止子进程及其整个进程树。
+
+    后台任务以独立进程组启动（create_shell_subprocess new_process_group=True），
+    按平台杀进程树：
+
+    - Windows: taskkill /PID <pid> /T /F（/T 递归终止所有子进程）
+    - POSIX: killpg 先 SIGTERM，3s 未退出再 SIGKILL
+
+    Args:
+        process: 后台任务子进程
+    """
+    if sys.platform == "win32":
+        try:
+            # CREATE_NO_WINDOW：taskkill 自身是控制台程序，不隐藏会弹出终端黑框
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/PID", str(process.pid), "/T", "/F",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(killer.wait(), timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            # taskkill 不可用时回退到直接 terminate
+            with contextlib.suppress(ProcessLookupError, OSError):
+                process.terminate()
+        # taskkill /F 已强杀进程，wait 仅回收句柄；Windows 上偶发长时间不
+        # signaled，缩短超时避免 stop 延迟
+        with contextlib.suppress(TimeoutError, ProcessLookupError, OSError):
+            await asyncio.wait_for(process.wait(), timeout=0.5)
+        return
+
+    # POSIX：kill 进程组
+    try:
+        pgid = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return  # 进程已退出
+    with contextlib.suppress(ProcessLookupError, OSError):
+        os.killpg(pgid, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=3)
+        return
+    except TimeoutError:
+        pass
+    with contextlib.suppress(ProcessLookupError, OSError):
+        os.killpg(pgid, signal.SIGKILL)
+    with contextlib.suppress(Exception):
+        await process.wait()
 
 
 class BackgroundTaskManager:
@@ -356,22 +411,37 @@ class BackgroundTaskManager:
                     logger.exception("[manager] on_task_complete callback failed for %s", task_id)
             return task
 
-        # 子进程任务：terminate -> kill
+        # 子进程任务：终止整个进程树（terminate -> kill）
+        # 仅 terminate shell 父进程无法终止其派生的子进程（如 bash 内的
+        # python/powershell），必须按平台杀进程树：
+        #   - Windows: taskkill /T /F（遍历父进程 ID 树）
+        #   - POSIX: killpg（后台任务以独立进程组启动）
         process = self._processes.get(task_id)
         if process is None:
             # 进程已不在 _processes 中，可能已自然结束但 watcher 还没更新状态。
             # 直接返回当前 task，让工具提示"already finished"而非报错。
             return task
 
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=3)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-
+        # 先标记 killed：watcher/_background_wait 完成时看到 killed 不会
+        # 覆盖为 completed/failed，保证 on_task_complete 能识别"用户停止"
         task.status = "killed"
         task.ended_at = time.time()
+
+        await _terminate_process_tree(process)
+
+        # cancel watcher（manager 的 _watch_process / 工具的 _background_wait）：
+        # 进程被 taskkill 强杀后，Windows 上 process.wait()/stdout.read() 可能
+        # 长时间不返回（ProactorEventLoop 句柄机制），不 cancel 会导致等待超时
+        # 拖慢 stop。cancel 后协程走 CancelledError 分支完成清理。
+        waiter = self._waiters.get(task_id)
+        if waiter is not None and not waiter.done():
+            waiter.cancel()
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError, Exception):
+                await asyncio.wait_for(waiter, timeout=3)
+
+        # 清理注册（watcher 的 CancelledError 分支不负责 pop）
+        self._processes.pop(task_id, None)
+        self._waiters.pop(task_id, None)
         return task
 
     async def write_to_task(self, task_id: str, data: str) -> None:
@@ -420,16 +490,18 @@ class BackgroundTaskManager:
         try:
             return_code = await process.wait()
         except asyncio.CancelledError:
-            # 取消时 kill 子进程，避免孤儿进程
-            try:
-                process.kill()
-            except (ProcessLookupError, OSError):
-                pass
-            with contextlib.suppress(Exception):
-                await process.wait()
+            # 取消时终止整个进程树，避免孤儿进程
+            await _terminate_process_tree(process)
             reader.cancel()
             with contextlib.suppress(Exception):
                 await reader
+            # 清理注册 + 关闭 transport（stop_task 取消 watcher 时调用）
+            self._processes.pop(task_id, None)
+            self._waiters.pop(task_id, None)
+            transport = getattr(process, "_transport", None)
+            if transport is not None:
+                with contextlib.suppress(Exception):
+                    transport.close()
             raise
         await reader
 
@@ -485,6 +557,7 @@ class BackgroundTaskManager:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            new_process_group=True,
         )
         self._processes[task_id] = process
         self._waiters[task_id] = asyncio.create_task(

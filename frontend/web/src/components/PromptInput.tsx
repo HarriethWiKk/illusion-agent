@@ -59,6 +59,8 @@ interface PromptInputProps {
   lang: UiLanguage;
   /** 是否忙碌 */
   busy: boolean;
+  /** 是否有运行中的后台任务（agent / bash / powershell 等，空闲时也可停止） */
+  hasActiveTasks?: boolean;
   /** 是否已连接 */
   connected: boolean;
   /** 可用命令列表 */
@@ -87,7 +89,7 @@ interface PromptInputProps {
  * @param props - 组件属性
  * @returns 返回提示输入的 JSX 元素
  */
-export default function PromptInput({ lang, busy, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
+export default function PromptInput({ lang, busy, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
   const [value, setValue] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -252,7 +254,8 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
   );
 
   const handleSend = () => {
-    if (busy) {
+    // busy 或（有后台任务运行且输入框为空）→ 停止任务
+    if (busy || (hasActiveTasks && !value.trim())) {
       onStop();
       return;
     }
@@ -440,13 +443,15 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
           onClick={handleSend}
           disabled={!connected && !busy}
           className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
-            busy
+            busy || (hasActiveTasks && !value.trim())
               ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
               : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
           }`}
-          title={busy ? t(lang, 'task_stopped') : t(lang, 'send')}
+          title={busy || (hasActiveTasks && !value.trim()) ? t(lang, 'task_stopped') : t(lang, 'send')}
         >
-          {busy ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg> : '↑'}
+          {busy || (hasActiveTasks && !value.trim())
+            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
+            : '↑'}
         </button>
       </div>
     </div>

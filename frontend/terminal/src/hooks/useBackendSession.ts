@@ -545,11 +545,19 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'transcript_item' && event.item) {
+			// 跳过后台任务完成通知（<task-notification> XML），它是注入给 LLM 的
+			// 系统消息，不应作为真实用户消息显示
+			if (event.item.role === 'user' && event.item.text.startsWith('<task-notification>')) {
+				return;
+			}
 			pushStatic(event.item as TranscriptItem);
 			return;
 		}
 		if (event.type === 'assistant_delta') {
+			// 后台完成自动恢复等路径没有前置 submit_line，需在首个 delta 时
+			// 进入 busy（与 web 端一致），否则 LLM 已在响应但输入框仍可用
 			assistantFlushedForToolRef.current = false;
+			setBusy(true);
 			if (event.reasoning) {
 				reasoningBufferRef.current += event.reasoning;
 			}
@@ -751,6 +759,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			// 然后设置新内容
 			const newItems = (event.items as TranscriptItem[]).filter((item: TranscriptItem) => {
 				if (item.role === 'user' && item.text.startsWith('/')) {
+					return false;
+				}
+				// 跳过后台任务完成通知（<task-notification> XML）
+				if (item.role === 'user' && item.text.startsWith('<task-notification>')) {
 					return false;
 				}
 				return true;

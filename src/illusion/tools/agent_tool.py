@@ -376,15 +376,20 @@ class AgentTool(BaseTool[AgentToolInput]):
                         # 把最终结果文本累积到 task output
                         if result.result_text:
                             await manager.write_to_task_output(agent_id, result.result_text)
+                        # 通知后台代理追踪器（唤醒主 agent）。
+                        # 必须先于 complete_in_process_agent：complete 会触发
+                        # on_task_complete（host 的 _wrapped_on_task_complete），
+                        # 其中检查 tracker.has_completions() 决定是否调度自动恢复；
+                        # 若通知后发，检查时看不到 completion，in_process_agent
+                        # 完成后将不会自动进入 busy。
+                        if bg_tracker is not None:
+                            bg_tracker.notify_completed(agent_id, notification_xml)
                         # 标记任务完成（更新 status/ended_at/result，触发 on_task_complete）
                         manager.complete_in_process_agent(
                             agent_id,
                             success=result.success,
                             result=result.result_text,
                         )
-                        # 通知后台代理追踪器（唤醒主 agent）
-                        if bg_tracker is not None:
-                            bg_tracker.notify_completed(agent_id, notification_xml)
                         # 通知父代理（团队上下文）
                         parent_queue = context.metadata.get("parent_message_queue")
                         if parent_queue:
@@ -393,32 +398,20 @@ class AgentTool(BaseTool[AgentToolInput]):
                                 from_agent="system",
                             ))
                     except asyncio.CancelledError:
-                        # task_stop 取消时，标记为 killed
+                        # task_stop 取消时，标记为 killed。
+                        # 不注入通知：stop 结果对 LLM 无意义，避免触发自动恢复
+                        if bg_tracker is not None:
+                            bg_tracker.discard(agent_id)
                         manager.complete_in_process_agent(
                             agent_id,
                             success=False,
                             result="Agent was stopped by task_stop",
                         )
-                        if bg_tracker is not None:
-                            from illusion.swarm.agent_executor import TaskNotification
-                            bg_tracker.notify_completed(
-                                agent_id,
-                                format_task_notification(TaskNotification(
-                                    task_id=agent_id,
-                                    status="killed",
-                                    summary="Agent was stopped by task_stop",
-                                    task_name=task_name,
-                                )),
-                            )
                         raise
                     except Exception:
                         logger.exception("[AgentTool] Background agent %s failed", agent_id)
-                        manager.complete_in_process_agent(
-                            agent_id,
-                            success=False,
-                            result="Agent crashed with unhandled exception",
-                        )
-                        # 即使异常也通知追踪器，避免主 agent 永远等待
+                        # 即使异常也先通知追踪器，避免主 agent 永远等待，
+                        # 并保证自动恢复调度能看到通知
                         if bg_tracker is not None:
                             from illusion.swarm.agent_executor import TaskNotification
                             bg_tracker.notify_completed(
@@ -430,6 +423,11 @@ class AgentTool(BaseTool[AgentToolInput]):
                                     task_name=task_name,
                                 )),
                             )
+                        manager.complete_in_process_agent(
+                            agent_id,
+                            success=False,
+                            result="Agent crashed with unhandled exception",
+                        )
                     finally:
                         _unregister_agent(agent_id)
                         await _cleanup_worktree()

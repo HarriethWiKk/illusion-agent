@@ -497,6 +497,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         // 过滤 / 开头的 user 消息：这些是 apply_select_command → _process_line 产生的
         // 命令产物（如 /context set 512000），不是真实用户输入，不应显示在会话中
         if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
+        // 过滤后台任务完成通知（<task-notification> XML）：注入给 LLM 的系统消息，
+        // 不应作为真实用户消息显示
+        if (evt.item.role === 'user' && evt.item.text.startsWith('<task-notification>')) return;
         if (suppressTranscriptRef.current) return;
         pushStatic(evt.item as TranscriptItem);
         return;
@@ -583,7 +586,13 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           suppressTranscriptRef.current = false;
           return;
         }
-        setStaticItems(evt.items as TranscriptItem[]);
+        // 过滤 / 开头 user 消息与后台任务完成通知（<task-notification> XML）
+        setStaticItems((evt.items as TranscriptItem[]).filter((item) => {
+          if (item.role !== 'user') return true;
+          if (item.text.startsWith('/')) return false;
+          if (item.text.startsWith('<task-notification>')) return false;
+          return true;
+        }));
         clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
       }
 

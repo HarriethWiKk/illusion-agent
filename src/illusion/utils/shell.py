@@ -145,6 +145,7 @@ async def create_shell_subprocess(
     stdout: int | None = None,
     stderr: int | None = None,
     env: Mapping[str, str] | None = None,
+    new_process_group: bool = False,
 ) -> asyncio.subprocess.Process:
     """
     创建带有平台感知和沙箱支持的 shell 子进程
@@ -183,6 +184,11 @@ async def create_shell_subprocess(
         kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            if new_process_group:
+                kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
+        elif new_process_group:
+            # POSIX：独立会话，使整个命令树处于独立进程组，便于 killpg 终止
+            kwargs["start_new_session"] = True
         # 显式过滤子进程环境：剥离认证/配置类变量，保留代理/证书/系统变量
         child_env = env if env is not None else _build_filtered_env()
         process = await asyncio.create_subprocess_exec(

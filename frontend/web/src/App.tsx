@@ -510,6 +510,7 @@ export default function App() {
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
+          hasActiveTasks={session.tasks.some((t) => t.status === 'in_progress' || t.status === 'pending')}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
           btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />

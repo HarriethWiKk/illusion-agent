@@ -113,3 +113,19 @@ TASK_NOTIFICATION_RE = re.compile(
     r"<result>(?P<result>.*?)</result>",
     re.DOTALL,
 )
+
+
+def is_task_notification(text: str) -> bool:
+    """判断文本是否为后台任务完成通知（<task-notification> 开头的 XML）。
+
+    通知作为 user 消息注入 transcript 供 LLM 消费，但不应被当作真实用户
+    消息参与渲染、重放、轮次计算与回退选择。各过滤点统一复用此函数，
+    避免正则散落各处。
+
+    Args:
+        text: 消息文本
+
+    Returns:
+        bool: 是否为后台任务完成通知
+    """
+    return bool(text and text.lstrip().startswith("<task-notification>"))

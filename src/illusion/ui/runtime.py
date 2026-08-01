@@ -73,7 +73,7 @@ from illusion.plugins.loader import load_plugins
 from illusion.plugins.types import LoadedPlugin
 from illusion.prompts import build_runtime_system_prompt
 from illusion.state import AppState, AppStateStore
-from illusion.tasks.types import TaskRecord
+from illusion.tasks.types import TaskRecord, is_task_notification
 from illusion.tools import ToolRegistry, create_default_tool_registry
 
 # 类型别名定义
@@ -200,6 +200,11 @@ def _on_task_complete(
 
     if task.type in {"local_agent", "remote_agent", "in_process_teammate"}:
         agent_id = task.metadata.get("agent_id", task_id)
+        # 被用户停止（killed）的任务不注入通知：stop 结果对 LLM 无意义，
+        # 且会触发 _auto_resume_bg 自动恢复，导致 Ctrl+X 后 LLM 被无意义调用
+        if task.status == "killed":
+            tracker.discard(agent_id)
+            return
         # task_name 格式：任务名 · agent类型（小写），类型为空时默认 "agent"
         task_name_raw = task.metadata.get("name") or task.description or ""
         agent_type = (task.metadata.get("subagent_type") or "agent").lower()
@@ -215,6 +220,10 @@ def _on_task_complete(
         notification_xml = format_task_notification(notification)
         tracker.notify_completed(agent_id, notification_xml)
     elif task.type == "local_bash":
+        # 被用户停止（killed）的任务不注入通知（同上）
+        if task.status == "killed":
+            tracker.discard(task_id)
+            return
         # 后台 Bash/PowerShell 命令完成后通知 LLM
         summary = f'Background command "{task.description}" {task.status}'
         if task.return_code is not None:
@@ -630,6 +639,9 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
 def _last_user_text(messages: list[ConversationMessage]) -> str:
     """获取最后一条用户消息的文本。
 
+    跳过后台任务完成通知（<task-notification>）：通知是系统注入给 LLM 的
+    XML，不应作为 latest_user_prompt 进入系统提示词。
+
     Args:
         messages: 会话消息列表
 
@@ -638,6 +650,8 @@ def _last_user_text(messages: list[ConversationMessage]) -> str:
     """
     for msg in reversed(messages):
         if msg.role == "user" and msg.text.strip():
+            if is_task_notification(msg.text):
+                continue
             return msg.text.strip()
     return ""
 
@@ -847,6 +861,9 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
     summary = ""
     for msg in bundle.engine.messages:
         if msg.role == "user" and msg.text.strip():
+            # 跳过后台任务完成通知（<task-notification>），避免通知成为会话摘要
+            if is_task_notification(msg.text):
+                continue
             summary = msg.text.strip()[:80]
             break
     # 计算 turn_count：按真正由用户输入的消息数计算（排除 tool_result 等）
@@ -857,6 +874,7 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
         if m.role == "user"
         and not any(isinstance(b, ToolResultBlock) for b in m.content)
         and m.text.strip()
+        and not is_task_notification(m.text)
     )
     # 保留原始 created_at（首次调用时不存在则用当前时间）
     existing = read_meta(bundle.cwd, bundle.session_id) or {}
@@ -1014,6 +1032,78 @@ async def handle_line(
     return True
 
 
+async def stop_all_tasks(bundle: RuntimeBundle) -> None:
+    """停止所有正在运行或待处理的后台任务，清理 tracker 状态。
+
+    Ctrl+X 时调用，确保 agent / bash / powershell 等子进程被终止，
+    并防止 kill 通知触发 auto_resume_bg 错误恢复。
+    Args:
+        bundle: 运行时数据 bundle
+    """
+    from illusion.tasks.manager import get_task_manager
+    manager = get_task_manager()
+    running = [t for t in manager.list_tasks() if t.status in ("running", "pending")]
+    for t in running:
+        try:
+            await manager.stop_task(t.id)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("停止任务 %s 时出错", t.id)
+    # 清理 tracker，防止已 kill 任务触发的 notify_completed 导致 auto_resume_bg 恢复
+    tracker = bundle.engine._bg_agent_tracker
+    if tracker is not None:
+        tracker.clear()
+
+
+async def handle_background_completions(
+    bundle: RuntimeBundle,
+    *,
+    print_system: SystemPrinter,
+    render_event: StreamRenderer,
+) -> bool:
+    """后台任务完成后自动恢复处理：注入积压通知并让模型继续。
+
+    主循环空闲期间（idle 超时或用户主动退出 busy）后台任务完成时，
+    host 层调用本函数自动进入 busy：不追加用户输入，先 drain 积压的
+    <task-notification> 通知注入为 user 消息，再让模型继续处理。
+
+    Args:
+        bundle: 运行时数据 bundle
+        print_system: 系统消息打印回调
+        render_event: 流式事件渲染回调
+
+    Returns:
+        bool: 是否继续会话（始终为 True）
+    """
+    tracker = bundle.engine._bg_agent_tracker
+    # 仅在有实际完成通知时才处理；任务仍在运行时（pending 但无 completion）
+    # 直接返回，避免发起无意义的 LLM 调用
+    if tracker is None or not tracker.has_completions():
+        return True
+    settings = bundle.current_settings()
+    bundle.engine.set_max_turns(settings.max_turns)
+    system_prompt = build_runtime_system_prompt(
+        settings,
+        cwd=bundle.cwd,
+        latest_user_prompt=_last_user_text(bundle.engine.messages),
+        channel_hint=bundle.channel_hint,
+    )
+    # 追加钩子注入的 additionalContext
+    for ctx in bundle.hook_additional_contexts:
+        if ctx:
+            system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
+    bundle.engine.set_system_prompt(system_prompt)
+    try:
+        async for event in bundle.engine.process_background_completions():
+            await render_event(event)
+    except MaxTurnsExceeded as exc:
+        await print_system(f"Stopped after {exc.max_turns} turns (max_turns).")
+    # 更新会话 meta（替代旧 save_session_snapshot）
+    _update_session_meta(bundle)
+    sync_app_state(bundle)
+    return True
+
+
 async def _render_command_result(
 	result: CommandResult,
 	print_system: SystemPrinter,
@@ -1051,7 +1141,8 @@ async def _render_command_result(
 		replay_items: list[dict[str, Any]] = []
 		for msg in result.replay_messages:
 			if msg.role == "user":
-				if msg.text.strip():
+				# 跳过后台任务完成通知：仅注入 LLM，不参与前端重放渲染
+				if msg.text.strip() and not is_task_notification(msg.text):
 					replay_items.append({"role": "user", "text": msg.text})
 				for block in msg.content:
 					if isinstance(block, ToolResultBlock):
@@ -1112,7 +1203,8 @@ async def _render_command_result(
 			tool_uses_by_id2: dict[str, dict[str, Any]] = {}
 			for msg in result.replay_messages:
 				if msg.role == "user":
-					if msg.text.strip():
+					# 跳过后台任务完成通知：仅注入 LLM，不参与前端重放渲染
+					if msg.text.strip() and not is_task_notification(msg.text):
 						if replay_transcript_item is not None:
 							await replay_transcript_item({"role": "user", "text": msg.text})
 						else:

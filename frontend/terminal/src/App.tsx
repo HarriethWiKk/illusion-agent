@@ -486,10 +486,17 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 		// Ctrl+X → 停止当前任务
+		// 空闲但后台任务（agent / bash / powershell）在跑时也可停止
 		if (key.ctrl && chunk.toLowerCase() === 'x') {
-			if (session.busy) {
+			// status 为显示状态：running → in_progress
+			const hasActiveTasks = session.tasks.some(
+				(t) => t.status === 'in_progress' || t.status === 'pending'
+			);
+			if (session.busy || hasActiveTasks) {
 				session.sendRequest({type: 'stop'});
-				session.pushStatic({role: 'system', text: ' '});
+				if (session.busy) {
+					session.pushStatic({role: 'system', text: ' '});
+				}
 				session.setCommandResult({
 					text: t(language, 'taskStopped'),
 					type: 'info',

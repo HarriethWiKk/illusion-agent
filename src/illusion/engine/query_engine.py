@@ -740,3 +740,66 @@ class QueryEngine:
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
+
+    async def process_background_completions(self) -> AsyncIterator[StreamEvent]:
+        """处理积压的后台完成通知（自动进入 busy），不新增用户输入。
+
+        主循环空闲期间（如后台任务等待的 idle 超时或用户主动退出）后台任务
+        完成时，通知堆积在 BackgroundAgentTracker。本方法先 drain 这些通知
+        注入为 user 消息，再让模型继续处理；期间若又派发新后台任务，
+        run_query 的 wait_for_completion 保持原有续接语义。
+
+        Yields:
+            StreamEvent: 流式事件
+        """
+        context = QueryContext(
+            api_client=self._api_client,
+            tool_registry=self._tool_registry,
+            permission_checker=self._permission_checker,
+            cwd=self._cwd,
+            model=self._model,
+            system_prompt=self._system_prompt,
+            max_tokens=self._max_tokens,
+            max_turns=self._max_turns,
+            permission_prompt=self._permission_prompt,
+            ask_user_prompt=self._ask_user_prompt,
+            plan_approval_prompt=self._plan_approval_prompt,
+            hook_executor=self._hook_executor,
+            tool_metadata=self._tool_metadata,
+            effort=self._effort,
+            bg_agent_tracker=self._bg_agent_tracker,
+            # idle 超时阈值（与 build_query_context 一致，详见上文说明）
+            bg_agent_wait_timeout=300.0,
+            compact_state=self._compact_state,
+            last_api_usage=self._last_api_usage,
+            last_api_usage_message_count=self._last_api_usage_message_count,
+            on_before_tool_execute=self.on_before_tool_execute,
+            file_state_cache=self._file_state_cache,
+        )
+        # 记录循环前的消息数量，用于循环结束后持久化新增消息
+        # process_background_completions 不 append checkpoint，run_query 内部
+        # 注入的通知与 assistant/tool 消息由 _persist_checkpoint_after_run 兜底持久化
+        messages_before = len(self._messages)
+        try:
+            async for event, usage in run_query(context, self._messages, bg_auto_drain=True):
+                if usage is not None:
+                    self._cost_tracker.add(usage)  # 累加使用量
+                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
+                    self._last_api_usage = usage
+                    self._last_api_usage_message_count = len(self._messages)
+                    # 持久化累积 usage + 最后一次调用的单次分项
+                    if self._checkpoint_store is not None:
+                        await self._checkpoint_store.append_usage(
+                            input_tokens=self._cost_tracker.total.input_tokens,
+                            output_tokens=self._cost_tracker.total.output_tokens,
+                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
+                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
+                            last_usage=usage,
+                            last_message_count=len(self._messages),
+                        )
+                yield event
+        finally:
+            await self._persist_checkpoint_after_run(context, messages_before)
+        # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
+        if context.cwd != self._cwd:
+            self._cwd = context.cwd

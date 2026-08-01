@@ -251,9 +251,34 @@ class BackgroundAgentTracker:
         # 而非"等待全部完成"。drain 后 wake_event 会被 clear。
         self._wake_event.set()
 
+    def discard(self, agent_id: str) -> None:
+        """后台任务被用户停止（killed）时调用：递减 pending 计数但不注入通知。
+
+        与 notify_completed 的区别：killed 结果对 LLM 无意义（工具已被用户
+        主动停止），不追加 _completions，避免 has_completions() 变 True 触发
+        _auto_resume_bg 自动恢复、LLM 被无意义调用。
+
+        Args:
+            agent_id: 代理 ID（仅用于日志/计数对称，不存储）
+        """
+        if self._shutdown:
+            return
+        self._pending_count = max(0, self._pending_count - 1)
+        self._last_activity = time.monotonic()
+
     def has_pending(self) -> bool:
         """是否有待处理或已完成但未消费的后台代理。"""
         return self._pending_count > 0 or bool(self._completions)
+
+    def has_completions(self) -> bool:
+        """是否有已完成但未消费的后台代理通知。
+
+        与 has_pending 的区别：has_pending 在任务仍在运行时也返回 True，
+        has_completions 仅在存在实际完成通知时返回 True。自动恢复调度
+        （_auto_resume_bg 等）应使用本方法，避免任务未完成时误触发
+        无意义的 LLM 调用。
+        """
+        return bool(self._completions)
 
     def _drain_completions(self) -> list[BgAgentCompletion]:
         """取出所有已完成的通知并重置唤醒事件。"""
@@ -269,6 +294,16 @@ class BackgroundAgentTracker:
         不等待未完成的任务。
         """
         return self._drain_completions()
+
+    def clear(self) -> None:
+        """清除所有完成通知和 pending 计数（用户主动停止时调用）。
+
+        Ctrl+X 停止所有任务后调用，防止已 kill 任务触发的 notify_completed
+        导致 auto_resume_bg 错误恢复。
+        """
+        self._completions.clear()
+        self._pending_count = 0
+        self._wake_event.clear()
 
     def shutdown(self) -> None:
         """关闭 tracker，cancel 所有 pending 后台 task 并唤醒等待者。
@@ -470,6 +505,8 @@ class QueryContext:
 async def run_query(
     context: QueryContext,
     messages: list[ConversationMessage],
+    *,
+    bg_auto_drain: bool = False,
 ) -> AsyncIterator[tuple[StreamEvent, UsageSnapshot | None]]:
     """运行对话循环直到模型停止请求工具。
 
@@ -481,6 +518,9 @@ async def run_query(
     Args:
         context: 查询上下文
         messages: 对话消息列表
+        bg_auto_drain: 为 True 时，循环开始前先 drain 积压的后台完成通知
+            并注入为 user 消息（用于后台任务完成后自动恢复处理，不新增
+            用户输入历史）。
 
     Yields:
         tuple[StreamEvent, UsageSnapshot | None]: 流事件和可选的使用量快照
@@ -501,6 +541,16 @@ async def run_query(
 
     # 使用从 QueryEngine 传入的持久化压缩状态
     compact_state: AutoCompactState = context.compact_state or AutoCompactState()
+
+    # 自动恢复模式：主循环空闲期间后台任务已完成，先 drain 积压通知注入为
+    # user 消息，让模型在新一轮开始时就能看到通知并继续处理。
+    if bg_auto_drain and context.bg_agent_tracker is not None:
+        completed = context.bg_agent_tracker.drain_now()
+        if completed:
+            notification_parts = [c.notification_xml for c in completed]
+            notification_text = "\n\n".join(notification_parts)
+            messages.append(ConversationMessage.from_user_text(notification_text))
+            yield StatusEvent(message=t("bg_agent_resuming"), bg_agent=True), None
 
     turn_count = 0  # 轮次计数器
     while context.max_turns is None or turn_count < context.max_turns:
@@ -627,22 +677,20 @@ async def run_query(
         if not final_message.tool_uses:
             tracker = context.bg_agent_tracker
             if tracker is not None and tracker.has_pending():
-                # 发出等待状态事件（显示在 shimmer 区域）
                 from illusion.config.i18n import t as _t
-                yield StatusEvent(message=_t("bg_agent_waiting"), bg_agent=True), None
-                # 等待后台代理完成：使用 idle 超时模式，只要代理持续有活动
-                # （工具调用、文本生成等）就保持 busy，仅当长时间无活动时才退出。
-                # bg_agent_wait_timeout 语义从"固定 300s 超时"改为"idle 超时阈值"。
-                completed = await tracker.wait_for_completion(
-                    idle_timeout=context.bg_agent_wait_timeout
-                )
+                # 先 drain 本轮已完成的，若有则让模型继续处理
+                completed = tracker.drain_now()
                 if completed:
-                    # 将完成通知注入为用户消息，触发模型继续处理
                     notification_parts = [c.notification_xml for c in completed]
                     notification_text = "\n\n".join(notification_parts)
                     messages.append(ConversationMessage.from_user_text(notification_text))
                     yield StatusEvent(message=_t("bg_agent_resuming"), bg_agent=True), None
                     continue
+
+                # 仍有 pending 后台任务 → 退出循环，不阻塞等待。
+                # 后台任务完成后通过 host 层的 _auto_resume_bg 自动恢复处理，
+                # 避免 wait_for_completion 长期阻塞导致 busy 锁死。
+                yield StatusEvent(message=_t("bg_agent_waiting"), bg_agent=True), None
 
             # 执行 Stop 钩子
             if context.hook_executor is not None:
@@ -712,6 +760,7 @@ async def run_query(
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
                 # 创建进度队列（仅单工具路径使用，用于 agent 工具前台模式上报子代理工具调用进度）
                 context.progress_queue = asyncio.Queue()
+                exec_task: asyncio.Task[Any] | None = None
                 try:
                     exec_task = asyncio.ensure_future(
                         _execute_tool_call(context, tc.name, tc.id, tc.input)
@@ -735,9 +784,16 @@ async def run_query(
                         tid, msg, ptype = context.progress_queue.get_nowait()
                         yield ToolProgressEvent(tool_use_id=tid, message=msg, progress_type=ptype), None
                     # 获取结果（如有异常会重新抛出，由外层 except 处理）
+                    assert exec_task is not None
                     result, hook_ctxs = exec_task.result()
                 finally:
                     context.progress_queue = None
+                    # 关键：run_query 被取消（Ctrl+X）时取消未完成的工具执行，
+                    # 否则 exec_task 成为孤儿 task，前台 agent 会继续运行
+                    if exec_task is not None and not exec_task.done():
+                        exec_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await exec_task
                 all_hook_ctxs.extend(hook_ctxs)
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,

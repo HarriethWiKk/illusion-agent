@@ -15,6 +15,7 @@ PowerShell 命令执行工具
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
@@ -336,6 +337,10 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
         kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            # 独立进程组，便于 taskkill /T 终止整个进程树
+            kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
         process = await asyncio.create_subprocess_exec(
             powershell,
             *args,
@@ -372,6 +377,8 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             await asyncio.to_thread(record.output_file.write_text, "", encoding="utf-8")
             manager._tasks[task_id] = record
             manager._output_locks[task_id] = asyncio.Lock()
+            # 注册 process，使 stop_task 能找到并终止（否则 stop 直接返回，无法打断）
+            manager._processes[task_id] = process
             # 注册到 bg_agent_tracker，使完成时能自动通知 LLM
             tracker = context.metadata.get("bg_agent_tracker") if context.metadata else None
             if tracker is not None:
@@ -396,7 +403,9 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
                             await asyncio.to_thread(_append_chunk, record.output_file, stderr_data)
                     return_code = await process.wait()
                     record.return_code = return_code
-                    record.status = "completed" if return_code == 0 else "failed"
+                    # 已被 stop_task 标记为 killed 时不覆盖（与 manager._watch_process 一致）
+                    if record.status != "killed":
+                        record.status = "completed" if return_code == 0 else "failed"
                     record.ended_at = _time.time()
                     # 通知 on_task_complete 回调
                     if manager.on_task_complete is not None:
@@ -404,23 +413,40 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
                             manager.on_task_complete(task_id, record)
                         except (OSError, RuntimeError, ValueError, KeyError):
                             logger.warning("[powershell_tool] on_task_complete callback failed for %s", task_id, exc_info=True)
+                    # 清理注册（与 manager._watch_process 一致）
+                    manager._processes.pop(task_id, None)
+                    manager._waiters.pop(task_id, None)
                 except asyncio.CancelledError:
-                    # task_stop 取消时，杀掉子进程
-                    try:
-                        process.kill()
-                        await process.wait()
-                    except OSError:
-                        logger.warning("[powershell_tool] Failed to kill process for %s", task_id, exc_info=True)
+                    # task_stop 取消时，终止整个进程树
+                    from illusion.tasks.manager import _terminate_process_tree
+                    await _terminate_process_tree(process)
                     record.status = "killed"
                     record.ended_at = _time.time()
+                    manager._processes.pop(task_id, None)
+                    manager._waiters.pop(task_id, None)
+                    # 递减 tracker 计数（被停止的任务不注入通知）
+                    if tracker is not None:
+                        tracker.discard(task_id)
                     raise
                 except (OSError, RuntimeError):
                     logger.exception("[powershell_tool] Background task %s failed", task_id)
                     record.status = "failed"
                     record.ended_at = _time.time()
+                    manager._processes.pop(task_id, None)
+                    manager._waiters.pop(task_id, None)
+                finally:
+                    # 关闭 subprocess transport，避免 Windows 上管道句柄泄漏
+                    # （stop_task 杀进程后 process.wait() 可能不返回，transport
+                    #   不会自动关闭，_background_wait 被 cancel 时泄漏）
+                    transport = getattr(process, "_transport", None)
+                    if transport is not None:
+                        with contextlib.suppress(Exception):
+                            transport.close()
 
             bg_async_task = asyncio.create_task(_background_wait(), name=f"ps-bg-{task_id}")
             record.async_task = bg_async_task
+            # 注册 watcher，使 stop_task 杀进程后能等待 _background_wait 完成
+            manager._waiters[task_id] = bg_async_task
 
             return ToolResult(
                 output=(
