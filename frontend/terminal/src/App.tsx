@@ -16,7 +16,6 @@ import {Box, Text, useApp, useInput} from 'ink';
 
 import {getActivityDescription} from './tools/registry.js';
 import {AgentWizard} from './components/AgentWizard.js';
-import {BtwInlineInput} from './components/BtwInlineInput.js';
 import {BtwPanel} from './components/BtwPanel.js';
 import {CommandPicker} from './components/CommandPicker.js';
 import {ConversationView} from './components/ConversationView.js';
@@ -138,8 +137,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
 	const [cursorReset, setCursorReset] = useState(0);
-	/** busy 模式下 Ctrl+B 激活的侧问输入框是否可见 */
-	const [btwInputActive, setBtwInputActive] = useState(false);
 	/** /agent create 触发的分步创建向导是否可见 */
 	const [showAgentWizard, setShowAgentWizard] = useState(false);
 	const session = useBackendSession(config, () => exit());
@@ -274,15 +271,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPermissionIndex(1);
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
-
-	// busy 退出时清理残留的 btw 输入框激活状态
-	// 场景：busy 中 Ctrl+B 激活侧问输入框 → 后台任务结束 busy 退出 →
-	// BtwInlineInput 卸载但 btwInputActive 仍为 true → useInput guard 拦截斜杠指令
-	useEffect(() => {
-		if (!session.busy) {
-			setBtwInputActive(false);
-		}
-	}, [session.busy]);
 
 	// 用户在普通输入框开始输入时，自动关闭残留的 btw 回复面板
 	// 场景：btw 回复到达后用户未按 Esc 关闭，直接在输入框打字 →
@@ -428,8 +416,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /btw <question> → 发起侧问（busy 时也可并行运行）
-		if (trimmed.startsWith('/btw ')) {
+		// /btw <question> → 发起侧问（仅空闲时可用）
+		if (trimmed.startsWith('/btw ') && !session.busy) {
 			const question = trimmed.slice('/btw '.length).trim();
 			if (question) {
 				session.sendBtwRequest(question);
@@ -514,14 +502,9 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (showAgentWizard) {
 			return;
 		}
-		// --- btw 输入框 / 回复面板激活时，按键交由其内部 useInput 处理 ---
+		// --- btw 回复面板激活时，按键交由其内部 useInput 处理 ---
 		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
-		if (btwInputActive || session.btwReply !== null || session.btwError !== null) {
-			return;
-		}
-		// Ctrl+B → busy 模式下激活侧问输入框
-		if (key.ctrl && chunk.toLowerCase() === 'b' && session.busy) {
-			setBtwInputActive(true);
+		if (session.btwReply !== null || session.btwError !== null) {
 			return;
 		}
 		// Ctrl+O → 将完整结果内容显示在对话中（不发送到 AI）
@@ -864,26 +847,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			/>
 		) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
 		<Box marginTop={1}>
-			{btwInputActive ? (
-				<BtwInlineInput
-					language={language}
-					onSubmit={(q) => {
-						setBtwInputActive(false);
-						session.sendBtwRequest(q);
-					}}
-					onCancel={() => {
-						setBtwInputActive(false);
-					}}
-				/>
-			) : (
-				<Spinner
-					label={session.bgAgentLabel ?? undefined}
-					todoItems={session.todoItems}
-					language={language}
-					toolName={currentToolName}
-					sessionId={String(session.status.session_id ?? '')}
-				/>
-			)}
+			<Spinner
+				label={session.bgAgentLabel ?? undefined}
+				todoItems={session.todoItems}
+				language={language}
+				toolName={currentToolName}
+				sessionId={String(session.status.session_id ?? '')}
+			/>
 		</Box>
 	) : (
 		<PromptInput
@@ -931,8 +901,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
-						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>ctrl+b</Text> {t(language, 'btwSideQuestion')}
 					</Text>
 				</Box>
 			) : null}

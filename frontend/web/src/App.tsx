@@ -179,7 +179,8 @@ export default function App() {
       }
       // /btw <question> → 走 btw 侧问通道（不走 web_query）
       // question 为空时静默忽略，避免发送空请求
-      if (cmdName === 'btw') {
+      // busy 时不支持 btw
+      if (cmdName === 'btw' && !session.busy) {
         if (args) session.sendBtwRequest(args);
         return;
       }

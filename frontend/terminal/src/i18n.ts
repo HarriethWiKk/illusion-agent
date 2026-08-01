@@ -72,7 +72,7 @@ const ZH: Dict = {
 	questionHintSubmit: 'Enter 提交',
 	questionHintCancel: 'Esc 取消',
 	questionHintQuickSelect: '数字键快捷选择',
-	// ---- btw 侧问（busy 模式下打断式提问）----
+	// ---- btw 侧问（仅空闲时可用）----
 	btwSideQuestion: '侧问',
 	btwPlaceholder: '输入侧问...',
 	btwHint: '侧问',
@@ -190,7 +190,7 @@ const EN: Dict = {
 	questionHintSubmit: 'Enter to submit',
 	questionHintCancel: 'Esc to cancel',
 	questionHintQuickSelect: '1-N quick select',
-	// ---- btw side question (interrupting question in busy mode) ----
+	// ---- btw side question (idle only) ----
 	btwSideQuestion: 'Side question',
 	btwPlaceholder: 'Ask a side question...',
 	btwHint: 'btw',

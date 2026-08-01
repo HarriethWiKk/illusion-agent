@@ -223,16 +223,6 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
       }
 
       // 普通输入模式
-      // Ctrl+B / Cmd+B：在主 textarea 聚焦时打开侧问输入框并自动聚焦
-      // （仅在非自动补全模式下触发，避免与命令补全冲突；btw 输入框内 Ctrl+B
-      // 触发提交的逻辑由 handleBtwKeyDown 处理，此处保持单一职责）
-      if (!showCommands && (e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B') && btwEnabled) {
-        e.preventDefault();
-        setShowBtwInput(true);
-        setTimeout(() => btwInputRef.current?.focus(), 0);
-        return;
-      }
-
       if (e.key === 'Enter') {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
@@ -379,8 +369,8 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
         </div>
       )}
 
-      {/* 侧问内联输入框（textarea 上方） */}
-      {btwEnabled && showBtwInput && (
+      {/* 侧问内联输入框（textarea 上方），busy 时隐藏 */}
+      {btwEnabled && !busy && showBtwInput && (
         <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
           <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
           <input
@@ -421,8 +411,8 @@ export default function PromptInput({ lang, busy, connected, commands, onSubmit,
             el.style.height = Math.min(el.scrollHeight, 140) + 'px';
           }}
         />
-        {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 时显示 */}
-        {btwEnabled && (
+        {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 且非 busy 时显示 */}
+        {btwEnabled && !busy && (
           <button
             onClick={toggleBtwInput}
             disabled={btwLoadingActive}
