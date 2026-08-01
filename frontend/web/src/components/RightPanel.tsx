@@ -136,7 +136,7 @@ export default function RightPanel({
           title="Skills"
           count={skills.length}
           subtitle={projectSkills.length > 0 ? `${projectSkills.length} ${t(lang, 'project_label')}` : undefined}
-          defaultCollapsed={false}
+          defaultCollapsed={true}
         >
           {skills.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.description} tag={s.source === 'project' ? 'P' : undefined} />

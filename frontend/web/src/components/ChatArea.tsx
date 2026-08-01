@@ -43,9 +43,13 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
   let finalAssistant: TranscriptItem | null = null;
 
   // 流式阶段：所有 assistant 消息归入思考过程，不区分"最终回复"
+  // plan 角色由 ModalCard 专门展示，不在对话流中重复显示
   if (streaming) {
     for (const item of items) {
-      if (item.role === 'user' || item.role === 'plan') {
+      if (item.role === 'plan') {
+        continue; // 跳过 plan 消息，由 ModalCard 处理
+      }
+      if (item.role === 'user') {
         userItems.push(item);
       } else {
         thinkingItems.push(item);
@@ -65,7 +69,10 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    if (item.role === 'user' || item.role === 'plan') {
+    if (item.role === 'plan') {
+      continue; // 跳过 plan 消息，由 ModalCard 处理
+    }
+    if (item.role === 'user') {
       userItems.push(item);
     } else if (i === lastAssistantIdx) {
       finalAssistant = item;

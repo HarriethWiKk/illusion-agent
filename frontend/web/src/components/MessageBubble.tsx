@@ -247,22 +247,9 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
     return null;
   }
 
+  // plan 角色由 ModalCard 专门展示，不在对话流中重复显示
   if (item.role === 'plan') {
-    return (
-      <div className="py-2 my-1">
-        <div className="border border-info/40 rounded-lg px-4 py-3 bg-info/5">
-          <div className="text-info font-semibold text-sm mb-2 flex items-center gap-1.5">
-            <span>📝</span>
-            <span>{t(lang, 'planReview')}</span>
-          </div>
-          <div className="text-sm prose prose-sm max-w-none text-content-primary select-text">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
-              {item.text}
-            </ReactMarkdown>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
