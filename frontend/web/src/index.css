@@ -123,6 +123,11 @@
   box-sizing: border-box;
 }
 
+/* 强制表单元素使用主题色，覆盖浏览器深色模式默认样式 */
+input, textarea, select {
+  color-scheme: light;
+}
+
 html {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;

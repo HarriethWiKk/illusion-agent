@@ -288,6 +288,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 		const s = v.trim();
 		if (s === '') {
 			setStep('confirm');
+			setViewScroll(0);
 			return;
 		}
 		if (!/^\d+$/.test(s) || parseInt(s, 10) <= 0) {
@@ -296,6 +297,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 		}
 		setFields((f) => ({...f, max_turns: parseInt(s, 10)}));
 		setStep('confirm');
+		setViewScroll(0);
 	};
 
 	/** 常见工具名别名 → 标准工具名映射

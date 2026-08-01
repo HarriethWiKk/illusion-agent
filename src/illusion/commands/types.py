@@ -31,7 +31,6 @@ class CommandResult:
         continue_pending: 是否继续待处理的工具循环
         continue_turns: 继续的回合数
         refresh_state: 命令处理后是否刷新 app_state
-        ephemeral: 临时结果标志
     """
 
     message: str | None = None  # 返回消息

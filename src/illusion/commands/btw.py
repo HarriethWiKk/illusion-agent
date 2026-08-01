@@ -31,4 +31,4 @@ async def btw_handler(args: str, context: CommandContext) -> CommandResult:
         )
     except SideQuestionError as exc:
         return CommandResult(message=f"Side question failed: {exc}")
-    return CommandResult(message=reply, ephemeral=True)
+    return CommandResult(message=reply)

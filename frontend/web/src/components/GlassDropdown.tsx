@@ -195,7 +195,7 @@ export function GlassDropdown({
         disabled={disabled}
         onClick={handleTriggerClick}
         onMouseDown={handleTriggerMouseDown}
-        className={`w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm text-left transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
           open ? 'border-primary shadow-glow' : 'focus:border-primary focus:shadow-glow'
         }`}
       >

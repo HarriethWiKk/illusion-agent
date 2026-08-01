@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from illusion.engine.messages import ConversationMessage, ToolResultBlock
+from illusion.engine.messages import ConversationMessage
 from illusion.engine.query import QueryContext, run_query
 from illusion.engine.stream_events import (
     AssistantTextDelta,

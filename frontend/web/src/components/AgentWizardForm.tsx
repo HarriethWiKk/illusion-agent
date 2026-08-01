@@ -303,8 +303,8 @@ export function AgentWizardForm({
 
   /** 输入框通用样式（含错误高亮 + 聚焦阴影散光） */
   const inputClass = (hasError: boolean): string =>
-    `w-full px-3 py-2 rounded-md bg-white/40 border text-content-primary text-sm focus:outline-none transition-all duration-200 ${
-      hasError ? 'border-danger' : 'border-white/40 focus:border-primary focus:shadow-glow'
+    `w-full px-3 py-2 rounded-md bg-surface-card-alt border text-content-primary text-sm focus:outline-none transition-all duration-200 ${
+      hasError ? 'border-danger' : 'border-border-light focus:border-primary focus:shadow-glow'
     }`;
 
   /** 字段错误文案（仅显示后端返回的字段级错误；本地校验仅用于禁用提交按钮） */
@@ -579,11 +579,24 @@ export function AgentWizardForm({
                             checked ? 'bg-primary-light text-primary' : 'text-content-secondary hover:bg-surface-hover'
                           }`}
                         >
+                          <span
+                            className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded-sm border-2 flex items-center justify-center transition-colors ${
+                              checked
+                                ? 'bg-primary border-primary'
+                                : 'border-border-medium bg-transparent'
+                            }`}
+                          >
+                            {checked && (
+                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 6l3 3 5-6" />
+                              </svg>
+                            )}
+                          </span>
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleTool(tool.name)}
-                            className="mt-0.5 w-3.5 h-3.5 accent-primary shrink-0"
+                            className="sr-only"
                           />
                           <span className="truncate font-mono">{tool.name}</span>
                         </label>
@@ -617,7 +630,7 @@ export function AgentWizardForm({
                   {previewExpanded ? '▼ ' : '▶ '}{t(lang, 'agentWizardPreview')}
                 </button>
                 {previewExpanded && (
-                  <pre className="mt-1.5 px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-xs text-content-secondary font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                  <pre className="mt-1.5 px-3 py-2 rounded-md bg-card border border-border-light text-xs text-content-secondary font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
                     {markdownPreview}
                   </pre>
                 )}
