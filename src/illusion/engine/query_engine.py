@@ -346,15 +346,19 @@ class QueryEngine:
 
         system_prompt 不从持久化恢复——下一轮 handle_line 会通过
         build_runtime_system_prompt 重新构建。
-        last_api_usage 不恢复——resume 后无 API 调用数据，下次调用时填充。
+        last_api_usage 从 checkpoint 中的单次分项恢复（若有），
+        使 rewind/resume 后 StatusBar / context 显示立即恢复。
 
         Args:
             result: restore 结果
         """
         self._messages = list(result.messages)
         self._cost_tracker.apply_restore(result)
-        self._last_api_usage = None
-        self._last_api_usage_message_count = 0
+        # 恢复最后一次 API 调用的单次用量（含缓存分项），
+        # 使 rewind/resume 后 StatusBar / context 显示立即恢复
+        # （checkpoint 中无该数据时回退到 None → 纯估算）
+        self._last_api_usage = result.last_usage
+        self._last_api_usage_message_count = result.last_usage_message_count
 
     def load_file_history(self, checkpoint_count: int | None = None) -> None:
         """显式加载文件历史状态（用于 /resume 后）。
@@ -607,13 +611,16 @@ class QueryEngine:
                     # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
                     self._last_api_usage = usage
                     self._last_api_usage_message_count = len(self._messages)
-                    # 持久化累积 usage
+                    # 持久化累积 usage + 最后一次调用的单次分项
+                    # （单次分项用于 rewind/resume 后恢复 StatusBar 显示）
                     if self._checkpoint_store is not None:
                         await self._checkpoint_store.append_usage(
                             input_tokens=self._cost_tracker.total.input_tokens,
                             output_tokens=self._cost_tracker.total.output_tokens,
                             cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
                             cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
+                            last_usage=usage,
+                            last_message_count=len(self._messages),
                         )
                 yield event
         finally:
@@ -676,13 +683,16 @@ class QueryEngine:
                     # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
                     self._last_api_usage = usage
                     self._last_api_usage_message_count = len(self._messages)
-                    # 持久化累积 usage（continue_pending 不 append checkpoint）
+                    # 持久化累积 usage + 最后一次调用的单次分项
+                    # （continue_pending 不 append checkpoint）
                     if self._checkpoint_store is not None:
                         await self._checkpoint_store.append_usage(
                             input_tokens=self._cost_tracker.total.input_tokens,
                             output_tokens=self._cost_tracker.total.output_tokens,
                             cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
                             cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
+                            last_usage=usage,
+                            last_message_count=len(self._messages),
                         )
                 yield event
         finally:

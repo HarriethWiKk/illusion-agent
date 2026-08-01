@@ -31,6 +31,7 @@ from typing import Any
 import aiofiles
 from pydantic import ValidationError
 
+from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import ConversationMessage
 
 
@@ -40,10 +41,12 @@ class RestoreResult:
 
     Attributes:
         messages: 重建的对话消息列表
-        usage_input: 最后一个 _usage 的 input_tokens
-        usage_output: 最后一个 _usage 的 output_tokens
-        usage_cache_read: 最后一个 _usage 的 cache_read_input_tokens
-        usage_cache_creation: 最后一个 _usage 的 cache_creation_input_tokens
+        usage_input: 最后一个 _usage 的 input_tokens（累积）
+        usage_output: 最后一个 _usage 的 output_tokens（累积）
+        usage_cache_read: 最后一个 _usage 的 cache_read_input_tokens（累积）
+        usage_cache_creation: 最后一个 _usage 的 cache_creation_input_tokens（累积）
+        last_usage: 最后一次 API 调用的单次用量（含缓存分项），无则 None
+        last_usage_message_count: 最后一次 API 调用时的消息数快照
         checkpoint_count: _checkpoint 行数（用于 rewind 计数）
     """
     messages: list[ConversationMessage]
@@ -51,6 +54,8 @@ class RestoreResult:
     usage_output: int
     usage_cache_read: int
     usage_cache_creation: int
+    last_usage: UsageSnapshot | None
+    last_usage_message_count: int
     checkpoint_count: int
 
 
@@ -116,14 +121,19 @@ class CheckpointStore:
         output_tokens: int,
         cache_read_input_tokens: int = 0,
         cache_creation_input_tokens: int = 0,
+        *,
+        last_usage: UsageSnapshot | None = None,
+        last_message_count: int = 0,
     ) -> None:
-        """追加 _usage 行（累积值）。
+        """追加 _usage 行（累积值 + 最后一次调用的单次值）。
 
         Args:
             input_tokens: 累积 input tokens
             output_tokens: 累积 output tokens
             cache_read_input_tokens: 累积缓存命中 tokens
             cache_creation_input_tokens: 累积缓存写入 tokens
+            last_usage: 最后一次 API 调用的单次用量（用于 rewind/resume 后恢复显示）
+            last_message_count: 最后一次 API 调用时的消息数快照
         """
         record = {
             "role": "_usage",
@@ -132,6 +142,14 @@ class CheckpointStore:
             "cache_read_input_tokens": cache_read_input_tokens,
             "cache_creation_input_tokens": cache_creation_input_tokens,
         }
+        if last_usage is not None:
+            record["last_input_tokens"] = last_usage.input_tokens
+            record["last_output_tokens"] = last_usage.output_tokens
+            record["last_cache_read_input_tokens"] = last_usage.cache_read_input_tokens
+            record["last_cache_creation_input_tokens"] = (
+                last_usage.cache_creation_input_tokens
+            )
+            record["last_message_count"] = last_message_count
         await self._append_line(record)
 
     async def append_message(self, message: ConversationMessage) -> None:
@@ -163,6 +181,7 @@ class CheckpointStore:
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
                     usage_cache_read=0, usage_cache_creation=0,
+                    last_usage=None, last_usage_message_count=0,
                     checkpoint_count=0,
                 )
             # 读所有行
@@ -204,6 +223,7 @@ class CheckpointStore:
                 return RestoreResult(
                     messages=[], usage_input=0, usage_output=0,
                     usage_cache_read=0, usage_cache_creation=0,
+                    last_usage=None, last_usage_message_count=0,
                     checkpoint_count=0,
                 )
             lines: list[str] = []
@@ -248,6 +268,8 @@ class CheckpointStore:
         usage_output = 0
         usage_cache_read = 0
         usage_cache_creation = 0
+        last_usage: UsageSnapshot | None = None
+        last_usage_message_count = 0
         checkpoint_count = 0
 
         for line in lines:
@@ -267,6 +289,19 @@ class CheckpointStore:
                 usage_output = record.get("output_tokens", 0)
                 usage_cache_read = record.get("cache_read_input_tokens", 0)
                 usage_cache_creation = record.get("cache_creation_input_tokens", 0)
+                # 最后一次 API 调用的单次分项（rewind/resume 后恢复 StatusBar 显示）
+                if "last_input_tokens" in record:
+                    last_usage = UsageSnapshot(
+                        input_tokens=record.get("last_input_tokens", 0),
+                        output_tokens=record.get("last_output_tokens", 0),
+                        cache_read_input_tokens=record.get(
+                            "last_cache_read_input_tokens", 0
+                        ),
+                        cache_creation_input_tokens=record.get(
+                            "last_cache_creation_input_tokens", 0
+                        ),
+                    )
+                    last_usage_message_count = record.get("last_message_count", 0)
             elif role in ("user", "assistant"):
                 msg_data = record.get("message")
                 if msg_data:
@@ -284,5 +319,7 @@ class CheckpointStore:
             usage_output=usage_output,
             usage_cache_read=usage_cache_read,
             usage_cache_creation=usage_cache_creation,
+            last_usage=last_usage,
+            last_usage_message_count=last_usage_message_count,
             checkpoint_count=checkpoint_count,
         )

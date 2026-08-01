@@ -40,6 +40,64 @@ async def test_append_and_restore_basic(store: CheckpointStore) -> None:
 
 
 @pytest.mark.asyncio
+async def test_last_usage_roundtrip(store: CheckpointStore) -> None:
+    """_usage 行的单次分项在 restore 后可恢复（用于 rewind/resume 后 StatusBar）。"""
+    from illusion.api.usage import UsageSnapshot
+
+    await store.append_checkpoint()  # id=0
+    await store.append_message(ConversationMessage.from_user_text("hi"))
+    last = UsageSnapshot(
+        input_tokens=617,
+        output_tokens=170,
+        cache_read_input_tokens=34400,
+        cache_creation_input_tokens=0,
+    )
+    await store.append_usage(
+        input_tokens=35017,
+        output_tokens=170,
+        cache_read_input_tokens=34400,
+        cache_creation_input_tokens=0,
+        last_usage=last,
+        last_message_count=3,
+    )
+
+    result = await store.restore()
+    assert result.last_usage is not None
+    assert result.last_usage.input_tokens == 617
+    assert result.last_usage.output_tokens == 170
+    assert result.last_usage.cache_read_input_tokens == 34400
+    assert result.last_usage_message_count == 3
+
+
+@pytest.mark.asyncio
+async def test_rewind_restores_last_usage_before_target(store: CheckpointStore) -> None:
+    """rewind 后恢复目标点之前的最后一次单次用量。"""
+    from illusion.api.usage import UsageSnapshot
+
+    # turn 0
+    await store.append_checkpoint()  # id=0
+    await store.append_message(ConversationMessage.from_user_text("turn0"))
+    await store.append_usage(
+        100, 5, last_usage=UsageSnapshot(input_tokens=100, output_tokens=5), last_message_count=2
+    )
+    # turn 1
+    await store.append_checkpoint()  # id=1
+    await store.append_message(ConversationMessage.from_user_text("turn1"))
+    await store.append_usage(
+        200, 10, last_usage=UsageSnapshot(input_tokens=100, output_tokens=5, cache_read_input_tokens=100), last_message_count=4
+    )
+
+    # rewind 到 id=1 之前 → 保留 turn0 的 _usage（单次 input=100, output=5）
+    result = await store.rewind_to(1)
+    assert result.last_usage is not None
+    assert result.last_usage.input_tokens == 100
+    assert result.last_usage.output_tokens == 5
+    assert result.last_usage_message_count == 2
+    # 累积值也回到 turn0 的
+    assert result.usage_input == 100
+
+
+@pytest.mark.asyncio
 async def test_rewind_to_target_checkpoint(store: CheckpointStore) -> None:
     """rewind_to 截断目标 checkpoint 及之后内容。"""
     # turn 0

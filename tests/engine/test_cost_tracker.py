@@ -15,6 +15,8 @@ def test_apply_restore_from_result() -> None:
         usage_output=50,
         usage_cache_read=1000,
         usage_cache_creation=200,
+        last_usage=None,
+        last_usage_message_count=0,
         checkpoint_count=1,
     )
     tracker = CostTracker()
@@ -50,7 +52,7 @@ def test_add_accumulates_usage():
     assert tracker.total.output_tokens == 150
 
 
-def test_add_accumulates_cache_tokens():
+def test_add_accumulates_cache_tokens() -> None:
     """cache 分项随 add 累积。"""
     tracker = CostTracker()
     tracker.add(UsageSnapshot(
@@ -67,7 +69,7 @@ def test_add_accumulates_cache_tokens():
     assert tracker.total.cache_creation_input_tokens == 200
 
 
-def test_initial_state_zero():
+def test_initial_state_zero() -> None:
     tracker = CostTracker()
     assert tracker.total.input_tokens == 0
     assert tracker.total.output_tokens == 0
@@ -75,7 +77,7 @@ def test_initial_state_zero():
     assert tracker.total.cache_creation_input_tokens == 0
 
 
-def test_usage_snapshot_properties():
+def test_usage_snapshot_properties() -> None:
     """UsageSnapshot 的 total_input_tokens / context_size 计算。"""
     usage = UsageSnapshot(
         input_tokens=100,
