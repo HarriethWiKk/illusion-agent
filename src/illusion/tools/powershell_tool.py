@@ -451,6 +451,10 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             return ToolResult(
                 output=(
                     f"Command launched in background (task_id={task_id}).\n"
+                    "You will be automatically notified when it completes — do NOT sleep or "
+                    "poll task_output for progress. If you need the full output later, use "
+                    "`task_output` with the task_id. Continue with other work or respond to "
+                    "the user instead."
                 ),
                 is_error=False,
             )
