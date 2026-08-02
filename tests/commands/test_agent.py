@@ -16,7 +16,7 @@ def _ctx(engine_messages=None):
     return CommandContext(engine=engine, cwd="."), engine
 
 
-def _notification_text(task_id: str, status: str = "completed", summary: str = "Agent 'Explore' completed", result: str = "这是 agent 的最终摘要回复") -> str:
+def _notification_text(task_id: str, status: str = "completed", summary: str = "Agent 'explore' completed", result: str = "这是 agent 的最终摘要回复") -> str:
     """构造一个 task-notification TextBlock 文本。"""
     return (
         f"<task-notification>\n<task-id>{task_id}</task-id>\n"

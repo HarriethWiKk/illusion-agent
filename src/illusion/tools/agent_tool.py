@@ -34,7 +34,7 @@ class AgentToolInput(BaseModel):
     属性：
         description: 任务的简短描述（3-5 个词）
         prompt: 代理要执行的完整任务
-        subagent_type: 代理类型（如 'general-purpose', 'Explore', 'worker'）
+        subagent_type: 代理类型（如 'general-purpose', 'explore', 'worker'）
         model: 可选的模型覆盖
         run_in_background: 是否在后台运行
         name: 代理名称，用于通过 SendMessage 寻址
@@ -181,6 +181,9 @@ class AgentTool(BaseTool[AgentToolInput]):
                     output=f"Agent type '{arguments.subagent_type}' not found. Available agents: {', '.join(available)}",
                     is_error=True,
                 )
+        else:
+            # subagent_type 省略时，默认使用 general-purpose 代理定义
+            agent_def = get_agent_definition("general-purpose")
 
         # 确定工作目录
         cwd = arguments.cwd or str(context.cwd)
@@ -336,9 +339,9 @@ class AgentTool(BaseTool[AgentToolInput]):
                     )
                     _register_agent(bg_ctx)
 
-                    # task_name 格式：任务名 · agent类型（小写），类型为空时默认 "agent"
+                    # task_name 格式：任务名 · agent类型，类型为空时默认 "general-purpose"
                     task_name_raw = arguments.description or config.name
-                    agent_type = (arguments.subagent_type or "agent").lower()
+                    agent_type = arguments.subagent_type or "general-purpose"
                     task_name = f"{task_name_raw} · {agent_type}"
 
                     # 后台模式仅传递 on_activity 回调：对所有事件（含文本生成、

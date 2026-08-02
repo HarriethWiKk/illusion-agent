@@ -1475,8 +1475,18 @@ class ReactBackendHost:
                         if use_block.name == "agent":
                             inp = use_block.input or {}
                             task_name = str(inp.get("description") or inp.get("name") or "agent")[:30]
-                            # agent 类型统一小写，为空时默认 "agent"
-                            agent_type = str(inp.get("subagent_type") or "agent")[:20].lower()
+                            # agent 类型：input 完全未到达时显示 "Agent"，到达后无 subagent_type 则默认 "GeneralPurpose"
+                            subagent_type = inp.get("subagent_type")
+                            if subagent_type:
+                                # 转 PascalCase：general-purpose → GeneralPurpose
+                                agent_type = "".join(
+                                    w.title() for w in str(subagent_type).replace("_", "-").split("-")
+                                )
+                            elif inp:
+                                # input 已到达但无 subagent_type，后端默认 general-purpose
+                                agent_type = "GeneralPurpose"
+                            else:
+                                agent_type = "Agent"
                             label_name = f"{task_name} · {agent_type}"
                             pending_labels[use_block.id] = label_name
                 elif msg.role == "user":

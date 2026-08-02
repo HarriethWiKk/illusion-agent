@@ -205,9 +205,11 @@ def _on_task_complete(
         if task.status == "killed":
             tracker.discard(agent_id)
             return
-        # task_name 格式：任务名 · agent类型（小写），类型为空时默认 "agent"
+        # task_name 格式：任务名 · agent类型，类型为空时默认 "GeneralPurpose"
         task_name_raw = task.metadata.get("name") or task.description or ""
-        agent_type = (task.metadata.get("subagent_type") or "agent").lower()
+        subagent_type = task.metadata.get("subagent_type") or "general-purpose"
+        # 转 PascalCase：general-purpose → GeneralPurpose
+        agent_type = "".join(w.title() for w in subagent_type.replace("_", "-").split("-"))
         task_name = f"{task_name_raw} · {agent_type}"
         notification = TaskNotification(
             task_id=agent_id,

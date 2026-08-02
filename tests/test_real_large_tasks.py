@@ -336,8 +336,8 @@ async def task_migration_plan_with_memory():
                 source="user",
             ))
 
-            # Use Plan agent system prompt
-            plan_def = get_agent_definition("Plan")
+            # Use plan agent system prompt
+            plan_def = get_agent_definition("plan")
             engine = make_engine(
                 plan_def.system_prompt if plan_def and plan_def.system_prompt else
                 "You are a software architect. Explore code and create migration plans.",

@@ -25,12 +25,17 @@ export const agentTool: Tool = {
 	name: 'agent',
 
 	displayName(input?: Record<string, unknown>): string {
-		if (!input) return 'Agent';
-		const agentType = String(input.subagent_type ?? '');
-		if (agentType && agentType !== 'worker') {
-			return agentType.charAt(0).toUpperCase() + agentType.slice(1);
+		// input 完全未到达时显示 "Agent"；到达后无 subagent_type 则默认 "GeneralPurpose"
+		if (!input || Object.keys(input).length === 0) {
+			return 'Agent';
 		}
-		return 'Agent';
+		const agentType = input.subagent_type ?? 'general-purpose';
+		// 转 PascalCase：general-purpose → GeneralPurpose, explore → Explore
+		return String(agentType)
+			.replace(/_/g, '-')
+			.split('-')
+			.map(w => w.charAt(0).toUpperCase() + w.slice(1))
+			.join('');
 	},
 
 	renderToolUseMessage(input?: Record<string, unknown>): string {

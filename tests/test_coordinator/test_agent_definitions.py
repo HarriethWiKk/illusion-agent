@@ -56,8 +56,8 @@ def test_get_builtin_returns_expected_names():
     builtins = get_builtin_agent_definitions()
     names = {a.name for a in builtins}
     assert "general-purpose" in names
-    assert "Explore" in names
-    assert "Plan" in names
+    assert "explore" in names
+    assert "plan" in names
     assert "worker" in names
     assert "verification" in names
 
@@ -69,8 +69,8 @@ def test_builtin_agents_have_descriptions():
 
 def test_builtin_explore_has_tools():
     builtins = get_builtin_agent_definitions()
-    explore = next(a for a in builtins if a.name == "Explore")
-    # Explore agent uses disallowed_tools pattern — tools may be None (all tools)
+    explore = next(a for a in builtins if a.name == "explore")
+    # explore agent uses disallowed_tools pattern — tools may be None (all tools)
     # with specific tools blocked via other mechanism
     assert explore is not None
 

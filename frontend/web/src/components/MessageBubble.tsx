@@ -274,7 +274,8 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
   const [open, setOpen] = useState(false);
   // summarizeInput 用原名做大小写不敏感匹配，显示名用映射后的友好名
   const summary = summarizeInput(name, toolInput, name);
-  const displayName = toolDisplayName(name);
+  // agent 工具根据 subagent_type 动态显示类型名，其他工具使用映射表
+  const displayName = name === 'agent' && toolInput ? getAgentDisplayName(toolInput) : toolDisplayName(name);
 
   return (
     <div className="py-1.5">
@@ -375,7 +376,10 @@ export function ReasoningContent({ text }: { text: string }) {
  */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
   const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
-  const displayName = toolDisplayName(call.tool_name);
+  // agent 工具根据 subagent_type 动态显示类型名，其他工具使用映射表
+  const displayName = call.tool_name === 'agent' && call.tool_input
+    ? getAgentDisplayName(call.tool_input as Record<string, unknown>)
+    : toolDisplayName(call.tool_name);
   // 混合显示 thinking/text/tool 消息，按行切分后取最后 3 行，统一灰调
   const progressLines: string[] = [];
   if (call.progressMessages) {
@@ -403,6 +407,28 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
     </div>
   );
 }
+
+// ---- Agent 工具显示名辅助函数 ----
+
+/**
+ * 根据 tool_input 中的 subagent_type 获取 agent 工具的显示名
+ * input 完全未到达时返回 "Agent"，到达后无 subagent_type 返回 "GeneralPurpose"
+ */
+function getAgentDisplayName(toolInput?: Record<string, unknown>): string {
+	// input 完全未到达时显示 "Agent"；到达后无 subagent_type 则默认 "GeneralPurpose"
+	if (!toolInput || Object.keys(toolInput).length === 0) {
+		return 'Agent';
+	}
+	const agentType = toolInput.subagent_type ?? 'general-purpose';
+	// 转 PascalCase：general-purpose → GeneralPurpose, explore → Explore
+	return String(agentType)
+		.replace(/_/g, '-')
+		.split('-')
+		.map(w => w.charAt(0).toUpperCase() + w.slice(1))
+		.join('');
+}
+
+
 
 // ---- 摘要生成（与 terminal 端 summarizeInput 保持一致）----
 

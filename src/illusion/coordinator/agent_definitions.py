@@ -590,7 +590,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         base_dir="built-in",  # 基础目录
     ),
     AgentDefinition(
-        name="Explore",  # 探索代理
+        name="explore",  # 探索代理
         description=(
             "Fast agent specialized for exploring codebases. Use this when you need to "
             "quickly find files by patterns (eg. \"src/components/**/*.tsx\"), search code "
@@ -603,12 +603,12 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         disallowed_tools=["edit_file", "write_file", "notebook_edit"],  # 禁止的工具
         system_prompt=_EXPLORE_SYSTEM_PROMPT,  # 系统提示词
         omit_claude_md=True,  # 跳过CLAUDE.md
-        subagent_type="Explore",  # 代理类型
+        subagent_type="explore",  # 代理类型
         source="builtin",  # 来源
         base_dir="built-in",  # 基础目录
     ),
     AgentDefinition(
-        name="Plan",  # 计划代理
+        name="plan",  # 计划代理
         description=(
             "Software architect agent for designing implementation plans. Use this when you "
             "need to plan the implementation strategy for a task. Returns step-by-step plans, "
@@ -618,7 +618,7 @@ _BUILTIN_AGENTS: list[AgentDefinition] = [
         system_prompt=_PLAN_SYSTEM_PROMPT,  # 系统提示词
         model="inherit",  # 模型
         omit_claude_md=True,  # 跳过CLAUDE.md
-        subagent_type="Plan",  # 代理类型
+        subagent_type="plan",  # 代理类型
         source="builtin",  # 来源
         base_dir="built-in",  # 基础目录
     ),
