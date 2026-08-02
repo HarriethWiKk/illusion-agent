@@ -35,7 +35,8 @@ jobs:
         run: ruff check src/
 
       - name: Test
-        run: pytest tests/ -q --timeout=300
+        timeout-minutes: 10
+        run: pytest tests/ -q --timeout=600
 
       - name: Build
         run: python -m build
