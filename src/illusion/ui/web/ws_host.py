@@ -283,130 +283,26 @@ class WebBackendHost:
             # 主循环：处理请求
             while self._running:
                 request = await self._request_queue.get()
-                # Web 前端专属请求：委托给 WebApiDispatcher（与 terminal 路径隔离）
-                if request.type.startswith("web_"):
-                    await self._web_api.handle(request)
-                    continue
-                # 关闭请求
-                if request.type == "shutdown":
-                    await self._emit(BackendEvent(type="shutdown"))
-                    break
-                # 停止当前任务
-                if request.type == "stop":
-                    await self._stop_active_line()
-                    continue
-                # 权限响应
-                if request.type == "permission_response":
-                    if request.request_id in self._permission_requests:
-                        self._permission_requests[request.request_id].set_result(
-                            bool(request.allowed)
-                        )
-                    # 记住"总是允许"工具
-                    if request.always_allow and request.tool_name:
-                        self._always_allowed_tools.add(request.tool_name)
-                        if self._bundle is not None:
-                            self._always_allowed_tools = add_always_allowed_tool(
-                                self._bundle.cwd,
-                                request.tool_name,
-                            )
-                    await self._emit(BackendEvent(type="modal_request", modal=None))
-                    continue
-                # 用户问答响应
-                if request.type == "question_response":
-                    if request.request_id in self._question_requests:
-                        answer: str | dict[Any, Any] = request.answer or ""
-                        # 尝试解析 JSON 格式的多选答案
-                        try:
-                            parsed = json.loads(answer) if isinstance(answer, str) else answer
-                            if isinstance(parsed, dict):
-                                answer = parsed
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                        self._question_requests[request.request_id].set_result(answer)
-                    await self._emit(BackendEvent(type="modal_request", modal=None))
-                    continue
-                # 列出会话
-                if request.type == "list_sessions":
-                    await self._handle_list_sessions()
-                    continue
-                # 选择命令
-                if request.type == "select_command":
-                    await self._handle_select_command(request.command or "")
-                    continue
-                # 应用选择命令
-                if request.type == "apply_select_command":
-                    if self._busy:
-                        await self._emit(BackendEvent(type="error", message="Session is busy"))
-                        continue
-                    self._busy = True
-                    try:
-                        self._active_line_task = asyncio.create_task(
-                            self._apply_select_command(
-                                request.command or "",
-                                request.value or "",
-                            )
-                        )
-                        should_continue = await self._active_line_task
-                    except asyncio.CancelledError:
-                        should_continue = True
-                    finally:
-                        self._active_line_task = None
-                        self._busy = False
-                        self._create_background_task(self._check_post_idle_bg())
-                    if not should_continue:
-                        await self._emit(BackendEvent(type="shutdown"))
-                        break
-                    continue
-                # btw 侧问
-                if request.type == "btw_request":
-                    await self._handle_btw_request(request)
-                    continue
-                if request.type == "btw_cancel":
-                    await self._handle_btw_cancel(request)
-                    continue
-                # agent 向导
-                if request.type == "agent_wizard_init":
-                    await self._handle_agent_wizard_init(request)
-                    continue
-                if request.type == "agent_wizard_submit":
-                    await self._handle_agent_wizard_submit(request)
-                    continue
-                if request.type == "agent_generate_request":
-                    await self._handle_agent_generate_request(request)
-                    continue
-                # 未知请求类型
-                if request.type != "submit_line":
-                    await self._emit(
-                        BackendEvent(type="error", message=f"Unknown request type: {request.type}")
-                    )
-                    continue
-                # 忙碌中
-                if self._busy:
-                    await self._emit(BackendEvent(type="error", message="Session is busy"))
-                    continue
-                # 处理提交的行
-                line = (request.line or "").strip()
-                if not line:
-                    continue
-                self._busy = True
                 try:
-                    # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
-                    # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
-                    if request.treat_as_text:
-                        self._active_line_task = asyncio.create_task(
-                            self._submit_line_as_text(line)
-                        )
-                    else:
-                        self._active_line_task = asyncio.create_task(self._process_line(line))
-                    should_continue = await self._active_line_task
+                    should_continue = await self._dispatch_request(request)
                 except asyncio.CancelledError:
+                    # 主循环自身被取消（如 uvicorn shutdown / disconnect 关闭路径）：
+                    # 必须重新抛出。asyncio 取消是"一次性"的，吞掉后下一次
+                    # _request_queue.get() 会永久阻塞，后端无法退出。
+                    # （行任务取消由 reader 的 stop 分支直接处理，不会到达此处。）
+                    raise
+                except Exception:
+                    # 请求级异常不应拖垮后端进程（与 backend_host 主循环同理）：
+                    # 未捕获异常会让进程异常退出，Windows 上解释器 shutdown 期间
+                    # daemon 线程竞争 stdio 缓冲锁会触发原生崩溃（0xC0000005）。
+                    log.exception("处理请求异常: type=%s", request.type)
                     should_continue = True
-                finally:
-                    self._active_line_task = None
-                    self._busy = False
-                    self._create_background_task(self._check_post_idle_bg())
+                    try:
+                        await self._emit(BackendEvent(type="error", message="Internal error, please retry"))
+                        await self._emit(BackendEvent(type="line_complete"))
+                    except Exception:
+                        log.exception("发送错误事件失败")
                 if not should_continue:
-                    await self._emit(BackendEvent(type="shutdown"))
                     break
         finally:
             # 清理资源：取消 reader，_shutdown 处理其余 task/队列，最后关闭运行时
@@ -421,6 +317,142 @@ class WebBackendHost:
             if self._bundle is not None:
                 await close_runtime(self._bundle)
         return 0
+
+    async def _dispatch_request(self, request: FrontendRequest) -> bool:
+        """处理单个前端请求。
+
+        Args:
+            request: 前端请求
+
+        Returns:
+            bool: 是否继续主循环（False 表示请求要求关闭后端）
+        """
+        # Web 前端专属请求：委托给 WebApiDispatcher（与 terminal 路径隔离）
+        if request.type.startswith("web_"):
+            await self._web_api.handle(request)
+            return True
+        # 关闭请求
+        if request.type == "shutdown":
+            await self._emit(BackendEvent(type="shutdown"))
+            return False
+        # 停止当前任务
+        if request.type == "stop":
+            await self._stop_active_line()
+            return True
+        # 权限响应
+        if request.type == "permission_response":
+            if request.request_id in self._permission_requests:
+                self._permission_requests[request.request_id].set_result(
+                    bool(request.allowed)
+                )
+            # 记住"总是允许"工具
+            if request.always_allow and request.tool_name:
+                self._always_allowed_tools.add(request.tool_name)
+                if self._bundle is not None:
+                    self._always_allowed_tools = add_always_allowed_tool(
+                        self._bundle.cwd,
+                        request.tool_name,
+                    )
+            await self._emit(BackendEvent(type="modal_request", modal=None))
+            return True
+        # 用户问答响应
+        if request.type == "question_response":
+            if request.request_id in self._question_requests:
+                answer: str | dict[Any, Any] = request.answer or ""
+                # 尝试解析 JSON 格式的多选答案
+                try:
+                    parsed = json.loads(answer) if isinstance(answer, str) else answer
+                    if isinstance(parsed, dict):
+                        answer = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                self._question_requests[request.request_id].set_result(answer)
+            await self._emit(BackendEvent(type="modal_request", modal=None))
+            return True
+        # 列出会话
+        if request.type == "list_sessions":
+            await self._handle_list_sessions()
+            return True
+        # 选择命令
+        if request.type == "select_command":
+            await self._handle_select_command(request.command or "")
+            return True
+        # 应用选择命令
+        if request.type == "apply_select_command":
+            if self._busy:
+                await self._emit(BackendEvent(type="error", message="Session is busy"))
+                return True
+            self._busy = True
+            try:
+                self._active_line_task = asyncio.create_task(
+                    self._apply_select_command(
+                        request.command or "",
+                        request.value or "",
+                    )
+                )
+                should_continue = await self._active_line_task
+            except asyncio.CancelledError:
+                should_continue = True
+            finally:
+                self._active_line_task = None
+                self._busy = False
+                self._create_background_task(self._check_post_idle_bg())
+            if not should_continue:
+                await self._emit(BackendEvent(type="shutdown"))
+                return False
+            return True
+        # btw 侧问
+        if request.type == "btw_request":
+            await self._handle_btw_request(request)
+            return True
+        if request.type == "btw_cancel":
+            await self._handle_btw_cancel(request)
+            return True
+        # agent 向导
+        if request.type == "agent_wizard_init":
+            await self._handle_agent_wizard_init(request)
+            return True
+        if request.type == "agent_wizard_submit":
+            await self._handle_agent_wizard_submit(request)
+            return True
+        if request.type == "agent_generate_request":
+            await self._handle_agent_generate_request(request)
+            return True
+        # 未知请求类型
+        if request.type != "submit_line":
+            await self._emit(
+                BackendEvent(type="error", message=f"Unknown request type: {request.type}")
+            )
+            return True
+        # 忙碌中
+        if self._busy:
+            await self._emit(BackendEvent(type="error", message="Session is busy"))
+            return True
+        # 处理提交的行
+        line = (request.line or "").strip()
+        if not line:
+            return True
+        self._busy = True
+        try:
+            # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
+            # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
+            if request.treat_as_text:
+                self._active_line_task = asyncio.create_task(
+                    self._submit_line_as_text(line)
+                )
+            else:
+                self._active_line_task = asyncio.create_task(self._process_line(line))
+            should_continue = await self._active_line_task
+        except asyncio.CancelledError:
+            should_continue = True
+        finally:
+            self._active_line_task = None
+            self._busy = False
+            self._create_background_task(self._check_post_idle_bg())
+        if not should_continue:
+            await self._emit(BackendEvent(type="shutdown"))
+            return False
+        return True
 
     async def _read_requests(self) -> None:
         """从 WebSocket 读取请求。"""

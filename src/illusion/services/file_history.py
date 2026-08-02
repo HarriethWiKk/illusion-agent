@@ -61,6 +61,10 @@ class FileHistoryState:
     snapshots: list[FileSnapshot] = field(default_factory=list)
     tracked_files: set[str] = field(default_factory=set)
     _turn_counter: int = 0  # 内部轮次计数器
+    # 会话数据目录（由 CheckpointStore 持有）。非 None 时 file_history.json
+    # 的读写以它为准，不再用 cwd+session_id 重算路径，保证与 context.jsonl /
+    # meta.json 同目录（会话目录唯一权威原则）。
+    session_dir: Path | None = None
 
 
 def _backup_dir(session_id: str) -> Path:
@@ -78,22 +82,28 @@ def _backup_path(session_id: str, backup_name: str) -> Path:
     return _backup_dir(session_id) / backup_name
 
 
-def _state_path(cwd: str, session_id: str) -> Path:
+def _state_path(cwd: str, session_id: str, session_dir: Path | None = None) -> Path:
     """返回 file_history.json 路径（不创建目录）。
 
     位于会话目录下，与 meta.json / context.jsonl 同目录，
     生命周期对齐：会话删除时随目录一并清理。
 
+    session_dir 由 CheckpointStore 持有（唯一权威）；为 None 时
+    退化为 cwd+session_id 计算（兼容无 store 的只读场景）。
+
     Args:
         cwd: 项目工作目录
         session_id: 会话 ID
+        session_dir: 会话数据目录（store.session_dir），可选
 
     Returns:
         Path: file_history.json 完整路径
     """
+    if session_dir is not None:
+        return session_dir / "file_history.json"
     _validate_session_id(session_id)
-    session_dir = get_project_session_dir_no_create(cwd) / session_id
-    return session_dir / "file_history.json"
+    project_dir = get_project_session_dir_no_create(cwd) / session_id
+    return project_dir / "file_history.json"
 
 
 def track_edit(state: FileHistoryState, file_path: str) -> None:
@@ -315,7 +325,7 @@ def save(state: FileHistoryState) -> None:
             for snap in state.snapshots
         ],
     }
-    path = _state_path(state.cwd, state.session_id)
+    path = _state_path(state.cwd, state.session_id, state.session_dir)
     atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -323,6 +333,7 @@ def load(
     cwd: str,
     session_id: str,
     checkpoint_count: int | None = None,
+    session_dir: Path | None = None,
 ) -> FileHistoryState | None:
     """从 file_history.json 加载状态。
 
@@ -334,11 +345,14 @@ def load(
         session_id: 会话 ID
         checkpoint_count: 当前 CheckpointStore.next_checkpoint_id，
             用于崩溃恢复对齐。None 时不做对齐（懒初始化场景）。
+        session_dir: 会话数据目录（store.session_dir），可选。
+            传入后 file_history.json 以它定位，且加载出的 state
+            会持有该 session_dir，后续 save 写入同一目录。
 
     Returns:
         FileHistoryState | None: 加载的状态或 None
     """
-    path = _state_path(cwd, session_id)
+    path = _state_path(cwd, session_id, session_dir)
     if not path.exists():
         return None
     try:
@@ -376,6 +390,7 @@ def load(
         snapshots=snapshots,
         tracked_files=set(data.get("tracked_files", [])),
         _turn_counter=data.get("turn_counter", len(snapshots)),
+        session_dir=session_dir,
     )
 
     # 崩溃恢复对齐：丢弃 checkpoint_id >= checkpoint_count 的 snapshot

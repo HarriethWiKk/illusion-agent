@@ -236,17 +236,17 @@ def main(
         # backend-only 模式：在当前进程加载会话（子进程路径）
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
-            get_project_session_dir_no_create,
             list_session_snapshots,
             read_index,
             read_meta,
+            session_dir_for,
         )
 
         async def _load_session(sid: str) -> dict[str, Any]:
             """用 CheckpointStore 加载会话数据（替代旧 load_session_by_id）。"""
             _cwd = cwd or "."
             meta = read_meta(_cwd, sid) or {}
-            session_dir = get_project_session_dir_no_create(_cwd) / sid
+            session_dir = session_dir_for(_cwd, sid)
             store = CheckpointStore(session_dir, sid)
             result = await store.restore()
             return {

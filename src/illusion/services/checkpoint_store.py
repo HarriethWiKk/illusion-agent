@@ -103,6 +103,16 @@ class CheckpointStore:
         """返回会话 ID。"""
         return self._session_id
 
+    @property
+    def session_dir(self) -> Path:
+        """返回会话数据目录（本 store 为唯一持有者）。
+
+        会话内所有文件（context.jsonl / meta.json / file_history.json）
+        均由此目录派生，调用方不得再用 cwd+session_id 自行重算路径，
+        避免因 session_id 不同步导致文件散落到不同目录。
+        """
+        return self._session_dir
+
     async def append_checkpoint(self) -> int:
         """追加 _checkpoint 行，返回 checkpoint id。
 

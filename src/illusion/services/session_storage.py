@@ -90,6 +90,16 @@ def get_project_session_dir_no_create(cwd: str | Path) -> Path:
     return get_sessions_dir() / f"{path.name}-{digest}"
 
 
+def session_dir_for(cwd: str | Path, session_id: str) -> Path:
+    """返回 {project}/{session_id}/ 会话目录（不创建）。
+
+    统一路径计算入口：CheckpointStore 构造与所有"仅持有 cwd+session_id"
+    的读路径都应经过此处，避免各调用方自行拼接导致目录不一致。
+    """
+    _validate_session_id(session_id)
+    return get_project_session_dir_no_create(cwd) / session_id
+
+
 def read_index(cwd: str | Path) -> dict[str, Any] | None:
     """读取父级 index.json。
 
@@ -100,6 +110,22 @@ def read_index(cwd: str | Path) -> dict[str, Any] | None:
         dict | None: {"latest_session_id": "...", "version": 1} 或 None
     """
     path = get_project_session_dir_no_create(cwd) / "index.json"
+    if not path.exists():
+        return None
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def read_index_from(session_dir: Path) -> dict[str, Any] | None:
+    """读取 session_dir 父级（项目级）index.json。
+
+    供持有 CheckpointStore 的调用方使用：index 与 context.jsonl 的
+    定位同源（session_dir 由 store 给出），避免自行重算路径。
+    """
+    path = session_dir.parent / "index.json"
     if not path.exists():
         return None
     try:
@@ -121,6 +147,19 @@ def write_index(cwd: str | Path, latest_session_id: str) -> None:
     atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
 
 
+def write_index_to(session_dir: Path, latest_session_id: str) -> None:
+    """写入 session_dir 父级（项目级）index.json。
+
+    供持有 CheckpointStore 的调用方使用：index 路径由 session_dir 派生，
+    与 context.jsonl 定位同源，避免各写各的目录。
+    """
+    parent = session_dir.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    path = parent / "index.json"
+    payload = {"latest_session_id": latest_session_id, "version": 1}
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
+
+
 def read_meta(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
     """读取 {session_id}/meta.json。
 
@@ -131,8 +170,21 @@ def read_meta(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
     Returns:
         dict | None: meta 字典或 None
     """
+    return read_meta_from(session_dir_for(cwd, session_id), session_id)
+
+
+def read_meta_from(session_dir: Path, session_id: str) -> dict[str, Any] | None:
+    """读取 {session_dir}/meta.json（目录由 CheckpointStore 持有）。
+
+    Args:
+        session_dir: 会话数据目录（store.session_dir）
+        session_id: 会话 ID
+
+    Returns:
+        dict | None: meta 字典或 None
+    """
     _validate_session_id(session_id)
-    path = get_project_session_dir_no_create(cwd) / session_id / "meta.json"
+    path = session_dir / "meta.json"
     if not path.exists():
         return None
     try:
@@ -150,8 +202,18 @@ def write_meta(cwd: str | Path, session_id: str, meta: dict[str, Any]) -> None:
         session_id: 会话 ID
         meta: 元数据字典
     """
+    write_meta_to(session_dir_for(cwd, session_id), session_id, meta)
+
+
+def write_meta_to(session_dir: Path, session_id: str, meta: dict[str, Any]) -> None:
+    """写入 {session_dir}/meta.json（目录由 CheckpointStore 持有）。
+
+    Args:
+        session_dir: 会话数据目录（store.session_dir）
+        session_id: 会话 ID
+        meta: 元数据字典
+    """
     _validate_session_id(session_id)
-    session_dir = get_project_session_dir(cwd) / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     path = session_dir / "meta.json"
     atomic_write_text(path, json.dumps(meta, indent=2) + "\n")
@@ -212,7 +274,7 @@ def delete_session_by_id(cwd: str | Path, session_id: str) -> bool:
     """
     _validate_session_id(session_id)
     import shutil
-    session_dir = get_project_session_dir_no_create(cwd) / session_id
+    session_dir = session_dir_for(cwd, session_id)
     if session_dir.exists() and session_dir.is_dir():
         shutil.rmtree(session_dir)
         # 若删除的是 latest，更新或清空 index.json

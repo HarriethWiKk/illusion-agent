@@ -554,11 +554,14 @@ async def build_runtime(
     # 延迟创建策略：不立即 mkdir/write_index/write_meta，
     # 只有第一条用户消息真正提交时才在磁盘创建会话目录。
     # 这样启动后未发消息就退出不会留下"0轮无摘要"的空会话。
+    # attach_session 以 store 为唯一权威：session_id/file_history
+    # 均由 store 派生，context.jsonl / meta.json / file_history.json
+    # 必然落在同一会话目录。
     from illusion.services.checkpoint_store import CheckpointStore
-    from illusion.services.session_storage import get_project_session_dir_no_create
-    session_dir = get_project_session_dir_no_create(cwd) / session_id
+    from illusion.services.session_storage import session_dir_for
+    session_dir = session_dir_for(cwd, session_id)
     checkpoint_store = CheckpointStore(session_dir, session_id)
-    engine.set_checkpoint_store(checkpoint_store)
+    engine.attach_session(checkpoint_store)
     # 加载文件历史（若磁盘存在）。
     # restore_messages 场景：调用方已在外部完成 CheckpointStore.restore()
     # 并传入 restore_messages，但此处 checkpoint_store 是新建的、未 restore，
@@ -851,13 +854,41 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
     后续调用保留 created_at，仅更新其他字段。
 
     空会话（engine.messages 为空）不写入 meta/index，避免磁盘留下空会话目录。
+
+    路径来源：优先 engine.checkpoint_store（会话目录唯一权威），
+    store 不存在时兜底用 cwd+session_id 计算（仅向前兼容防御）。
     """
     import time
 
-    from illusion.services.session_storage import read_meta, write_index, write_meta
-    # 空会话不写 meta/index，避免磁盘留下空会话目录
-    # （rewind 到 0、/new 后未发消息等场景会触发）
+    from illusion.services.session_storage import (
+        read_meta_from,
+        session_dir_for,
+        write_index_to,
+        write_meta_to,
+    )
+    store = bundle.engine.checkpoint_store
+    if store is not None:
+        session_dir = store.session_dir
+        session_id = store.session_id
+    else:
+        # 兜底：无 store 且无 session_id 时（如 /delete all 清理路径），
+        # session_dir_for 会拒绝空串抛 InvalidSessionIdError，直接跳过
+        if not bundle.session_id:
+            return
+        session_dir = session_dir_for(bundle.cwd, bundle.session_id)
+        session_id = bundle.session_id
+    # 空会话处理：从未发过消息的懒创建会话不写 meta/index（避免残留空目录）；
+    # 但会话曾有 meta（如 rewind 回退全部轮次后 messages 为空），必须把
+    # message_count/turn_count 归零——否则列表仍显示该会话（旧计数），
+    # resume 后却是空对话，形成幽灵条目。
     if not bundle.engine.messages:
+        existing = read_meta_from(session_dir, session_id)
+        if existing is not None:
+            existing["message_count"] = 0
+            existing["turn_count"] = 0
+            existing["summary"] = ""
+            existing["updated_at"] = time.time()
+            write_meta_to(session_dir, session_id, existing)
         return
     settings = bundle.current_settings()
     summary = ""
@@ -879,12 +910,12 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
         and not is_task_notification(m.text)
     )
     # 保留原始 created_at（首次调用时不存在则用当前时间）
-    existing = read_meta(bundle.cwd, bundle.session_id) or {}
+    existing = read_meta_from(session_dir, session_id) or {}
     created_at = existing.get("created_at", time.time())
     # 首次写入 index.json（标记为 latest session）
-    write_index(bundle.cwd, bundle.session_id)
-    write_meta(bundle.cwd, bundle.session_id, {
-        "session_id": bundle.session_id,
+    write_index_to(session_dir, session_id)
+    write_meta_to(session_dir, session_id, {
+        "session_id": session_id,
         "cwd": bundle.cwd,
         "model": settings.active_model_name,
         "created_at": created_at,
@@ -953,15 +984,15 @@ async def handle_line(
             # system_prompt 的持久化由 query_engine.submit_message 在第一条消息时负责，
             # index/meta 由 _update_session_meta 在第一条消息后负责。
             # 这样 /new 后未发消息就退出不会留下空会话目录。
+            # attach_session 以 store 为唯一权威（session_id 由 store 派生），
+            # 杜绝 bundle.session_id 与 engine._session_id 不同步导致文件散落。
             from illusion.services.checkpoint_store import CheckpointStore
-            from illusion.services.session_storage import get_project_session_dir_no_create
-            session_dir = get_project_session_dir_no_create(bundle.cwd) / bundle.session_id
-            new_store = CheckpointStore(session_dir, bundle.session_id)
-            bundle.engine.set_checkpoint_store(new_store)
-            # 同步 engine.session_id 与 file_history.session_id，
-            # 否则 submit_message 会用随机 id 兜底，导致 file_history.json
-            # 写入与 session_dir 不匹配的孤立目录（重启后 rewind 失效）。
-            bundle.engine.set_session_id(bundle.session_id)
+            from illusion.services.session_storage import session_dir_for
+            new_store = CheckpointStore(
+                session_dir_for(bundle.cwd, bundle.session_id), bundle.session_id
+            )
+            bundle.engine.attach_session(new_store)
+            bundle.session_id = bundle.engine.session_id
             locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
             prefix = "新会话已开启，任务 ID：" if locale.lower().startswith("zh") else "Started new session. Task ID: "
             suffix = result.message or ""

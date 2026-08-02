@@ -148,8 +148,8 @@ class BaseCommandHandler:
         """
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
-            get_project_session_dir,
             list_session_snapshots,
+            session_dir_for,
         )
 
         cwd = str(Path.cwd())
@@ -176,7 +176,7 @@ class BaseCommandHandler:
             await self._reply(msg, "\n".join(lines))
             return
         sid = chosen.get("session_id", "")
-        session_dir = get_project_session_dir(cwd) / sid
+        session_dir = session_dir_for(cwd, sid)
         store = CheckpointStore(session_dir, sid)
         result = await store.restore()
         messages = [m.model_dump(mode="json") for m in result.messages]
@@ -195,9 +195,9 @@ class BaseCommandHandler:
         from illusion.engine.messages import ConversationMessage
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
-            get_project_session_dir,
-            write_index,
-            write_meta,
+            session_dir_for,
+            write_index_to,
+            write_meta_to,
         )
 
         session = self.session_store.get_or_create(key, msg.user_id, msg.chat_type)
@@ -212,12 +212,12 @@ class BaseCommandHandler:
         settings = load_settings()
         model = session.model or settings.active_model_name
         sid = session.session_id
-        session_dir = get_project_session_dir(cwd) / sid
+        session_dir = session_dir_for(cwd, sid)
         store = CheckpointStore(session_dir, sid)
         await store.append_checkpoint()
         for m in conv_messages:
             await store.append_message(m)
-        write_meta(cwd, sid, {
+        write_meta_to(session_dir, sid, {
             "session_id": sid,
             "cwd": cwd,
             "model": model,
@@ -227,5 +227,5 @@ class BaseCommandHandler:
             "message_count": len(conv_messages),
             "turn_count": sum(1 for m in conv_messages if m.role == "assistant"),
         })
-        write_index(cwd, sid)
+        write_index_to(session_dir, sid)
         await self._reply(msg, t("feishu_cmd_detached", id=sid))

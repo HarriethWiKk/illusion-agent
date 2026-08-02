@@ -304,13 +304,54 @@ class QueryEngine:
     def set_checkpoint_store(self, store: CheckpointStore | None) -> None:
         """设置或清除 CheckpointStore。
 
+        Deprecated: 新代码应使用 attach_session()（以 store 为唯一权威并
+        同步 session_id/file_history/tool_metadata）。本方法仅保留给无会话
+        切换语义的初始化，且不校验 store 与 session_id 的一致性。
+
         Args:
             store: CheckpointStore 实例或 None
         """
         self._checkpoint_store = store
 
+    def attach_session(self, store: CheckpointStore) -> None:
+        """原子绑定会话存储：以 store 为会话数据唯一权威。
+
+        同时设置 checkpoint_store / session_id，并重置 file_history
+        （旧会话的文件编辑记录不跨会话迁移，否则 /resume 会把当前会话
+        的 file_history 写到目标会话目录）。file_history 由后续
+        load_file_history 或 submit_message 按新会话目录懒加载/重建。
+
+        所有会话切换点（启动、/new、/resume、web 新建/删除）都应调用
+        本方法，而不是分别调用 set_checkpoint_store + set_session_id——
+        后者一旦漏调任一，文件就会散落到不同目录。
+
+        Args:
+            store: 新会话的 CheckpointStore（延迟创建，目录可尚不存在）
+        """
+        self._checkpoint_store = store
+        self._session_id = store.session_id
+        self._file_history = None
+        # 同步 tool_metadata 中的 session_id，供工具上下文
+        # （skill_tool / team_create_tool 等经 query.py 展开）读取
+        self._tool_metadata["session_id"] = store.session_id
+
+    @property
+    def session_id(self) -> str:
+        """返回当前会话 ID（由 attach_session / set_session_id 维护）。
+
+        会话数据目录的唯一权威是 CheckpointStore.session_dir，
+        本属性仅用于读取当前会话标识（如 bundle.session_id 同步）。
+
+        Returns:
+            str: 当前会话 ID，未绑定会话时为空字符串
+        """
+        return self._session_id
+
     def set_session_id(self, session_id: str) -> None:
         """更新引擎内部的 session_id（用于 /new、/resume 后同步）。
+
+        Deprecated: 新代码应使用 attach_session()（session_id 由 store 派生，
+        杜绝不同步）。本方法保留给外部插件等无法构造 store 的只读场景。
 
         同时同步已加载的 file_history.session_id，避免 file_history.json
         写入与 session_dir 不匹配的孤立目录。
@@ -321,6 +362,9 @@ class QueryEngine:
         self._session_id = session_id
         if self._file_history is not None and self._file_history.session_id != session_id:
             self._file_history.session_id = session_id
+            # 同步会话数据目录（由 checkpoint_store 派生，保持唯一权威）
+            if self._checkpoint_store is not None:
+                self._file_history.session_dir = self._checkpoint_store.session_dir
             # 若旧 session_id 下已落盘，则按新 session_id 再保存一次，
             # 确保后续 track_edit/rewind_to 写入正确目录
             from illusion.services.file_history import save as _fh_save
@@ -365,6 +409,8 @@ class QueryEngine:
 
         在 apply_restore 之后调用，确保 /rewind 前状态已就绪。
         若磁盘上无 file_history.json 则保持现有状态不变。
+        file_history.json 以 checkpoint_store.session_dir 定位
+        （会话目录唯一权威），避免与 context.jsonl 目录不一致。
 
         Args:
             checkpoint_count: 当前 CheckpointStore.next_checkpoint_id，
@@ -372,8 +418,13 @@ class QueryEngine:
         """
         if not self._session_id:
             return
+        store = self._checkpoint_store
+        session_dir = store.session_dir if store is not None else None
         loaded = _file_history_load(
-            str(self._cwd), self._session_id, checkpoint_count=checkpoint_count
+            str(self._cwd),
+            self._session_id,
+            checkpoint_count=checkpoint_count,
+            session_dir=session_dir,
         )
         if loaded is not None:
             self._file_history = loaded
@@ -523,19 +574,25 @@ class QueryEngine:
         if self._checkpoint_store is not None:
             checkpoint_id = await self._checkpoint_store.append_checkpoint()
         # 初始化文件历史状态（load 优先，无则新建）
-        # 要求 self._session_id 已由 runtime 层设置（/new、/resume、首启均会同步）。
-        # 若仍为空，说明 runtime 未正确同步，跳过 file_history 创建——
-        # file_history.json 写入随机 id 会导致路径与 session_dir 不匹配，
-        # 重启后 resume 无法加载，rewind 失效。
-        if self._file_history is None and self._session_id:
-            loaded = _file_history_load(str(self._cwd), self._session_id)
-            if loaded is not None:
-                self._file_history = loaded
-            else:
-                self._file_history = FileHistoryState(
-                    session_id=self._session_id,
-                    cwd=str(self._cwd),
+        # 会话目录以 checkpoint_store 为唯一权威（session_id/session_dir
+        # 均由 store 派生），file_history.json 与 context.jsonl 必然同目录，
+        # 不再依赖 runtime 手动同步 session_id。
+        if self._file_history is None:
+            store = self._checkpoint_store
+            sid = store.session_id if store is not None else self._session_id
+            session_dir = store.session_dir if store is not None else None
+            if sid:
+                loaded = _file_history_load(
+                    str(self._cwd), sid, session_dir=session_dir
                 )
+                if loaded is not None:
+                    self._file_history = loaded
+                else:
+                    self._file_history = FileHistoryState(
+                        session_id=sid,
+                        cwd=str(self._cwd),
+                        session_dir=session_dir,
+                    )
 
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))

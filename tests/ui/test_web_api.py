@@ -175,6 +175,46 @@ class TestWebRestoreSession:
         assert "command_result" not in types
 
 
+class _FakeEngine:
+    """最小 engine 模拟：attach_session 以 store 为唯一权威（与真实 QueryEngine 一致）。
+
+    真实 QueryEngine.attach_session 会将 session_id 设为 store.session_id，
+    MagicMock 无法表达该行为，故用本类替代，使测试能精确断言
+    "bundle.session_id 与 store 指向同一会话目录"。
+    """
+
+    def __init__(self, session_id: str = "old-sid") -> None:
+        self.session_id = session_id
+        self.store = None
+
+    def attach_session(self, store) -> None:
+        self.store = store
+        self.session_id = store.session_id
+
+    def clear(self) -> None:
+        pass
+
+    def full_reset(self) -> None:
+        self.session_id = ""
+        self.store = None
+
+    # sync_app_state 依赖的只读方法
+    def set_max_turns(self, _n) -> None:
+        pass
+
+    def current_context_tokens(self) -> int:
+        return 0
+
+    @property
+    def last_api_usage(self):
+        return None
+
+    @property
+    def total_usage(self):
+        return MagicMock(input_tokens=0, output_tokens=0,
+                         cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+
 class TestWebNewAndDeleteSession:
     """web_new_session 与 web_delete_sessions 测试"""
 
@@ -186,6 +226,7 @@ class TestWebNewAndDeleteSession:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.session_id = "old-sid"
+        host._bundle.engine = _FakeEngine()
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         dispatcher = WebApiDispatcher(host)
         monkeypatch.setattr(
@@ -222,6 +263,38 @@ class TestWebNewAndDeleteSession:
         assert "web_restore_completed" in types
 
     @pytest.mark.asyncio
+    async def test_new_session_rebuilds_checkpoint_store(self, dispatcher, monkeypatch):
+        """测试新建会话后重建 CheckpointStore 并同步 engine.session_id。
+
+        回归防护：_new_handler 的 full_reset 会清空 engine 的 checkpoint_store 与
+        session_id，若不重建，context.jsonl / file_history.json 不会写入磁盘，
+        meta.json 却按新 session_id 写入 → 会话目录结构不一致，resume 读不到消息。
+        """
+        async def fake_new_handler(args, context):
+            result = MagicMock()
+            result.reset_session = True
+            result.message = None
+            result.replay_messages = None
+            result.restored_session_id = None
+            result.should_exit = False
+            result.needs_api_rebuild = False
+            return result
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._new_handler", fake_new_handler
+        )
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_new_session")
+        await dispatcher.handle(req)
+        bundle = dispatcher._host._bundle
+        engine = bundle.engine
+        # attach_session 已调用，engine.session_id 与 bundle.session_id 同步
+        assert engine.store is not None
+        assert bundle.session_id == engine.session_id == engine.store.session_id
+        # CheckpointStore 指向新 session_id 的会话目录
+        store = engine.store
+        assert store.session_dir.name == store.session_id
+
+    @pytest.mark.asyncio
     async def test_delete_sessions_emits_web_sessions(self, dispatcher):
         """测试批量删除后推送 web_sessions"""
         from illusion.ui.protocol import FrontendRequest
@@ -230,6 +303,24 @@ class TestWebNewAndDeleteSession:
         calls = dispatcher._host._emit.call_args_list
         types = [c.args[0].type for c in calls]
         assert "web_sessions" in types
+
+    @pytest.mark.asyncio
+    async def test_delete_current_session_rebuilds_checkpoint_store(self, dispatcher):
+        """测试删除当前会话后重建 CheckpointStore 并同步 engine.session_id。
+
+        回归防护：clear() 保留旧 session_id 的 checkpoint_store/file_history，
+        若不重建，context.jsonl / file_history.json 会写入已删除的旧目录
+        （rmtree 后下次 append 重新创建"幽灵目录"），meta.json 却写新目录。
+        """
+        from illusion.ui.protocol import FrontendRequest
+        req = FrontendRequest(type="web_delete_sessions", session_ids=["old-sid"])
+        await dispatcher.handle(req)
+        bundle = dispatcher._host._bundle
+        engine = bundle.engine
+        assert engine.store is not None
+        assert bundle.session_id == engine.session_id == engine.store.session_id
+        store = engine.store
+        assert store.session_dir.name == store.session_id
 
 
 class TestWebSetSetting:

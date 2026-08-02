@@ -217,6 +217,19 @@ class WebApiDispatcher:
         # new_handler 内部已重置会话，此处重新生成 session_id 保持一致
         from uuid import uuid4
         bundle.session_id = uuid4().hex[:12]
+        # 重建 CheckpointStore 并 attach：attach_session 以 store 为唯一权威
+        # （session_id/file_history 均由 store 派生），context.jsonl /
+        # meta.json / file_history.json 必然落在同一会话目录，杜绝
+        # bundle.session_id 与 engine._session_id 不同步导致的目录不一致。
+        # （terminal 端由 handle_line 的 reset_session 分支负责，web 端需
+        # 在此处显式重建——_new_handler 的 full_reset 已清空 engine 状态。）
+        from illusion.services.checkpoint_store import CheckpointStore
+        from illusion.services.session_storage import session_dir_for
+        new_store = CheckpointStore(
+            session_dir_for(bundle.cwd, bundle.session_id), bundle.session_id
+        )
+        bundle.engine.attach_session(new_store)
+        bundle.session_id = bundle.engine.session_id
         # 同步 app_state（含 context_tokens），使新建会话后右侧栏上下文窗口显示正确（0 tokens）
         from illusion.ui.runtime import sync_app_state
         sync_app_state(bundle)
@@ -349,6 +362,19 @@ class WebApiDispatcher:
             bundle.engine.clear()
             from uuid import uuid4
             bundle.session_id = uuid4().hex[:12]
+            # 重建 CheckpointStore 并 attach：clear() 保留旧 session_id 的
+            # store/file_history，若不重建，context.jsonl / file_history.json
+            # 会写入已删除的旧目录（rmtree 后下次 append 重新创建"幽灵目录"），
+            # 而 meta.json 按新 session_id 写入 → 目录结构不一致。
+            # attach_session 重置 file_history（旧会话记录不迁移），由
+            # submit_message 按新目录懒加载/重建（与 handle_web_new_session 同理）。
+            from illusion.services.checkpoint_store import CheckpointStore
+            from illusion.services.session_storage import session_dir_for
+            new_store = CheckpointStore(
+                session_dir_for(bundle.cwd, bundle.session_id), bundle.session_id
+            )
+            bundle.engine.attach_session(new_store)
+            bundle.session_id = bundle.engine.session_id
             from illusion.ui.runtime import sync_app_state
             sync_app_state(bundle)
             await self._emit(BackendEvent(

@@ -199,11 +199,11 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
     """
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
-        get_project_session_dir,
         list_session_snapshots,
         read_index,
         read_meta,
-        write_index,
+        session_dir_for,
+        write_index_to,
     )
 
     tokens = args.strip().split()
@@ -231,20 +231,22 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message=f"Session not found: {sid}")
 
         # 构造 CheckpointStore 并 restore
-        session_dir = get_project_session_dir(context.cwd) / sid
+        # session_dir 经 session_dir_for 统一计算，attach_session 以
+        # store 为唯一权威（session_id/file_history 由 store 派生），
+        # 保证 context.jsonl / meta.json / file_history.json 同目录。
+        session_dir = session_dir_for(context.cwd, sid)
         store = CheckpointStore(session_dir, sid)
         result = await store.restore()
 
         # 应用到 engine
-        context.engine.set_checkpoint_store(store)
-        context.engine.set_session_id(sid)
+        context.engine.attach_session(store)
         context.engine.apply_restore(result)
 
         # 加载文件历史（传入 checkpoint_count 做崩溃恢复对齐）
         context.engine.load_file_history(checkpoint_count=store.next_checkpoint_id)
 
         # 更新 index.json
-        write_index(context.cwd, sid)
+        write_index_to(session_dir, sid)
 
         summary = meta.get("summary", "")[:60]
         return CommandResult(
@@ -285,17 +287,16 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
     if meta is None:
         return CommandResult(message=f"Latest session {sid} not found.")
 
-    session_dir = get_project_session_dir(context.cwd) / sid
+    session_dir = session_dir_for(context.cwd, sid)
     store = CheckpointStore(session_dir, sid)
     result = await store.restore()
-    context.engine.set_checkpoint_store(store)
-    context.engine.set_session_id(sid)
+    context.engine.attach_session(store)
     context.engine.apply_restore(result)
 
     # 加载文件历史（传入 checkpoint_count 做崩溃恢复对齐）
     context.engine.load_file_history(checkpoint_count=store.next_checkpoint_id)
 
-    write_index(context.cwd, sid)
+    write_index_to(session_dir, sid)
 
     summary = meta.get("summary", "")[:60]
     return CommandResult(

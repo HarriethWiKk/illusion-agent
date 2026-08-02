@@ -291,7 +291,24 @@ class ReactBackendHost:
                 req = await self._request_queue.get()
                 if req.type == "shutdown":
                     break
-                await self._process_request(req)
+                try:
+                    await self._process_request(req)
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    # 请求级异常不应拖垮后端进程：此前无保护时异常冒泡到
+                    # typer except_hook → 进程退出 → 解释器 shutdown 期间
+                    # daemon stdin 读取线程竞争 stdio 缓冲锁 → 原生崩溃
+                    # （0xC0000005 / Fatal Python error: _enter_buffered_busy）。
+                    # 记录日志并通知前端，进程继续服务后续请求。
+                    log.exception("处理请求异常: type=%s", req.type)
+                    try:
+                        await self._emit(
+                            BackendEvent(type="error", message="Internal error, please retry")
+                        )
+                        await self._emit(BackendEvent(type="line_complete"))
+                    except Exception:
+                        log.exception("发送错误事件失败")
 
         finally:
             # 9. 优雅关闭（9 步严格顺序）

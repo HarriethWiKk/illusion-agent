@@ -384,12 +384,12 @@ async def run_print_mode(
         delete_pending_permission,
         delete_pending_plan_approval,
         delete_pending_question,
-        get_project_session_dir_no_create,
         load_pending_permission,
         load_pending_plan_approval,
         load_pending_question,
         read_index,
         read_meta,
+        session_dir_for,
     )
     from illusion.ui.permission_store import add_always_allowed_tool
     from illusion.ui.terminal_io import (
@@ -412,7 +412,7 @@ async def run_print_mode(
             raise SystemExit(1)
         sid = index["latest_session_id"]
         meta = read_meta(effective_cwd, sid) or {}
-        session_dir = get_project_session_dir_no_create(effective_cwd) / sid
+        session_dir = session_dir_for(effective_cwd, sid)
         if not session_dir.exists():
             print(_t("session_not_found_prev"), file=sys.stderr)
             raise SystemExit(1)
@@ -429,7 +429,7 @@ async def run_print_mode(
         if not meta:
             print(_t("session_not_found_id", session_id=resume), file=sys.stderr)
             raise SystemExit(1)
-        session_dir = get_project_session_dir_no_create(effective_cwd) / resume
+        session_dir = session_dir_for(effective_cwd, resume)
         store = CheckpointStore(session_dir, resume)
         restore_result = await store.restore()
         restore_messages = [m.model_dump(mode="json") for m in restore_result.messages]
