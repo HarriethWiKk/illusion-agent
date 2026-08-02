@@ -20,7 +20,9 @@ import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 /** 消息列表收缩阈值：超过此轮次时折叠更早的消息 */
 const COLLAPSE_TURN_THRESHOLD = 5;
-/** 判定"已在底部"的像素容差 */
+/** 判定"已在底部附近"的像素容差（自动跟随在此范围内才生效，参考 kimi-code） */
+const FOLLOW_THRESHOLD_PX = 30;
+/** 判定"用户已离开底部"的像素容差（超过此距离显示"回到底部"按钮） */
 const BOTTOM_THRESHOLD_PX = 80;
 
 /**
@@ -163,7 +165,7 @@ function ThinkingProcessSection({
         </button>
       )}
       {open && (
-        <div className="mt-1.5 animate-fade-in-up">
+        <div className="mt-1.5">
           {thinkingItems.map((item, idx) => (
             <MessageBubble key={idx} item={item} toolInputMap={toolInputMap} lang={lang} showActions={false} inlineReasoning />
           ))}
@@ -237,7 +239,11 @@ export default function ChatArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // 用户是否上滑过（查看历史）：true 时流式增长不打扰
   const userScrolledUpRef = useRef(false);
+  // 程序滚动标记：auto-scroll 赋值 scrollTop 后派生的 scroll 事件用此忽略，
+  // 避免被当作"用户滚动"误判（赋值后 scrollTop 在底部，位置判定也兜底）
+  const programmaticScrollRef = useRef(false);
 
   // 按用户消息分组为轮次(turn)，每轮以用户消息开头
   // 注意：hooks 必须在任何条件返回之前调用（React Rules of Hooks）
@@ -270,7 +276,7 @@ export default function ChatArea({
   // tool_use_id → tool_input 映射，用于 tool_result 摘要显示
   const toolInputMap = useMemo(() => buildToolInputMap(staticItems), [staticItems]);
 
-  /** 检查滚动容器是否在底部附近 */
+  /** 检查滚动容器是否在底部附近（按钮显示用：离开底部较远时显示"回到底部"） */
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return true;
@@ -278,8 +284,13 @@ export default function ChatArea({
     return el.scrollTop >= max - BOTTOM_THRESHOLD_PX;
   }, []);
 
-  /** 滚动事件处理：跟踪用户是否手动上滑 */
+  /** 滚动事件处理：程序滚动（auto-scroll 赋值）派生的 scroll 事件忽略；
+   *  用户滚动则更新"是否上滑"标志——滚回底部附近自动恢复跟随 */
   const handleScroll = useCallback(() => {
+    if (programmaticScrollRef.current) {
+      programmaticScrollRef.current = false;
+      return;
+    }
     const nearBottom = isNearBottom();
     userScrolledUpRef.current = !nearBottom;
     setShowScrollDown(!nearBottom && scrollRef.current ? scrollRef.current.scrollHeight - scrollRef.current.clientHeight > 200 : false);
@@ -289,17 +300,27 @@ export default function ChatArea({
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    el.scrollTop = el.scrollHeight;
     userScrolledUpRef.current = false;
     setShowScrollDown(false);
   }, []);
 
-  // 内容变化时自动滚动到底部（仅当用户未手动上滑时）
+  // 内容变化时自动滚动到底部：用户未上滑时无条件跟随（流式大段增量也能跟上）；
+  // 用户上滑过则仅在滚回底部附近（< FOLLOW_THRESHOLD_PX）时恢复跟随。
+  // 程序赋值后派生的 scroll 事件用 programmaticScrollRef 忽略；即使被误判，
+  // 位置兜底保证用户滚回底部后能恢复，不会永久卡住。
   useEffect(() => {
-    if (userScrolledUpRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
+    if (userScrolledUpRef.current) {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distance > FOLLOW_THRESHOLD_PX) return; // 用户上滑中，不打扰
+      userScrolledUpRef.current = false; // 滚回底部附近，恢复跟随
+    }
+    const prevTop = el.scrollTop;
     el.scrollTop = el.scrollHeight;
+    if (el.scrollTop !== prevTop) programmaticScrollRef.current = true;
+    setShowScrollDown(false); // 跟随到底后隐藏"回到底部"按钮
   }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, modal]);
 
   // 用户发送新消息时强制回到底部（忽略用户是否手动上滑过）
@@ -365,7 +386,16 @@ export default function ChatArea({
         {visibleTurns.map((turn, visIdx) => {
           const turnIdx = turnOffset + visIdx;
           const isLastTurn = turnIdx === turns.length - 1;
-          const autoExpand = busy && isLastTurn;
+          // autoExpand 仅对"真正的当前流式轮"生效。busy=true 与 user 消息
+          // （transcript_item）存在网络往返窗口期——若仅按 busy && isLastTurn
+          // 判定，窗口期内旧轮会被误判为流式轮，上一条回复的思考过程闪开又折叠。
+          // "轮已完成"判定：最后一条是 assistant 完成消息（tool_started 时
+          // pushStatic 的中间 assistant 消息伴随 pendingToolCalls 非空，排除）。
+          const turnFinished =
+            turn.length > 0 &&
+            turn[turn.length - 1]!.role === 'assistant' &&
+            pendingToolCalls.length === 0;
+          const autoExpand = busy && isLastTurn && !turnFinished;
           const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn, autoExpand);
           const turnsToRewind = turns.length - turnIdx;
           return (

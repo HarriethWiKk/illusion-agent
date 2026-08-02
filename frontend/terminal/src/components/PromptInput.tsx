@@ -31,6 +31,7 @@ function noop(): void {}
  *
  * @param props - 组件属性
  * @param props.busy - 是否忙碌
+ * @param props.stopping - 停止请求已发送、等待后端终止确认（显示"正在停止"旋转动画）
  * @param props.input - 当前输入内容
  * @param props.setInput - 设置输入内容的回调
  * @param props.onSubmit - 提交回调
@@ -43,6 +44,7 @@ function noop(): void {}
  */
 export function PromptInput({
 	busy,
+	stopping,
 	input,
 	setInput,
 	onSubmit,
@@ -53,6 +55,7 @@ export function PromptInput({
 	todoItems,
 }: {
 	busy: boolean;
+	stopping?: boolean;
 	input: string;
 	setInput: (value: string) => void;
 	onSubmit: (value: string) => void;
@@ -70,9 +73,14 @@ export function PromptInput({
 
 	return (
 		<Box flexDirection="column" marginTop={1}>
-			{busy ? (
+			{busy || stopping ? (
 				<Box marginBottom={1}>
-					<Spinner todoItems={todoItems} language={language} toolName={toolName} />
+					{stopping ? (
+						// 停止请求已发出、等待后端确认（终止可能延迟 1-2s）：旋转动画反馈
+						<Spinner label={t(language, 'stoppingTask')} language={language} />
+					) : (
+						<Spinner todoItems={todoItems} language={language} toolName={toolName} />
+					)}
 				</Box>
 			) : null}
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>

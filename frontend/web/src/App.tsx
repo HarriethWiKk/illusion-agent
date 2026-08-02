@@ -339,8 +339,10 @@ export default function App() {
     session.sendAgentWizardSubmit(fields, scope);
   }, [session.sendAgentWizardSubmit]);
 
-  /** 处理停止当前任务 */
-  const handleStop = () => { session.sendRequest({ type: 'stop' }); };
+  /** 处理停止当前任务（stopping 状态由 hook 管理：line_complete 清除 + 超时兜底） */
+  const handleStop = useCallback(() => {
+    session.sendStop();
+  }, [session.sendStop]);
 
   /**
    * 处理回退到指定轮次
@@ -511,7 +513,7 @@ export default function App() {
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           hasActiveTasks={session.tasks.some((t) => t.status === 'in_progress' || t.status === 'pending')}
-          commands={session.commands} onSubmit={handleSubmit} onStop={handleStop}
+          commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
           inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
           btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />
         <Toolbar lang={lang} status={session.status}

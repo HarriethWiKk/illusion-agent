@@ -11,7 +11,7 @@
  * @module App
  */
 
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput} from 'ink';
 
 import {getActivityDescription} from './tools/registry.js';
@@ -137,6 +137,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [permissionIndex, setPermissionIndex] = useState(2);
 	const [pendingPermissionAck, setPendingPermissionAck] = useState(false);
 	const [cursorReset, setCursorReset] = useState(0);
+	/** 停止请求已发送、等待后端确认（终止过程可能有 1-2s 延迟，期间提示符显示旋转动画） */
+	const [stopping, setStopping] = useState(false);
 	/** /agent create 触发的分步创建向导是否可见 */
 	const [showAgentWizard, setShowAgentWizard] = useState(false);
 	const session = useBackendSession(config, () => exit());
@@ -280,6 +282,15 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			session.resetBtwState();
 		}
 	}, [input, session.btwReply, session.btwError, session.resetBtwState]);
+
+	// 后端确认终止（busy→false）后清除 stopping 状态，提示符恢复输入态
+	const prevBusyForStopRef = useRef(session.busy);
+	useEffect(() => {
+		if (prevBusyForStopRef.current && !session.busy) {
+			setStopping(false);
+		}
+		prevBusyForStopRef.current = session.busy;
+	}, [session.busy]);
 
 	/**
 	 * 拦截需要交互式界面的特殊命令
@@ -496,6 +507,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				session.sendRequest({type: 'stop'});
 				if (session.busy) {
 					session.pushStatic({role: 'system', text: ' '});
+					// 停止请求已发出：显示旋转动画直至后端确认（busy→false）
+					setStopping(true);
 				}
 				session.setCommandResult({
 					text: t(language, 'taskStopped'),
@@ -865,6 +878,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	) : (
 		<PromptInput
 			busy={session.busy}
+			stopping={stopping}
 			input={input}
 			setInput={setInput}
 			onSubmit={onSubmit}

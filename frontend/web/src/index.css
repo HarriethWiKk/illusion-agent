@@ -272,6 +272,94 @@ pre code.hljs,
   overflow-x: auto;
 }
 
+/* ========== 暗色模式代码高亮覆盖 ==========
+   基础主题是 highlight.js 的 github.css（浅色配色，如 #0550ae 深蓝），
+   在深色背景上对比度严重不足（注释/字符串/数字几乎融入背景）。
+   这里按 GitHub Dark 配色整体覆盖，保证暗色主题下代码可读性。 */
+:root.dark .hljs {
+  color: #e6edf3;
+}
+
+/* 注释 / 引用：浅灰蓝，避免深蓝融入背景 */
+:root.dark .hljs-comment,
+:root.dark .hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+
+/* 关键字 / 标签 / 指令：暖红 */
+:root.dark .hljs-keyword,
+:root.dark .hljs-selector-tag,
+:root.dark .hljs-doctag,
+:root.dark .hljs-meta .hljs-keyword {
+  color: #ff7b72;
+}
+
+/* 字符串 / 正则 / 新增：浅蓝 */
+:root.dark .hljs-string,
+:root.dark .hljs-regexp,
+:root.dark .hljs-addition,
+:root.dark .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+/* 标题 / 函数名 / 类名：淡紫 */
+:root.dark .hljs-title,
+:root.dark .hljs-title.function_,
+:root.dark .hljs-title.class_,
+:root.dark .hljs-section,
+:root.dark .hljs-selector-id {
+  color: #d2a8ff;
+}
+
+/* 数字 / 字面量 / 类型 / 变量：亮蓝（替代深蓝 #0550ae） */
+:root.dark .hljs-number,
+:root.dark .hljs-literal,
+:root.dark .hljs-symbol,
+:root.dark .hljs-type,
+:root.dark .hljs-variable,
+:root.dark .hljs-template-variable,
+:root.dark .hljs-attr,
+:root.dark .hljs-attribute {
+  color: #79c0ff;
+}
+
+/* 内置函数 / 属性名 / 选择器：橙 */
+:root.dark .hljs-built_in,
+:root.dark .hljs-name,
+:root.dark .hljs-selector-class,
+:root.dark .hljs-selector-attr,
+:root.dark .hljs-selector-pseudo {
+  color: #ffa657;
+}
+
+/* 元信息 / 标签 / 链接 / 项目符号：亮蓝 */
+:root.dark .hljs-meta,
+:root.dark .hljs-tag,
+:root.dark .hljs-link,
+:root.dark .hljs-bullet {
+  color: #79c0ff;
+}
+
+/* diff / 删除：浅红 */
+:root.dark .hljs-deletion {
+  color: #ffdcd7;
+}
+
+:root.dark .hljs-emphasis {
+  font-style: italic;
+}
+
+:root.dark .hljs-strong {
+  font-weight: 700;
+}
+
+/* 未覆盖的默认 token（punctuation 等）继承 code 前景色 */
+:root.dark code.hljs,
+:root.dark .prose pre code.hljs {
+  color: var(--text-primary);
+}
+
 /* 行内代码 */
 .prose code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

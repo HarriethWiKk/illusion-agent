@@ -38,6 +38,10 @@ export interface TranscriptItem {
   reasoning?: string;
   /** 工具调用的唯一标识符（仅在 role 为 'tool' 或 'tool_result' 时存在） */
   tool_use_id?: string;
+  /** 工具执行期间的流式进度消息（仅在 role 为 'tool_result' 时存在，
+   *  由前端在 tool_completed 时从 pending 状态转移保留——agent 子任务的
+   *  思考过程在完成后折叠展示，不随 pending 移除而丢失） */
+  progress_messages?: Array<{message: string; type?: string}>;
 }
 
 // ---- 任务快照 ----

@@ -159,6 +159,10 @@ export interface WebSocketSessionState {
   setEffortValue: (value: string) => void;
   setModelValue: (value: string) => void;
   sendRequest: (payload: Record<string, unknown>) => void;
+  /** 停止请求已发送、等待后端确认（按钮旋转动画），line_complete 后清除 */
+  stopping: boolean;
+  /** 发送停止请求（自动管理 stopping 状态与超时兜底） */
+  sendStop: () => void;
   clearStaticItems: () => void;
   setOnSelectRequest: (fn: ((payload: SelectRequestPayload) => void) | null) => void;
   setOnCommandResult: (fn: ((text: string, type: string) => void) | null) => void;
@@ -191,6 +195,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
   // 模型切换中（用于 Toolbar 显示加载动画）
   const [modelSwitching, setModelSwitching] = useState(false);
+  // 停止请求已发送、等待后端确认（按钮显示旋转动画）。由 line_complete 清除
+  // （不依赖 busy 变化——后台任务场景 busy 恒为 false，busy 监听会漏清除）。
+  const [stopping, setStopping] = useState(false);
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearStopTimer = useCallback((): void => {
+    if (stopTimerRef.current !== null) {
+      clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+  }, []);
 
   // ---- btw 侧问相关状态 ----
   /** 侧问请求进行中 */
@@ -273,6 +287,18 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(payload));
   }, []);
+
+  /** 发送停止请求：按钮进入旋转动画，直到后端确认（line_complete）清除；
+   *  15s 超时兜底（后端异常挂起时避免按钮永久旋转） */
+  const sendStop = useCallback((): void => {
+    setStopping(true);
+    clearStopTimer();
+    stopTimerRef.current = setTimeout(() => {
+      setStopping(false);
+      stopTimerRef.current = null;
+    }, 15000);
+    sendRequest({ type: 'stop' });
+  }, [sendRequest, clearStopTimer]);
 
   const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
 
@@ -489,6 +515,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setPendingToolCalls([]);
         setBgAgentLabel(null);
         setBusy(false);
+        // 停止确认：清除按钮旋转动画（含超时定时器）
+        setStopping(false);
+        clearStopTimer();
         return;
       }
 
@@ -531,15 +560,19 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         const pendingIdx = pendingToolCallsRef.current.findIndex((p) => p.tool_use_id === toolUseId);
         let toolName = evt.item.tool_name ?? evt.tool_name ?? 'tool';
         let toolInput = (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined;
+        // 完成时从 pending 保留流式进度（agent 思考过程），随 tool_result 折叠展示
+        let progressMessages: Array<{message: string; type?: string}> | undefined;
         if (pendingIdx !== -1) {
           const pending = pendingToolCallsRef.current[pendingIdx]!;
           toolName = pending.tool_name || toolName; toolInput = pending.tool_input || toolInput;
+          progressMessages = pending.progressMessages;
           pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
           setPendingToolCalls(pendingToolCallsRef.current);
         }
         pushStatic({ role: 'tool', text: toolName, tool_name: toolName, tool_input: toolInput, tool_use_id: toolUseId || undefined });
         pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName,
-          tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined });
+          tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined,
+          progress_messages: progressMessages });
         return;
       }
       if (evt.type === 'tool_input_updated') {
@@ -571,7 +604,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             } else {
               next = [...prev, {message: msgContent, type: msgType}];
             }
-            return {...p, progressMessages: next.slice(-10)};
+            // 累积全部进度（web 端不受 terminal 行数限制；pending 在
+            // tool_completed 后即被丢弃，生命周期短，无内存风险）
+            return {...p, progressMessages: next};
           });
           setPendingToolCalls(pendingToolCallsRef.current);
         }
@@ -785,6 +820,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
+    stopping, sendStop,
     modelSwitching, setModelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,
     sendBtwRequest, sendBtwCancel, clearBtwState,
@@ -798,6 +834,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
     setOnSelectRequest, setOnCommandResult,
+    stopping, sendStop,
     modelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,
     sendBtwRequest, sendBtwCancel, clearBtwState,

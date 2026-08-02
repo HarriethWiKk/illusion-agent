@@ -59,6 +59,8 @@ interface PromptInputProps {
   lang: UiLanguage;
   /** 是否忙碌 */
   busy: boolean;
+  /** 停止请求已发送、等待后端终止确认（终止过程可能有 1-2s 延迟，按钮显示旋转动画） */
+  stopping?: boolean;
   /** 是否有运行中的后台任务（agent / bash / powershell 等，空闲时也可停止） */
   hasActiveTasks?: boolean;
   /** 是否已连接 */
@@ -89,7 +91,7 @@ interface PromptInputProps {
  * @param props - 组件属性
  * @returns 返回提示输入的 JSX 元素
  */
-export default function PromptInput({ lang, busy, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
+export default function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
   const [value, setValue] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -441,15 +443,23 @@ export default function PromptInput({ lang, busy, hasActiveTasks, connected, com
         )}
         <button
           onClick={handleSend}
-          disabled={!connected && !busy}
+          disabled={(!connected && !busy) || stopping}
           className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
-            busy || (hasActiveTasks && !value.trim())
-              ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
-              : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
+            stopping
+              ? 'bg-danger/10 text-danger hover:bg-danger/20'
+              : (busy || (hasActiveTasks && !value.trim()))
+                ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
+                : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
           }`}
-          title={busy || (hasActiveTasks && !value.trim()) ? t(lang, 'task_stopped') : t(lang, 'send')}
+          title={stopping ? t(lang, 'task_stopping') : (busy || (hasActiveTasks && !value.trim())) ? t(lang, 'task_stopped') : t(lang, 'send')}
         >
-          {busy || (hasActiveTasks && !value.trim())
+          {stopping ? (
+            // 停止请求已发出、等待后端确认：旋转圆圈缓冲动画（终止可能延迟 1-2s）
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+              <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          ) : (busy || (hasActiveTasks && !value.trim()))
             ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
             : '↑'}
         </button>

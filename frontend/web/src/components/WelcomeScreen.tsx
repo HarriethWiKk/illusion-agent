@@ -37,7 +37,10 @@ export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
       }} />
 
       {/* Logo — 渐变流动文字 */}
-      <h1 className="gradient-text text-6xl font-bold tracking-tight animate-blur-in relative z-10"
+      {/* leading-tight 而非 text-6xl 默认的 line-height:1：背景渐变（background-clip:text）
+          只绘制在元素盒内，line-height:1 时 "g" 的 descender 溢出元素盒导致下半部分无背景
+          （文字透明不可见），视觉上像被下方副标题截断 */}
+      <h1 className="gradient-text text-6xl leading-tight font-bold tracking-tight animate-blur-in relative z-10"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
         Illusion Agent
       </h1>
