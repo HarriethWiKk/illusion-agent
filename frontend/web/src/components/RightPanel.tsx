@@ -72,7 +72,6 @@ export default function RightPanel({
   const cacheReadTokens = Number(status?.cache_read_input_tokens ?? 0);
   const cacheCreationTokens = Number(status?.cache_creation_input_tokens ?? 0);
   // 最后一次 API 调用的真实分项（Context Window 区块）
-  // 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中）
   const contextCacheRead = Number(status?.context_cache_read ?? 0);
   const contextCacheCreation = Number(status?.context_cache_creation ?? 0);
   const contextInput = Number(status?.context_input ?? 0);
@@ -82,6 +81,9 @@ export default function RightPanel({
   const contextCachePct = contextWindow > 0 ? Math.round(contextCached * 100 / contextWindow) : 0;
   const contextInputPct = contextWindow > 0 ? Math.round(contextInput * 100 / contextWindow) : 0;
   const contextOutputPct = contextWindow > 0 ? Math.round(contextOutput * 100 / contextWindow) : 0;
+  // 缓存命中率 = cache_read / (cache_read + cache_creation + input_tokens)
+  const totalInputWithCache = contextCached + contextInput;
+  const cacheHitRate = totalInputWithCache > 0 ? Math.round(contextCacheRead * 100 / totalInputWithCache) : 0;
 
   // 折叠态
   if (collapsed) {
@@ -207,9 +209,13 @@ export default function RightPanel({
                 <span className="text-content-secondary">{t(lang, 'inputUncachedLabel')}</span>
                 <span className="text-content-primary tabular-nums">{formatTokens(contextInput)} ({contextInputPct}%)</span>
               </div>
-              <div className="flex items-center justify-between text-xs mb-2">
+              <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-content-secondary">{t(lang, 'outputLabel')}</span>
                 <span className="text-content-primary tabular-nums">{formatTokens(contextOutput)} ({contextOutputPct}%)</span>
+              </div>
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="text-content-secondary">{t(lang, 'cacheHitRate')}</span>
+                <span className="text-content-primary tabular-nums">{cacheHitRate}%</span>
               </div>
             </>
           ) : (

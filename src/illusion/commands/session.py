@@ -65,21 +65,23 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         last_usage = context.engine.last_api_usage
         if last_usage is not None:
             # 最后一次 API 调用的真实分项
-            # 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中）
-            cached = (
-                last_usage.cache_read_input_tokens
-                + last_usage.cache_creation_input_tokens
-            )
+            cache_read = last_usage.cache_read_input_tokens
+            cache_creation = last_usage.cache_creation_input_tokens
+            cached = cache_read + cache_creation
             uncached = last_usage.input_tokens
             output = last_usage.output_tokens
             cached_pct = round(cached * 100 / context_window) if context_window > 0 else 0
             uncached_pct = round(uncached * 100 / context_window) if context_window > 0 else 0
             output_pct = round(output * 100 / context_window) if context_window > 0 else 0
+            # 缓存命中率 = cache_read / (cache_read + cache_creation + input_tokens)
+            total_input = cached + uncached
+            hit_rate = round(cache_read * 100 / total_input) if total_input > 0 else 0
             lines = [
                 t("context_usage_title", context_window=context_window),
                 t("context_input_cached", cached=cached, cached_pct=cached_pct),
                 t("context_input_uncached", uncached=uncached, uncached_pct=uncached_pct),
                 t("context_output_line", output_tokens=output, output_pct=output_pct),
+                t("context_cache_hit_rate", hit_rate=hit_rate),
                 t("context_used_total", used=estimated_used, percentage=percentage),
                 t("context_remaining", remaining=remaining),
             ]
@@ -89,7 +91,7 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
                 t("context_used_total", used=estimated_used, percentage=percentage),
                 t("context_remaining", remaining=remaining),
             ]
-        # 累积用量（命中 = 缓存命中 + 缓存写入）
+        # 累积用量（缓存 = cache_read + cache_creation）
         cached_total = (
             usage.cache_read_input_tokens + usage.cache_creation_input_tokens
         )

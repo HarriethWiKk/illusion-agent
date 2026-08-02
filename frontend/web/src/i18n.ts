@@ -132,8 +132,9 @@ const ZH: Record<string, string> = {
   remaining: '剩余',
   inputLabel: 'input',
   outputLabel: '输出',
-  inputCachedLabel: '输入（命中）',
-  inputUncachedLabel: '输入（未命中）',
+  inputCachedLabel: '输入（缓存）',
+  inputUncachedLabel: '输入（未缓存）',
+  cacheHitRate: '缓存命中率',
   pendingMeasurement: '待实测',
   // btw 侧问相关
   btw_card_title: '侧问',
@@ -289,6 +290,7 @@ const EN: Record<string, string> = {
   outputLabel: 'output',
   inputCachedLabel: 'Input (Cached)',
   inputUncachedLabel: 'Input (Uncached)',
+  cacheHitRate: 'Cache Hit Rate',
   pendingMeasurement: 'pending',
   // btw side question
   btw_card_title: 'Side Question',

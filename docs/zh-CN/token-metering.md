@@ -12,25 +12,27 @@
 
 ```
 上下文窗口：1,000,000 tokens
-输入（命中）：175,200 tokens (18%)
-输入（未命中）：12,700 tokens (1%)
+输入（缓存）：175,200 tokens (18%)
+输入（未缓存）：12,700 tokens (1%)
 输出：12,200 tokens (1%)
+缓存命中率：93%
 已用上下文：200,100 tokens (20%)
 剩余：799,900 tokens
-累积用量：命中=1,230,000 未命中=187,900 输出=12,200
+累积用量：缓存=1,230,000 未缓存=187,900 输出=12,200
 ```
 
 | 行 | 含义 | 数据来源 |
 |----|------|----------|
 | 上下文窗口 | 配置的上下文窗口大小 | `settings.context_window` |
-| 输入（命中） | **最后一次 API 调用**的命中输入 = `cache_read` + `cache_creation`（写入计入命中，见 §1.4） | `last_api_usage` |
-| 输入（未命中） | **最后一次 API 调用**的未命中输入（这些 token 会被自动缓存写入，下次调用即命中） | `last_api_usage.input_tokens` |
+| 输入（缓存） | **最后一次 API 调用**的缓存输入 = `cache_read` + `cache_creation`（含命中和写入） | `last_api_usage` |
+| 输入（未缓存） | **最后一次 API 调用**的未缓存输入（这些 token 会被自动缓存写入，下次调用即为缓存） | `last_api_usage.input_tokens` |
 | 输出 | **最后一次 API 调用**的输出 | `last_api_usage.output_tokens` |
+| 缓存命中率 | `cache_read` / (`cache_read` + `cache_creation` + `input_tokens`)，只统计真正从缓存读取的 token（见 §1.4） | `last_api_usage` |
 | 已用上下文 | 当前上下文占用 = 最后一次 API 调用的 `context_size` + 其后新增消息的估算增量（§1.5） | `engine.current_context_tokens()` |
 | 剩余 | 上下文窗口 − 已用上下文 | 计算得出 |
-| 累积用量 | 会话期间所有 API 调用的总和，由 `CostTracker` 累加（缓存写入已计入"命中"） | `engine.total_usage` |
+| 累积用量 | 会话期间所有 API 调用的总和，由 `CostTracker` 累加（缓存 = 命中 + 写入） | `engine.total_usage` |
 
-注意：前三行（输入命中/未命中/输出）描述的是**最后一次 API 调用**，最后一行描述的是**整个会话**——两者的统计口径不同。
+注意：前三行（输入缓存/未缓存/输出）和缓存命中率描述的是**最后一次 API 调用**，最后一行描述的是**整个会话**——两者的统计口径不同。
 
 在首次 API 调用之前，或压缩后（`last_api_usage` 被清除），只显示估算行：
 
@@ -88,15 +90,25 @@
 | `cache_creation_input_tokens`（写入） | `usage.cache_creation_input_tokens` | `0`（不区分） |
 | `output_tokens` | `usage.output_tokens` | `completion_tokens` |
 
-### 1.4 缓存命中率计算
+### 1.4 缓存命中率
 
-- **命中** = `cache_read_input_tokens` + `cache_creation_input_tokens`
-- **未命中** = `input_tokens`
-- **命中率** = 命中 / (命中 + 未命中)
+- **命中率** = `cache_read_input_tokens` / (`cache_read_input_tokens` + `cache_creation_input_tokens` + `input_tokens`)
 
-写入缓存的 token 计入命中，是因为它们下次调用即可从缓存命中——是缓存系统的有效产出，而非浪费的输入。
+只统计真正从缓存**读取**的 token（`cache_read`），不把首次写入缓存的 token（`cache_creation`）算作命中。写入缓存的 token 下次调用才会命中。
 
-> **注意：显示的缓存命中率可能低于实际值。** 第三方 Anthropic 兼容服务（如 LongCat、DeepSeek）通常**不报告** `cache_creation_input_tokens`——写入缓存的量没有从未命中输入中分离出来。因此显示的命中率可能低于真实的缓存效率（例如显示 80%，实际约 98%）。这个情况会在运行时或下一轮对话中自动校正：那些显示为"未命中"的输入实际上已被自动缓存机制写入缓存，后续调用会以命中形式返回，命中率随之回升到真实水平。
+示例（假设 `cache_read=8000`, `cache_creation=4000`, `input=8000`）：
+
+```
+命中率 = 8000 / (8000 + 4000 + 8000) = 40%
+```
+
+| 前端 | 显示 |
+|------|------|
+| Terminal StatusBar | 格式 `cached↓ input↓ output↑ XX%`，XX 为命中率 |
+| Web RightPanel | 单独一行"缓存命中率" |
+| `/context usage` | 单独一行"缓存命中率" |
+
+> **注意：首次调用命中率为 0%。** 首次 API 调用时 `cache_read=0`（缓存为空），`cache_creation>0`（正在写入缓存），因此命中率为 0%。第二次调用起命中率才会上升。
 
 ### 1.5 上下文占用计算
 

@@ -15,6 +15,7 @@ Context Window: 1,000,000 tokens
 Input (Cached): 175,200 tokens (18%)
 Input (Uncached): 12,700 tokens (1%)
 Output: 12,200 tokens (1%)
+Cache Hit Rate: 93%
 Context Used: 200,100 tokens (20%)
 Remaining: 799,900 tokens
 Cumulative Usage: cached=1,230,000 uncached=187,900 output=12,200
@@ -23,14 +24,15 @@ Cumulative Usage: cached=1,230,000 uncached=187,900 output=12,200
 | Line | Meaning | Source |
 |------|---------|--------|
 | Context Window | The configured context window size | `settings.context_window` |
-| Input (Cached) | Cached input of the **last API call** = `cache_read` + `cache_creation` (cache writes count as hits — see §1.4) | `last_api_usage` |
-| Input (Uncached) | Uncached input of the **last API call** (these tokens are written to cache by automatic caching and will hit on the next call) | `last_api_usage.input_tokens` |
+| Input (Cached) | Cached input of the **last API call** = `cache_read` + `cache_creation` (includes hits and writes) | `last_api_usage` |
+| Input (Uncached) | Uncached input of the **last API call** (these tokens are written to cache by automatic caching and will be cached on the next call) | `last_api_usage.input_tokens` |
 | Output | Output of the **last API call** | `last_api_usage.output_tokens` |
+| Cache Hit Rate | `cache_read` / (`cache_read` + `cache_creation` + `input_tokens`), only counts tokens actually read from cache (see §1.4) | `last_api_usage` |
 | Context Used | Current context occupancy = last API call's `context_size` + estimated delta of messages added after it (§1.5) | `engine.current_context_tokens()` |
 | Remaining | Context Window − Context Used | computed |
-| Cumulative Usage | Session totals across all API calls, accumulated by `CostTracker` (cache writes are included in "cached") | `engine.total_usage` |
+| Cumulative Usage | Session totals across all API calls, accumulated by `CostTracker` (cached = hits + writes) | `engine.total_usage` |
 
-Note that the top three lines (Input Cached / Uncached / Output) describe the **last API call**, while the bottom line describes the **whole session** — they are different scopes.
+Note that the top three lines (Input Cached / Uncached / Output) and Cache Hit Rate describe the **last API call**, while the bottom line describes the **whole session** — they are different scopes.
 
 Before the first API call, or right after compaction (`last_api_usage` is invalidated), only the estimated lines are shown:
 
@@ -88,15 +90,25 @@ The meaning of usage fields differs between API formats:
 | `cache_creation_input_tokens` (write) | `usage.cache_creation_input_tokens` | `0` (not distinguished) |
 | `output_tokens` | `usage.output_tokens` | `completion_tokens` |
 
-### 1.4 Cache Hit Rate Calculation
+### 1.4 Cache Hit Rate
 
-- **Hit** = `cache_read_input_tokens` + `cache_creation_input_tokens`
-- **Miss** = `input_tokens`
-- **Hit rate** = hit / (hit + miss)
+- **Hit rate** = `cache_read_input_tokens` / (`cache_read_input_tokens` + `cache_creation_input_tokens` + `input_tokens`)
 
-Cache writes are counted as hits because tokens written to the cache will be served from cache on the next call — they are productive cache activity, not wasted input.
+Only counts tokens actually **read** from cache (`cache_read`), not tokens written to cache for the first time (`cache_creation`). Cache writes will become hits on the next call.
 
-> **Note: Cache hit rate can appear lower than reality.** Third-party Anthropic-compatible services (e.g. LongCat, DeepSeek) generally do **not** report `cache_creation_input_tokens` — cache writes are not separated from the output/uncached input. As a result, the displayed hit rate may be lower than the true cache efficiency (e.g. 80% instead of ~98%). This self-corrects during runtime or on the next turn: the "uncached" input is actually written to cache by the automatic caching mechanism and will be served as hits in subsequent calls, causing the displayed hit rate to rise back to its real level.
+Example (assuming `cache_read=8000`, `cache_creation=4000`, `input=8000`):
+
+```
+Hit rate = 8000 / (8000 + 4000 + 8000) = 40%
+```
+
+| Frontend | Display |
+|----------|---------|
+| Terminal StatusBar | Format `cached↓ input↓ output↑ XX%`, XX is hit rate |
+| Web RightPanel | Single row "Cache Hit Rate" |
+| `/context usage` | Single row "Cache Hit Rate" |
+
+> **Note: Hit rate is 0% on the first call.** On the first API call, `cache_read=0` (cache is empty) and `cache_creation>0` (writing to cache), so the hit rate is 0%. The hit rate rises from the second call onward.
 
 ### 1.5 Context Occupancy Calculation
 

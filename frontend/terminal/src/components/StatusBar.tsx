@@ -48,11 +48,11 @@ function TokenDisplay({
 }): React.JSX.Element {
 	// busy 时与 ● 同频闪烁（useBlink 共享全局动画时钟）
 	const visible = useBlink(busy);
-	// 命中 = 缓存命中 + 缓存写入（写入的 token 下次即可命中，
-	// 是缓存系统的有效产出；首轮/缓存过期后命中率因此不为 0）
+	// cached = cache_read + cache_creation（状态栏显示总量）
 	const cached = cacheRead + cacheCreation;
 	const totalInput = cached + inputTokens;
-	const hitRate = totalInput > 0 ? Math.round((cached * 100) / totalInput) : 0;
+	// 缓存命中率 = cache_read / (cache_read + cache_creation + input_tokens)
+	const hitRate = totalInput > 0 ? Math.round((cacheRead * 100) / totalInput) : 0;
 	const text = `${fmtTokens(cached)}↓ ${fmtTokens(inputTokens)}↓ ${fmtTokens(outputTokens)}↑${totalInput > 0 ? ` ${hitRate}%` : ''}`;
 	if (!visible) {
 		return <Text>{' '.repeat(stringWidth(text))}</Text>;

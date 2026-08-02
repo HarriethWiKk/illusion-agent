@@ -183,12 +183,13 @@ MESSAGES: dict[str, dict[str, str]] = {
     "compact_conversation_start": {"zh-CN": "（对话开始）", "en-US": "(conversation start)"},
     # --- context usage ---
     "context_usage_title": {"zh-CN": "上下文窗口：{context_window:,} tokens", "en-US": "Context Window: {context_window:,} tokens"},
-    "context_input_cached": {"zh-CN": "输入（命中）：{cached:,} tokens ({cached_pct}%)", "en-US": "Input (Cached): {cached:,} tokens ({cached_pct}%)"},
-    "context_input_uncached": {"zh-CN": "输入（未命中）：{uncached:,} tokens ({uncached_pct}%)", "en-US": "Input (Uncached): {uncached:,} tokens ({uncached_pct}%)"},
+    "context_input_cached": {"zh-CN": "输入（缓存）：{cached:,} tokens ({cached_pct}%)", "en-US": "Input (Cached): {cached:,} tokens ({cached_pct}%)"},
+    "context_input_uncached": {"zh-CN": "输入（未缓存）：{uncached:,} tokens ({uncached_pct}%)", "en-US": "Input (Uncached): {uncached:,} tokens ({uncached_pct}%)"},
     "context_output_line": {"zh-CN": "输出：{output_tokens:,} tokens ({output_pct}%)", "en-US": "Output: {output_tokens:,} tokens ({output_pct}%)"},
+    "context_cache_hit_rate": {"zh-CN": "缓存命中率：{hit_rate}%", "en-US": "Cache Hit Rate: {hit_rate}%"},
     "context_used_total": {"zh-CN": "已用上下文：{used:,} tokens ({percentage}%)", "en-US": "Context Used: {used:,} tokens ({percentage}%)"},
     "context_remaining": {"zh-CN": "剩余：{remaining:,} tokens", "en-US": "Remaining: {remaining:,} tokens"},
-    "context_cumulative_detail": {"zh-CN": "累积用量：命中={cache_read:,} 未命中={input_tokens:,} 输出={output_tokens:,}", "en-US": "Cumulative Usage: cached={cache_read:,} uncached={input_tokens:,} output={output_tokens:,}"},
+    "context_cumulative_detail": {"zh-CN": "累积用量：缓存={cache_read:,} 未缓存={input_tokens:,} 输出={output_tokens:,}", "en-US": "Cumulative Usage: cached={cache_read:,} uncached={input_tokens:,} output={output_tokens:,}"},
     "permission_denied_stopped": {"zh-CN": "权限被拒绝，已终止当前操作（{tool}）。", "en-US": "Permission denied, stopped current operation ({tool})."},
     # --- update ---
     "update_checking": {"zh-CN": "正在检查更新...", "en-US": "Checking for updates..."},
