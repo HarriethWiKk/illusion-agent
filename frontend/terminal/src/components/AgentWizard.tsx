@@ -34,6 +34,7 @@ import {Spinner} from './Spinner.js';
 import {useTerminalSize} from '../hooks/useTerminalSize.js';
 import {t, UiLanguage} from '../i18n.js';
 import {useTheme} from '../theme/ThemeContext.js';
+import {wrapToDisplayWidth} from '../utils/markdown.js';
 
 /** 工具项类型 */
 type ToolOption = {name: string; description: string};
@@ -687,28 +688,11 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 		<SelectModal title={title} options={options} selectedIndex={selectedIndex} />
 	);
 
-	/** 将文本按终端宽度折行，避免自动换行导致实际行数远超预期 */
-	const wrapText = (text: string, maxWidth: number): string[] => {
-		if (maxWidth <= 0) return text.split('\n');
-		const result: string[] = [];
-		for (const line of text.split('\n')) {
-			if (line.length <= maxWidth) {
-				result.push(line);
-			} else {
-				// 硬折行：按 maxWidth 截断
-				for (let i = 0; i < line.length; i += maxWidth) {
-					result.push(line.slice(i, i + maxWidth));
-				}
-			}
-		}
-		return result;
-	};
-
 	/** 渲染可翻页的长文本（限制 MAX_VIEW_LINES 行，上下键翻页）
-	 *  按终端宽度折行，标题和内容均使用默认颜色 */
+	 *  按终端显示宽度折行（CJK 感知），标题和内容均使用默认颜色 */
 	const renderPaginatedText = (text: string): React.JSX.Element => {
 		const maxWidth = Math.max(20, columns - 2);
-		const allLines = wrapText(text, maxWidth);
+		const allLines = wrapToDisplayWidth(text, maxWidth);
 		const maxScroll = Math.max(0, allLines.length - MAX_VIEW_LINES);
 		const scroll = Math.min(viewScroll, maxScroll);
 		const visibleLines = allLines.slice(scroll, scroll + MAX_VIEW_LINES);
@@ -736,7 +720,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 	/** 渲染生成失败 */
 	const renderGenerateFailed = (): React.JSX.Element => {
 		const maxWidth = Math.max(20, columns - 2);
-		const needScroll = generateError ? wrapText(generateError, maxWidth).length > MAX_VIEW_LINES : false;
+		const needScroll = generateError ? wrapToDisplayWidth(generateError, maxWidth).length > MAX_VIEW_LINES : false;
 		return (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
@@ -774,7 +758,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 			fields.system_prompt,
 		].join('\n');
 		const maxWidth = Math.max(20, columns - 2);
-		const needScroll = wrapText(draftText, maxWidth).length > MAX_VIEW_LINES;
+		const needScroll = wrapToDisplayWidth(draftText, maxWidth).length > MAX_VIEW_LINES;
 		return (
 			<Box flexDirection="column" marginTop={1}>
 				<Box>
@@ -808,7 +792,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 			fields.when_to_use || t(language, 'agentWizardDescriptionPlaceholder'),
 		].join('\n');
 		const maxWidth = Math.max(20, columns - 2);
-		const needScroll = wrapText(descText, maxWidth).length > MAX_VIEW_LINES;
+		const needScroll = wrapToDisplayWidth(descText, maxWidth).length > MAX_VIEW_LINES;
 		return (
 			<Box flexDirection="column" marginTop={1}>
 				<Box>
@@ -857,7 +841,7 @@ export function AgentWizard(props: AgentWizardProps): React.JSX.Element {
 		summaryLines.push('', `## ${t(language, 'agentWizardSystemPromptLabel')}`, fields.system_prompt);
 		const summaryText = summaryLines.join('\n');
 		const maxWidth = Math.max(20, columns - 2);
-		const needScroll = wrapText(summaryText, maxWidth).length > MAX_VIEW_LINES;
+		const needScroll = wrapToDisplayWidth(summaryText, maxWidth).length > MAX_VIEW_LINES;
 		return (
 			<Box flexDirection="column" marginTop={1}>
 				<Box>

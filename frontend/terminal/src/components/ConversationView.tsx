@@ -187,7 +187,8 @@ function BlinkingToolIndicator({
 /**
  * Agent 工具流式进度渲染：混合显示 thinking/text/tool 消息，取最后 3 行。
  * 首行使用 ⎿ 前缀，续行对齐缩进。统一灰调，与最终回复视觉一致。
- * 超长行按终端宽度换行，续行带 continuationPrefix 缩进。
+ * 每行按显示宽度截断为 1 视觉行（与 renderStreamingTail 一致），确保总共恰好 3 行，
+ * 避免长行触发终端自动换行导致视觉行数膨胀。
  */
 function AgentProgressLines({
 	messages,
@@ -208,21 +209,24 @@ function AgentProgressLines({
 	}
 	if (allLines.length === 0) return null;
 
+	// 取最后 3 个逻辑行，每行按显示宽度截断为 1 视觉行，确保总共恰好 3 行。
+	// 与 renderStreamingTail 的截断策略一致，避免长行触发终端自动换行导致视觉行数膨胀。
 	const tail = allLines.slice(-3);
 	const prefix = `  ${theme.icons.resultPrefix} `;
 	const continuationPrefix = ' '.repeat(stringWidth(prefix));
-	// 合并 3 条消息为一个文本（用 \n 连接），用 wrapForPrefix 按可用宽度换行
-	const joined = tail.map(l => l.text).join('\n');
-	const wrapped = wrapForPrefix(joined, terminalWidth, prefix);
+	const maxWidth = Math.max(MIN_WRAP_WIDTH, terminalWidth - stringWidth(prefix) - WIDTH_SAFETY_EXTRA);
 
 	return (
 		<Box flexDirection="column">
-			{wrapped.map((line, i) => (
-				<Box key={i}>
-					<Text dimColor>{i === 0 ? prefix : continuationPrefix}</Text>
-					<Text dimColor>{line}</Text>
-				</Box>
-			))}
+			{tail.map((entry, i) => {
+				const truncated = truncateToDisplayWidth(entry.text, maxWidth);
+				return (
+					<Box key={i}>
+						<Text dimColor>{i === 0 ? prefix : continuationPrefix}</Text>
+						<Text dimColor>{truncated}</Text>
+					</Box>
+				);
+			})}
 		</Box>
 	);
 }
