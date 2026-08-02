@@ -5,7 +5,6 @@
  * - 状态面板（模型、提供商、权限等）
  * - 任务面板
  * - MCP 服务器面板
- * - 桥接会话面板
  * - 命令面板
  *
  * @module SidePanel
@@ -16,7 +15,7 @@ import {Box, Text} from 'ink';
 
 import type {ThemeConfig} from '../theme/ThemeContext.js';
 import {useTheme} from '../theme/ThemeContext.js';
-import type {BridgeSessionSnapshot, McpServerSnapshot, TaskSnapshot} from '../types.js';
+import type {McpServerSnapshot, TaskSnapshot} from '../types.js';
 
 /**
  * 侧边面板组件
@@ -29,7 +28,6 @@ import type {BridgeSessionSnapshot, McpServerSnapshot, TaskSnapshot} from '../ty
  * @param props.commands - 可用命令列表
  * @param props.commandHints - 命令提示列表
  * @param props.mcpServers - MCP 服务器列表
- * @param props.bridgeSessions - 桥接会话列表
  * @returns 返回侧边面板的 JSX 元素
  */
 export function SidePanel({
@@ -38,14 +36,12 @@ export function SidePanel({
 	commands,
 	commandHints,
 	mcpServers,
-	bridgeSessions,
 }: {
 	status: Record<string, unknown>;
 	tasks: TaskSnapshot[];
 	commands: string[];
 	commandHints: string[];
 	mcpServers: McpServerSnapshot[];
-	bridgeSessions: BridgeSessionSnapshot[];
 }): React.JSX.Element {
 	const theme = useTheme();
 
@@ -54,7 +50,6 @@ export function SidePanel({
 			<StatusPanel status={status} theme={theme} />
 			<TaskPanel tasks={tasks} theme={theme} />
 			<McpPanel servers={mcpServers} theme={theme} />
-			<BridgePanel sessions={bridgeSessions} theme={theme} />
 			<CommandPanel commands={commands} hints={commandHints} theme={theme} />
 		</Box>
 	);
@@ -149,36 +144,6 @@ function McpPanel({servers, theme}: {servers: McpServerSnapshot[]; theme: ThemeC
 								{String(server.resource_count ?? 0)}
 							</Text>
 							{server.detail ? <Text dimColor>{server.detail}</Text> : null}
-						</Box>
-					))
-				)}
-			</Box>
-		</>
-	);
-}
-
-/**
- * 桥接会话面板组件
- *
- * 显示已连接的桥接会话列表。
- */
-function BridgePanel({sessions, theme}: {sessions: BridgeSessionSnapshot[]; theme: ThemeConfig}): React.JSX.Element {
-	return (
-		<>
-			<Box marginBottom={1}>
-				<Text color={theme.colors.primary} bold>{theme.icons.chevron} Bridge</Text>
-			</Box>
-			<Box flexDirection="column" borderStyle="round" borderColor={theme.colors.muted} paddingX={1} marginBottom={1}>
-				{sessions.length === 0 ? (
-					<Text dimColor>(none)</Text>
-				) : (
-					sessions.slice(0, 4).map((session) => (
-						<Box key={session.session_id} flexDirection="column" marginBottom={1}>
-							<Text>
-								<Text color={theme.colors.accent}>{session.session_id}</Text>
-								<Text dimColor> [{session.status}] pid={session.pid}</Text>
-							</Text>
-							<Text dimColor>{session.command}</Text>
 						</Box>
 					))
 				)}

@@ -7,7 +7,7 @@ illusion-agent/
 ├── src/illusion/           # 主要源代码
 │   ├── api/                # API 客户端 (Anthropic, OpenAI 等)
 │   ├── auth/               # 认证管理
-│   ├── commands/           # 斜杠命令系统 (48 个命令)
+│   ├── commands/           # 斜杠命令系统
 │   ├── config/             # 配置系统
 │   ├── coordinator/        # 多智能体协调器
 │   ├── engine/             # 核心对话引擎
@@ -91,8 +91,8 @@ illusion-agent/
 | Agent | 用途 |
 |-------|------|
 | `general-purpose` | 通用研究和多步任务 |
-| `Explore` | 文件搜索和代码探索专家 |
-| `Plan` | 架构设计和实施规划专家 |
+| `explore` | 文件搜索和代码探索专家 |
+| `plan` | 架构设计和实施规划专家 |
 | `verification` | 对抗性验证专家 |
 | `worker` | 实现导向的 Worker |
 | `statusline-setup` | Shell PS1 转换器 |

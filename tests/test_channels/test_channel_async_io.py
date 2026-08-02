@@ -280,19 +280,6 @@ def test_file_io_does_not_block_event_loop(tmp_path: Path):
     assert target.read_bytes() == large_data
 
 
-def test_commands_context_uses_to_thread_for_io():
-    """commands/context.py 的 read_text/write_text 用 asyncio.to_thread 包装。"""
-    from illusion.commands import context
-
-    issue_source = inspect.getsource(context.issue_handler)
-    assert "asyncio.to_thread(path.read_text" in issue_source
-    assert "asyncio.to_thread(path.write_text" in issue_source
-
-    pr_source = inspect.getsource(context.pr_comments_handler)
-    assert "asyncio.to_thread(path.read_text" in pr_source
-    assert "asyncio.to_thread(path.write_text" in pr_source
-
-
 # ─── 集成：executor 行为验证 ────────────────────────────────────────
 
 

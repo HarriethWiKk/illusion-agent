@@ -40,7 +40,6 @@ from pydantic import ValidationError
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.auth.manager import AuthManager
-from illusion.bridge import get_bridge_manager
 from illusion.coordinator.agent_definitions import get_all_agent_definitions
 from illusion.engine.stream_events import (
     AssistantTextDelta,
@@ -1108,7 +1107,6 @@ class WebBackendHost:
         return BackendEvent.status_snapshot(
             state=self._bundle.app_state.get(),
             mcp_servers=self._bundle.mcp_manager.list_statuses(),
-            bridge_sessions=get_bridge_manager().list_sessions(),
         )
 
     def _emit_swarm_status(

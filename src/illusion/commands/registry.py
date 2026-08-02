@@ -10,14 +10,11 @@
     - create_default_command_registry: 创建默认命令注册表
 
 命令实现在各子模块中：
-    - session.py: /new, /status, /context, /summary, /compact, /resume, /rewind, /delete
+    - session.py: /new, /context, /compact, /resume, /rewind, /delete
     - agent.py: /agent
-    - git.py: /diff, /branch, /commit
-    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /turns, /permissions, /plan
+    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /turns, /permissions
     - auth.py: /login, /logout
-    - context.py: /issue, /pr_comments
-    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue
-    - bridge.py: /bridge
+    - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /continue
     - mcp.py: /mcp
     - plugin.py: /plugin
     - model.py: /model
@@ -179,21 +176,8 @@ def create_default_command_registry() -> CommandRegistry:
     # --- 认证 ---
     from illusion.commands.auth import login_handler, logout_handler
 
-    # --- Bridge ---
-    from illusion.commands.bridge import bridge_handler
-
     # --- 侧问 ---
     from illusion.commands.btw import btw_handler
-
-    # --- 上下文 ---
-    from illusion.commands.context import issue_handler, pr_comments_handler
-
-    # --- Git ---
-    from illusion.commands.git import (
-        branch_handler,
-        commit_handler,
-        diff_handler,
-    )
 
     # --- Init ---
     from illusion.commands.init import run_init
@@ -211,7 +195,6 @@ def create_default_command_registry() -> CommandRegistry:
         exit_handler,
         export_handler,
         feedback_handler,
-        files_handler,
         hooks_handler,
         make_help_handler,
         reload_plugins_handler,
@@ -238,8 +221,6 @@ def create_default_command_registry() -> CommandRegistry:
         new_handler,
         resume_handler,
         rewind_handler,
-        status_handler,
-        summary_handler,
     )
 
     # --- 设置 ---
@@ -251,7 +232,6 @@ def create_default_command_registry() -> CommandRegistry:
         max_tokens_handler,
         output_style_handler,
         permissions_handler,
-        plan_handler,
         privacy_settings_handler,
         thinking_handler,
         turns_handler,
@@ -267,9 +247,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("clear", "Clear conversation and start a new session", new_handler))
     registry.register(SlashCommand("new", "Start a new conversation session", new_handler))
     registry.register(SlashCommand("version", "Show the installed IllusionAgent version", version_handler))
-    registry.register(SlashCommand("status", "Show session status", status_handler))
     registry.register(SlashCommand("context", "Show active system prompt or manage context window", context_handler, usage="/context [usage|show|window|set N]"))
-    registry.register(SlashCommand("summary", "Summarize conversation history", summary_handler))
     registry.register(SlashCommand("compact", "Compact older conversation history", compact_handler))
     registry.register(SlashCommand("memory", "Inspect and manage project memory", memory_handler))
     registry.register(SlashCommand("hooks", "Show configured hooks", hooks_handler))
@@ -278,9 +256,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("share", "Create a shareable transcript snapshot", share_handler))
     registry.register(SlashCommand("copy", "Copy the latest response or provided text", copy_handler))
     registry.register(SlashCommand("rewind", "Remove the latest conversation turn(s)", rewind_handler, usage="/rewind [TURNS] [both|conversation]"))
-    registry.register(SlashCommand("files", "List files in the current workspace", files_handler, usage="/files [dirs|N] [needle]"))
     registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
-    registry.register(SlashCommand("bridge", "Inspect bridge helpers and spawn bridge sessions", bridge_handler))
     registry.register(SlashCommand("btw", "Ask a side question without interrupting the conversation", btw_handler, usage="/btw <question>"))
     registry.register(SlashCommand("agent", "View completed agent summary or create a new agent", agent_handler, usage="/agent [list|create|<task_id>]"))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
@@ -292,7 +268,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("plugin", "Manage plugins", plugin_handler))
     registry.register(SlashCommand("reload-plugins", "Reload plugin discovery for this workspace", reload_plugins_handler))
     registry.register(SlashCommand("permissions", "Show or update permission mode", permissions_handler, usage="/permissions [show|set MODE]"))
-    registry.register(SlashCommand("plan", "Toggle plan permission mode", plan_handler, usage="/plan [on|off]"))
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler, usage="/effort [show|low|medium|high|xhigh|max]"))
     registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler, usage="/max-tokens [show|set N]"))
@@ -302,11 +277,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("language", "Show or update UI language", language_handler, usage="/language [show|list|set zh-CN|set en]"))
     registry.register(SlashCommand("output-style", "Show or update output style", output_style_handler))
     registry.register(SlashCommand("doctor", "Show environment diagnostics", doctor_handler))
-    registry.register(SlashCommand("diff", "Show git diff output", diff_handler))
-    registry.register(SlashCommand("branch", "Show git branch information", branch_handler))
-    registry.register(SlashCommand("commit", "Show status or create a git commit", commit_handler))
-    registry.register(SlashCommand("issue", "Show or update project issue context", issue_handler))
-    registry.register(SlashCommand("pr_comments", "Show or update project PR comments context", pr_comments_handler))
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", privacy_settings_handler))
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler, usage="/delete [session_id|#N|all]"))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))

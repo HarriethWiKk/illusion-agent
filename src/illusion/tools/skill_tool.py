@@ -43,7 +43,7 @@ This tool does NOT execute anything — it only returns the skill's content (ins
 
 When users ask you to perform tasks, check if any of the available skills match. Skills provide specialized capabilities and domain knowledge.
 
-When users reference a "slash command" or "/<something>" (e.g., "/commit", "/review-pr"), they are referring to a skill. Use this tool to load its instructions.
+When users reference a "slash command" or "/<something>" (e.g., "/<skill-name>"), they are referring to a skill. Use this tool to load its instructions.
 
 How to use:
 - Call this tool with the skill name and optional arguments

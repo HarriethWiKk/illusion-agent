@@ -120,29 +120,6 @@ export type McpServerSnapshot = {
 };
 
 /**
- * 桥接会话快照类型
- *
- * 表示桥接会话（Bridge Session）的当前状态快照。
- * 桥接会话用于管理与外部进程的通信。
- */
-export type BridgeSessionSnapshot = {
-	/** 会话唯一标识符 */
-	session_id: string;
-	/** 启动命令 */
-	command: string;
-	/** 工作目录 */
-	cwd: string;
-	/** 进程 ID */
-	pid: number;
-	/** 会话状态 */
-	status: string;
-	/** 启动时间戳（Unix 时间戳，毫秒） */
-	started_at: number;
-	/** 输出文件路径 */
-	output_path: string;
-};
-
-/**
  * 选择选项载荷类型
  *
  * 用于选择模态对话框中的单个选项。
@@ -235,8 +212,6 @@ export type BackendEvent = {
 	tasks?: TaskSnapshot[] | null;
 	/** MCP 服务器列表快照（可选） */
 	mcp_servers?: McpServerSnapshot[] | null;
-	/** 桥接会话列表快照（可选） */
-	bridge_sessions?: BridgeSessionSnapshot[] | null;
 	/** 可用命令列表（可选） */
 	commands?: string[] | null;
 	/** 模态对话框配置（可选） */

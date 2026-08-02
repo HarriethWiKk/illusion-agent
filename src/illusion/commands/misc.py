@@ -3,7 +3,7 @@
 ============
 
 /exit, /version, /copy, /export, /share, /feedback,
-/help, /hooks, /reload-plugins, /skills, /files, /continue
+/help, /hooks, /reload-plugins, /skills, /continue
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import importlib.metadata
 import subprocess
 import sys
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -159,41 +158,6 @@ async def skills_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message=f"Skill not found: {target}. Use /skills to list available skills.")
 
     return CommandResult(message=selected.content)
-
-
-async def files_handler(args: str, context: CommandContext) -> CommandResult:
-    """列出当前工作区文件"""
-    raw = args.strip()
-    root = Path(context.cwd)
-    max_items = 30
-    tokens = raw.split(maxsplit=1)
-    if tokens and tokens[0] == "dirs":
-        dirs = [
-            path
-            for path in sorted(root.rglob("*"))
-            if path.is_dir() and ".git" not in path.parts and ".venv" not in path.parts
-        ]
-        lines = [str(path.relative_to(root)) for path in dirs[:max_items]]
-        if len(dirs) > max_items:
-            lines.append(f"... {len(dirs) - max_items} more")
-        return CommandResult(message="\n".join(lines) if lines else "(no directories)")
-    if tokens and tokens[0].isdigit():
-        max_items = max(1, min(int(tokens[0]), 200))
-        raw = tokens[1] if len(tokens) == 2 else ""
-    needle = raw.lower()
-    files = [
-        path
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and ".git" not in path.parts and ".venv" not in path.parts
-    ]
-    if needle:
-        files = [path for path in files if needle in str(path.relative_to(root)).lower()]
-    lines = [str(path.relative_to(root)) for path in files[:max_items]]
-    if len(files) > max_items:
-        lines.append(f"... {len(files) - max_items} more")
-    return CommandResult(
-        message="\n".join(lines) if lines else "(no matching files)"
-    )
 
 
 def _check_pypi_latest() -> str | None:

@@ -82,23 +82,13 @@ async def test_command_flow_for_memory_modes_and_tasks(tmp_path: Path, monkeypat
     for raw in [
         "/memory add Notes :: command flow note",
         "/memory list",
-        "/summary 4",
         "/compact 2",
-        "/plan on",
         "/output-style set minimal",
         "/language set en",
     ]:
         command, args = registry.lookup(raw)
         result = await command.handler(args, context)
         assert result is not None
-
-    issue_command, issue_args = registry.lookup("/issue set Command Flow :: Needs review")
-    issue_result = await issue_command.handler(issue_args, context)
-    assert "Saved issue context" in issue_result.message
-
-    pr_command, pr_args = registry.lookup("/pr_comments add README.md:1 :: tighten wording")
-    pr_result = await pr_command.handler(pr_args, context)
-    assert "Added PR comment" in pr_result.message
 
     doctor_command, doctor_args = registry.lookup("/doctor")
     doctor_result = await doctor_command.handler(doctor_args, context)

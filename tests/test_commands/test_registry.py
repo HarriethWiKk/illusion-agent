@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,8 +11,6 @@ from illusion.commands.registry import CommandContext, create_default_command_re
 from illusion.commands.types import CommandResult
 from illusion.config.paths import (
     get_feedback_log_path,
-    get_project_issue_file,
-    get_project_pr_comments_file,
 )
 from illusion.config.settings import Settings, load_settings, save_settings
 from illusion.engine.messages import ConversationMessage, TextBlock
@@ -247,7 +243,7 @@ async def test_memory_command_manages_entries(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_compact_summary_and_usage_commands(tmp_path: Path, monkeypatch):
+async def test_compact_command_works(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
@@ -259,10 +255,6 @@ async def test_compact_summary_and_usage_commands(tmp_path: Path, monkeypatch):
             ConversationMessage(role="assistant", content=[TextBlock(text="beta reply")]),
         ]
     )
-
-    summary_command, summary_args = registry.lookup("/summary 3")
-    summary_result = await summary_command.handler(summary_args, context)
-    assert "assistant: alpha reply" in summary_result.message or "user: beta request" in summary_result.message
 
     compact_command, compact_args = registry.lookup("/compact 2")
     compact_result = await compact_command.handler(compact_args, context)
@@ -288,11 +280,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     language_result = await language_command.handler(language_args, context)
     assert "en" in language_result.message
     assert context.app_state.get().ui_language == "en"
-
-    plan_command, plan_args = registry.lookup("/plan on")
-    plan_result = await plan_command.handler(plan_args, context)
-    assert "enabled" in plan_result.message
-    assert load_settings().permission.mode == "plan"
 
     thinking_command, thinking_args = registry.lookup("/thinking off")
     thinking_result = await thinking_command.handler(thinking_args, context)
@@ -362,16 +349,6 @@ async def test_auth_feedback_and_project_context_commands(tmp_path: Path, monkey
     assert "Stored API key" in login_result.message or "API Key 已保存" in login_result.message
     assert load_settings().api_key == "sk-test-123456"
 
-    issue_command, issue_args = registry.lookup("/issue set Fix CI :: The CI flakes on task retry")
-    issue_result = await issue_command.handler(issue_args, context)
-    assert "Saved issue context" in issue_result.message
-    assert "Fix CI" in get_project_issue_file(tmp_path).read_text(encoding="utf-8")
-
-    pr_command, pr_args = registry.lookup("/pr_comments add src/app.py:12 :: simplify this branch")
-    pr_result = await pr_command.handler(pr_args, context)
-    assert "Added PR comment" in pr_result.message
-    assert "simplify this branch" in get_project_pr_comments_file(tmp_path).read_text(encoding="utf-8")
-
     feedback_command, feedback_args = registry.lookup("/feedback this workflow feels good")
     feedback_result = await feedback_command.handler(feedback_args, context)
     assert "Saved feedback" in feedback_result.message
@@ -389,16 +366,6 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
-
-    files_command, files_args = registry.lookup("/files app.py")
-    files_result = await files_command.handler(files_args, context)
-    assert "app.py" in files_result.message
-
-    files_dirs_command, files_dirs_args = registry.lookup("/files dirs")
-    files_dirs_result = await files_dirs_command.handler(files_dirs_args, context)
-    assert "src" in files_dirs_result.message
 
     plugin_root = tmp_path / "config" / "plugins" / "fixture-plugin"
     (plugin_root / "skills").mkdir(parents=True)
@@ -412,7 +379,7 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
 
 
 @pytest.mark.asyncio
-async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
+async def test_init_command(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_command_registry()
@@ -425,39 +392,6 @@ async def test_init_and_bridge_commands(tmp_path: Path, monkeypatch):
     assert (tmp_path / "ILLUSION.md").exists()
     assert (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
     assert (tmp_path / ".illusion" / "rules" / "project-structure.md").exists()
-
-    bridge_show_command, bridge_show_args = registry.lookup("/bridge show")
-    bridge_show_result = await bridge_show_command.handler(bridge_show_args, context)
-    assert "Bridge summary:" in bridge_show_result.message or "Bridge 摘要" in bridge_show_result.message
-
-    bridge_encode_command, bridge_encode_args = registry.lookup("/bridge encode https://api.example.com token123")
-    bridge_encode_result = await bridge_encode_command.handler(bridge_encode_args, context)
-    assert bridge_encode_result.message
-
-    bridge_decode_command, bridge_decode_args = registry.lookup(f"/bridge decode {bridge_encode_result.message}")
-    bridge_decode_result = await bridge_decode_command.handler(bridge_decode_args, context)
-    assert "api.example.com" in bridge_decode_result.message
-
-    bridge_sdk_command, bridge_sdk_args = registry.lookup("/bridge sdk https://api.example.com session123")
-    bridge_sdk_result = await bridge_sdk_command.handler(bridge_sdk_args, context)
-    assert "session123" in bridge_sdk_result.message
-
-    bridge_spawn_command, bridge_spawn_args = registry.lookup("/bridge spawn printf bridge-ok")
-    bridge_spawn_result = await bridge_spawn_command.handler(bridge_spawn_args, context)
-    assert "Spawned bridge session" in bridge_spawn_result.message
-    session_id = bridge_spawn_result.message.split()[3]
-
-    bridge_list_command, bridge_list_args = registry.lookup("/bridge list")
-    bridge_list_result = await bridge_list_command.handler(bridge_list_args, context)
-    assert session_id in bridge_list_result.message
-
-    bridge_output_command, bridge_output_args = registry.lookup(f"/bridge output {session_id}")
-    bridge_output_result = await bridge_output_command.handler(bridge_output_args, context)
-    assert "bridge-ok" in bridge_output_result.message or bridge_output_result.message == "(no output)"
-
-    bridge_stop_command, bridge_stop_args = registry.lookup(f"/bridge stop {session_id}")
-    bridge_stop_result = await bridge_stop_command.handler(bridge_stop_args, context)
-    assert f"Stopped bridge session {session_id}" in bridge_stop_result.message
 
 
 @pytest.mark.asyncio
@@ -562,47 +496,6 @@ async def test_new_command_clears_messages_and_requests_new_session(tmp_path: Pa
     assert result.reset_session is True
 
 
-def _setup_git_repo(cwd: Path) -> None:
-    """初始化一个临时 git 仓库并创建一个 demo 文件。"""
-    subprocess.run(["git", "init"], cwd=cwd, check=True, capture_output=True, text=True)
-    subprocess.run(
-        ["git", "config", "user.email", "illusion@example.com"],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "illusion Tests"],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    (cwd / "demo.txt").write_text("hello\n", encoding="utf-8")
-
-
-@pytest.mark.asyncio
-async def test_git_commands_report_repository_state(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
-    await asyncio.to_thread(_setup_git_repo, tmp_path)
-
-    registry = create_default_command_registry()
-    context = _make_context(tmp_path)
-
-    branch_command, branch_args = registry.lookup("/branch show")
-    branch_result = await branch_command.handler(branch_args, context)
-    assert "Current branch" in branch_result.message
-
-    diff_command, diff_args = registry.lookup("/diff")
-    diff_result = await diff_command.handler(diff_args, context)
-    assert "demo.txt" in diff_result.message or "(no diff)" in diff_result.message
-
-    commit_command, commit_args = registry.lookup("/commit initial commit")
-    commit_result = await commit_command.handler(commit_args, context)
-    assert "commit" in commit_result.message.lower()
-
-
 def test_stop_command_removed_from_registry() -> None:
     registry = create_default_command_registry()
     lookup = registry.lookup("/stop")
@@ -677,6 +570,56 @@ def test_tasks_command_removed_from_registry() -> None:
     registry = create_default_command_registry()
     lookup = registry.lookup("/tasks")
     assert lookup is None
+
+
+def test_branch_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/branch") is None
+
+
+def test_commit_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/commit") is None
+
+
+def test_diff_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/diff") is None
+
+
+def test_files_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/files") is None
+
+
+def test_issue_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/issue") is None
+
+
+def test_plan_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/plan") is None
+
+
+def test_pr_comments_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/pr_comments") is None
+
+
+def test_status_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/status") is None
+
+
+def test_summary_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/summary") is None
+
+
+def test_bridge_command_removed_from_registry() -> None:
+    registry = create_default_command_registry()
+    assert registry.lookup("/bridge") is None
 
 
 def test_update_command_not_registered() -> None:

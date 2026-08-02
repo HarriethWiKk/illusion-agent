@@ -158,10 +158,10 @@ illusion update --deps           # 同时更新项目依赖
 |------|----------|------|
 | 会话管理 | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | 管理会话状态 |
 | 记忆快照 | `/memory`, `/resume`, `/export`, `/rules` | 记忆与会话管理 |
-| 配置设置 | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | 调整运行配置 |
+| 配置设置 | `/config`, `/model`, `/permissions`, `/thinking` | 调整运行配置 |
 | 推理控制 | `/effort`, `/max-tokens`, `/turns` | 推理强度、令牌数、轮次控制 |
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
-| 项目 Git | `/init`, `/diff`, `/branch`, `/commit` | 项目与版本控制 |
+| 项目初始化 | `/init` | 初始化项目 IllusionAgent 文件 |
 | 多智能体 | `/continue`, `/agent` | Agent 协作与管理 |
 | 侧问与查看 | `/btw` | 不中断主对话的侧问 |
 

@@ -54,7 +54,6 @@ from illusion.api.auth_status import auth_status
 from illusion.api.client import AnthropicApiClient, SupportsStreamingMessages
 from illusion.api.effort import EffortMapper
 from illusion.api.openai_client import OpenAICompatibleClient
-from illusion.bridge import get_bridge_manager
 from illusion.commands import CommandContext, CommandResult, create_default_command_registry
 from illusion.commands.registry import CommandRegistry
 from illusion.config import load_settings
@@ -463,8 +462,6 @@ async def build_runtime(
                 continue
             filtered.register(tool)
         tool_registry = filtered
-    # 获取桥接管理器
-    bridge_manager = get_bridge_manager()
     # 创建应用状态存储
     app_state = AppStateStore(
         AppState(
@@ -477,7 +474,6 @@ async def build_runtime(
             effort=settings.effort,
             mcp_connected=sum(1 for status in mcp_manager.list_statuses() if status.state == "connected"),
             mcp_failed=sum(1 for status in mcp_manager.list_statuses() if status.state == "failed"),
-            bridge_sessions=len(bridge_manager.list_sessions()),
             output_style=settings.output_style,
             show_thinking=settings.show_thinking,
             phase="idle",
@@ -522,7 +518,6 @@ async def build_runtime(
         hook_executor=hook_executor,
         tool_metadata={
             "mcp_manager": mcp_manager,
-            "bridge_manager": bridge_manager,
             "app_state_store": app_state,
             "session_id": session_id,
             "session_hook_store": session_hook_store,
@@ -760,7 +755,6 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         max_tokens=settings.max_tokens,
         mcp_connected=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "connected"),
         mcp_failed=sum(1 for status in bundle.mcp_manager.list_statuses() if status.state == "failed"),
-        bridge_sessions=len(get_bridge_manager().list_sessions()),
         output_style=settings.output_style,
         show_thinking=settings.show_thinking,
         phase=bundle.app_state.get().phase,

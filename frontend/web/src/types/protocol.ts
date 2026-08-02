@@ -149,28 +149,6 @@ export interface McpServerSnapshot {
 }
 
 /**
- * 桥接会话快照接口
- *
- * 表示桥接会话（Bridge Session）的当前状态快照。
- */
-export interface BridgeSessionSnapshot {
-  /** 会话唯一标识符 */
-  session_id: string;
-  /** 启动命令 */
-  command: string;
-  /** 工作目录 */
-  cwd: string;
-  /** 进程 ID（可选） */
-  pid?: number;
-  /** 会话状态 */
-  status: string;
-  /** 启动时间戳（Unix 时间戳，毫秒，可选） */
-  started_at?: number;
-  /** 输出文件路径（可选） */
-  output_path?: string;
-}
-
-/**
  * 群体协作者快照接口
  *
  * 表示群体协作模式中的一个协作者的当前状态。
@@ -301,8 +279,6 @@ export interface BackendEvent {
   tasks?: TaskSnapshot[];
   /** MCP 服务器列表快照（可选） */
   mcp_servers?: McpServerSnapshot[];
-  /** 桥接会话列表快照（可选） */
-  bridge_sessions?: BridgeSessionSnapshot[];
   /** 可用命令列表（可选） */
   commands?: string[];
   /** 模态对话框配置（可选） */
@@ -436,8 +412,6 @@ export interface StatusPayload {
   mcp_connected?: number;
   /** 失败 MCP 服务器数 */
   mcp_failed?: number;
-  /** 桥接会话数 */
-  bridge_sessions?: number;
   /** 输出风格 */
   output_style?: string;
   /** 是否显示思考过程 */

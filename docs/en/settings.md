@@ -357,7 +357,7 @@ LongCat uses `Authorization: Bearer` authentication, configured via the `auth_to
       {"pattern": "src/**", "allow": true},
       {"pattern": "secrets/**", "allow": false}
     ],
-    "denied_commands": ["/init", "/commit"]
+    "denied_commands": ["/init", "/memory"]
   }
 }
 ```

@@ -5,7 +5,7 @@ illusion-agent/
 ├── src/illusion/           # Main source code
 │   ├── api/                # API clients (Anthropic, OpenAI, etc.)
 │   ├── auth/               # Authentication management
-│   ├── commands/           # Slash command system (48 commands)
+│   ├── commands/           # Slash command system
 │   ├── config/             # Configuration system
 │   ├── coordinator/        # Multi-agent coordinator
 │   ├── engine/             # Core conversation engine
@@ -89,8 +89,8 @@ Built-in 7 specialized Agents:
 | Agent | Purpose |
 |-------|---------|
 | `general-purpose` | General research and multi-step tasks |
-| `Explore` | File search and code exploration expert |
-| `Plan` | Architecture design and implementation planning expert |
+| `explore` | File search and code exploration expert |
+| `plan` | Architecture design and implementation planning expert |
 | `verification` | Adversarial verification expert |
 | `worker` | Implementation-oriented Worker |
 | `statusline-setup` | Shell PS1 converter |

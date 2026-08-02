@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from illusion.config.paths import get_project_issue_file, get_project_pr_comments_file
 from illusion.config.settings import Settings
 from illusion.prompts import (
     build_runtime_system_prompt,
@@ -63,21 +62,3 @@ def test_build_runtime_system_prompt_combines_sections(tmp_path: Path, monkeypat
     assert "Project Instructions" in prompt
     assert "repo rules" in prompt
     assert "Memory" in prompt
-
-
-def test_build_runtime_system_prompt_includes_project_context(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    get_project_issue_file(repo).write_text("# Bug\nNeed to fix flaky test.\n", encoding="utf-8")
-    get_project_pr_comments_file(repo).write_text(
-        "# PR Comments\n- app.py:12: Please simplify this branch.\n",
-        encoding="utf-8",
-    )
-
-    prompt = build_runtime_system_prompt(Settings(), cwd=repo, latest_user_prompt="fix it")
-
-    assert "Issue Context" in prompt
-    assert "Need to fix flaky test" in prompt
-    assert "Pull Request Comments" in prompt
-    assert "Please simplify this branch" in prompt

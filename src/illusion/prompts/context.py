@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from illusion.config.paths import get_project_issue_file, get_project_pr_comments_file
 from illusion.config.settings import Settings
 from illusion.memory import find_relevant_memories, load_memory_prompt
 from illusion.prompts.claudemd import load_claude_md_prompt
@@ -185,16 +184,6 @@ def build_runtime_system_prompt(
     rules_section = _build_rules_section(cwd)
     if rules_section:
         sections.append(rules_section)
-
-    # 项目上下文文件
-    for title, path in (
-        ("Issue Context", get_project_issue_file(cwd)),
-        ("Pull Request Comments", get_project_pr_comments_file(cwd)),
-    ):
-        if path.exists():
-            content = path.read_text(encoding="utf-8", errors="replace").strip()
-            if content:
-                sections.append(f"# {title}\n\n```md\n{content[:12000]}\n```")
 
     # 记忆功能
     if settings.memory.enabled:

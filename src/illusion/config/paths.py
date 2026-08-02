@@ -16,8 +16,6 @@ IllusionAgent 配置和数据目录路径解析模块
     - get_tasks_dir: 获取后台任务输出目录
     - get_feedback_dir: 获取反馈存储目录
     - get_project_config_dir: 获取项目级配置目录
-    - get_project_issue_file: 获取项目级问题上下文文件
-    - get_project_pr_comments_file: 获取项目级 PR 评论上下文文件
     - get_cron_dir: 获取 cron 数据目录
     - get_cron_registry_path: 获取 cron 注册表文件路径
     - get_feedback_log_path: 获取反馈日志文件路径
@@ -258,34 +256,6 @@ def get_project_config_dir(cwd: str | Path) -> Path:
     except (OSError, FileNotFoundError):
         # cwd 失效，回退到用户级配置目录
         return get_config_dir()
-
-
-def get_project_issue_file(cwd: str | Path) -> Path:
-    """返回项目级问题上下文文件
-    
-    用于存储当前项目的问题上下文信息。
-    
-    Args:
-        cwd: 当前工作目录
-    
-    Returns:
-        Path: 问题文件路径
-    """
-    return get_project_config_dir(cwd) / "issue.md"
-
-
-def get_project_pr_comments_file(cwd: str | Path) -> Path:
-    """返回项目级 PR 评论上下文文件
-
-    用于存储 Pull Request 的评论上下文信息。
-
-    Args:
-        cwd: 当前工作目录
-
-    Returns:
-        Path: PR 评论文件路径
-    """
-    return get_project_config_dir(cwd) / "pr_comments.md"
 
 
 def get_project_mcp_dir(cwd: str | Path) -> Path:

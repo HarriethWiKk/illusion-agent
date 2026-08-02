@@ -357,7 +357,7 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
       {"pattern": "src/**", "allow": true},
       {"pattern": "secrets/**", "allow": false}
     ],
-    "denied_commands": ["/init", "/commit"]
+    "denied_commands": ["/init", "/memory"]
   }
 }
 ```

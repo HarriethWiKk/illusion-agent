@@ -21,7 +21,6 @@ import {normalizeLanguage, t} from '../i18n.js';
 
 import type {
 	BackendEvent,
-	BridgeSessionSnapshot,
 	FrontendConfig,
 	McpServerSnapshot,
 	PendingToolCall,
@@ -121,8 +120,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [commands, setCommands] = useState<string[]>([]);
 	/** MCP 服务器列表快照 */
 	const [mcpServers, setMcpServers] = useState<McpServerSnapshot[]>([]);
-	/** 桥接会话列表快照 */
-	const [bridgeSessions, setBridgeSessions] = useState<BridgeSessionSnapshot[]>([]);
 	/** 当前活动的模态对话框配置 */
 	const [modal, setModal] = useState<Record<string, unknown> | null>(null);
 	/** 后端发起的选择请求 */
@@ -522,7 +519,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setTasks(event.tasks ?? []);
 			setCommands(event.commands ?? []);
 			setMcpServers(event.mcp_servers ?? []);
-			setBridgeSessions(event.bridge_sessions ?? []);
 			if (config.initial_prompt && !sentInitialPrompt.current) {
 				sentInitialPrompt.current = true;
 				sendRequest({type: 'submit_line', line: config.initial_prompt});
@@ -537,7 +533,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				setShowThinking(showThinkingFromState);
 			}
 			setMcpServers(event.mcp_servers ?? []);
-			setBridgeSessions(event.bridge_sessions ?? []);
 			return;
 		}
 		if (event.type === 'tasks_snapshot') {
@@ -878,7 +873,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			tasks,
 			commands,
 			mcpServers,
-			bridgeSessions,
 			modal,
 			selectRequest,
 			busy,
@@ -921,7 +915,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		[
 			agentGenerated, agentWizardModels, agentWizardResult, agentWizardTools,
 			agentGenerateError, agentGenerateLoading,
-			assistantBuffer, bridgeSessions, busy, clearCount, commandResult, commands,
+			assistantBuffer, busy, clearCount, commandResult, commands,
 			exited, mcpServers, modal, pendingToolCalls, ready, selectRequest,
 			showThinking, staticItems, status, swarmNotifications, swarmTeammates,
 			tasks, todoItems, bgAgentLabel,

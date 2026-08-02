@@ -156,10 +156,10 @@ In interactive sessions, you can use the following commands:
 |----------|------------------|-------------|
 | Session Management | `/help`, `/clear`, `/exit`, `/rewind`, `/delete` | Manage session state |
 | Memory Snapshots | `/memory`, `/resume`, `/export`, `/rules` | Memory and session management |
-| Configuration | `/config`, `/model`, `/permissions`, `/plan`, `/thinking` | Adjust runtime configuration |
+| Configuration | `/config`, `/model`, `/permissions`, `/thinking` | Adjust runtime configuration |
 | Reasoning Control | `/effort`, `/max-tokens`, `/turns` | Effort, token limit, turn count control |
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
-| Project Git | `/init`, `/diff`, `/branch`, `/commit` | Project and version control |
+| Project Init | `/init` | Initialize project IllusionAgent files |
 | Multi-Agent | `/continue`, `/agent` | Agent collaboration and management |
 | Side Question | `/btw` | Ask side questions without interrupting main conversation |
 

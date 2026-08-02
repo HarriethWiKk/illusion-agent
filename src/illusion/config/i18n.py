@@ -491,9 +491,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "clear": "清空当前对话并开启新会话",
     "new": "开启新对话并重置任务 ID",
     "version": "显示已安装版本",
-    "status": "显示会话状态",
     "context": "显示上下文使用量或管理上下文窗口",
-    "summary": "总结对话历史",
     "compact": "压缩较早对话历史",
     "memory": "查看和管理项目记忆",
     "hooks": "显示已配置 hooks",
@@ -502,9 +500,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "share": "创建可分享的转录快照",
     "copy": "复制最新回复或指定文本",
     "rewind": "移除最新对话轮次",
-    "files": "列出当前工作区文件",
     "init": "初始化项目 IllusionAgent 文件",
-    "bridge": "查看 bridge 辅助信息并创建 bridge 会话",
     "login": "查看认证状态或保存 API Key",
     "logout": "清除已保存 API Key",
     "feedback": "保存 CLI 反馈到本地日志",
@@ -516,7 +512,6 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "plugin": "管理插件",
     "reload-plugins": "重新加载当前工作区插件发现结果",
     "permissions": "显示或更新权限模式",
-    "plan": "切换计划权限模式",
     "thinking": "显示或更新思考模式",
     "effort": "显示或更新推理强度",
     "turns": "显示或更新最大 agent 轮数",
@@ -525,11 +520,6 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "language": "显示或更新界面语言",
     "output-style": "显示或更新输出风格",
     "doctor": "显示环境诊断信息",
-    "diff": "显示 git diff 输出",
-    "branch": "显示 git 分支信息",
-    "commit": "显示状态或创建 git 提交",
-    "issue": "显示或更新项目 issue 上下文",
-    "pr_comments": "显示或更新项目 PR 评论上下文",
     "privacy-settings": "显示本地隐私与存储设置",
     "delete": "清理选定的会话",
     "rules": "查看选定的规则",
@@ -573,16 +563,11 @@ _COMMAND_EXACT: dict[str, str] = {
     "- Run `/memory` to manage project memories": "- 运行 `/memory` 管理项目记忆",
     "- Run `/skills` to view available skills": "- 运行 `/skills` 查看可用技能",
     "- Adjust `CLAUDE.md` as needed": "- 根据需要调整 `CLAUDE.md`",
-    # Bridge
-    "No bridge sessions.": "没有 bridge 会话。",
     # 认证
     "Stored API key in ~/.illusion/settings.json": "API Key 已保存到 ~/.illusion/settings.json",
     "Cleared stored API key.": "已清除已保存 API Key。",
     # 反馈
     "Usage: /feedback TEXT": "用法：/feedback 文本",
-    # 计划模式
-    "Plan mode enabled.": "计划模式已开启。",
-    "Plan mode disabled.": "计划模式已关闭。",
     # 计划审批
     "Plan approved. Starting implementation.": "计划已批准，开始实施。",
     "User rejected the plan.": "用户拒绝了该计划。",
@@ -598,26 +583,17 @@ _COMMAND_EXACT: dict[str, str] = {
     "Doctor summary:": "诊断摘要：",
     "Privacy settings:": "隐私设置：",
     # Git
-    "Usage: /branch [show|list]": "用法：/branch [show|list]",
-    "Nothing to commit.": "没有可提交的改动。",
-    "Progress must be an integer between 0 and 100.": "进度必须是 0 到 100 之间的整数。",
     "Nothing to continue (no pending tool results).": "没有待继续的内容（无待处理工具结果）。",
     "Continuing pending tool loop...": "正在继续待处理的工具循环…",
     # MCP
     "HTTP/WS MCP auth supports bearer or header modes.": "HTTP/WS MCP 认证支持 bearer 或 header 模式。",
     "stdio MCP auth supports bearer or env modes.": "stdio MCP 认证支持 bearer 或 env 模式。",
     "No MCP servers configured.": "未配置 MCP 服务器。",
-    # Issue 与 PR 评论
-    "Cleared issue context.": "已清除 issue 上下文。",
-    "No issue context to clear.": "没有可清除的 issue 上下文。",
-    "Cleared PR comments context.": "已清除 PR 评论上下文。",
-    "No PR comments context to clear.": "没有可清除的 PR 评论上下文。",
     # 上下文窗口
     "Error: context window must be positive": "错误：上下文窗口必须为正数",
     "Error: invalid number": "错误：无效的数字",
     "Usage: /context [usage|show|window|set N]": "用法：/context [usage|show|window|set N]",
     # 用法提示
-    "Usage: /summary [MAX_MESSAGES]": "用法：/summary [最大消息数]",
     "Usage: /compact [PRESERVE_RECENT]": "用法：/compact [保留近期消息数]",
     "Usage: /memory add TITLE :: CONTENT": "用法：/memory add 标题 :: 内容",
     "Usage: /memory [list|show NAME|add TITLE :: CONTENT|remove NAME]": "用法：/memory [list|show 名称|add 标题 :: 内容|remove 名称]",
@@ -627,17 +603,9 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /effort [show|low|medium|high|xhigh|max]": "用法：/effort [show|low|medium|high|xhigh|max]",
     "Usage: /turns [show|COUNT]": "用法：/turns [数量]",
     "Usage: /continue [COUNT]": "用法：/continue [数量]",
-    "Usage: /plan [on|off]": "用法：/plan [on|off]",
     "Usage: /permissions [show|set MODE]": "用法：/permissions [show|set 模式]",
-    "Usage: /issue set TITLE :: BODY": "用法：/issue set 标题 :: 正文",
-    "Usage: /issue [show|set TITLE :: BODY|clear]": "用法：/issue [show|set 标题 :: 正文|clear]",
-    "Usage: /pr_comments add FILE[:LINE] :: COMMENT": "用法：/pr_comments add 文件[:行号] :: 评论",
-    "Usage: /pr_comments [show|add FILE[:LINE] :: COMMENT|clear]": "用法：/pr_comments [show|add 文件[:行号] :: 评论|clear]",
     "Usage: /plugin [list|enable NAME|disable NAME|install PATH|uninstall NAME]":
         "用法：/plugin [list|enable 名称|disable 名称|install 路径|uninstall 名称]",
-    "Usage: /bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]":
-        "用法：/bridge [show|encode API_BASE_URL TOKEN|decode SECRET|sdk API_BASE_URL SESSION_ID|spawn CMD|list|output SESSION_ID|stop SESSION_ID]",
-    "No conversation content to summarize.": "没有可总结的对话内容。",
     # 删除与规则
     "Saved sessions:": "已保存会话：",
     "Use /resume <session_id> to restore a specific session.": "使用 /resume <会话ID> 恢复指定会话。",
@@ -645,7 +613,6 @@ _COMMAND_EXACT: dict[str, str] = {
     "Usage: /login API_KEY": "用法：/login API_KEY",
     # 用法提示（registry.usage 追加到 message 时翻译）
     "Usage: /resume [session_id|#N]": "用法：/resume [session_id|#N]",
-    "Usage: /files [dirs|N] [needle]": "用法：/files [dirs|N] [needle]",
     "Usage: /skills [name|number]": "用法：/skills [名称|序号]",
     "Usage: /max-tokens [show|set N]": "用法：/max-tokens [show|set N]",
     "Usage: /delete [session_id|#N|all]": "用法：/delete [session_id|#N|all]",
@@ -735,9 +702,6 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Deleted current session: (.+)$", r"已删除当前会话：\1"),
     # Agent
     (r"^No agent found with ID: (.+)$", r"未找到 agent ID：\1"),
-    # Bridge
-    (r"^Spawned bridge session (.+) pid=(\d+)$", r"已创建 bridge 会话 \1 进程 \2"),
-    (r"^Stopped bridge session (.+)$", r"已停止 bridge 会话 \1"),
     # 插件
     (r"^Enabled plugin '(.+)'\. Restart session to reload\.$", r"已启用插件「\1」，重启会话后生效。"),
     (r"^Disabled plugin '(.+)'\. Restart session to reload\.$", r"已禁用插件「\1」，重启会话后生效。"),
@@ -799,7 +763,6 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Current branch: (.+)$", r"当前分支：\1"),
     (r"^Feedback log: (.+)$", r"反馈日志：\1"),
     (r"^Auth status:$", r"认证状态："),
-    (r"^Bridge summary:$", r"Bridge 摘要："),
     (r"^Reloaded plugins:$", r"已重新加载插件："),
     (r"^Available skills:$", r"可用技能："),
     (r"^User skills directory: (.+)$", r"用户技能目录：\1"),
@@ -807,7 +770,7 @@ _COMMAND_SUBSTITUTIONS: list[tuple[str, str | Callable[[re.Match[str]], str]]] =
     (r"^Usage: /skills <name|number>  — view a specific skill$", r"用法：/skills <名称|序号>  — 查看指定技能"),
     (r"^Skill not found: (.+)\. Use /skills to list available skills\.$", r"未找到技能：\1。使用 /skills 查看可用技能。"),
     (r"^Rules directory: (.+)$", r"规则目录：\1"),
-    # 前缀行（doctor, privacy-settings, bridge, login, stats, permissions 等）
+    # 前缀行（doctor, privacy-settings, login, stats, permissions 等）
     (r"^- backend host: available$", r"- 后端宿主：可用"),
     (r"^- network: enabled only for API endpoint and explicit web/MCP calls$", r"- 网络：仅用于 API 端点和显式 web/MCP 调用"),
     (r"^- storage: local files under ~\/\.illusion and project \.illusion$", r"- 存储：本地文件位于 ~/.illusion 和项目 .illusion"),

@@ -3,7 +3,7 @@
 ==================
 
 /config, /language, /output-style, /privacy-settings, /doctor,
-/thinking, /effort, /max-tokens, /turns, /permissions, /plan
+/thinking, /effort, /max-tokens, /turns, /permissions
 """
 
 from __future__ import annotations
@@ -270,30 +270,3 @@ async def permissions_handler(args: str, context: CommandContext) -> CommandResu
         label = _MODE_LABELS.get(tokens[1], tokens[1])
         return CommandResult(message=f"Permission mode set to {label}")
     return CommandResult(message="Usage: /permissions [show|set MODE]")
-
-
-async def plan_handler(args: str, context: CommandContext) -> CommandResult:
-    """切换 plan 权限模式"""
-    settings = load_settings()
-    mode = args.strip() or "on"
-    if mode in {"on", "enter"}:
-        settings.permission.mode = PermissionMode.PLAN
-        save_settings(settings)
-        checker = PermissionChecker(settings.permission)
-        checker.sync_sandbox_restrictions(settings.sandbox)
-        if context.engine is not None:
-            context.engine.set_permission_checker(checker)
-        if context.app_state is not None:
-            context.app_state.set(permission_mode=settings.permission.mode.value)
-        return CommandResult(message="Plan mode enabled.")
-    if mode in {"off", "exit"}:
-        settings.permission.mode = PermissionMode.DEFAULT
-        save_settings(settings)
-        checker = PermissionChecker(settings.permission)
-        checker.sync_sandbox_restrictions(settings.sandbox)
-        if context.engine is not None:
-            context.engine.set_permission_checker(checker)
-        if context.app_state is not None:
-            context.app_state.set(permission_mode=settings.permission.mode.value)
-        return CommandResult(message="Plan mode disabled.")
-    return CommandResult(message="Usage: /plan [on|off]")

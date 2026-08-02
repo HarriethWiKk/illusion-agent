@@ -32,7 +32,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from illusion.bridge.manager import BridgeSessionRecord
 from illusion.mcp.types import McpConnectionStatus
 from illusion.state.app_state import AppState
 from illusion.tasks.types import TaskRecord, to_task_display_status
@@ -197,7 +196,6 @@ class BackendEvent(BaseModel):
         state: 状态字典
         tasks: 任务快照列表
         mcp_servers: MCP 服务器状态列表
-        bridge_sessions: 桥接会话列表
         commands: 命令列表
         modal: 模态对话框配置
         tool_name: 工具名称
@@ -263,7 +261,6 @@ class BackendEvent(BaseModel):
     state: dict[str, Any] | None = None
     tasks: list[TaskSnapshot] | None = None
     mcp_servers: list[dict[str, Any]] | None = None
-    bridge_sessions: list[dict[str, Any]] | None = None
     commands: list[str] | None = None
     modal: dict[str, Any] | None = None
     tool_name: str | None = None
@@ -336,7 +333,6 @@ class BackendEvent(BaseModel):
             state=_state_payload(state),
             tasks=[TaskSnapshot.from_record(task) for task in tasks],
             mcp_servers=[],
-            bridge_sessions=[],
             commands=commands,
         )
 
@@ -373,14 +369,12 @@ class BackendEvent(BaseModel):
         *,
         state: AppState,
         mcp_servers: list[McpConnectionStatus],
-        bridge_sessions: list[BridgeSessionRecord],
     ) -> BackendEvent:
-        """创建状态快照事件（包含 MCP 和桥接信息）。
+        """创建状态快照事件（包含 MCP 信息）。
 
         Args:
             state: 应用状态
             mcp_servers: MCP 服务器状态列表
-            bridge_sessions: 桥接会话列表
 
         Returns:
             BackendEvent: 状态快照事件
@@ -399,18 +393,6 @@ class BackendEvent(BaseModel):
                     "resource_count": len(server.resources),
                 }
                 for server in mcp_servers
-            ],
-            bridge_sessions=[
-                {
-                    "session_id": session.session_id,
-                    "command": session.command,
-                    "cwd": session.cwd,
-                    "pid": session.pid,
-                    "status": session.status,
-                    "started_at": session.started_at,
-                    "output_path": session.output_path,
-                }
-                for session in bridge_sessions
             ],
         )
 
@@ -435,7 +417,6 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "effort": state.effort,
         "mcp_connected": state.mcp_connected,
         "mcp_failed": state.mcp_failed,
-        "bridge_sessions": state.bridge_sessions,
         "output_style": state.output_style,
         "show_thinking": state.show_thinking,
         "phase": state.phase,

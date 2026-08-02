@@ -2,7 +2,7 @@
 会话管理斜杠命令
 ================
 
-/new, /compact, /rewind, /context, /summary, /resume, /delete
+/new, /compact, /rewind, /context, /resume, /delete
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from illusion.prompts import build_runtime_system_prompt
 from illusion.services import (
     estimate_conversation_tokens,
     get_context_window,
-    summarize_messages,
 )
 
 
@@ -32,19 +31,6 @@ async def new_handler(_: str, context: CommandContext) -> CommandResult:
         clear_screen=True,
         reset_session=True,
         refresh_state=True,
-    )
-
-
-async def status_handler(_: str, context: CommandContext) -> CommandResult:
-    """显示会话状态"""
-    usage = context.engine.total_usage
-    state = context.app_state.get() if context.app_state is not None else None
-    return CommandResult(
-        message=(
-            f"Messages: {len(context.engine.messages)}\n"
-            f"Usage: input={usage.input_tokens} output={usage.output_tokens}\n"
-            f"Effort: {state.effort if state is not None else load_settings().effort}"
-        )
     )
 
 
@@ -118,18 +104,6 @@ async def context_handler(args: str, context: CommandContext) -> CommandResult:
         except ValueError:
             return CommandResult(message="Error: invalid number")
     return CommandResult(message="Usage: /context [usage|show|window|set N]")
-
-
-async def summary_handler(args: str, context: CommandContext) -> CommandResult:
-    """总结对话历史"""
-    max_messages = 8
-    if args:
-        try:
-            max_messages = max(1, int(args))
-        except ValueError:
-            return CommandResult(message="Usage: /summary [MAX_MESSAGES]")
-    summary = summarize_messages(context.engine.messages, max_messages=max_messages)
-    return CommandResult(message=summary or "No conversation content to summarize.")
 
 
 async def compact_handler(args: str, context: CommandContext) -> CommandResult:
