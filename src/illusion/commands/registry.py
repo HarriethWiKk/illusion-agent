@@ -13,7 +13,7 @@
     - session.py: /new, /status, /context, /summary, /compact, /resume, /rewind, /delete
     - agent.py: /agent
     - git.py: /diff, /branch, /commit
-    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
+    - settings.py: /config, /language, /output-style, /privacy-settings, /doctor, /thinking, /effort, /max-tokens, /turns, /permissions, /plan
     - auth.py: /login, /logout
     - context.py: /issue, /pr_comments
     - misc.py: /exit, /version, /copy, /export, /share, /feedback, /help, /hooks, /reload-plugins, /skills, /files, /continue
@@ -250,7 +250,6 @@ def create_default_command_registry() -> CommandRegistry:
         language_handler,
         max_tokens_handler,
         output_style_handler,
-        passes_handler,
         permissions_handler,
         plan_handler,
         privacy_settings_handler,
@@ -297,7 +296,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("thinking", "Show or update thinking mode", thinking_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", effort_handler, usage="/effort [show|low|medium|high|xhigh|max]"))
     registry.register(SlashCommand("max-tokens", "Show or update max output tokens", max_tokens_handler, usage="/max-tokens [show|set N]"))
-    registry.register(SlashCommand("passes", "Show or update reasoning pass count", passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", turns_handler))
     registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", continue_handler, usage="/continue [COUNT]"))
     registry.register(SlashCommand("model", "Show or update the default model", model_handler, usage="/model [show|set MODEL]"))

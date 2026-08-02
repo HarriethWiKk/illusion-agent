@@ -187,6 +187,8 @@ class WebBackendHost:
         self._last_tool_inputs: dict[str, dict[str, Any]] = {}
         # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
         self._emitted_tool_started_ids: set[str] = set()
+        # 当前 apply_select_command 的请求 ID，用于 command_result 精确匹配
+        self._current_request_id: str | None = None
         # btw 侧问任务映射：request_id -> asyncio.Task，支持 btw_cancel 取消
         self._btw_tasks: dict[str, asyncio.Task[None]] = {}
         # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
@@ -388,6 +390,7 @@ class WebBackendHost:
                     self._apply_select_command(
                         request.command or "",
                         request.value or "",
+                        request_id=getattr(request, "request_id", None),
                     )
                 )
                 should_continue = await self._active_line_task
@@ -804,13 +807,19 @@ class WebBackendHost:
 
         async def _command_result_emitter(message: str, result_type: str) -> None:
             """发射指令结果事件。"""
+            data: dict[str, Any] = {
+                "message": message,
+                "type": result_type,
+            }
+            # 回传当前请求的 ID（用于前端精确匹配响应）
+            req_id = getattr(self, "_current_request_id", None)
+            if req_id:
+                data["request_id"] = req_id
+                self._current_request_id = None  # 消费后清除，避免泄漏到后续事件
             await self._emit(
                 BackendEvent(
                     type="command_result",
-                    command_result_data={
-                        "message": message,
-                        "type": result_type,
-                    },
+                    command_result_data=data,
                 )
             )
 
@@ -974,8 +983,10 @@ class WebBackendHost:
             return True
         return await self._process_line(f"/rewind {turns} {mode}", transcript_line="/rewind")
 
-    async def _apply_select_command(self, command_name: str, value: str) -> bool:
+    async def _apply_select_command(self, command_name: str, value: str, request_id: str | None = None) -> bool:
         """应用选择的命令值。"""
+        # 存储当前请求 ID，供 _command_result_emitter 回传
+        self._current_request_id = request_id
         command = command_name.strip().lstrip("/").lower()
         selected = value.strip()
         # 特殊路由：context → change window 时弹出子选择器
@@ -1069,10 +1080,10 @@ class WebBackendHost:
         if command == "max-tokens":
             # custom 由前端转为数字字符串，直接透传
             return f"/max-tokens {value}"
-        if command == "passes":
-            return f"/passes {value}"
         if command == "turns":
             return f"/turns {value}"
+        if command == "agent":
+            return f"/agent {value}"
         if command == "model":
             return f"/model set {value}"
         if command == "delete":
@@ -1330,29 +1341,6 @@ class WebBackendHost:
             )
             return
 
-        if command == "passes":
-            current = int(state.passes or settings.passes)
-            options = [
-                {
-                    "value": str(value),
-                    "label": (f"{value} 轮" if zh else f"{value} pass{'es' if value != 1 else ''}"),
-                    "active": value == current,
-                }
-                for value in range(1, 9)
-            ]
-            await self._emit(
-                BackendEvent(
-                    type="select_request",
-                    modal={
-                        "kind": "select",
-                        "title": "推理轮数" if zh else "Reasoning Passes",
-                        "command": "passes",
-                    },
-                    select_options=options,
-                )
-            )
-            return
-
         if command == "turns":
             current_turns: int | None = self._bundle.engine.max_turns
             values = {32, 64, 128, 200, 256, 512}
@@ -1383,6 +1371,97 @@ class WebBackendHost:
                         "command": "turns",
                     },
                     select_options=options,
+                )
+            )
+            return
+
+        if command == "agent":
+            # 列出已完成 agent 任务摘要（前台 tool_result + 后台 task-notification）
+            from illusion.config.paths import get_tasks_dir
+            from illusion.engine.messages import TextBlock, ToolResultBlock
+            from illusion.tasks.types import TASK_NOTIFICATION_RE
+
+            task_options: list[dict[str, Any]] = []
+            order = 0
+
+            # 1. 前台 agent：从 transcript 提取 tool_result（跳过后台启动通知）
+            pending_labels: dict[str, str] = {}
+            for msg in self._bundle.engine.messages:
+                if msg.role == "assistant":
+                    for use_block in msg.tool_uses:
+                        if use_block.name == "agent":
+                            inp = use_block.input or {}
+                            task_name = str(inp.get("description") or inp.get("name") or "agent")[:30]
+                            subagent_type = inp.get("subagent_type")
+                            if subagent_type:
+                                agent_type = "".join(
+                                    w.title() for w in str(subagent_type).replace("_", "-").split("-")
+                                )
+                            elif inp:
+                                agent_type = "GeneralPurpose"
+                            else:
+                                agent_type = "Agent"
+                            pending_labels[use_block.id] = f"{task_name} · {agent_type}"
+                elif msg.role == "user":
+                    for result_block in msg.content:
+                        if isinstance(result_block, ToolResultBlock) and result_block.tool_use_id in pending_labels:
+                            text = result_block.text_content
+                            if text and ("launched in background" in text or "launched as subprocess" in text):
+                                continue
+                            order += 1
+                            first_line = text.split("\n", 1)[0][:60] if text else ("（无摘要）" if zh else "(no summary)")
+                            task_options.append({
+                                "value": result_block.tool_use_id,
+                                "label": f"#{order} {pending_labels[result_block.tool_use_id]}",
+                                "description": first_line,
+                            })
+
+            # 2. 后台任务：从 transcript 的 task-notification 提取
+            tasks_dir = get_tasks_dir()
+            for msg in self._bundle.engine.messages:
+                if msg.role != "user":
+                    continue
+                for text_block in msg.content:
+                    if not isinstance(text_block, TextBlock):
+                        continue
+                    match = TASK_NOTIFICATION_RE.search(text_block.text)
+                    if not match:
+                        continue
+                    if match.group("status").strip() != "completed":
+                        continue
+                    task_id = match.group("task_id").strip()
+                    task_name = (match.group("task_name") or "").strip()
+                    summary_tag = match.group("summary").strip()
+                    result_text = match.group("result").strip()
+                    if not result_text:
+                        try:
+                            log_file = tasks_dir / f"{task_id}.log"
+                            if log_file.exists():
+                                content = log_file.read_text(encoding="utf-8", errors="replace")
+                                result_text = content[-12000:] if len(content) > 12000 else content
+                        except OSError:
+                            pass
+                    order += 1
+                    if task_name:
+                        label_name = task_name
+                    else:
+                        name_match = re.match(r"Agent '([^']+)'", summary_tag)
+                        label_name = name_match.group(1) if name_match else (summary_tag or "agent")
+                    first_line = result_text.split("\n", 1)[0][:60] if result_text else ("（无摘要）" if zh else "(no summary)")
+                    task_options.append({
+                        "value": task_id,
+                        "label": f"#{order} {label_name}",
+                        "description": first_line,
+                    })
+
+            if not task_options:
+                await self._emit(BackendEvent(type="error", message=("没有已完成的 agent" if zh else "No completed agents")))
+                return
+            await self._emit(
+                BackendEvent(
+                    type="select_request",
+                    modal={"kind": "select", "title": ("已完成任务摘要" if zh else "Completed Task Summary"), "command": "agent"},
+                    select_options=task_options,
                 )
             )
             return

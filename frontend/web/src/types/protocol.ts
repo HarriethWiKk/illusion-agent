@@ -336,7 +336,7 @@ export interface BackendEvent {
   /** 群体协作通知列表快照（可选） */
   swarm_notifications?: SwarmNotificationSnapshot[];
   /** 指令结果数据（可选） */
-  command_result_data?: { message: string; type: 'success' | 'error' | 'info' };
+  command_result_data?: { message: string; type: 'success' | 'error' | 'info'; request_id?: string };
   // === web_* 推送事件字段 ===
   /** web_restore_started/completed 的会话 ID（可选） */
   session_id?: string;
@@ -432,8 +432,6 @@ export interface StatusPayload {
   ui_language?: string;
   /** 思考强度 */
   effort?: string;
-  /** 最大轮数 */
-  passes?: number;
   /** 已连接 MCP 服务器数 */
   mcp_connected?: number;
   /** 失败 MCP 服务器数 */

@@ -145,8 +145,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
   "working_directory": null,
   "ui_language": "en-US",
   "output_style": "default",
-  "effort": "medium",
-  "passes": 1
+  "effort": "medium"
 }
 ```
 
@@ -162,7 +161,6 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
 | `max_turns` | int | 200 | Maximum conversation turns |
 | `ui_language` | string | "" | UI language (empty triggers first-login prompt; fallback zh-CN) |
 | `effort` | string | "medium" | Reasoning effort: low/medium/high/xhigh/max |
-| `passes` | int | 1 | Reasoning passes (1-8) |
 | `working_directory` | string | - | Fixed working directory (optional) |
 
 ---

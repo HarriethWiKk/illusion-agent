@@ -1024,8 +1024,6 @@ class ReactBackendHost:
         if command == "max-tokens":
             # custom 由前端转为数字字符串
             return f"/max-tokens {value}"
-        if command == "passes":
-            return f"/passes {value}"
         if command == "turns":
             return f"/turns {value}"
         if command == "language":
@@ -1243,21 +1241,6 @@ class ReactBackendHost:
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": "最大令牌数" if zh else "Max Tokens", "command": "max-tokens"},
-                    select_options=options,
-                )
-            )
-            return
-
-        if command == "passes":
-            current = int(state.passes or settings.passes)
-            options = [
-                {"value": str(value), "label": (f"{value} 轮" if zh else f"{value} pass{'es' if value != 1 else ''}"), "active": value == current}
-                for value in range(1, 9)
-            ]
-            await self._emit(
-                BackendEvent(
-                    type="select_request",
-                    modal={"kind": "select", "title": "推理轮数" if zh else "Reasoning Passes", "command": "passes"},
                     select_options=options,
                 )
             )

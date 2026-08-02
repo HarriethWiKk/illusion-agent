@@ -17,7 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
-import 'highlight.js/styles/github.css';
+import 'highlight.js/styles/github-dark.css';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
@@ -240,7 +240,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
 
   if (item.role === 'tool_result') {
     const toolInput = (item.tool_use_id && toolInputMap?.get(item.tool_use_id)) || item.tool_input;
-    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} toolInput={toolInput} progress={item.progress_messages} lang={lang} />;
+    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} toolInput={toolInput} progress={item.progress_messages} />;
   }
 
   if (item.role === 'tool') {
@@ -276,7 +276,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
  * @param props.progress - 执行期间的流式进度消息（可选）
  * @param props.lang - UI 语言
  */
-function ToolResultBubble({ name, text, isError, toolInput, progress, lang = 'zh-CN' }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown>; progress?: Array<{message: string; type?: string}>; lang: UiLanguage }) {
+function ToolResultBubble({ name, text, isError, toolInput, progress }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown>; progress?: Array<{message: string; type?: string}> }) {
   const [open, setOpen] = useState(false);
   // summarizeInput 用原名做大小写不敏感匹配，显示名用映射后的友好名
   const summary = summarizeInput(name, toolInput, name);
@@ -285,14 +285,13 @@ function ToolResultBubble({ name, text, isError, toolInput, progress, lang = 'zh
   const progressMsgs = useMemo(() => {
     if (!progress || progress.length === 0) return [];
     const last = progress[progress.length - 1];
-    // 子 agent 最终回复既作为 text 进度流上报（思考过程区）、又作为 tool_result
-    // 结果返回——若最后一条 text 进度与结果文本相同，思考过程区剔除它避免重复
-    // （agent_executor 将 AssistantTextDelta.text 一律转发为 text 进度）。
-    if (last?.type === 'text' && text.trim() && last.message.trim() === text.trim()) {
+    // 若最后一条进度为思考过程（thinking），思考过程已在进度区展示，从工具结果中剔除
+    // 避免重复；否则保留所有进度（不再基于文本相似度做丢弃判断）
+    if (last?.type === 'thinking') {
       return progress.slice(0, -1);
     }
     return progress;
-  }, [progress, text]);
+  }, [progress]);
   const hasProgress = progressMsgs.length > 0;
   const hasContent = text || hasProgress;
 
@@ -313,7 +312,6 @@ function ToolResultBubble({ name, text, isError, toolInput, progress, lang = 'zh
         <div className={`mt-1 ml-3.5 p-2.5 font-mono text-xs leading-relaxed max-h-96 overflow-y-auto rounded-lg select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
           {hasProgress && (
             <div className={text ? 'mb-2 pb-2 border-b border-border-light' : ''}>
-              <div className="text-[10px] uppercase tracking-wider text-content-disabled mb-1">{t(lang, 'thinking_process')}</div>
               <ProgressMessages messages={progressMsgs} />
             </div>
           )}

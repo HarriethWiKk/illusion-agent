@@ -43,8 +43,7 @@ async def status_handler(_: str, context: CommandContext) -> CommandResult:
         message=(
             f"Messages: {len(context.engine.messages)}\n"
             f"Usage: input={usage.input_tokens} output={usage.output_tokens}\n"
-            f"Effort: {state.effort if state is not None else load_settings().effort}\n"
-            f"Passes: {state.passes if state is not None else load_settings().passes}"
+            f"Effort: {state.effort if state is not None else load_settings().effort}"
         )
     )
 

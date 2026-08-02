@@ -306,12 +306,6 @@ async def test_ui_mode_commands_persist_and_update_state(tmp_path: Path, monkeyp
     assert load_settings().effort == "high"
     assert context.app_state.get().effort == "high"
 
-    passes_command, passes_args = registry.lookup("/passes 3")
-    passes_result = await passes_command.handler(passes_args, context)
-    assert "3" in passes_result.message
-    assert load_settings().passes == 3
-    assert context.app_state.get().passes == 3
-
 
 @pytest.mark.asyncio
 async def test_thinking_command_without_args_toggles_state(tmp_path: Path, monkeypatch):

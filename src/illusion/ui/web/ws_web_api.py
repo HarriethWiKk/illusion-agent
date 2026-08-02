@@ -441,7 +441,7 @@ class WebApiDispatcher:
         Args:
             bundle: 运行时 bundle
             key: 设置键名（effort/permission_mode/model/context_window/
-                 ui_language/passes/turns/output_style）
+                 ui_language/turns/output_style）
             value: 设置值
 
         Returns:
@@ -451,7 +451,7 @@ class WebApiDispatcher:
         # 键名 → app_state 字段名映射（settings 字段名可能与 key 不同）
         if key not in (
             "effort", "permission_mode", "model", "context_window",
-            "ui_language", "passes", "turns", "output_style",
+            "ui_language", "turns", "output_style",
         ):
             return False, f"不支持的设置键: {key}"
 
@@ -484,8 +484,8 @@ class WebApiDispatcher:
                 # 注：API 客户端重建（_rebuild_api_client）延迟到 emit 之后执行，
                 # 避免重建耗时（如 copilot token 刷新）阻塞前端 UI 反馈
             else:
-                # effort / context_window / ui_language / passes / output_style
-                # settings 字段名与 key 相同（output_style / ui_language / passes / context_window / effort）
+                # effort / context_window / ui_language / output_style
+                # settings 字段名与 key 相同（output_style / ui_language / context_window / effort）
                 setattr(settings, key, value)
                 _save_settings(settings)
                 # app_state 字段名与 key 相同
@@ -594,8 +594,8 @@ class WebApiDispatcher:
         """B 通道精细化指令处理。
 
         复用 CommandRegistry 的 handler 拿到 CommandResult，但渲染层映射到
-        web_query_result（不产生 command_result 事件）。设置类指令（passes/
-        turns/output-style/language）内部调用 _apply_setting，触发与 A 通道相同的
+        web_query_result（不产生 command_result 事件）。设置类指令（turns/
+        output-style/language）内部调用 _apply_setting，触发与 A 通道相同的
         web_setting_changed + state_snapshot 同步。
 
         不经过 _process_line/handle_line，避免 transcript_item/hook reload 副作用。
@@ -620,7 +620,6 @@ class WebApiDispatcher:
 
         # 设置类指令：内部走 _apply_setting（与 A 通道共用写入逻辑，DRY）
         setting_commands = {
-            "passes": "passes",
             "turns": "turns",
             "output-style": "output_style",
             "language": "ui_language",
@@ -628,7 +627,7 @@ class WebApiDispatcher:
         if command in setting_commands and args:
             key = setting_commands[command]
             tokens = args.split()
-            # 参数解析：language set zh-CN → "zh-CN"；passes/turns/output-style → 首个 token
+            # 参数解析：language set zh-CN → "zh-CN"；turns/output-style → 首个 token
             if command == "language" and len(tokens) >= 2 and tokens[0] == "set":
                 value = " ".join(tokens[1:])
             else:

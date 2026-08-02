@@ -3,7 +3,7 @@
 ==================
 
 /config, /language, /output-style, /privacy-settings, /doctor,
-/thinking, /effort, /max-tokens, /passes, /turns, /permissions, /plan
+/thinking, /effort, /max-tokens, /turns, /permissions, /plan
 """
 
 from __future__ import annotations
@@ -129,7 +129,6 @@ async def doctor_handler(_: str, context: CommandContext) -> CommandResult:
         f"- output_style: {state.output_style if state is not None else settings.output_style}",
         f"- ui_language: {state.ui_language if state is not None else settings.ui_language}",
         f"- effort: {state.effort if state is not None else settings.effort}",
-        f"- passes: {state.passes if state is not None else settings.passes}",
         f"- memory_dir: {memory_dir}",
         f"- plugin_count: {max(len(context.plugin_summary.splitlines()) - 1, 0) if context.plugin_summary else 0}",
         f"- mcp_configured: {'yes' if context.mcp_summary and 'No MCP' not in context.mcp_summary else 'no'}",
@@ -212,26 +211,6 @@ async def max_tokens_handler(args: str, context: CommandContext) -> CommandResul
     if context.app_state is not None:
         context.app_state.set(max_tokens=tokens)
     return CommandResult(message=t("max_tokens_set", value=tokens))
-
-
-async def passes_handler(args: str, context: CommandContext) -> CommandResult:
-    """显示或更新推理 pass 数"""
-    settings = load_settings()
-    current = context.app_state.get().passes if context.app_state is not None else settings.passes
-    value = args.strip() or "show"
-    if value == "show":
-        return CommandResult(message=f"Passes: {current}")
-    try:
-        passes = max(1, min(int(value), 8))
-    except ValueError:
-        return CommandResult(message="Usage: /passes [show|COUNT]")
-    settings.passes = passes
-    save_settings(settings)
-    if context.engine is not None:
-        context.engine.set_system_prompt(build_runtime_system_prompt(settings, cwd=context.cwd, channel_hint=context.channel_hint))
-    if context.app_state is not None:
-        context.app_state.set(passes=passes)
-    return CommandResult(message=f"Pass count set to {passes}.")
 
 
 async def turns_handler(args: str, context: CommandContext) -> CommandResult:

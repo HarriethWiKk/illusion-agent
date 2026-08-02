@@ -165,7 +165,7 @@ export interface WebSocketSessionState {
   sendStop: () => void;
   clearStaticItems: () => void;
   setOnSelectRequest: (fn: ((payload: SelectRequestPayload) => void) | null) => void;
-  setOnCommandResult: (fn: ((text: string, type: string) => void) | null) => void;
+  setOnCommandResult: (fn: ((text: string, type: string, requestId?: string) => void) | null) => void;
 }
 
 export function useWebSocketSession(url: string): WebSocketSessionState {
@@ -246,7 +246,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
-  const onCommandResultRef = useRef<((text: string, type: string) => void) | null>(null);
+  const onCommandResultRef = useRef<((text: string, type: string, requestId?: string) => void) | null>(null);
   const suppressCommandResultCountRef = useRef(0);
   const suppressTranscriptRef = useRef(false);
 
@@ -802,7 +802,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         }
         // 通知 App 显示 toast
         if (onCommandResultRef.current) {
-          onCommandResultRef.current(msg, evt.command_result_data.type || 'info');
+          const reqId = evt.command_result_data?.request_id as string | undefined;
+          onCommandResultRef.current(msg, evt.command_result_data.type || 'info', reqId);
         }
         return;
       }

@@ -95,7 +95,7 @@ class TestWebBackendEvent:
         evt = BackendEvent(
             type="web_query_result",
             web_request_id="req-1",
-            web_command="passes",
+            web_command="turns",
             web_query_kind="text",
             web_query_payload="已开启",
         )

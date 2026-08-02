@@ -145,8 +145,7 @@
   "working_directory": null,
   "ui_language": "zh-CN",
   "output_style": "default",
-  "effort": "medium",
-  "passes": 1
+  "effort": "medium"
 }
 ```
 
@@ -162,7 +161,6 @@
 | `max_turns` | int | 200 | 最大对话轮数 |
 | `ui_language` | string | "" | 界面语言（空时首次登录引导选择，兜底中文） |
 | `effort` | string | "medium" | 推理强度：low/medium/high/xhigh/max |
-| `passes` | int | 1 | 推理轮数（1-8） |
 | `working_directory` | string | - | 固定工作目录（可选） |
 
 ---

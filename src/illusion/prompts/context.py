@@ -168,15 +168,7 @@ def build_runtime_system_prompt(
         sections.append(
             "# Reasoning Settings\n"
             f"- Effort: {settings.effort}\n"
-            f"- Passes: {settings.passes}\n"
-            "Adjust depth and iteration count to match these settings while still completing the task."
-        )
-    else:
-        # OpenAI 格式只传递 passes，effort 通过 API 参数传递
-        sections.append(
-            "# Reasoning Settings\n"
-            f"- Passes: {settings.passes}\n"
-            "Adjust iteration count to match these settings while still completing the task."
+            "Adjust depth and iteration count to match this setting while still completing the task."
         )
 
     # 技能章节

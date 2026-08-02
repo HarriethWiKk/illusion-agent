@@ -175,6 +175,8 @@ export function AgentWizardForm({
       when_to_use: generated.when_to_use,
       system_prompt: generated.system_prompt,
     }));
+    // LLM 生成完毕后自动进入下一步（基本信息）
+    setCurrentStep(1);
   }, [generated]);
 
   // 收到提交结果：清除 submitting，失败时填充字段级错误（仅消费一次）
@@ -659,12 +661,24 @@ export function AgentWizardForm({
 
         {/* 底部操作栏：上一步 / 下一步 / 提交 */}
         <div className="px-6 py-4 border-t border-border-light flex items-center justify-between gap-2 shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
-          >
-            {t(lang, 'agentWizardClose')}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
+            >
+              {t(lang, 'agentWizardClose')}
+            </button>
+            {/* 全选工具按钮（仅步骤 3 显示） */}
+            {currentStep === 2 && (
+              <button
+                disabled={!tools || tools.length === 0}
+                onClick={() => updateField('tools', fields.tools.length === tools?.length ? [] : (tools?.map((tl) => tl.name) ?? []))}
+                className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {tools && fields.tools.length === tools.length ? t(lang, 'agentWizardDeselectAll') : t(lang, 'agentWizardSelectAll')}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {currentStep > 0 && (
               <button

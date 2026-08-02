@@ -433,7 +433,6 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "permission_mode": format_permission_mode(state.permission_mode),
         "ui_language": state.ui_language,
         "effort": state.effort,
-        "passes": state.passes,
         "mcp_connected": state.mcp_connected,
         "mcp_failed": state.mcp_failed,
         "bridge_sessions": state.bridge_sessions,

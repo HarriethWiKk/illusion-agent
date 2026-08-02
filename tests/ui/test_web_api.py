@@ -343,7 +343,6 @@ class TestWebSetSetting:
         fake_settings.ui_language = "zh-CN"
         fake_settings.context_window = 200000
         fake_settings.output_style = "default"
-        fake_settings.passes = 1
         fake_settings.model = "env_1.model_1"
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._load_settings", lambda: fake_settings
@@ -510,12 +509,12 @@ class TestWebQuery:
 
     @pytest.mark.asyncio
     async def test_query_setting_emits_web_query_result(self, dispatcher_query, monkeypatch):
-        """测试设置类指令(/passes 3)走 web_query 后返回 web_query_result"""
+        """测试设置类指令(/turns 200)走 web_query 后返回 web_query_result"""
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
         )
         from illusion.ui.protocol import FrontendRequest
-        req = FrontendRequest(type="web_query", command="passes", args="3", request_id="r1")
+        req = FrontendRequest(type="web_query", command="turns", args="200", request_id="r1")
         await dispatcher_query.handle(req)
         calls = dispatcher_query._host._emit.call_args_list
         result_evts = [c.args[0] for c in calls if c.args[0].type == "web_query_result"]

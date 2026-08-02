@@ -32,7 +32,7 @@ const WS_URL = `ws://${window.location.host}/ws`;
 const TOAST_DURATION = 5000;
 
 /** B 通道允许的指令集合（前端识别并走 web_query） */
-const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'passes', 'turns', 'output-style', 'language', 'max-tokens'];
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'turns', 'output-style', 'language', 'max-tokens'];
 
 /**
  * 应用主组件
@@ -62,6 +62,10 @@ export default function App() {
     command: 'max-tokens' | 'context-window';
     invalidMessage?: string;
   } | null>(null);
+
+  // Agent 摘要浮动卡片：查看已完成 agent 时以卡片形式展示（与 BtwCard 同尺寸）
+  const [agentResult, setAgentResult] = useState<string | null>(null);
+  const agentRequestIdRef = useRef<string | null>(null); // 当前等待的 agent 请求 ID
 
   // 回退确认弹窗状态
   const [rewindConfirm, setRewindConfirm] = useState<{ turns: number } | null>(null);
@@ -110,7 +114,15 @@ export default function App() {
    */
   useEffect(() => {
     session.setOnSelectRequest((payload) => setInlineOptions(payload));
-    session.setOnCommandResult((text, type) => showToast(text, type));
+    session.setOnCommandResult((text, type, requestId) => {
+      // 使用 request_id 精确匹配 agent 摘要响应，避免竞态条件
+      if (agentRequestIdRef.current && requestId === agentRequestIdRef.current) {
+        agentRequestIdRef.current = null;
+        setAgentResult(text);
+      } else {
+        showToast(text, type);
+      }
+    });
     return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
   }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
 
@@ -146,7 +158,7 @@ export default function App() {
    *
    * 通道隔离原则：
    * - B 通道（web_query）：输入框识别的精细化指令（rewind/compact/context/export/init/
-   *   passes/turns/output-style/language/max-tokens），走 web_query 结构化处理。
+   *   turns/output-style/language/max-tokens），走 web_query 结构化处理。
    * - 文本通道（submit_line）：普通文本，或未被识别的斜杠指令（A 类如 /resume /model
    *   以及已删除指令），全部当普通文本发给 LLM。
    *
@@ -185,7 +197,8 @@ export default function App() {
         return;
       }
       // /agent create | /agent new → 打开 agent 创建向导
-      // /agent（无参数）→ 提示用户使用 /agent create（web 端不做 agent 摘要查看）
+      // /agent（无参数）→ 分支选择器：查看已完成 agent / 创建新 agent
+      // /agent <id> → 提交后端查看摘要
       if (cmdName === 'agent') {
         const sub = args.split(/\s+/)[0] ?? '';
         if (sub === 'create' || sub === 'new') {
@@ -194,8 +207,20 @@ export default function App() {
           setShowAgentWizard(true);
           return;
         }
-        // 无子命令或未识别子命令：显示创建提示
-        showToast(t(lang, 'agentWizardNoAgentHint'), 'info');
+        if (!sub) {
+          setInlineOptions({
+            command: 'agent_branch',
+            title: t(lang, 'agentBranchTitle'),
+            options: [
+              { value: '__view__', label: t(lang, 'agentBranchView') },
+              { value: '__create__', label: t(lang, 'agentBranchCreate') },
+            ],
+          });
+          return;
+        }
+        // /agent <id> → 走命令注册表处理
+        session.setBusyTrue();
+        session.sendRequest({ type: 'submit_line', line: trimmed });
         return;
       }
       if (B_COMMANDS.includes(cmdName)) {
@@ -225,6 +250,19 @@ export default function App() {
    * @param value - 选中的值
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
+    // /agent 分支选择器
+    if (command === 'agent_branch') {
+      setInlineOptions(null);
+      if (value === '__view__') {
+        session.setBusyTrue();
+        session.sendRequest({ type: 'select_command', command: 'agent' });
+      } else if (value === '__create__') {
+        session.clearAgentWizardState();
+        session.sendAgentWizardInit();
+        setShowAgentWizard(true);
+      }
+      return;
+    }
     // max-tokens custom 分支：切换到数字输入模态框
     if (command === 'max-tokens' && value === 'custom') {
       setCustomInputModal({
@@ -255,8 +293,13 @@ export default function App() {
         request_id: `q-${Date.now()}`,
       });
     } else {
-      // rewind/context 等多步指令仍走 apply_select_command
-      session.sendRequest({ type: 'apply_select_command', command, value });
+      // agent 摘要：生成唯一 request_id 并传递给后端，用于精确匹配响应
+      if (command === 'agent') {
+        agentRequestIdRef.current = `agent-${Date.now()}`;
+      } else {
+        agentRequestIdRef.current = null;
+      }
+      session.sendRequest({ type: 'apply_select_command', command, value, request_id: agentRequestIdRef.current ?? undefined });
     }
   }, [session.sendRequest, lang]);
 
@@ -631,6 +674,30 @@ export default function App() {
           error={session.btwError}
           onClose={handleCloseBtw}
         />
+      )}
+
+      {/* Agent 摘要浮动卡片（查看已完成 agent 时展示，与 BtwCard 同尺寸） */}
+      {agentResult != null && (
+        <div className="fixed bottom-24 right-6 z-40 w-[420px] max-w-[calc(100vw-3rem)] animate-fade-in-up">
+          <div className="glass-surface rounded-2xl overflow-hidden flex flex-col shadow-glow">
+            <div className="px-4 py-3 flex items-center justify-between border-b border-white/30">
+              <div className="text-sm font-semibold text-content-primary">{t(lang, 'agentResultCardTitle')}</div>
+              <button
+                onClick={() => setAgentResult(null)}
+                className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-content-disabled hover:text-content-primary glass-option-hover transition-colors cursor-pointer"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M2 2l8 8M10 2l-8 8" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">
+              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words text-content-primary select-text">
+                {agentResult}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Agent 创建向导（/agent create 或 /agent new 触发） */}

@@ -33,7 +33,6 @@ class AppState:
         auth_status: 认证状态
         base_url: API基础URL
         effort: 推理 Effort 级别 (low/medium/high)
-        passes: 推理通过次数
         mcp_connected: 已连接的MCP服务器数量
         mcp_failed: 失败的MCP服务器数量
         bridge_sessions: 活跃的桥接会话数量
@@ -55,7 +54,6 @@ class AppState:
     auth_status: str = "missing"  # 认证状态
     base_url: str = ""  # API基础URL
     effort: str = "medium"  # 推理 Effort 级别
-    passes: int = 1  # 推理通过次数
     mcp_connected: int = 0  # 已连接的MCP服务器数量
     mcp_failed: int = 0  # 失败的MCP服务器数量
     bridge_sessions: int = 0  # 活跃的桥接会话数量

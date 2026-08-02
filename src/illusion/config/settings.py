@@ -256,7 +256,6 @@ class Settings(BaseModel):
     output_style: str = "default"
     show_thinking: bool = True
     effort: str = "medium"
-    passes: int = 1
     working_directory: str | None = None  # 固定工作目录
 
     @field_validator("mcp_servers", mode="before")

@@ -20,9 +20,12 @@ import { t, type UiLanguage } from '../i18n';
  * A 类指令（new/resume/delete/model/effort/permissions/plan）已完全交由 UI 控件承载，
  * 输入框不识别；其余指令当作普通文本发给 LLM。因此自动补全只列出 B 类 10 个指令。
  */
+// 自动补全列表：包含所有前端识别的斜杠指令
+// 注意：'/agent' 虽在此列表中，但在 App.tsx 的 handleSubmit 中有特殊分支处理（分支选择器/创建向导/查看摘要）
+// 因此 '/agent' 不在 B_COMMANDS 中，不会走 web_query 通道
 const WEB_COMMANDS = [
   '/rewind', '/compact', '/context', '/export', '/init',
-  '/passes', '/turns', '/output-style', '/language', '/max-tokens',
+  '/agent', '/turns', '/output-style', '/language', '/max-tokens',
 ];
 
 /**
@@ -147,9 +150,6 @@ export default function PromptInput({ lang, busy, stopping, hasActiveTasks, conn
     const query = value.toLowerCase();
     return cmd.toLowerCase().startsWith(query) || cmd.toLowerCase().includes(query.slice(1));
   });
-
-  // 当 inlineOptions 变化时重置选中索引
-  useEffect(() => { setSelectedIndex(0); }, [inlineOptions, value]);
 
   useEffect(() => {
     if (showCommands && listRef.current) {
@@ -334,16 +334,15 @@ export default function PromptInput({ lang, busy, stopping, hasActiveTasks, conn
     <div className="px-4 md:px-5 pb-4 pt-2 relative" ref={containerRef}>
       {/* 内联选项 */}
       {showInline && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-64 overflow-y-auto py-1.5 z-20 animate-fade-in-up">
+        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-64 overflow-y-auto py-1.5 z-20">
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">{inlineOptions.title}</div>
           {inlineOptions.options.map((opt, idx) => (
             <button
               key={opt.value}
               onClick={() => onInlineSelect?.(inlineOptions.command, opt.value)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 animate-fade-in-up rounded-md ${
+              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer flex flex-col gap-0.5 rounded-md ${
                 idx === selectedIndex ? 'glass-option-active text-content-primary' : opt.active ? 'text-primary/70 glass-option-hover' : 'text-content-secondary glass-option-hover'
               }`}
-              style={{ animationDelay: `${(idx + 1) * 30}ms` }}
             >
               <span className="font-medium">{opt.label}</span>
               {opt.description && <span className="text-xs text-content-disabled">{opt.description}</span>}
