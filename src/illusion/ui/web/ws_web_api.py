@@ -396,6 +396,9 @@ class WebApiDispatcher:
             try:
                 from illusion.ui.runtime import _rebuild_api_client
                 _rebuild_api_client(bundle, _load_settings())
+                # 修复：同时更新 engine 的 model，确保后续请求使用正确的模型名
+                new_settings = _load_settings()
+                bundle.engine.set_model(new_settings.active_model_name)
             except Exception as exc:
                 log.exception("重建 API 客户端失败")
                 await self._emit(BackendEvent(
@@ -450,6 +453,8 @@ class WebApiDispatcher:
                 settings.model = str(value)
                 _save_settings(settings)
                 bundle.app_state.set(model=str(value))
+                # 修复：同步更新 settings_overrides，避免 current_settings() 返回缓存的旧值
+                bundle.settings_overrides["model"] = str(value)
                 # 注：API 客户端重建（_rebuild_api_client）延迟到 emit 之后执行，
                 # 避免重建耗时（如 copilot token 刷新）阻塞前端 UI 反馈
             else:
@@ -459,6 +464,16 @@ class WebApiDispatcher:
                 _save_settings(settings)
                 # app_state 字段名与 key 相同
                 bundle.app_state.set(**{key: value})
+                # 修复：同步更新 settings_overrides，避免 current_settings() 返回缓存的旧值
+                if key in ("effort", "model", "max_turns", "base_url", "api_key", "api_format"):
+                    bundle.settings_overrides[key] = value
+                # 修复：effort 需要同步到 engine，确保后续请求使用正确的 effort 级别
+                if key == "effort":
+                    from illusion.api.effort import EffortLevel
+                    try:
+                        bundle.engine.effort = EffortLevel(str(value))
+                    except ValueError:
+                        log.warning("无效的 effort 值: %s", value)
         except Exception as exc:
             log.exception("应用设置 %s 失败", key)
             return False, f"设置 {key} 失败: {exc}"
