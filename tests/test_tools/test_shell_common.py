@@ -196,15 +196,15 @@ class TestRunAndNormalizeCancel:
 
     @pytest.mark.asyncio
     async def test_cancelled_error_kills_process(self):
-        """CancelledError 传播时 process.kill() 被调用。"""
+        """CancelledError 传播时 terminate_process_tree 被调用。"""
         import asyncio
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from illusion.tools.shell_common import CommandExecutor
 
         # 模拟一个长时间运行的子进程
         process = MagicMock()
-        process.kill = MagicMock()
+        process.pid = 12345
         process.wait = AsyncMock()
         process.returncode = None
 
@@ -215,13 +215,19 @@ class TestRunAndNormalizeCancel:
         process.communicate = _slow_communicate
 
         # 创建一个任务来执行 run_and_normalize，然后取消它
-        task = asyncio.create_task(
-            CommandExecutor.run_and_normalize(process, timeout=1000)
-        )
-        await asyncio.sleep(0.05)  # 让任务进入 wait_for
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        with patch(
+            "illusion.tools.shell_common.terminate_process_tree",
+            new_callable=AsyncMock,
+        ) as mock_terminate:
+            task = asyncio.create_task(
+                CommandExecutor.run_and_normalize(process, timeout=1000)
+            )
+            await asyncio.sleep(0.05)  # 让任务进入 wait_for
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
-        # 验证 process.kill 被调用
-        assert process.kill.called, "process.kill() should be called on CancelledError"
+            # 验证 terminate_process_tree 被调用（递归杀进程树）
+            assert mock_terminate.called, (
+                "terminate_process_tree() should be called on CancelledError"
+            )

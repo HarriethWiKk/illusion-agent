@@ -418,8 +418,8 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
                     manager._waiters.pop(task_id, None)
                 except asyncio.CancelledError:
                     # task_stop 取消时，终止整个进程树
-                    from illusion.tasks.manager import _terminate_process_tree
-                    await _terminate_process_tree(process)
+                    from illusion.utils.shell import terminate_process_tree
+                    await terminate_process_tree(process)
                     record.status = "killed"
                     record.ended_at = _time.time()
                     manager._processes.pop(task_id, None)

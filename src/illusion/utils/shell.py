@@ -12,6 +12,7 @@ Shell 和子进程辅助函数模块
 函数说明：
     - resolve_shell_command: 返回当前平台的最佳 shell 命令 argv
     - create_shell_subprocess: 创建带有沙箱支持的 shell 子进程
+    - terminate_process_tree: 递归终止子进程及其整个进程树
     - _resolve_windows_bash: 解析 Windows 上可用的 bash 可执行文件
 
 使用示例：
@@ -28,8 +29,10 @@ Shell 和子进程辅助函数模块
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from collections.abc import Coroutine, Mapping
@@ -210,6 +213,57 @@ async def create_shell_subprocess(
     if sandbox_manager:
         _create_module_task(_cleanup_sandbox_after_exit(process, sandbox_manager))
     return process
+
+
+async def terminate_process_tree(process: asyncio.subprocess.Process) -> None:
+    """终止子进程及其整个进程树。
+
+    子进程以独立进程组启动（create_shell_subprocess new_process_group=True），
+    按平台杀进程树：
+
+    - Windows: taskkill /PID <pid> /T /F（/T 递归终止所有子进程）
+    - POSIX: killpg 先 SIGTERM，3s 未退出再 SIGKILL
+
+    Args:
+        process: 要终止的子进程
+    """
+    if sys.platform == "win32":
+        try:
+            # CREATE_NO_WINDOW：taskkill 自身是控制台程序，不隐藏会弹出终端黑框
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/PID", str(process.pid), "/T", "/F",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(killer.wait(), timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            # taskkill 不可用时回退到直接 terminate
+            with contextlib.suppress(ProcessLookupError, OSError):
+                process.terminate()
+        # taskkill /F 已强杀进程，wait 仅回收句柄；Windows 上偶发长时间不
+        # signaled，缩短超时避免 stop 延迟
+        with contextlib.suppress(TimeoutError, ProcessLookupError, OSError):
+            await asyncio.wait_for(process.wait(), timeout=0.5)
+        return
+
+    # POSIX：kill 进程组
+    try:
+        pgid = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return  # 进程已退出
+    with contextlib.suppress(ProcessLookupError, OSError):
+        os.killpg(pgid, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=3)
+        return
+    except TimeoutError:
+        pass
+    with contextlib.suppress(ProcessLookupError, OSError):
+        os.killpg(pgid, signal.SIGKILL)
+    with contextlib.suppress(Exception):
+        await process.wait()
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:

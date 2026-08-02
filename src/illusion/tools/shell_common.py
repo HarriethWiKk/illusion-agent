@@ -41,10 +41,11 @@ Shell 工具共享模块
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import locale
 from dataclasses import dataclass, field
 from typing import Any
+
+from illusion.utils.shell import terminate_process_tree
 
 # 输出截断阈值（描述中对外暴露此值，修改时需同步更新工具描述文本）
 MAX_OUTPUT_LENGTH = 30_000
@@ -169,8 +170,7 @@ class CommandExecutor:
                 timeout=timeout,
             )
         except TimeoutError:
-            process.kill()
-            await process.wait()
+            await terminate_process_tree(process)
             return NormalizedResult(
                 output=f"Command timed out after {timeout}s",
                 is_error=True,
@@ -178,12 +178,10 @@ class CommandExecutor:
                 metadata={"returncode": -1, "timed_out": True},
             )
         except asyncio.CancelledError:
-            try:
-                process.kill()
-            except (ProcessLookupError, OSError):
-                pass
-            with contextlib.suppress(Exception):
-                await process.wait()
+            # 前台命令取消时递归终止整个进程树（如 bash→python→pytest），
+            # process.kill() 只杀顶层 shell，子进程会继续运行持有管道，
+            # 导致取消传播延迟（用户需要多次 Ctrl+X）
+            await terminate_process_tree(process)
             raise
 
         return OutputNormalizer.format_result(
