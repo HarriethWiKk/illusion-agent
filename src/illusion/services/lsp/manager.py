@@ -250,14 +250,14 @@ class LspManager:
                 if lang_id in self._last_fail:
                     results[lang_id] = f"failed to start, {config.command} may not be installed"
                 else:
-                    results[lang_id] = f"not available (starting or in cooldown)"
+                    results[lang_id] = "not available (starting or in cooldown)"
                 continue
 
             if not client.is_initialized:
                 try:
                     # 使用临时 root_uri，实际初始化为 workspace root 时再重新初始化
                     await self.initialize_client(lang_id, "file:///", root_path="/")
-                except Exception as e:
+                except (RuntimeError, TimeoutError, OSError) as e:
                     results[lang_id] = f"initialization failed - {e}"
                     continue
 
