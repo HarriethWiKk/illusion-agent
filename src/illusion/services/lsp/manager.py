@@ -31,6 +31,7 @@ class LspManager:
         self._clients: dict[str, LspClient] = {}
         self._starting: dict[str, bool] = {}
         self._last_fail: dict[str, float] = {}  # lang_id -> last failure timestamp
+        self._activated: bool = False  # 是否已手动激活
 
         # 构建扩展名 -> 语言 ID 映射
         self._ext_map: dict[str, str] = {}
@@ -177,7 +178,10 @@ class LspManager:
         return []
 
     async def _get_or_start_client(self, lang_id: str) -> LspClient | None:
-        """获取或启动指定语言的 LSP 客户端。"""
+        """获取或启动指定语言的 LSP 客户端。
+
+        仅当已手动激活（activate_all）后才允许自动启动服务器。
+        """
         # 检查已有客户端是否仍可用
         if lang_id in self._clients:
             client = self._clients[lang_id]
@@ -187,6 +191,10 @@ class LspManager:
             logger.info("LSP client for %s unavailable (connected=%s, alive=%s), restarting",
                         lang_id, client._connected, client.is_alive)
             self._clients.pop(lang_id, None)
+
+        # 未手动激活时不允许自动启动
+        if not self._activated:
+            return None
 
         if lang_id in self._starting:
             return None  # 正在启动中
@@ -198,6 +206,13 @@ class LspManager:
 
         config = self._configs.get(lang_id)
         if config is None:
+            return None
+
+        # 预检命令是否存在（Windows shell=True 不会抛 FileNotFoundError）
+        import shutil
+        if shutil.which(config.command) is None:
+            logger.warning("LSP server not found for %s: %s", lang_id, config.command)
+            self._last_fail[lang_id] = time.monotonic()
             return None
 
         self._starting[lang_id] = True
@@ -221,3 +236,33 @@ class LspManager:
             return None
         finally:
             self._starting.pop(lang_id, None)
+
+    async def activate_all(self) -> dict[str, str]:
+        """手动激活所有 LSP 服务器。
+
+        返回每个语言的激活状态：activated / failed / starting。
+        """
+        self._activated = True
+        results: dict[str, str] = {}
+        for lang_id, config in self._configs.items():
+            client = await self._get_or_start_client(lang_id)
+            if client is None:
+                if lang_id in self._last_fail:
+                    results[lang_id] = f"failed to start, {config.command} may not be installed"
+                else:
+                    results[lang_id] = f"not available (starting or in cooldown)"
+                continue
+
+            if not client.is_initialized:
+                try:
+                    # 使用临时 root_uri，实际初始化为 workspace root 时再重新初始化
+                    await self.initialize_client(lang_id, "file:///", root_path="/")
+                except Exception as e:
+                    results[lang_id] = f"initialization failed - {e}"
+                    continue
+
+            if client.is_initialized and client.is_alive:
+                results[lang_id] = f"activated ({config.command})"
+            else:
+                results[lang_id] = f"starting ({config.command})"
+        return results

@@ -785,7 +785,7 @@ async def run_query(
                         yield ToolProgressEvent(tool_use_id=tid, message=msg, progress_type=ptype), None
                     # 获取结果（如有异常会重新抛出，由外层 except 处理）
                     assert exec_task is not None
-                    result, hook_ctxs = exec_task.result()
+                    result, hook_ctxs, tool_meta = exec_task.result()
                 finally:
                     context.progress_queue = None
                     # 关键：run_query 被取消（Ctrl+X）时取消未完成的工具执行，
@@ -800,6 +800,7 @@ async def run_query(
                     output=result.text_content,
                     is_error=result.is_error,
                     tool_use_id=tc.id,
+                    structured_output=tool_meta or None,
                 ), None
                 tool_results_list.append(result)
             else:
@@ -812,11 +813,11 @@ async def run_query(
                     # 由下游（backend_host）通过 tool_use_id 去重避免前端重复显示
                     yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
 
-                async def _safe_run(idx: int, tc: ToolUseBlock) -> tuple[int, ToolResultBlock, list[Any]]:
+                async def _safe_run(idx: int, tc: ToolUseBlock) -> tuple[int, ToolResultBlock, list[Any], dict[str, Any]]:
                     """并发执行单个工具，捕获非权限异常转为错误结果。"""
                     try:
-                        result, hook_ctxs = await _execute_tool_call(context, tc.name, tc.id, tc.input)
-                        return idx, result, hook_ctxs
+                        result, hook_ctxs, tool_meta = await _execute_tool_call(context, tc.name, tc.id, tc.input)
+                        return idx, result, hook_ctxs, tool_meta
                     except PermissionDenied:
                         raise
                     except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
@@ -824,7 +825,7 @@ async def run_query(
                             tool_use_id=tc.id,
                             content=f"Tool {tc.name} failed: {exc}",
                             is_error=True,
-                        ), []
+                        ), [], {}
 
                 # 并发执行所有工具调用，每个工具完成后立即发送完成事件
                 tool_results_list = [None] * len(tool_calls)
@@ -834,7 +835,7 @@ async def run_query(
                 ]
                 try:
                     for coro in asyncio.as_completed(tasks):
-                        idx, result, hook_ctxs = await coro
+                        idx, result, hook_ctxs, tool_meta = await coro
                         all_hook_ctxs.extend(hook_ctxs)
                         tool_results_list[idx] = result
                         yield ToolExecutionCompleted(
@@ -842,6 +843,7 @@ async def run_query(
                             output=result.text_content,
                             is_error=result.is_error,
                             tool_use_id=tool_calls[idx].id,
+                            structured_output=tool_meta or None,
                         ), None
                 finally:
                     # 关键：取消所有未完成 task，避免孤儿 task 泄漏
@@ -956,7 +958,7 @@ async def _execute_tool_call(
     tool_name: str,
     tool_use_id: str,
     tool_input: dict[str, object],
-) -> tuple[ToolResultBlock, list[str]]:
+) -> tuple[ToolResultBlock, list[str], dict[str, Any]]:
     """执行单个工具调用。
 
     Returns:
@@ -975,7 +977,7 @@ async def _execute_tool_call(
                 tool_use_id=tool_use_id,
                 content=pre_hooks.reason or f"PreToolUse hook blocked {tool_name}",
                 is_error=True,
-            ), hook_additional_contexts
+            ), hook_additional_contexts, {}
         # updatedInput：钩子可修改工具输入
         if pre_hooks.updated_input:
             tool_input = pre_hooks.updated_input
@@ -989,7 +991,7 @@ async def _execute_tool_call(
             tool_use_id=tool_use_id,
             content=f"Unknown tool: {tool_name}",
             is_error=True,
-        ), hook_additional_contexts
+        ), hook_additional_contexts, {}
 
     # 验证工具输入参数
     try:
@@ -999,7 +1001,7 @@ async def _execute_tool_call(
             tool_use_id=tool_use_id,
             content=f"Invalid input for {tool_name}: {exc}",
             is_error=True,
-        ), hook_additional_contexts
+        ), hook_additional_contexts, {}
 
     # 在权限检查前规范化通用工具输入，以便路径规则一致地应用于使用 `file_path` 或 `path` 的内置工具
     _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
@@ -1018,7 +1020,7 @@ async def _execute_tool_call(
                 tool_use_id=tool_use_id,
                 content=f"[Permission blocked] {decision.reason or f'{tool_name} is not allowed in current mode'}",
                 is_error=True,
-            ), hook_additional_contexts
+            ), hook_additional_contexts, {}
         # 沙箱限制阻止：向用户询问三选项确认
         if decision.sandbox_blocked and context.ask_user_prompt is not None:
             from illusion.config.i18n import _is_zh
@@ -1132,7 +1134,7 @@ async def _execute_tool_call(
             },
         )
         hook_additional_contexts.extend(post_hooks.additional_contexts)
-    return tool_result, hook_additional_contexts
+    return tool_result, hook_additional_contexts, dict(result.metadata)
 
 
 def _resolve_permission_file_path(

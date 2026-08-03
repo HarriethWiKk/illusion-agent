@@ -113,6 +113,10 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         root = context.cwd.resolve()
         op = arguments.operation
 
+        # activate 操作：激活所有可用的 LSP 服务器
+        if op == "activate":
+            return await self._activate_servers(manager, root)
+
         # workspaceSymbol 不需要 filePath
         if op == "workspaceSymbol":
             return await self._workspace_symbol(manager, root, arguments)
@@ -136,12 +140,21 @@ Note: LSP servers must be configured for the file type. If no server is availabl
 
         client = await manager.get_client(file_path)
         if client is None:
+            if not manager._activated:
+                return ToolResult(
+                    output=(
+                        f"LSP server for '{lang_id}' is not activated. "
+                        f"Use operation='activate' to activate all LSP servers."
+                    ),
+                    is_error=True,
+                )
             config = manager._configs.get(lang_id)
             install_hint = f"{config.command}" if config else "the LSP server"
             return ToolResult(
                 output=(
-                    f"No LSP server available for {lang_id}. "
-                    f"Please install: {install_hint}"
+                    f"LSP server for '{lang_id}' failed to start. "
+                    f"{install_hint} may not be installed. "
+                    f"Use operation='activate' to retry."
                 ),
                 is_error=True,
             )
@@ -221,34 +234,61 @@ Note: LSP servers must be configured for the file type. If no server is availabl
         except (OSError, RuntimeError):
             logger.debug("[lsp_tool] Failed to open file %s", file_path, exc_info=True)
 
+    async def _activate_servers(self, manager: Any, root: Path) -> ToolResult:
+        """激活所有可用的 LSP 服务器。"""
+        results = await manager.activate_all()
+        if not results:
+            return ToolResult(
+                output="No LSP servers configured.",
+                metadata={"operation": "activate", "result_count": 0},
+            )
+
+        lines = [f"{lang}: {status}" for lang, status in results.items()]
+        return ToolResult(
+            output="LSP server activation status:\n" + "\n".join(f"  {l}" for l in lines),
+            metadata={"operation": "activate", "result_count": len(results)},
+        )
+
     async def _go_to_definition(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/definition",
             textDocument=text_doc, position=position,
         )
         results = result if isinstance(result, list) else [result] if result else []
-        return ToolResult(output=format_go_to_definition(results, root))
+        return ToolResult(
+            output=format_go_to_definition(results, root),
+            metadata={"operation": "goToDefinition", "result_count": len(results), "file_count": len({loc.get("uri", "") for loc in results if loc.get("uri")})},
+        )
 
     async def _find_references(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/references",
             textDocument=text_doc, position=position, context={"includeDeclaration": True},
         )
-        return ToolResult(output=format_find_references(result or [], root))
+        return ToolResult(
+            output=format_find_references(result or [], root),
+            metadata={"operation": "findReferences", "result_count": len(result or []), "file_count": len({loc.get("uri", "") for loc in (result or []) if loc.get("uri")})},
+        )
 
     async def _hover(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/hover",
             textDocument=text_doc, position=position,
         )
-        return ToolResult(output=format_hover(result, root))
+        return ToolResult(
+            output=format_hover(result, root),
+            metadata={"operation": "hover", "result_count": 1 if result else 0, "file_count": 1 if result else 0},
+        )
 
     async def _document_symbol(self, client: Any, root: Path, text_doc: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/documentSymbol",
             textDocument=text_doc,
         )
-        return ToolResult(output=format_document_symbol(result or [], root))
+        return ToolResult(
+            output=format_document_symbol(result or [], root),
+            metadata={"operation": "documentSymbol", "result_count": len(result or []), "file_count": 1},
+        )
 
     async def _workspace_symbol(self, manager: Any, root: Path, arguments: LspToolInput) -> ToolResult:
         query = arguments.query or arguments.filePath or ""
@@ -256,6 +296,17 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             return ToolResult(
                 output="workspaceSymbol requires a query. Use the 'query' parameter.",
                 is_error=True,
+                metadata={"operation": "workspaceSymbol", "result_count": 0, "file_count": 0},
+            )
+
+        if not manager._activated:
+            return ToolResult(
+                output=(
+                    "LSP server is not activated. "
+                    "Use operation='activate' to activate all LSP servers."
+                ),
+                is_error=True,
+                metadata={"operation": "workspaceSymbol", "result_count": 0, "file_count": 0},
             )
 
         all_results: list[dict[str, Any]] = []
@@ -336,8 +387,14 @@ Note: LSP servers must be configured for the file type. If no server is availabl
                 break
 
         if not all_results:
-            return ToolResult(output=f"No symbols matching '{query}' found in workspace.")
-        return ToolResult(output=format_workspace_symbol(all_results, root))
+            return ToolResult(
+            output=f"No symbols matching '{query}' found in workspace.",
+            metadata={"operation": "workspaceSymbol", "result_count": 0, "file_count": 0},
+        )
+        return ToolResult(
+            output=format_workspace_symbol(all_results, root),
+            metadata={"operation": "workspaceSymbol", "result_count": len(all_results), "file_count": len({sym.get("location", {}).get("uri", "") for sym in all_results if sym.get("location", {}).get("uri")})},
+        )
 
     async def _go_to_implementation(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
@@ -345,14 +402,20 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             textDocument=text_doc, position=position,
         )
         results = result if isinstance(result, list) else [result] if result else []
-        return ToolResult(output=format_go_to_definition(results, root))
+        return ToolResult(
+            output=format_go_to_definition(results, root),
+            metadata={"operation": "goToImplementation", "result_count": len(results), "file_count": len({loc.get("uri", "") for loc in results if loc.get("uri")})},
+        )
 
     async def _prepare_call_hierarchy(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         result = await client.request(
             "textDocument/prepareCallHierarchy",
             textDocument=text_doc, position=position,
         )
-        return ToolResult(output=format_prepare_call_hierarchy(result or [], root))
+        return ToolResult(
+            output=format_prepare_call_hierarchy(result or [], root),
+            metadata={"operation": "prepareCallHierarchy", "result_count": len(result or []), "file_count": len({item.get("uri", "") for item in (result or []) if item.get("uri")})},
+        )
 
     async def _incoming_calls(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         items = await client.request(
@@ -360,10 +423,13 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             textDocument=text_doc, position=position,
         )
         if not items:
-            return ToolResult(output="No incoming calls found (nothing calls this function).")
+            return ToolResult(output="No incoming calls found (nothing calls this function).", metadata={"operation": "incomingCalls", "result_count": 0, "file_count": 0})
         item = items[0] if isinstance(items, list) else items
         result = await client.request("callHierarchy/incomingCalls", item=item)
-        return ToolResult(output=format_incoming_calls(result or [], root))
+        return ToolResult(
+            output=format_incoming_calls(result or [], root),
+            metadata={"operation": "incomingCalls", "result_count": len(result or []), "file_count": len({call.get("from", {}).get("uri", "") for call in (result or []) if call.get("from", {}).get("uri")})},
+        )
 
     async def _outgoing_calls(self, client: Any, root: Path, text_doc: dict[str, Any], position: dict[str, Any]) -> ToolResult:
         items = await client.request(
@@ -371,7 +437,10 @@ Note: LSP servers must be configured for the file type. If no server is availabl
             textDocument=text_doc, position=position,
         )
         if not items:
-            return ToolResult(output="No outgoing calls found (this function calls nothing).")
+            return ToolResult(output="No outgoing calls found (this function calls nothing).", metadata={"operation": "outgoingCalls", "result_count": 0, "file_count": 0})
         item = items[0] if isinstance(items, list) else items
         result = await client.request("callHierarchy/outgoingCalls", item=item)
-        return ToolResult(output=format_outgoing_calls(result or [], root))
+        return ToolResult(
+            output=format_outgoing_calls(result or [], root),
+            metadata={"operation": "outgoingCalls", "result_count": len(result or []), "file_count": len({call.get("to", {}).get("uri", "") for call in (result or []) if call.get("to", {}).get("uri")})},
+        )

@@ -21,7 +21,12 @@ export const lspTool: Tool = {
 		if (file) return `operation: "${op}", file: "${file}"`;
 		return op;
 	},
-	renderToolResultMessage(_result: string, _input?: Record<string, unknown>, _isBrief?: boolean, structuredOutput?: Record<string, unknown>): string {
+	renderToolResultMessage(result: string, _input?: Record<string, unknown>, _isBrief?: boolean, structuredOutput?: Record<string, unknown>): string {
+		// 优先使用 lsp_formatters 格式化的多行文本（含数量、文件分组等完整信息）
+		if (result && result.trim() !== '') {
+			return result;
+		}
+		// 回退：无结果文本时用 structured_output 生成摘要
 		const metadata = structuredOutput as Record<string, unknown> | undefined;
 		const operation = metadata?.operation ?? 'result';
 		const resultCount = metadata?.result_count;

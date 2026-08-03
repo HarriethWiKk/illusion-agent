@@ -3,7 +3,6 @@ LSP 结果格式化函数
 ==================
 
 将各种 LSP 操作的原始结果转换为人类可读的文本格式。
-与 claude-code 参考项目的格式化器保持一致。
 """
 
 from __future__ import annotations

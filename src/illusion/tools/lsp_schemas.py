@@ -2,7 +2,6 @@
 LSP 工具输入 Schema
 ===================
 
-与 claude-code 参考项目的 LSP 工具 schema 保持一致。
 同时支持 camelCase 和 snake_case 操作名（向后兼容）。
 """
 
@@ -38,6 +37,7 @@ class LspToolInput(BaseModel):
         "prepareCallHierarchy",
         "incomingCalls",
         "outgoingCalls",
+        "activate",
         # snake_case 兼容
         "go_to_definition",
         "find_references",
