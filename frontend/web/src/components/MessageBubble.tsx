@@ -433,8 +433,10 @@ export function ReasoningContent({ text }: { text: string }) {
  * @param props.call - 待处理的工具调用信息
  */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
-  const [open, setOpen] = useState(true); // 流式阶段默认展开
-  const summary = summarizeInput(call.tool_name, call.tool_input, call.tool_name);
+  const [open, setOpen] = useState(true); // 流式阶段默认展开进度区
+  // 与 terminal 端 BlinkingToolIndicator 对齐：tool_input 未到达时 summary 为空，
+  // 只显示工具名；到达后始终在同一行显示命令摘要，不随进度区折叠而隐藏
+  const summary = call.tool_input ? summarizeInput(call.tool_name, call.tool_input) : '';
   // agent 工具根据 subagent_type 动态显示类型名，其他工具使用映射表
   const displayName = call.tool_name === 'agent' && call.tool_input
     ? getAgentDisplayName(call.tool_input as Record<string, unknown>)
@@ -480,7 +482,7 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
         <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
         <span className="flex-1 min-w-0">
           <span className="font-medium font-mono text-content-primary">{displayName}</span>
-          {!open && summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
+          {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
         </span>
       </button>
       {open && progressMessages.length > 0 && (
