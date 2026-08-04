@@ -25,6 +25,8 @@ await esbuild.build({
   plugins: [optionalDepsPlugin],
   sourcemap: false,
   legalComments: "none",
+  minify: true,
+  drop: ["debugger"],
   banner: {
     js: [
       'import { createRequire as __createRequire } from "node:module";',

@@ -144,10 +144,10 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const session = useBackendSession(config, () => exit());
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
-	// 上下文窗口占比（用于 idle 提示行末尾展示）
+	// 上下文窗口占比（用于 idle 提示行末尾展示，保留一位小数）
 	const contextWindow = Number(session.status.context_window ?? 0);
 	const contextTokens = Number(session.status.context_tokens ?? 0);
-	const contextPct = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 100 / contextWindow)) : 0;
+	const contextPct = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 1000 / contextWindow) / 10) : 0;
 	const permissionRequestId =
 		isPermissionModal && typeof session.modal?.request_id === 'string' ? String(session.modal.request_id) : '';
 	const localizedPermissionOptions = PERMISSION_PROMPT_OPTIONS.map((opt) => {
@@ -835,7 +835,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 			{/* 状态栏 — 模态框期间隐藏状态栏腾出空间 */}
 			{session.ready && !(session.modal && !isPermissionModal) ? (
-				<StatusBar status={session.status} tasks={session.tasks} busy={session.busy} />
+				<StatusBar status={session.status} tasks={session.tasks} pendingToolCalls={session.pendingToolCalls} busy={session.busy} />
 			) : null}
 
 			{/* 输入区域 — 后端就绪前显示加载指示器（后端退出后隐藏） */}
@@ -911,7 +911,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 								{t(language, 'contextUsageSummary')
 									.replace('{used}', fmtTokens(contextTokens))
 									.replace('{window}', fmtTokens(contextWindow))
-									.replace('{pct}', String(contextPct))}
+									.replace('{pct}', contextPct.toFixed(1))}
 							</>
 						) : null}
 					</Text>

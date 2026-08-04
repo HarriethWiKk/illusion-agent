@@ -583,7 +583,7 @@ export default function App() {
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={handleCloseDeleteModal} />
-          <div className="relative glass-overlay rounded-2xl w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
+          <div className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -621,7 +621,7 @@ export default function App() {
       {rewindConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={() => setRewindConfirm(null)} />
-          <div className="relative glass-overlay rounded-2xl w-[380px] flex flex-col animate-scale-in modal-origin-center">
+          <div className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[380px] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'rewind_confirm_title')}</h3>
             </div>

@@ -129,7 +129,6 @@ const ZH: Record<string, string> = {
   // token 计量相关
   cumulativeApiUsage: '累积 API 用量',
   systemPrompt: 'System Prompt',
-  messagesLabel: 'Messages',
   remaining: '剩余',
   inputLabel: 'input',
   outputLabel: '输出',
@@ -291,7 +290,6 @@ const EN: Record<string, string> = {
   // token metering
   cumulativeApiUsage: 'Cumulative API Usage',
   systemPrompt: 'System Prompt',
-  messagesLabel: 'Messages',
   remaining: 'Remaining',
   inputLabel: 'input',
   outputLabel: 'output',

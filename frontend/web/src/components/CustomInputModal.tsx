@@ -4,8 +4,8 @@
  * Web 前端的轻量模态对话框，用于 /max-tokens 与 /context-window
  * 选择命令的 custom / __custom__ 分支：弹窗接收一个正整数字符串。
  *
- * 视觉风格与 ModalCard.tsx、PromptInput.tsx 的内联选项保持一致：
- * - glass-surface 玻璃拟态卡片
+ * 视觉风格与 AgentWizardForm 表单保持一致：
+ * - bg-surface-card 实色卡片 + border + shadow-card
  * - rounded-2xl 圆角
  * - bg-primary / bg-primary-hover 主按钮
  * - glass-option-hover 次按钮
@@ -35,7 +35,7 @@ interface CustomInputModalProps {
 /**
  * 自定义数字输入模态组件
  *
- * 弹出居中玻璃拟态对话框，要求用户输入一个正整数。
+ * 弹出居中对话框，要求用户输入一个正整数。
  * - 挂载时自动聚焦输入框
  * - Enter 提交，Escape 取消
  * - 点击遮罩取消
@@ -79,7 +79,7 @@ export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMess
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onCancel}>
       <div
-        className="glass-surface rounded-2xl p-6 w-80 max-w-[90vw] animate-fade-in-up"
+        className="bg-surface-card rounded-2xl border border-border-light shadow-card p-6 w-80 max-w-[90vw] animate-fade-in-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-sm text-content-primary mb-3">{prompt}</div>

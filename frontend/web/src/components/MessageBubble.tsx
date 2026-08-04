@@ -11,7 +11,7 @@
  * @module MessageBubble
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
@@ -240,7 +240,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
 
   if (item.role === 'tool_result') {
     const toolInput = (item.tool_use_id && toolInputMap?.get(item.tool_use_id)) || item.tool_input;
-    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} toolInput={toolInput} progress={item.progress_messages} />;
+    return <ToolResultBubble name={item.tool_name || 'tool'} text={item.text} isError={item.is_error} toolInput={toolInput} />;
   }
 
   if (item.role === 'tool') {
@@ -273,27 +273,17 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
  * @param props.text - 结果文本
  * @param props.isError - 是否为错误结果
  * @param props.toolInput - 工具输入参数
- * @param props.progress - 执行期间的流式进度消息（可选）
  * @param props.lang - UI 语言
  */
-function ToolResultBubble({ name, text, isError, toolInput, progress }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown>; progress?: Array<{message: string; type?: string}> }) {
+function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
   // summarizeInput 用原名做大小写不敏感匹配，显示名用映射后的友好名
   const summary = summarizeInput(name, toolInput, name);
   // agent 工具根据 subagent_type 动态显示类型名，其他工具使用映射表
   const displayName = name === 'agent' && toolInput ? getAgentDisplayName(toolInput) : toolDisplayName(name);
-  const progressMsgs = useMemo(() => {
-    if (!progress || progress.length === 0) return [];
-    const last = progress[progress.length - 1];
-    // 若最后一条进度为思考过程（thinking），思考过程已在进度区展示，从工具结果中剔除
-    // 避免重复；否则保留所有进度（不再基于文本相似度做丢弃判断）
-    if (last?.type === 'thinking') {
-      return progress.slice(0, -1);
-    }
-    return progress;
-  }, [progress]);
-  const hasProgress = progressMsgs.length > 0;
-  const hasContent = text || hasProgress;
+  // 任务完成后直接用最终结果替换：流式阶段已累积展示思考过程，
+  // 完成后仅以最终结果（text）作为正文，不再保留/判断思考过程
+  const hasContent = !!text;
 
   return (
     <div className="py-1.5">
@@ -310,11 +300,6 @@ function ToolResultBubble({ name, text, isError, toolInput, progress }: { name: 
       </button>
       {open && hasContent && (
         <div className={`mt-1 ml-3.5 p-2.5 font-mono text-xs leading-relaxed max-h-96 overflow-y-auto rounded-lg select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
-          {hasProgress && (
-            <div className={text ? 'mb-2 pb-2 border-b border-border-light' : ''}>
-              <ProgressMessages messages={progressMsgs} />
-            </div>
-          )}
           {text && (
             <div className="whitespace-pre-wrap">{text}</div>
           )}
@@ -325,7 +310,7 @@ function ToolResultBubble({ name, text, isError, toolInput, progress }: { name: 
 }
 
 /**
- * 流式进度消息渲染（供 PendingToolBubble 与 ToolResultBubble 共用）
+ * 流式进度消息渲染（供 PendingToolBubble 使用）
  *
  * thinking/text 为增量流式片段（token 级累积，完成后不再有光标），
  * tool/status 为完整消息，加 ▸ 前缀。

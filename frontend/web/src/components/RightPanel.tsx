@@ -65,7 +65,7 @@ export default function RightPanel({
   // 上下文使用量
   const contextWindow = Number(status?.context_window ?? 0);
   const contextTokens = Number(status?.context_tokens ?? 0);
-  const contextPercent = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 100 / contextWindow)) : 0;
+  const contextPercent = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 1000 / contextWindow) / 10) : 0;
   // token 计量分项数据（累积）
   const inputTokens = Number(status?.input_tokens ?? 0);
   const outputTokens = Number(status?.output_tokens ?? 0);
@@ -78,12 +78,10 @@ export default function RightPanel({
   const contextOutput = Number(status?.context_output ?? 0);
   const contextCached = contextCacheRead + contextCacheCreation;
   const hasLastApiBreakdown = contextCached > 0 || contextInput > 0 || contextOutput > 0;
-  const contextCachePct = contextWindow > 0 ? Math.round(contextCached * 100 / contextWindow) : 0;
-  const contextInputPct = contextWindow > 0 ? Math.round(contextInput * 100 / contextWindow) : 0;
-  const contextOutputPct = contextWindow > 0 ? Math.round(contextOutput * 100 / contextWindow) : 0;
-  // 缓存命中率 = cache_read / (cache_read + cache_creation + input_tokens)
+  // 缓存命中率 = cache_read / (cache_read + cache_creation + input_tokens)，保留一位小数
+  // 右栏不计算输入/输出/缓存占窗口的百分比，只计算缓存命中率
   const totalInputWithCache = contextCached + contextInput;
-  const cacheHitRate = totalInputWithCache > 0 ? Math.round(contextCacheRead * 100 / totalInputWithCache) : 0;
+  const cacheHitRate = totalInputWithCache > 0 ? Math.round(contextCacheRead * 1000 / totalInputWithCache) / 10 : 0;
 
   // 折叠态
   if (collapsed) {
@@ -203,27 +201,22 @@ export default function RightPanel({
             <>
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-content-secondary">{t(lang, 'inputCachedLabel')}</span>
-                <span className="text-content-primary tabular-nums">{formatTokens(contextCached)} ({contextCachePct}%)</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextCached)}</span>
               </div>
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-content-secondary">{t(lang, 'inputUncachedLabel')}</span>
-                <span className="text-content-primary tabular-nums">{formatTokens(contextInput)} ({contextInputPct}%)</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextInput)}</span>
               </div>
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-content-secondary">{t(lang, 'outputLabel')}</span>
-                <span className="text-content-primary tabular-nums">{formatTokens(contextOutput)} ({contextOutputPct}%)</span>
+                <span className="text-content-primary tabular-nums">{formatTokens(contextOutput)}</span>
               </div>
               <div className="flex items-center justify-between text-xs mb-2">
                 <span className="text-content-secondary">{t(lang, 'cacheHitRate')}</span>
-                <span className="text-content-primary tabular-nums">{cacheHitRate}%</span>
+                <span className="text-content-primary tabular-nums">{cacheHitRate.toFixed(1)}%</span>
               </div>
             </>
-          ) : (
-            <div className="flex items-center justify-between text-xs mb-2">
-              <span className="text-content-secondary">{t(lang, 'messagesLabel')}</span>
-              <span className="text-content-primary tabular-nums">{formatTokens(contextTokens)}</span>
-            </div>
-          )}
+          ) : null}
           {/* 进度条 */}
           <div className="flex items-center gap-3 mb-1">
             <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
@@ -233,7 +226,7 @@ export default function RightPanel({
               />
             </div>
             <span className={`text-xs font-medium tabular-nums ${contextPercent >= 95 ? 'text-danger' : 'text-content-secondary'}`}>
-              {contextPercent}%
+              {contextPercent.toFixed(1)}%
             </span>
           </div>
           <div className="text-xs text-content-secondary tabular-nums">

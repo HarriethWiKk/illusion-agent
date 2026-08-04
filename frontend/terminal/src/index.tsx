@@ -40,6 +40,17 @@ process.on('SIGTERM', () => {
 });
 
 /**
+ * 设置终端 tab 标题为 IllusionAgent
+ *
+ * 通过写入 ANSI 转义序列 ESC ] 0 ; title BEL 设置终端窗口/tab 标题。
+ * 在支持该序列的终端（大多数现代终端）上生效。
+ * 仅在 TTY 环境下写入，避免重定向到文件时产生垃圾字符。
+ */
+if (process.stdout.isTTY) {
+	process.stdout.write('\x1B]0;IllusionAgent\x07');
+}
+
+/**
  * 抑制终端 resize 事件
  *
  * Ink 的 eraseLines(N) + 输出模式在每次 resize 时会导致可见的闪烁。
