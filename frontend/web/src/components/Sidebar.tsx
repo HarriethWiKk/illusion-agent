@@ -40,6 +40,8 @@ interface SidebarProps {
   width?: number;
   /** 正在恢复的会话 ID（可选，用于在对应会话项显示加载 spinner） */
   restoringSessionId?: string | null;
+  /** 打开设置配置表单回调（点击底部 settings 齿轮图标触发） */
+  onOpenSettings: () => void;
 }
 
 /**
@@ -90,7 +92,7 @@ function SessionItem({ session, index, isRestoring, onSelect }: {
 }
 
 export default function Sidebar({
-  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId,
+  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId, onOpenSettings,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [listExpanded, setListExpanded] = useState(false);
@@ -105,6 +107,16 @@ export default function Sidebar({
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
+        <button
+          onClick={onOpenSettings}
+          title={t(lang, 'sidebarSettingsTooltip')}
+          className="mt-auto w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
       </div>
@@ -206,10 +218,17 @@ export default function Sidebar({
         )}
       </div>
       <div className="px-4 py-3 border-t border-border-light">
-        <div className="flex items-center gap-2 text-xs">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`} style={connected ? { boxShadow: '0 0 6px rgba(76, 175, 125, 0.5)' } : undefined} />
-          <span className="text-content-disabled text-[11px]">{connected ? 'Connected' : t(lang, 'disconnected')}</span>
-        </div>
+        <button
+          onClick={onOpenSettings}
+          title={t(lang, 'sidebarSettingsTooltip')}
+          className="w-full flex items-center justify-center gap-2 text-xs text-content-secondary hover:text-content-primary glass-option-hover rounded-lg px-2 py-1.5 transition-colors cursor-pointer"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span className="text-[11px]">{t(lang, 'settings')}</span>
+        </button>
       </div>
     </aside>
   );

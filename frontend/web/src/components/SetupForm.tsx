@@ -1,0 +1,1491 @@
+/**
+ * @fileoverview 首次登录 / 设置配置表单组件
+ *
+ * 在以下场景弹出：
+ * - 首次登录：后端 ready 事件携带 first_login=true 时自动弹出，要求至少配置一个 env
+ * - 修改配置：点击左栏底部 settings 齿轮图标弹出，可修改任意配置
+ *
+ * 两个 Tab：
+ * - 基础配置：界面语言（优先填写）、API 环境配置（env_N）、工作目录
+ * - 渠道配置：飞书 / 微信 / QQ 渠道配置 + 启用开关
+ *
+ * 视觉风格与 AgentWizardForm 一致：居中简洁卡片（w-[560px]）、Tab 导航、
+ * GlassDropdown 玻璃拟态下拉、输入框聚焦散光。
+ *
+ * 数据流：
+ * - 挂载时并行加载 settings / envs / channels（REST）
+ * - ui_language 改动通过 onSetUiLanguage 走 WebSocket 同步（即时生效）
+ * - env 增删改 / working_directory / channels 通过 REST 提交
+ * - copilot/codex 走 OAuth 设备码流程，token 由后端全局管理，env 创建时 api_key 留空
+ *
+ * @module SetupForm
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { t, type UiLanguage } from '../i18n';
+import { GlassDropdown, type DropdownOption } from './GlassDropdown';
+import {
+  envApi, oauthApi, settingsApi, channelsApi,
+  type EnvInfo, type SettingsResponse, type CreateEnvPayload,
+  type ChannelRuntimeStatusEntry, type ChannelsRuntimeStatus,
+} from '../api';
+
+/** 各 api_format 的默认接入地址（与 CLI auth.py _DEFAULT_ENDPOINTS 对齐） */
+const DEFAULT_ENDPOINTS: Record<string, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com/v1',
+  copilot: 'https://api.githubcopilot.com',
+  codex: 'https://chatgpt.com/backend-api',
+};
+
+/** 各 api_format 的默认模型名（与 CLI auth.py _DEFAULT_MODELS 对齐） */
+const DEFAULT_MODELS: Record<string, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-5.4',
+  copilot: 'gpt-5.5',
+  codex: 'codex-mini',
+};
+
+/** api_format 可选值 */
+const API_FORMATS = ['anthropic', 'openai', 'copilot', 'codex'] as const;
+/** copilot/codex 走 OAuth，其余走密钥输入 */
+const OAUTH_FORMATS = new Set(['copilot', 'codex']);
+/** OAuth 轮询间隔（毫秒） */
+const OAUTH_POLL_INTERVAL = 5000;
+/** OAuth 最大轮询次数（约 5 分钟超时） */
+const OAUTH_MAX_POLLS = 60;
+
+/** 环境草稿（新增 / 编辑共用） */
+interface EnvDraft {
+  /** API 格式 */
+  api_format: string;
+  /** 接入地址 */
+  base_url: string;
+  /** 认证方式（仅 anthropic/openai） */
+  auth_type: 'api_key' | 'auth_token';
+  /** API Key */
+  api_key: string;
+  /** Auth Token（Bearer） */
+  auth_token: string;
+  /** 模型列表（至少一个） */
+  models: string[];
+  /** OAuth 是否已完成（仅 copilot/codex） */
+  oauth_authorized: boolean;
+}
+
+/** OAuth 流程状态 */
+interface OauthState {
+  status: 'idle' | 'pending' | 'success' | 'failed';
+  user_code: string;
+  verification_uri: string;
+  device_code: string;
+  error: string;
+}
+
+/** 新建环境草稿初始值 */
+function makeInitialDraft(): EnvDraft {
+  return {
+    api_format: 'anthropic',
+    base_url: DEFAULT_ENDPOINTS['anthropic'] ?? '',
+    auth_type: 'api_key',
+    api_key: '',
+    auth_token: '',
+    models: [DEFAULT_MODELS['anthropic'] ?? ''],
+    oauth_authorized: false,
+  };
+}
+
+/** 渠道配置类型（与后端 ChannelsConfig 对齐） */
+interface GroupPolicy {
+  mode: string;
+  allowlist: string[];
+  blacklist: string[];
+  admin_list: string[];
+}
+interface FeishuCfg {
+  enabled: boolean; app_id: string; app_secret: string; domain: string;
+  require_mention: boolean; allow_bots: boolean; group_sessions_per_user: boolean;
+  show_reasoning: boolean; group_policy: GroupPolicy;
+}
+interface WeixinCfg {
+  enabled: boolean; account_id: string; token: string; base_url: string;
+  cdn_base_url: string; user_id: string; allow_bots: boolean;
+}
+interface QQCfg {
+  enabled: boolean; app_id: string; client_secret: string; markdown_support: boolean;
+  allow_bots: boolean; group_sessions_per_user: boolean; require_mention: boolean;
+  show_reasoning: boolean; group_policy: GroupPolicy;
+}
+interface ChannelsCfg {
+  feishu: FeishuCfg; weixin: WeixinCfg; qq: QQCfg;
+}
+
+/** 渠道配置默认值（与后端模型默认对齐） */
+function makeEmptyChannels(): ChannelsCfg {
+  const gp: GroupPolicy = { mode: 'open', allowlist: [], blacklist: [], admin_list: [] };
+  return {
+    feishu: { enabled: false, app_id: '', app_secret: '', domain: 'feishu', require_mention: true, allow_bots: false, group_sessions_per_user: true, show_reasoning: true, group_policy: { ...gp } },
+    weixin: { enabled: false, account_id: '', token: '', base_url: 'https://ilinkai.weixin.qq.com', cdn_base_url: 'https://novac2c.cdn.weixin.qq.com/c2c', user_id: '', allow_bots: false },
+    qq: { enabled: false, app_id: '', client_secret: '', markdown_support: false, allow_bots: false, group_sessions_per_user: true, require_mention: true, show_reasoning: true, group_policy: { ...gp } },
+  };
+}
+
+/**
+ * SetupForm 组件属性接口
+ */
+interface SetupFormProps {
+  /** 当前 UI 语言（由 App 通过 WebSocket state 驱动） */
+  lang: UiLanguage;
+  /** 是否首次登录模式（true 时 env 必填，标题为初始配置） */
+  firstLogin: boolean;
+  /** ui_language 改动回调（走 WebSocket web_set_setting 即时同步） */
+  onSetUiLanguage: (lang: 'zh-CN' | 'en-US') => void;
+  /** 保存成功后回调（App 可据此刷新 / 重连） */
+  onSaved: () => void;
+  /** 关闭表单回调 */
+  onClose: () => void;
+}
+
+/** 输入框通用样式（聚焦散光） */
+const inputClass = 'w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200';
+/** 字段标签样式 */
+const labelClass = 'text-xs font-medium text-content-secondary mb-1.5';
+
+/**
+ * SetupForm 首次登录 / 设置配置表单组件
+ *
+ * @param props - 组件属性
+ * @returns 表单 JSX
+ */
+export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose }: SetupFormProps) {
+  /** 当前 Tab */
+  const [tab, setTab] = useState<'settings' | 'channels'>('settings');
+  /** 加载状态 */
+  const [loading, setLoading] = useState(true);
+  /** 加载错误 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 非敏感 settings 字段 */
+  const [settings, setSettings] = useState<SettingsResponse | null>(null);
+  /** 已配置环境列表 */
+  const [envs, setEnvs] = useState<EnvInfo[]>([]);
+  /** 活跃环境键名 */
+  const [activeEnvKey, setActiveEnvKey] = useState<string | null>(null);
+  /** 渠道配置 */
+  const [channels, setChannels] = useState<ChannelsCfg>(makeEmptyChannels);
+  /** 工作目录输入值 */
+  const [workDir, setWorkDir] = useState('');
+  /** 界面语言选择值（后端格式 zh-CN / en-US） */
+  const [uiLang, setUiLang] = useState<'zh-CN' | 'en-US'>('zh-CN');
+  /** 新增环境草稿（首次模式 + 修改模式的新增分支共用） */
+  const [draft, setDraft] = useState<EnvDraft>(makeInitialDraft);
+  /** 修改模式是否展开新增环境表单 */
+  const [showAddEnv, setShowAddEnv] = useState(false);
+  /** 保存中 */
+  const [saving, setSaving] = useState(false);
+  /** 保存错误 */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** 操作错误（env 列表即时操作的错误） */
+  const [opError, setOpError] = useState<string | null>(null);
+
+  // 挂载时并行加载 settings / envs / channels
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [s, e, c] = await Promise.all([settingsApi.get(), envApi.list(), channelsApi.get()]);
+        if (cancelled) return;
+        setSettings(s);
+        setWorkDir(s.working_directory ?? '');
+        // 后端 ui_language 为 en-US / zh-CN / 空串；空串默认 zh-CN
+        setUiLang(s.ui_language === 'en-US' ? 'en-US' : 'zh-CN');
+        setEnvs(e.envs);
+        setActiveEnvKey(e.active_env_key);
+        setChannels(c as unknown as ChannelsCfg);
+        setLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Esc 键关闭（首次登录时禁用，强制用户完成配置）
+  useEffect(() => {
+    if (firstLogin) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose, firstLogin]);
+
+  /** 切换 api_format 时同步默认 base_url 和首个模型 */
+  const handleFormatChange = useCallback((fmt: string) => {
+    setDraft((d) => ({
+      ...d,
+      api_format: fmt,
+      base_url: DEFAULT_ENDPOINTS[fmt] ?? d.base_url,
+      models: d.models.length > 0 ? d.models : [DEFAULT_MODELS[fmt] ?? ''],
+      oauth_authorized: false,
+    }));
+  }, []);
+
+  /** 更新草稿中指定模型 */
+  const updateModel = useCallback((idx: number, value: string) => {
+    setDraft((d) => {
+      const next = [...d.models];
+      next[idx] = value;
+      return { ...d, models: next };
+    });
+  }, []);
+
+  /** 添加空模型行 */
+  const addModel = useCallback(() => {
+    setDraft((d) => ({ ...d, models: [...d.models, ''] }));
+  }, []);
+
+  /** 移除指定模型行 */
+  const removeModel = useCallback((idx: number) => {
+    setDraft((d) => ({ ...d, models: d.models.filter((_, i) => i !== idx) }));
+  }, []);
+
+  /** 草稿是否可提交（env 校验） */
+  const draftValid = useCallback((d: EnvDraft): boolean => {
+    if (!d.api_format) return false;
+    if (d.models.filter((m) => m.trim()).length === 0) return false;
+    if (OAUTH_FORMATS.has(d.api_format)) return d.oauth_authorized;
+    // anthropic / openai 需要对应认证字段非空
+    return d.auth_type === 'api_key' ? d.api_key.trim() !== '' : d.auth_token.trim() !== '';
+  }, []);
+
+  /** 提交草稿创建 env（处理 model_3+ 通过 add_models 补充） */
+  const createEnvFromDraft = useCallback(async (d: EnvDraft): Promise<string> => {
+    const models = d.models.map((m) => m.trim()).filter(Boolean);
+    const payload: CreateEnvPayload = {
+      api_format: d.api_format,
+      base_url: d.base_url.trim(),
+      model_1: models[0] ?? '',
+    };
+    if (models[1]) payload.model_2 = models[1];
+    // OAuth 格式不传密钥（token 由后端全局管理）；其余按 auth_type 传
+    if (!OAUTH_FORMATS.has(d.api_format)) {
+      if (d.auth_type === 'api_key') payload.api_key = d.api_key.trim();
+      else payload.auth_token = d.auth_token.trim();
+    }
+    const res = await envApi.create(payload);
+    // 超过 2 个模型：通过 add_models 补充 model_3+
+    if (models.length > 2) {
+      await envApi.update(res.env_key, {
+        add_models: models.slice(2).map((m, i) => ({ key: `model_${i + 3}`, value: m })),
+      });
+    }
+    return res.env_key;
+  }, []);
+
+  /** 保存全部配置 */
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // 1. ui_language 改动走 WebSocket 即时同步
+      if (settings && uiLang !== settings.ui_language) {
+        onSetUiLanguage(uiLang);
+      }
+      // 2. 首次模式或修改模式展开新增 env：创建 env
+      if ((firstLogin || showAddEnv) && draftValid(draft)) {
+        await createEnvFromDraft(draft);
+      }
+      // 3. 工作目录改动
+      if (settings && (workDir.trim() || '') !== (settings.working_directory ?? '')) {
+        await settingsApi.updateWorkingDirectory(workDir.trim());
+      }
+      // 4. 渠道配置
+      await channelsApi.update(channels as unknown as Parameters<typeof channelsApi.update>[0]);
+      setSaving(false);
+      onSaved();
+    } catch (err) {
+      setSaving(false);
+      setSaveError(err instanceof Error ? err.message : String(err));
+    }
+  }, [settings, uiLang, workDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
+
+  /** 删除环境（即时 API） */
+  const handleDeleteEnv = useCallback(async (envKey: string) => {
+    setOpError(null);
+    try {
+      await envApi.remove(envKey);
+      const e = await envApi.list();
+      setEnvs(e.envs);
+      setActiveEnvKey(e.active_env_key);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  /** 向已有环境追加模型（即时 API，类似 CLI /model add 流程） */
+  const handleAddModel = useCallback(async (envKey: string, modelValue: string) => {
+    setOpError(null);
+    try {
+      const env = envs.find((e) => e.env_key === envKey);
+      if (!env) return;
+      // 模型 key 为 model_1、model_2 ...，按当前数量递增
+      const modelCount = Object.keys(env.models).length;
+      const nextKey = `model_${modelCount + 1}`;
+      await envApi.update(envKey, { add_models: [{ key: nextKey, value: modelValue }] });
+      const e = await envApi.list();
+      setEnvs(e.envs);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  }, [envs]);
+
+  /** 从已有环境移除模型（即时 API） */
+  const handleRemoveModel = useCallback(async (envKey: string, modelKey: string) => {
+    setOpError(null);
+    try {
+      await envApi.update(envKey, { remove_models: [modelKey] });
+      const e = await envApi.list();
+      setEnvs(e.envs);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  /** 选择界面语言（即时同步 + 更新本地） */
+  const handlePickUiLang = useCallback((val: 'zh-CN' | 'en-US') => {
+    setUiLang(val);
+    onSetUiLanguage(val);
+  }, [onSetUiLanguage]);
+
+  /** 是否可保存 */
+  const canSave = !saving && !loading && (
+    firstLogin ? draftValid(draft) : true
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-md animate-fade-in" onClick={firstLogin ? undefined : onClose}>
+      <div
+        className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[560px] max-w-[92vw] max-h-[88vh] flex flex-col animate-scale-in modal-origin-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 标题栏 */}
+        <div className="px-6 py-4 border-b border-border-light flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-semibold text-content-primary">
+              {firstLogin ? t(lang, 'setupFormTitle') : t(lang, 'settings')}
+            </h3>
+            {firstLogin && <span className="text-xs text-content-disabled">{t(lang, 'setupFormSubtitle')}</span>}
+          </div>
+          {!firstLogin && (
+            <button
+              onClick={onClose}
+              title={t(lang, 'setupFormClose')}
+              className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-content-disabled hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
+            </button>
+          )}
+        </div>
+
+        {/* Tab 导航栏 */}
+        <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0">
+          {(['settings', 'channels'] as const).map((tabKey, idx) => {
+            const isActive = tab === tabKey;
+            const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle' : 'setupFormChannelsTitle';
+            return (
+              <button
+                key={tabKey}
+                onClick={() => setTab(tabKey)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                  isActive ? 'bg-primary text-white' : 'text-content-secondary hover:bg-surface-hover'
+                }`}
+              >
+                <span className="mr-1">{idx + 1}.</span>{t(lang, labelKey)}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 内容区 */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-sm text-content-disabled">
+              <svg className="w-4 h-4 animate-spin mr-2" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              {t(lang, 'setupFormSaving')}
+            </div>
+          ) : loadError ? (
+            <div className="text-sm text-danger py-4">{t(lang, 'setupFormLoadFailed')}: {loadError}</div>
+          ) : tab === 'settings' ? (
+            <SettingsTab
+              lang={lang}
+              firstLogin={firstLogin}
+              uiLang={uiLang}
+              onPickUiLang={handlePickUiLang}
+              workDir={workDir}
+              onWorkDirChange={setWorkDir}
+              envs={envs}
+              activeEnvKey={activeEnvKey}
+              onDeleteEnv={handleDeleteEnv}
+              onAddModelToEnv={handleAddModel}
+              onRemoveModelFromEnv={handleRemoveModel}
+              showAddEnv={showAddEnv}
+              onToggleAddEnv={() => setShowAddEnv(!showAddEnv)}
+              draft={draft}
+              onDraftChange={setDraft}
+              onFormatChange={handleFormatChange}
+              onUpdateModel={updateModel}
+              onAddModel={addModel}
+              onRemoveModel={removeModel}
+              opError={opError}
+            />
+          ) : (
+            <ChannelsTab lang={lang} channels={channels} onChannelsChange={setChannels} />
+          )}
+        </div>
+
+        {/* 底部操作栏 */}
+        <div className="px-6 py-4 border-t border-border-light flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
+            >
+              {t(lang, 'setupFormClose')}
+            </button>
+            {saveError && <span className="text-xs text-danger">{t(lang, 'setupFormSaveFailed')}: {saveError}</span>}
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={!canSave}
+            className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {saving && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+            {saving ? t(lang, 'setupFormSaving') : t(lang, 'setupFormSave')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== 环境选择器（每个端点独立触发器，点击展开配置） =====
+
+interface EnvSelectorProps {
+  lang: UiLanguage;
+  envs: EnvInfo[];
+  activeEnvKey: string | null;
+  onDelete: (key: string) => void;
+  /** 向已有环境追加模型 */
+  onAddModel: (envKey: string, modelValue: string) => void;
+  /** 从已有环境移除模型（envKey, modelKey） */
+  onRemoveModel: (envKey: string, modelKey: string) => void;
+  opError: string | null;
+}
+
+/**
+ * 环境选择器：每个环境（端点）显示一个独立的可折叠触发器，
+ * 触发器显示 base_url（https 端点），点击展开该环境的配置
+ * （api_format、模型列表、追加/移除模型、删除）。
+ * 不显示裸 env_N、不显示"已配置凭据"、不显示"设为当前"。
+ */
+function EnvSelector(p: EnvSelectorProps) {
+  const { lang } = p;
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, 'setupEnvListTitle')}</div>
+      <div className="space-y-1.5">
+        {p.envs.map((env) => (
+          <EnvTriggerCard key={env.env_key} lang={lang} env={env} isActive={env.env_key === p.activeEnvKey} onDelete={p.onDelete} onAddModel={p.onAddModel} onRemoveModel={p.onRemoveModel} />
+        ))}
+      </div>
+      {p.opError && <div className="text-xs text-danger mt-1">{p.opError}</div>}
+    </div>
+  );
+}
+
+/** 单个环境触发卡片属性 */
+interface EnvTriggerCardProps {
+  lang: UiLanguage;
+  env: EnvInfo;
+  isActive: boolean;
+  onDelete: (key: string) => void;
+  onAddModel: (envKey: string, modelValue: string) => void;
+  onRemoveModel: (envKey: string, modelKey: string) => void;
+}
+
+/** 单个环境触发卡片：触发器显示 base_url，点击展开配置和模型编辑 */
+function EnvTriggerCard({ lang, env, isActive, onDelete, onAddModel, onRemoveModel }: EnvTriggerCardProps) {
+  /** 是否展开 */
+  const [expanded, setExpanded] = useState(false);
+  /** 新增模型输入值 */
+  const [newModel, setNewModel] = useState('');
+  /** 模型字典的键值对列表 */
+  const modelEntries = Object.entries(env.models);
+
+  return (
+    <div className={`rounded-lg border overflow-hidden transition-colors ${isActive ? 'border-primary/40' : 'border-border-light'}`}>
+      {/* 触发器行：base_url + 活跃指示灯 */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-sm cursor-pointer transition-colors ${isActive ? 'bg-primary-light/30' : 'bg-surface-card-alt hover:bg-surface-hover'}`}
+      >
+        {/* 活跃指示灯 */}
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? 'bg-primary' : 'bg-content-disabled/40'}`} />
+        {/* base_url（https 端点） */}
+        <span className={`flex-1 text-left truncate ${isActive ? 'text-primary font-medium' : 'text-content-primary'}`}>{env.base_url}</span>
+        {/* api_format 标签 */}
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0 font-medium">{env.api_format}</span>
+        {/* 展开/收起箭头 */}
+        <svg className={`w-3 h-3 shrink-0 transition-transform text-content-disabled ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
+      </button>
+
+      {/* 展开区：模型列表 + 追加/移除 + 切换/删除 */}
+      {expanded && (
+        <div className="px-3 py-2.5 border-t border-border-light space-y-2.5 bg-surface-card">
+          {/* 模型列表 */}
+          <div>
+            <div className="text-[11px] text-content-disabled mb-1.5">{t(lang, 'setupFieldModels')}</div>
+            {modelEntries.length === 0 ? (
+              <div className="text-xs text-content-disabled italic">{t(lang, 'setupEnvModelsHint')}</div>
+            ) : (
+              <div className="space-y-1">
+                {modelEntries.map(([modelKey, modelValue]) => (
+                  <div key={modelKey} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={modelValue}
+                      readOnly
+                      className="flex-1 px-2 py-1 rounded text-xs bg-surface-card-alt border border-border-light text-content-primary font-mono"
+                    />
+                    <button
+                      onClick={() => onRemoveModel(env.env_key, modelKey)}
+                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-content-disabled hover:text-danger hover:bg-surface-hover transition-colors cursor-pointer"
+                      title={t(lang, 'setupFieldRemoveModel')}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 6h8" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 追加模型输入 */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newModel}
+              onChange={(e) => setNewModel(e.target.value)}
+              className={inputClass}
+              placeholder={t(lang, 'setupFieldModel')}
+            />
+            <button
+              onClick={() => {
+                if (newModel.trim()) {
+                  onAddModel(env.env_key, newModel.trim());
+                  setNewModel('');
+                }
+              }}
+              disabled={!newModel.trim()}
+              className="shrink-0 px-2 py-1.5 rounded-md text-xs text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              + {t(lang, 'setupFieldAddModel')}
+            </button>
+          </div>
+
+          {/* 底部操作：删除（非活跃环境可删除） */}
+          <div className="flex items-center gap-2 pt-1">
+            {!isActive && (
+              <button
+                onClick={() => onDelete(env.env_key)}
+                className="px-2.5 py-1 rounded-md text-xs text-danger border border-danger/30 hover:bg-danger/10 transition-colors cursor-pointer"
+              >
+                {t(lang, 'setupEnvDelete')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== 基础配置 Tab =====
+
+interface SettingsTabProps {
+  lang: UiLanguage;
+  firstLogin: boolean;
+  uiLang: 'zh-CN' | 'en-US';
+  onPickUiLang: (v: 'zh-CN' | 'en-US') => void;
+  workDir: string;
+  onWorkDirChange: (v: string) => void;
+  envs: EnvInfo[];
+  activeEnvKey: string | null;
+  onDeleteEnv: (k: string) => void;
+  /** 向已有环境追加模型（envKey, modelValue） */
+  onAddModelToEnv: (envKey: string, modelValue: string) => void;
+  /** 从已有环境移除模型（envKey, modelKey） */
+  onRemoveModelFromEnv: (envKey: string, modelKey: string) => void;
+  showAddEnv: boolean;
+  onToggleAddEnv: () => void;
+  draft: EnvDraft;
+  onDraftChange: (d: EnvDraft) => void;
+  onFormatChange: (f: string) => void;
+  onUpdateModel: (i: number, v: string) => void;
+  onAddModel: () => void;
+  onRemoveModel: (i: number) => void;
+  opError: string | null;
+}
+
+/** 基础配置 Tab：界面语言 + 环境配置 + 工作目录 */
+function SettingsTab(p: SettingsTabProps) {
+  const { lang } = p;
+  return (
+    <div className="space-y-5">
+      {/* 界面语言（优先填写） */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldUiLanguage')}</div>
+        <div className="flex gap-3">
+          {([
+            { value: 'zh-CN', label: '中文 (zh-CN)' },
+            { value: 'en-US', label: 'English (en-US)' },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => p.onPickUiLang(opt.value)}
+              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-all cursor-pointer ${
+                p.uiLang === opt.value
+                  ? 'border-primary bg-primary-light text-primary'
+                  : 'border-border-light text-content-secondary hover:bg-surface-hover'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldUiLanguageHint')}</div>
+      </div>
+
+      {/* 环境选择器（修改模式）：触发器显示 base_url，点击展开下拉列表 */}
+      {!p.firstLogin && p.envs.length > 0 && (
+        <EnvSelector
+          lang={lang}
+          envs={p.envs}
+          activeEnvKey={p.activeEnvKey}
+          onDelete={p.onDeleteEnv}
+          onAddModel={p.onAddModelToEnv}
+          onRemoveModel={p.onRemoveModelFromEnv}
+          opError={p.opError}
+        />
+      )}
+
+      {/* 新增环境入口（修改模式） */}
+      {!p.firstLogin && (
+        <div>
+          <button
+            onClick={p.onToggleAddEnv}
+            className="px-3 py-1.5 rounded-md text-sm border border-border-light text-content-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            {p.showAddEnv ? '−' : '+'} {t(lang, 'setupEnvAdd')}
+          </button>
+        </div>
+      )}
+
+      {/* 环境编辑器（首次模式始终显示；修改模式展开时显示） */}
+      {(p.firstLogin || p.showAddEnv) && (
+        <EnvEditor
+          lang={lang}
+          draft={p.draft}
+          onDraftChange={p.onDraftChange}
+          onFormatChange={p.onFormatChange}
+          onUpdateModel={p.onUpdateModel}
+          onAddModel={p.onAddModel}
+          onRemoveModel={p.onRemoveModel}
+        />
+      )}
+
+      {/* 首次模式未配置 env 提示 */}
+      {p.firstLogin && p.envs.length === 0 && !p.draft.models.some((m) => m.trim()) && (
+        <div className="text-xs text-content-disabled">{t(lang, 'setupEnvAtLeastOne')}</div>
+      )}
+
+      {/* 工作目录 */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldWorkingDirectory')}</div>
+        <input
+          type="text"
+          value={p.workDir}
+          onChange={(e) => p.onWorkDirChange(e.target.value)}
+          className={inputClass}
+          placeholder={t(lang, 'setupFieldWorkingDirectoryHint')}
+        />
+        <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldWorkingDirectoryHint')}</div>
+      </div>
+    </div>
+  );
+}
+
+// ===== 环境编辑器 =====
+
+interface EnvEditorProps {
+  lang: UiLanguage;
+  draft: EnvDraft;
+  onDraftChange: (d: EnvDraft) => void;
+  onFormatChange: (f: string) => void;
+  onUpdateModel: (i: number, v: string) => void;
+  onAddModel: () => void;
+  onRemoveModel: (i: number) => void;
+}
+
+/** 环境编辑器：api_format / base_url / 认证 / 模型列表 / OAuth */
+function EnvEditor({ lang, draft, onDraftChange, onFormatChange, onUpdateModel, onAddModel, onRemoveModel }: EnvEditorProps) {
+  const isOauth = OAUTH_FORMATS.has(draft.api_format);
+  /** OAuth 流程状态 */
+  const [oauth, setOauth] = useState<OauthState>({ status: 'idle', user_code: '', verification_uri: '', device_code: '', error: '' });
+  /** 轮询计数 ref */
+  const pollCountRef = useRef(0);
+
+  // OAuth 轮询：status=pending 时定时 poll
+  useEffect(() => {
+    if (oauth.status !== 'pending') return;
+    pollCountRef.current = 0;
+    const provider = draft.api_format as 'copilot' | 'codex';
+    const timer = setInterval(async () => {
+      pollCountRef.current += 1;
+      if (pollCountRef.current > OAUTH_MAX_POLLS) {
+        clearInterval(timer);
+        setOauth((s) => ({ ...s, status: 'failed', error: 'timeout' }));
+        return;
+      }
+      try {
+        const res = await oauthApi.poll(provider, oauth.device_code);
+        if (res.success) {
+          clearInterval(timer);
+          setOauth((s) => ({ ...s, status: 'success' }));
+          onDraftChange({ ...draft, oauth_authorized: true });
+        } else if (res.error) {
+          clearInterval(timer);
+          setOauth((s) => ({ ...s, status: 'failed', error: res.error ?? 'failed' }));
+        }
+      } catch (err) {
+        clearInterval(timer);
+        setOauth((s) => ({ ...s, status: 'failed', error: err instanceof Error ? err.message : String(err) }));
+      }
+    }, OAUTH_POLL_INTERVAL);
+    return () => clearInterval(timer);
+  }, [oauth.status, oauth.device_code, draft.api_format, draft, onDraftChange]);
+
+  /** 启动 OAuth 设备码流程 */
+  const startOauth = useCallback(async () => {
+    setOauth({ status: 'pending', user_code: '', verification_uri: '', device_code: '', error: '' });
+    try {
+      const provider = draft.api_format as 'copilot' | 'codex';
+      const res = await oauthApi.start(provider);
+      setOauth({ status: 'pending', user_code: res.user_code, verification_uri: res.verification_uri, device_code: res.device_code, error: '' });
+    } catch (err) {
+      setOauth({ status: 'failed', user_code: '', verification_uri: '', device_code: '', error: err instanceof Error ? err.message : String(err) });
+    }
+  }, [draft.api_format]);
+
+  return (
+    <div className="space-y-4 rounded-lg border border-border-light p-4 bg-surface-card-alt/50">
+      {/* api_format */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldApiFormat')}</div>
+        <GlassDropdown value={draft.api_format} options={formatOptionsLocal(lang)} onChange={onFormatChange} />
+      </div>
+
+      {/* base_url */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldBaseUrl')}</div>
+        <input
+          type="text"
+          value={draft.base_url}
+          onChange={(e) => onDraftChange({ ...draft, base_url: e.target.value })}
+          className={inputClass}
+        />
+      </div>
+
+      {/* 认证：OAuth 格式走设备码，其余走密钥输入 */}
+      {isOauth ? (
+        <div className="space-y-2">
+          <div className={labelClass}>{t(lang, 'setupFieldAuthType')}</div>
+          {oauth.status === 'idle' && (
+            <button onClick={startOauth} className="px-3 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer">
+              {t(lang, 'setupOauthStart')}
+            </button>
+          )}
+          {oauth.status === 'pending' && (
+            <div className="space-y-1.5 rounded-md border border-border-light p-3 bg-surface-card">
+              <div className="text-xs text-content-secondary">{t(lang, 'setupOauthOpenUrl')}</div>
+              <div className="text-sm text-primary break-all">{oauth.verification_uri}</div>
+              <div className="text-xs text-content-secondary">{t(lang, 'setupOauthDeviceCode')}</div>
+              <div className="text-sm font-mono text-content-primary tracking-widest">{oauth.user_code}</div>
+              <div className="flex items-center gap-2 text-xs text-content-disabled">
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                {t(lang, 'setupOauthPolling')}
+              </div>
+            </div>
+          )}
+          {oauth.status === 'success' && (
+            <div className="text-sm text-success">{t(lang, 'setupOauthSuccess')}</div>
+          )}
+          {oauth.status === 'failed' && (
+            <div className="text-sm text-danger">{t(lang, 'setupOauthFailed')}: {oauth.error}</div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div>
+            <div className={labelClass}>{t(lang, 'setupFieldAuthType')}</div>
+            <GlassDropdown
+              value={draft.auth_type}
+              options={[{ value: 'api_key', label: t(lang, 'setupAuthApiKey') }, { value: 'auth_token', label: t(lang, 'setupAuthAuthToken') }]}
+              onChange={(v) => onDraftChange({ ...draft, auth_type: v as 'api_key' | 'auth_token' })}
+            />
+          </div>
+          <div>
+            <div className={labelClass}>{draft.auth_type === 'api_key' ? t(lang, 'setupFieldApiKey') : t(lang, 'setupFieldAuthToken')}</div>
+            <input
+              type="password"
+              value={draft.auth_type === 'api_key' ? draft.api_key : draft.auth_token}
+              onChange={(e) => onDraftChange({
+                ...draft,
+                [draft.auth_type === 'api_key' ? 'api_key' : 'auth_token']: e.target.value,
+              })}
+              className={inputClass}
+            />
+          </div>
+        </>
+      )}
+
+      {/* 模型列表 */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldModels')}</div>
+        <div className="space-y-2">
+          {draft.models.map((m, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={m}
+                onChange={(e) => onUpdateModel(idx, e.target.value)}
+                className={inputClass}
+                placeholder={t(lang, 'setupFieldModel')}
+              />
+              {draft.models.length > 1 && (
+                <button onClick={() => onRemoveModel(idx)} className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-content-disabled hover:text-danger hover:bg-surface-hover transition-colors cursor-pointer" title={t(lang, 'setupFieldRemoveModel')}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 6h8" /></svg>
+                </button>
+              )}
+            </div>
+          ))}
+          <button onClick={onAddModel} className="text-xs text-primary hover:underline cursor-pointer">+ {t(lang, 'setupFieldAddModel')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** api_format 下拉选项（EnvEditor 局部） */
+function formatOptionsLocal(lang: UiLanguage): DropdownOption[] {
+  return API_FORMATS.map((f) => {
+    const keyMap: Record<string, string> = {
+      anthropic: 'setupFormatAnthropic', openai: 'setupFormatOpenai',
+      copilot: 'setupFormatCopilot', codex: 'setupFormatCodex',
+    };
+    return { value: f, label: t(lang, keyMap[f] ?? f) };
+  });
+}
+
+// ===== 渠道配置 Tab =====
+
+interface ChannelsTabProps {
+  lang: UiLanguage;
+  channels: ChannelsCfg;
+  onChannelsChange: (c: ChannelsCfg) => void;
+}
+
+/** 渠道配置 Tab：飞书 / 微信 / QQ */
+function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
+  /** 各渠道运行时状态（守护进程内 runner 活跃情况） */
+  const [runtimeStatus, setRuntimeStatus] = useState<ChannelsRuntimeStatus>({});
+  /** 状态加载中 */
+  const [statusLoading, setStatusLoading] = useState(false);
+  /** 守护进程初始化中（runner 尚未全部就绪），期间禁用启停 toggle */
+  const [initializing, setInitializing] = useState(true);
+
+  /** 检查初始化是否完成：所有 enabled 渠道都出现在 runtimeStatus 中 */
+  const checkInitDone = useCallback((status: ChannelsRuntimeStatus): boolean => {
+    const enabledNames = (['feishu', 'weixin', 'qq'] as const).filter((n) => channels[n].enabled);
+    if (enabledNames.length === 0) return true;
+    return enabledNames.every((n) => status[n] != null);
+  }, [channels]);
+
+  /** 刷新运行时状态 */
+  const refreshStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const s = await channelsApi.getStatus();
+      setRuntimeStatus(s);
+      if (checkInitDone(s)) setInitializing(false);
+    } catch {
+      // 守护进程未运行时静默
+    } finally {
+      setStatusLoading(false);
+    }
+  }, [checkInitDone]);
+
+  // ref 持有最新 refreshStatus，避免轮询 useEffect 因 refreshStatus 变化频繁重启
+  const refreshStatusRef = useRef(refreshStatus);
+  refreshStatusRef.current = refreshStatus;
+
+  // 挂载时加载运行时状态 + 初始化轮询（每 2s 直到完成或 60s 超时）
+  // 依赖空数组：仅挂载时启动一次，轮询内部通过 ref 调用最新函数
+  useEffect(() => {
+    refreshStatusRef.current();
+    let elapsed = 0;
+    const timer = setInterval(async () => {
+      elapsed += 2;
+      await refreshStatusRef.current();
+      if (elapsed >= 60) {
+        setInitializing(false);
+        clearInterval(timer);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  /** 启动渠道 runner
+   *
+   * 守护进程收到 start_channel 后通过 call_soon_threadsafe 异步调度
+   * _start_channel_internal 创建 runner，前端立即查询状态可能尚未创建完。
+   * 故启动成功后延迟 600ms 再刷新状态，避免偶发显示"已停止"。
+   */
+  const handleStart = useCallback(async (name: string) => {
+    try {
+      await channelsApi.start(name);
+      await new Promise((r) => setTimeout(r, 600));
+      await refreshStatus();
+    } catch { /* 静默 */ }
+  }, [refreshStatus]);
+
+  /** 停止渠道 runner */
+  const handleStop = useCallback(async (name: string) => {
+    try {
+      await channelsApi.stop(name);
+      await refreshStatus();
+    } catch { /* 静默 */ }
+  }, [refreshStatus]);
+
+  /** 切换渠道 enabled 配置（即时保存到后端，不依赖保存按钮）
+   *
+   * 停用（v=false）时先通过 IPC 停止运行中的 runner，再保存 enabled=false。
+   * 启用（v=true）时只保存配置，不自动启动 runner（由用户通过 toggle 手动启动）。
+   */
+  const handleToggleEnabled = useCallback(async (name: 'feishu' | 'weixin' | 'qq', v: boolean) => {
+    if (!v) {
+      try { await channelsApi.stop(name); } catch { /* 静默 */ }
+    }
+    onChannelsChange({ ...channels, [name]: { ...channels[name], enabled: v } });
+    channelsApi.update({ [name]: { enabled: v } } as Partial<{ feishu: { enabled: boolean }; weixin: { enabled: boolean }; qq: { enabled: boolean } }>).catch(() => { /* 静默 */ });
+  }, [channels, onChannelsChange]);
+
+  return (
+    <div className="space-y-4">
+      <ChannelSection
+        lang={lang}
+        channelName="feishu"
+        title={t(lang, 'setupChannelFeishu')}
+        enabled={channels.feishu.enabled}
+        onToggle={(v) => handleToggleEnabled('feishu', v)}
+        runtimeStatus={runtimeStatus.feishu}
+        statusLoading={statusLoading}
+        initializing={initializing}
+        onStart={handleStart}
+        onStop={handleStop}
+        footer={
+          <TestConnectionButton
+            lang={lang}
+            channelName="feishu"
+            payload={{
+              app_id: channels.feishu.app_id,
+              app_secret: channels.feishu.app_secret,
+              domain: channels.feishu.domain,
+            }}
+          />
+        }
+      >
+        <TextField lang={lang} labelKey="setupChannelAppId" value={channels.feishu.app_id} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, app_id: v } })} />
+        <TextField lang={lang} labelKey="setupChannelAppSecret" value={channels.feishu.app_secret} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, app_secret: v } })} />
+        <SelectField lang={lang} labelKey="setupChannelDomain" value={channels.feishu.domain}
+          options={[{ value: 'feishu', label: t(lang, 'setupChannelDomainFeishu') }, { value: 'lark', label: t(lang, 'setupChannelDomainLark') }]}
+          onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, domain: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelRequireMention" checked={channels.feishu.require_mention} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, require_mention: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelAllowBots" checked={channels.feishu.allow_bots} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, allow_bots: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelGroupSessionsPerUser" checked={channels.feishu.group_sessions_per_user} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, group_sessions_per_user: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelShowReasoning" checked={channels.feishu.show_reasoning} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, show_reasoning: v } })} />
+        <GroupPolicyFields lang={lang} policy={channels.feishu.group_policy} onChange={(gp) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, group_policy: gp } })} />
+      </ChannelSection>
+
+      <ChannelSection
+        lang={lang}
+        channelName="weixin"
+        title={t(lang, 'setupChannelWeixin')}
+        enabled={channels.weixin.enabled}
+        onToggle={(v) => handleToggleEnabled('weixin', v)}
+        runtimeStatus={runtimeStatus.weixin}
+        statusLoading={statusLoading}
+        initializing={initializing}
+        onStart={handleStart}
+        onStop={handleStop}
+        footer={
+          <WeixinQrLogin
+            lang={lang}
+            onLoginSuccess={(creds) => onChannelsChange({
+              ...channels,
+              weixin: {
+                ...channels.weixin,
+                account_id: creds.account_id,
+                token: creds.token,
+                base_url: creds.base_url,
+                user_id: creds.user_id,
+              },
+            })}
+          />
+        }
+      >
+        <TextField lang={lang} labelKey="setupChannelAccountId" value={channels.weixin.account_id} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, account_id: v } })} />
+        <TextField lang={lang} labelKey="setupChannelToken" value={channels.weixin.token} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, token: v } })} />
+        <TextField lang={lang} labelKey="setupChannelBaseUrl" value={channels.weixin.base_url} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, base_url: v } })} />
+        <TextField lang={lang} labelKey="setupChannelCdnBaseUrl" value={channels.weixin.cdn_base_url} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, cdn_base_url: v } })} />
+        <TextField lang={lang} labelKey="setupChannelUserId" value={channels.weixin.user_id} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, user_id: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelAllowBots" checked={channels.weixin.allow_bots} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, allow_bots: v } })} />
+      </ChannelSection>
+
+      <ChannelSection
+        lang={lang}
+        channelName="qq"
+        title={t(lang, 'setupChannelQQ')}
+        enabled={channels.qq.enabled}
+        onToggle={(v) => handleToggleEnabled('qq', v)}
+        runtimeStatus={runtimeStatus.qq}
+        statusLoading={statusLoading}
+        initializing={initializing}
+        onStart={handleStart}
+        onStop={handleStop}
+        footer={
+          <TestConnectionButton
+            lang={lang}
+            channelName="qq"
+            payload={{
+              app_id: channels.qq.app_id,
+              client_secret: channels.qq.client_secret,
+            }}
+          />
+        }
+      >
+        <TextField lang={lang} labelKey="setupChannelAppId" value={channels.qq.app_id} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, app_id: v } })} />
+        <TextField lang={lang} labelKey="setupChannelClientSecret" value={channels.qq.client_secret} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, client_secret: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelMarkdownSupport" checked={channels.qq.markdown_support} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, markdown_support: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelAllowBots" checked={channels.qq.allow_bots} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, allow_bots: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelGroupSessionsPerUser" checked={channels.qq.group_sessions_per_user} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, group_sessions_per_user: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelRequireMention" checked={channels.qq.require_mention} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, require_mention: v } })} />
+        <BoolField lang={lang} labelKey="setupChannelShowReasoning" checked={channels.qq.show_reasoning} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, show_reasoning: v } })} />
+        <GroupPolicyFields lang={lang} policy={channels.qq.group_policy} onChange={(gp) => onChannelsChange({ ...channels, qq: { ...channels.qq, group_policy: gp } })} />
+      </ChannelSection>
+    </div>
+  );
+}
+
+// ===== 渠道通用子组件 =====
+
+interface ChannelSectionProps {
+  lang: UiLanguage;
+  /** 渠道名（feishu/weixin/qq，用于 start/stop API 调用） */
+  channelName: string;
+  title: string;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+  /** 运行时状态（守护进程内 runner 活跃情况） */
+  runtimeStatus?: ChannelRuntimeStatusEntry;
+  /** 状态加载中 */
+  statusLoading: boolean;
+  /** 守护进程初始化中（runner 尚未全部就绪），期间禁用启停 toggle */
+  initializing: boolean;
+  /** 启动渠道 runner */
+  onStart: (name: string) => void;
+  /** 停止渠道 runner */
+  onStop: (name: string) => void;
+  /** 渠道专属底部操作区（测试连接 / 扫码登录等） */
+  footer?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+/** 单个渠道折叠卡片（标题 + 运行时启停开关 + 字段）
+ *
+ * UI 布局：
+ * - 标题行右侧：左右 toggle switch 控制运行时启停（start/stop runner）
+ * - 标题行左侧：展开箭头 + 渠道名 + 运行状态指示灯
+ * - 展开区内：首个字段为"启用状态"下拉框（控制 channels.json 的 enabled 配置）
+ */
+function ChannelSection({ lang, channelName, title, enabled, onToggle, runtimeStatus, statusLoading, initializing, onStart, onStop, footer, children }: ChannelSectionProps) {
+  const [expanded, setExpanded] = useState(false);
+  /** 操作中（启动/停止） */
+  const [actionLoading, setActionLoading] = useState(false);
+  const isRunning = runtimeStatus?.running ?? false;
+  /** 启停 toggle 是否禁用（初始化中、未 enabled、操作中、状态加载中） */
+  const toggleDisabled = initializing || !enabled || actionLoading || statusLoading;
+
+  /** 处理右侧 toggle：运行时启停（仅 enabled 且非初始化时可操作） */
+  const handleToggle = useCallback(async () => {
+    if (toggleDisabled) return;
+    setActionLoading(true);
+    try {
+      if (isRunning) await onStop(channelName);
+      else await onStart(channelName);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [toggleDisabled, isRunning, channelName, onStart, onStop]);
+
+  return (
+    <div className="rounded-lg border border-border-light overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-surface-card-alt">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-sm text-content-primary cursor-pointer">
+            <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
+            {title}
+          </button>
+          {/* 运行状态指示灯（仅启用时显示） */}
+          {enabled && (
+            <div className="flex items-center gap-1.5 ml-2">
+              {initializing ? (
+                <span className="flex items-center gap-1 text-[11px] text-content-disabled">
+                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                    <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  {t(lang, 'setupChannelInitializing')}
+                </span>
+              ) : statusLoading ? (
+                <span className="text-[11px] text-content-disabled">{t(lang, 'setupChannelStatusLoading')}</span>
+              ) : (
+                <span className={`flex items-center gap-1 text-[11px] ${isRunning ? 'text-success' : 'text-content-disabled'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-success' : 'bg-content-disabled'}`} />
+                  {isRunning ? t(lang, 'setupChannelRunning') : t(lang, 'setupChannelStopped')}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {/* 右侧 toggle：运行时启停（未 enabled 或初始化中时禁用） */}
+        <button
+          onClick={handleToggle}
+          disabled={toggleDisabled}
+          className={`relative w-9 h-5 rounded-full transition-colors ${isRunning ? 'bg-primary' : 'bg-surface-hover'} ${toggleDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+          title={isRunning ? t(lang, 'setupChannelStop') : t(lang, 'setupChannelStart')}
+        >
+          <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: isRunning ? '18px' : '2px' }} />
+        </button>
+      </div>
+      {expanded && (
+        <div className="px-4 py-3 space-y-3">
+          {/* 启用状态下拉框（替代原标题行右侧 enable toggle） */}
+          <SelectField
+            lang={lang}
+            labelKey="setupChannelEnabled"
+            value={enabled ? 'enabled' : 'disabled'}
+            options={[
+              { value: 'enabled', label: t(lang, 'setupChannelEnabledOption') },
+              { value: 'disabled', label: t(lang, 'setupChannelDisabledOption') },
+            ]}
+            onChange={(v) => onToggle(v === 'enabled')}
+          />
+          {children}
+          {footer && <div className="pt-2 border-t border-border-light">{footer}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 文本字段行 */
+function TextField({ lang, labelKey, value, onChange }: { lang: UiLanguage; labelKey: string; value: string; onChange: (v: string) => void; }) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, labelKey)}</div>
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} />
+    </div>
+  );
+}
+
+/** 布尔字段行（开关） */
+function BoolField({ lang, labelKey, checked, onChange }: { lang: UiLanguage; labelKey: string; checked: boolean; onChange: (v: boolean) => void; }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-content-secondary">{t(lang, labelKey)}</span>
+      <button
+        onClick={() => onChange(!checked)}
+        className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${checked ? 'bg-primary' : 'bg-surface-hover'}`}
+      >
+        <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: checked ? '18px' : '2px' }} />
+      </button>
+    </div>
+  );
+}
+
+/** 下拉字段行 */
+function SelectField({ lang, labelKey, value, options, onChange }: { lang: UiLanguage; labelKey: string; value: string; options: DropdownOption[]; onChange: (v: string) => void; }) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, labelKey)}</div>
+      <GlassDropdown value={value} options={options} onChange={onChange} />
+    </div>
+  );
+}
+
+/** 群组策略字段（mode + 三个逗号分隔列表） */
+function GroupPolicyFields({ lang, policy, onChange }: { lang: UiLanguage; policy: GroupPolicy; onChange: (p: GroupPolicy) => void; }) {
+  return (
+    <div className="space-y-2 rounded-md border border-border-light p-3 bg-surface-card">
+      <SelectField lang={lang} labelKey="setupChannelGroupPolicyMode" value={policy.mode}
+        options={[
+          { value: 'open', label: t(lang, 'setupChannelGroupPolicyModeOpen') },
+          { value: 'disabled', label: t(lang, 'setupChannelGroupPolicyModeDisabled') },
+          { value: 'allowlist', label: t(lang, 'setupChannelGroupPolicyModeAllowlist') },
+          { value: 'blacklist', label: t(lang, 'setupChannelGroupPolicyModeBlacklist') },
+        ]}
+        onChange={(v) => onChange({ ...policy, mode: v })} />
+      <TextField lang={lang} labelKey="setupChannelGroupPolicyAllowlist" value={policy.allowlist.join(', ')} onChange={(v) => onChange({ ...policy, allowlist: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+      <TextField lang={lang} labelKey="setupChannelGroupPolicyBlacklist" value={policy.blacklist.join(', ')} onChange={(v) => onChange({ ...policy, blacklist: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+      <TextField lang={lang} labelKey="setupChannelGroupPolicyAdminList" value={policy.admin_list.join(', ')} onChange={(v) => onChange({ ...policy, admin_list: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+    </div>
+  );
+}
+
+// ===== 测试连接按钮 =====
+
+interface TestConnectionButtonProps {
+  lang: UiLanguage;
+  channelName: string;
+  payload: { app_id?: string; app_secret?: string; client_secret?: string; domain?: string };
+}
+
+/** 测试连接按钮（飞书/QQ 校验凭据） */
+function TestConnectionButton({ lang, channelName, payload }: TestConnectionButtonProps) {
+  /** 测试状态：idle / testing / success / failed */
+  const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  /** 结果消息 */
+  const [message, setMessage] = useState('');
+
+  /** 执行测试连接 */
+  const handleTest = useCallback(async () => {
+    setStatus('testing');
+    setMessage('');
+    try {
+      const res = await channelsApi.test(channelName, payload);
+      setStatus(res.ok ? 'success' : 'failed');
+      setMessage(res.message);
+    } catch (err) {
+      setStatus('failed');
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, [channelName, payload]);
+
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <button
+        onClick={handleTest}
+        disabled={status === 'testing'}
+        className="px-3 py-1.5 rounded-md text-xs font-medium text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+      >
+        {status === 'testing' && (
+          <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+            <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        )}
+        {status === 'testing' ? t(lang, 'setupChannelTesting') : t(lang, 'setupChannelTestConnection')}
+      </button>
+      {status === 'success' && <span className="text-xs text-success">{t(lang, 'setupChannelTestSuccess')}</span>}
+      {status === 'failed' && <span className="text-xs text-danger">{t(lang, 'setupChannelTestFailed')}: {message}</span>}
+    </div>
+  );
+}
+
+// ===== 微信扫码登录 =====
+
+interface WeixinQrLoginProps {
+  lang: UiLanguage;
+  /** 扫码成功后回调，传入凭据供表单回填 */
+  onLoginSuccess: (creds: { account_id: string; token: string; base_url: string; user_id: string }) => void;
+}
+
+/** 微信扫码状态 */
+type WeixinQrState = 'idle' | 'fetching' | 'waiting' | 'scanned' | 'expired' | 'success' | 'failed';
+
+/** 微信扫码登录组件（获取二维码 → 显示图片 → 轮询状态 → 确认后回填凭据） */
+function WeixinQrLogin({ lang, onLoginSuccess }: WeixinQrLoginProps) {
+  /** 扫码流程状态 */
+  const [qrState, setQrState] = useState<WeixinQrState>('idle');
+  /** 二维码 PNG base64 */
+  const [qrImageB64, setQrImageB64] = useState('');
+  /** 错误消息 */
+  const [errorMsg, setErrorMsg] = useState('');
+  /** 二维码 hex token（轮询用） */
+  const qrcodeRef = useRef('');
+  /** 当前 API 入口（扫码重定向后可能改变） */
+  const baseUrlRef = useRef('');
+  /** 轮询计数 ref（超时控制） */
+  const pollCountRef = useRef(0);
+  /** 轮询定时器 ref */
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** 清理轮询定时器 */
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  // 组件卸载时清理定时器
+  useEffect(() => clearTimer, [clearTimer]);
+
+  /** 启动扫码流程：获取二维码并开始轮询 */
+  const startQrLogin = useCallback(async () => {
+    clearTimer();
+    setQrState('fetching');
+    setErrorMsg('');
+    try {
+      const res = await channelsApi.weixinQrStart();
+      qrcodeRef.current = res.qrcode;
+      setQrImageB64(res.qr_image_b64);
+      setQrState('waiting');
+      pollCountRef.current = 0;
+      // 开始轮询扫码状态（每 2 秒，最多 240 次 = 8 分钟）
+      timerRef.current = setInterval(async () => {
+        pollCountRef.current += 1;
+        if (pollCountRef.current > 240) {
+          clearTimer();
+          setQrState('failed');
+          setErrorMsg(t(lang, 'setupChannelWeixinQrTimeout'));
+          return;
+        }
+        try {
+          const statusResp = await channelsApi.weixinQrStatus(qrcodeRef.current, baseUrlRef.current);
+          switch (statusResp.status) {
+            case 'wait':
+              // 继续等待
+              break;
+            case 'scaned':
+              setQrState('scanned');
+              break;
+            case 'scaned_but_redirect':
+              if (statusResp.base_url) baseUrlRef.current = statusResp.base_url;
+              break;
+            case 'expired':
+              clearTimer();
+              setQrState('expired');
+              break;
+            case 'confirmed':
+              clearTimer();
+              if (statusResp.credentials) {
+                setQrState('success');
+                onLoginSuccess(statusResp.credentials);
+              } else {
+                setQrState('failed');
+                setErrorMsg('credentials missing');
+              }
+              break;
+            default:
+              // 未知状态，继续轮询
+              break;
+          }
+        } catch {
+          // 单次轮询失败不中断流程，下次重试
+        }
+      }, 2000);
+    } catch (err) {
+      setQrState('failed');
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    }
+  }, [clearTimer, lang, onLoginSuccess]);
+
+  return (
+    <div className="pt-1 space-y-2">
+      {/* 扫码登录按钮 / 状态 */}
+      {qrState === 'idle' && (
+        <button
+          onClick={startQrLogin}
+          className="px-3 py-1.5 rounded-md text-xs font-medium text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          {t(lang, 'setupChannelWeixinQrLogin')}
+        </button>
+      )}
+      {qrState === 'fetching' && (
+        <div className="flex items-center gap-2 text-xs text-content-disabled">
+          <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+            <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          {t(lang, 'setupChannelWeixinQrStart')}
+        </div>
+      )}
+      {qrState === 'expired' && (
+        <div className="space-y-2">
+          <div className="text-xs text-warning">{t(lang, 'setupChannelWeixinQrExpired')}</div>
+          <button
+            onClick={startQrLogin}
+            className="px-3 py-1.5 rounded-md text-xs font-medium text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer"
+          >
+            {t(lang, 'setupChannelWeixinQrStart')}
+          </button>
+        </div>
+      )}
+      {qrState === 'failed' && (
+        <div className="space-y-2">
+          <div className="text-xs text-danger">{t(lang, 'setupChannelWeixinQrFailed')}: {errorMsg}</div>
+          <button
+            onClick={startQrLogin}
+            className="px-3 py-1.5 rounded-md text-xs font-medium text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer"
+          >
+            {t(lang, 'setupChannelWeixinQrStart')}
+          </button>
+        </div>
+      )}
+      {qrState === 'success' && (
+        <div className="text-xs text-success">{t(lang, 'setupChannelWeixinQrSuccess')}</div>
+      )}
+
+      {/* 二维码图片 + 状态提示 */}
+      {(qrState === 'waiting' || qrState === 'scanned') && qrImageB64 && (
+        <div className="flex flex-col items-center gap-2 py-2">
+          <img
+            src={`data:image/png;base64,${qrImageB64}`}
+            alt="QR Code"
+            className="w-48 h-48 rounded-lg border border-border-light"
+          />
+          <div className="text-xs text-content-secondary">
+            {qrState === 'scanned'
+              ? t(lang, 'setupChannelWeixinQrScanned')
+              : t(lang, 'setupChannelWeixinQrWaiting')}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

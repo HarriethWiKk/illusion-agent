@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from illusion.auth.manager import AuthManager
 from illusion.config.i18n import t as _t
-from illusion.config.settings import load_settings, save_settings
+from illusion.config.settings import Settings, load_settings, save_settings
 
 
 class CreateEnvRequest(BaseModel):
@@ -50,6 +50,14 @@ class OauthPollRequest(BaseModel):
 class UpdateUiLanguageRequest(BaseModel):
     """修改界面语言请求体。"""
     ui_language: str = Field(..., pattern="^(zh-CN|en-US)$")
+
+
+class UpdateWorkingDirectoryRequest(BaseModel):
+    """修改工作目录请求体。
+
+    空字符串表示清除工作目录设置（置为 None）。
+    """
+    working_directory: str = ""
 
 
 def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
@@ -136,8 +144,10 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         # 处理 add_models / remove_models（直接操作 model_extra）
         if req.add_models or req.remove_models:
             settings = load_settings()  # 重新加载（update_env 可能已保存）
-            extras = dict(settings.model_extra or {})
-            env_data = extras.get(env_key, {})
+            # 用 model_dump → 修改 → model_validate 替代 model_copy(update=extras)，
+            # 后者对 Pydantic extra 字段（env_N）更新不可靠
+            data = settings.model_dump()
+            env_data = data.get(env_key, {})
             if isinstance(env_data, dict):
                 if req.add_models:
                     for m in req.add_models:
@@ -145,8 +155,8 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
                 if req.remove_models:
                     for key in req.remove_models:
                         env_data.pop(key, None)
-                extras[env_key] = env_data
-                new_settings = settings.model_copy(update=extras)
+                data[env_key] = env_data
+                new_settings = Settings.model_validate(data)
                 save_settings(new_settings)
         return {"success": True}
 
@@ -217,3 +227,42 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         new_settings = settings.model_copy(update={"ui_language": req.ui_language})
         save_settings(new_settings)
         return {"success": True}
+
+    @app.get("/api/settings")
+    async def get_settings() -> dict[str, Any]:
+        """读取非敏感 settings 字段（供配置表单回显）。
+
+        仅返回配置表单需要的字段，不含任何凭据（api_key/auth_token 存于
+        credentials.json，由 /api/envs 单独管理 has_credential 标志）。
+        """
+        settings = load_settings()
+        return {
+            "ui_language": settings.ui_language,
+            "working_directory": settings.working_directory,
+            "model": settings.model,
+        }
+
+    @app.patch("/api/settings/working_directory")
+    async def update_working_directory(req: UpdateWorkingDirectoryRequest) -> dict[str, Any]:
+        """修改工作目录。
+
+        空字符串表示清除工作目录（置为 None）；非空字符串经
+        validate_and_normalize 校验并规范化后写入 settings.json。
+        校验失败返回 400。
+        """
+        from illusion.cli.workspace import validate_and_normalize
+
+        raw = (req.working_directory or "").strip()
+        if not raw:
+            # 清除工作目录
+            settings = load_settings()
+            new_settings = settings.model_copy(update={"working_directory": None})
+            save_settings(new_settings)
+            return {"success": True, "working_directory": None}
+        resolved, err = validate_and_normalize(raw)
+        if resolved is None:
+            raise HTTPException(status_code=400, detail=err or _t("set_invalid_path", path=raw))
+        settings = load_settings()
+        new_settings = settings.model_copy(update={"working_directory": str(resolved)})
+        save_settings(new_settings)
+        return {"success": True, "working_directory": str(resolved)}

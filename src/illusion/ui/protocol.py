@@ -310,6 +310,8 @@ class BackendEvent(BaseModel):
     success: bool | None = None
     path: str | None = None
     errors: dict[str, Any] | None = None
+    # === 首次登录标识（ready 事件携带，前端据此自动弹出配置表单）===
+    first_login: bool | None = None
 
     @classmethod
     def ready(
@@ -317,6 +319,7 @@ class BackendEvent(BaseModel):
         state: AppState,
         tasks: list[TaskRecord],
         commands: list[str],
+        first_login: bool = False,
     ) -> BackendEvent:
         """创建就绪事件。
 
@@ -324,6 +327,8 @@ class BackendEvent(BaseModel):
             state: 应用状态
             tasks: 任务记录列表
             commands: 命令列表
+            first_login: 是否首次登录（无 env_N 且无 working_directory），
+                前端据此自动弹出配置表单
 
         Returns:
             BackendEvent: 就绪事件
@@ -334,6 +339,7 @@ class BackendEvent(BaseModel):
             tasks=[TaskSnapshot.from_record(task) for task in tasks],
             mcp_servers=[],
             commands=commands,
+            first_login=first_login,
         )
 
     @classmethod

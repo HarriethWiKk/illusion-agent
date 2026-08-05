@@ -134,7 +134,6 @@ class QQChannel(Channel):
         import aiohttp
 
         from illusion.channels.qq.ws_client import QQWSClient
-        from illusion.config.i18n import t
 
         # 先清理旧资源（_supervise 重启时可能复用 adapter 实例）
         await self._cleanup_resources()
@@ -154,8 +153,6 @@ class QQChannel(Channel):
 
         # 获取 bot 自身 openid（用于自回显检测）
         await self._hydrate_bot_openid()
-
-        print(t("channel_starting_qq"))
 
     async def _cleanup_resources(self) -> None:
         """清理 ws_client/session 资源（connect 失败或 shutdown 时调用）"""

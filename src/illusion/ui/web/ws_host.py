@@ -253,11 +253,16 @@ class WebBackendHost:
         # 启动写循环（单一消费者，串行化所有 WebSocket 写入）
         self._write_task = asyncio.create_task(self._write_loop())
         # 发送就绪事件
+        # 计算首次登录标识（无 env_N 且无 working_directory），前端据此自动弹出配置表单
+        from illusion.cli.workspace import is_first_login
+        from illusion.config.settings import load_settings
+        _first_login = is_first_login(load_settings())
         await self._emit(
             BackendEvent.ready(
                 self._bundle.app_state.get(),
                 get_task_manager().list_tasks(),
                 [f"/{command.name}" for command in self._bundle.commands.list_commands()],
+                first_login=_first_login,
             )
         )
         # 发送状态快照

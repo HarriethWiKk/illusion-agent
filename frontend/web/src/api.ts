@@ -1,0 +1,270 @@
+/**
+ * @fileoverview Web 前端 REST API 客户端
+ *
+ * 封装与后端 HTTP REST 端点的交互（env / oauth / settings / channels）。
+ * WebSocket 继续承载实时聊天流，此处仅处理配置类 CRUD，语义更贴合表单场景。
+ *
+ * 所有请求使用相对路径（/api/...），与前端同源部署的后端配合。
+ *
+ * @module api
+ */
+
+/** 环境配置信息（GET /api/envs 返回的单个 env 条目） */
+export interface EnvInfo {
+  /** 环境键名，如 env_1 */
+  env_key: string;
+  /** API 格式：anthropic/openai/copilot/codex */
+  api_format: string;
+  /** 接入地址 */
+  base_url: string;
+  /** 是否已配置凭据（api_key 或 auth_token） */
+  has_credential: boolean;
+  /** 是否为当前活跃环境 */
+  active: boolean;
+  /** 模型字典：{model_1: "claude-sonnet-4-5", model_2: "..."} */
+  models: Record<string, string>;
+}
+
+/** GET /api/envs 响应 */
+export interface EnvsResponse {
+  /** 所有环境列表 */
+  envs: EnvInfo[];
+  /** 当前活跃环境键名（无环境时为 null） */
+  active_env_key: string | null;
+}
+
+/** GET /api/settings 响应（非敏感字段，供表单回显） */
+export interface SettingsResponse {
+  /** 界面语言（zh-CN / en-US / 空串） */
+  ui_language: string;
+  /** 工作目录（未设置时为 null） */
+  working_directory: string | null;
+  /** 当前活跃模型引用，如 env_1.model_1 */
+  model: string;
+}
+
+/** OAuth device flow 启动响应 */
+export interface OauthStartResponse {
+  /** 设备码（用于轮询） */
+  device_code: string;
+  /** 用户码（展示给用户输入） */
+  user_code: string;
+  /** 验证网址（用户在浏览器打开） */
+  verification_uri: string;
+}
+
+/** OAuth 轮询响应 */
+export interface OauthPollResponse {
+  /** 是否授权成功 */
+  success: boolean;
+  /** 失败时的错误文本（可选） */
+  error?: string;
+}
+
+/** 渠道配置（GET/PATCH /api/channels，结构与后端 ChannelsConfig 对齐） */
+export interface ChannelsConfig {
+  feishu: Record<string, unknown>;
+  weixin: Record<string, unknown>;
+  qq: Record<string, unknown>;
+}
+
+/** 渠道运行时状态条目（GET /api/channels/status） */
+export interface ChannelRuntimeStatusEntry {
+  /** 渠道是否健康（看门狗判定） */
+  healthy: boolean;
+  /** 渠道 runner 是否正在运行 */
+  running: boolean;
+}
+
+/** 渠道运行时状态响应（GET /api/channels/status） */
+export type ChannelsRuntimeStatus = Record<string, ChannelRuntimeStatusEntry>;
+
+/** 测试连接请求体（POST /api/channels/{name}/test） */
+export interface TestConnectionPayload {
+  /** 飞书/QQ 应用 ID */
+  app_id?: string;
+  /** 飞书应用密钥 */
+  app_secret?: string;
+  /** QQ 应用密钥 */
+  client_secret?: string;
+  /** 飞书域名（feishu/lark） */
+  domain?: string;
+}
+
+/** 测试连接响应 */
+export interface TestConnectionResponse {
+  /** 是否成功 */
+  ok: boolean;
+  /** 结果消息 */
+  message: string;
+}
+
+/** 微信二维码启动响应（POST /api/channels/weixin/qr/start） */
+export interface WeixinQrStartResponse {
+  /** 二维码 hex token（用于轮询状态） */
+  qrcode: string;
+  /** 二维码内容（URL 或 hex，供前端渲染为图片） */
+  qr_content: string;
+  /** 二维码 PNG 图片的 base64 编码（可直接用于 <img src="data:image/png;base64,...">） */
+  qr_image_b64: string;
+}
+
+/** 微信扫码状态响应（GET /api/channels/weixin/qr/status） */
+export interface WeixinQrStatusResponse {
+  /** 扫码状态：wait/scaned/scaned_but_redirect/confirmed/expired */
+  status: string;
+  /** 重定向后的新 API 入口（status=scaned_but_redirect 时返回） */
+  base_url?: string;
+  /** 确认后的凭据（status=confirmed 时返回） */
+  credentials?: {
+    account_id: string;
+    token: string;
+    base_url: string;
+    user_id: string;
+  };
+}
+
+/** 创建 env 请求体 */
+export interface CreateEnvPayload {
+  api_format: string;
+  base_url?: string | null;
+  api_key?: string;
+  auth_token?: string;
+  model_1: string;
+  model_2?: string | null;
+}
+
+/** 更新 env 请求体 */
+export interface UpdateEnvPayload {
+  api_format?: string;
+  base_url?: string;
+  api_key?: string;
+  auth_token?: string;
+  add_models?: { key: string; value: string }[];
+  remove_models?: string[];
+}
+
+/**
+ * 统一请求封装：拼接相对路径、JSON 序列化、错误提取。
+ *
+ * @param url - 相对路径（如 /api/envs）
+ * @param options - fetch options
+ * @returns 解析后的 JSON 响应
+ * @throws Error 当 HTTP 状态非 2xx 时，抛出包含 detail 的错误
+ */
+async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    } catch { /* 非 JSON 响应，保留默认 detail */ }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** env 相关 API */
+export const envApi = {
+  /** 列出所有环境配置 */
+  list: () => request<EnvsResponse>('/api/envs'),
+  /** 新增环境 */
+  create: (payload: CreateEnvPayload) =>
+    request<{ env_key: string; success: boolean }>('/api/envs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** 修改环境字段 */
+  update: (envKey: string, payload: UpdateEnvPayload) =>
+    request<{ success: boolean }>(`/api/envs/${encodeURIComponent(envKey)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  /** 删除环境 */
+  remove: (envKey: string) =>
+    request<{ success: boolean }>(`/api/envs/${encodeURIComponent(envKey)}`, {
+      method: 'DELETE',
+    }),
+  /** 切换活跃环境 */
+  activate: (envKey: string) =>
+    request<{ success: boolean }>(`/api/envs/${encodeURIComponent(envKey)}/activate`, {
+      method: 'POST',
+    }),
+};
+
+/** OAuth 相关 API（copilot / codex 设备码流程） */
+export const oauthApi = {
+  /** 启动设备码授权流程 */
+  start: (provider: 'copilot' | 'codex') =>
+    request<OauthStartResponse>(`/api/oauth/${provider}/start`, { method: 'POST' }),
+  /** 轮询授权完成状态 */
+  poll: (provider: 'copilot' | 'codex', deviceCode: string) =>
+    request<OauthPollResponse>(`/api/oauth/${provider}/poll`, {
+      method: 'POST',
+      body: JSON.stringify({ device_code: deviceCode }),
+    }),
+};
+
+/** settings 相关 API（非敏感字段读写） */
+export const settingsApi = {
+  /** 读取非敏感 settings 字段 */
+  get: () => request<SettingsResponse>('/api/settings'),
+  /** 修改界面语言 */
+  updateUiLanguage: (uiLanguage: string) =>
+    request<{ success: boolean }>('/api/settings/ui_language', {
+      method: 'PATCH',
+      body: JSON.stringify({ ui_language: uiLanguage }),
+    }),
+  /** 修改工作目录（空字符串清除） */
+  updateWorkingDirectory: (workingDirectory: string) =>
+    request<{ success: boolean; working_directory: string | null }>('/api/settings/working_directory', {
+      method: 'PATCH',
+      body: JSON.stringify({ working_directory: workingDirectory }),
+    }),
+};
+
+/** channels 相关 API（channels.json 读写 + 运行时控制 + 微信扫码 + 测试连接） */
+export const channelsApi = {
+  /** 读取当前渠道配置 */
+  get: () => request<ChannelsConfig>('/api/channels'),
+  /** 部分更新渠道配置（仅合并提供的渠道字段） */
+  update: (payload: Partial<ChannelsConfig>) =>
+    request<ChannelsConfig>('/api/channels', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  /** 查询各渠道运行时状态（守护进程内 runner 活跃情况） */
+  getStatus: () => request<ChannelsRuntimeStatus>('/api/channels/status'),
+  /** 启动指定渠道 runner（通过 IPC 通知守护进程） */
+  start: (name: string) =>
+    request<{ ok: boolean; daemon_running: boolean }>(`/api/channels/${encodeURIComponent(name)}/start`, {
+      method: 'POST',
+    }),
+  /** 停止指定渠道 runner（通过 IPC 通知守护进程） */
+  stop: (name: string) =>
+    request<{ ok: boolean }>(`/api/channels/${encodeURIComponent(name)}/stop`, {
+      method: 'POST',
+    }),
+  /** 测试渠道连接（飞书/QQ 校验凭据） */
+  test: (name: string, payload: TestConnectionPayload) =>
+    request<TestConnectionResponse>(`/api/channels/${encodeURIComponent(name)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** 获取微信登录二维码（不开浏览器） */
+  weixinQrStart: () =>
+    request<WeixinQrStartResponse>('/api/channels/weixin/qr/start', { method: 'POST' }),
+  /** 轮询微信扫码状态 */
+  weixinQrStatus: (qrcode: string, baseUrl?: string) => {
+    const params = new URLSearchParams({ qrcode });
+    if (baseUrl) params.set('base_url', baseUrl);
+    return request<WeixinQrStatusResponse>(`/api/channels/weixin/qr/status?${params.toString()}`);
+  },
+};

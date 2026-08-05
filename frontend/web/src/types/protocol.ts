@@ -361,6 +361,8 @@ export interface BackendEvent {
   path?: string;
   /** agent_wizard_result 的字段错误映射（可选，失败时返回字段级错误） */
   errors?: Record<string, string>;
+  /** ready 事件携带的首次登录标识（可选，无 env_N 且无 working_directory 时为 true） */
+  first_login?: boolean;
   /** agent_wizard_submit 关联的表单字段（可选，回声） */
   fields?: Record<string, unknown>;
   /** agent_wizard_submit 关联的作用域（可选，回声） */

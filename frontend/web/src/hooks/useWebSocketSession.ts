@@ -100,6 +100,8 @@ export interface WebSocketSessionState {
   modelOptions: Option[];
   busy: boolean;
   ready: boolean;
+  /** 首次登录标识（后端 ready 事件携带，无 env_N 且无 working_directory 时为 true） */
+  firstLogin: boolean;
   showThinking: boolean;
   todoItems: TodoItemSnapshot[];
   pendingToolCalls: PendingToolCall[];
@@ -152,6 +154,8 @@ export interface WebSocketSessionState {
   sendAgentWizardSubmit: (fields: Record<string, unknown>, scope: 'user' | 'project') => void;
   /** 清空所有 agent 向导状态（关闭表单时调用） */
   clearAgentWizardState: () => void;
+  /** 首次登录配置保存后清除 firstLogin 状态 */
+  clearFirstLogin: () => void;
   deleteSessions: (sessionIds: string[], deleteAll?: boolean) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
@@ -190,6 +194,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  /** 首次登录标识（后端 ready 事件携带，无 env_N 且无 working_directory 时为 true） */
+  const [firstLogin, setFirstLogin] = useState(false);
   const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
   // 正在恢复的会话 ID（用于显示加载动画），由发出恢复请求时即设置
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
@@ -447,6 +453,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     ws.onclose = () => {
       setConnected(false);
       setReady(false);
+      setFirstLogin(false);
       setRestoringSessionId(null);
     };
     ws.onerror = () => setConnected(false);
@@ -460,6 +467,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       // === 状态 ===
       if (evt.type === 'ready') {
         setReady(true);
+        setFirstLogin(evt.first_login ?? false);
         setStatus(evt.state ?? {});
         const st = evt.state?.show_thinking;
         if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
@@ -814,9 +822,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     return () => { ws.close(); wsRef.current = null; };
   }, [url, pushStatic, flushAssistantDelta, clearAssistantDelta]);
 
+  // 首次登录配置保存后手动清除 firstLogin 状态（避免再次打开表单仍显示首次登录）
+  const clearFirstLogin = useCallback(() => setFirstLogin(false), []);
+
   return useMemo(() => ({
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, firstLogin, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
@@ -828,9 +839,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
     agentGenerateError, agentWizardResult,
     sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
+    clearFirstLogin,
   }), [
     staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, showThinking,
+    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, firstLogin, showThinking,
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
@@ -842,5 +854,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
     agentGenerateError, agentWizardResult,
     sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
+    clearFirstLogin,
   ]);
 }

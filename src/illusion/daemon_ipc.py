@@ -31,7 +31,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 logger = logging.getLogger(__name__)
 
@@ -333,8 +333,10 @@ if _IS_WINDOWS:
         async def write_line(self, line: str) -> None:
             """写入一行"""
             data = (line + "\n").encode("utf-8")
+            if self._handle is None:
+                self._closed = True
+                raise OSError("pipe handle is closed")
             try:
-                assert self._handle is not None
                 await asyncio.to_thread(_win_write_pipe, self._handle, data)
             except OSError:
                 self._closed = True
@@ -367,6 +369,7 @@ else:
         ) -> None:
             self._reader = reader
             self._writer = writer
+            self._closed = False
 
         async def read_line(self, timeout: float | None = None) -> str | None:
             """读取一行，连接关闭返回 None
@@ -380,18 +383,29 @@ else:
                 else:
                     data = await self._reader.readline()
             except (TimeoutError, ConnectionResetError, asyncio.IncompleteReadError):
+                self._closed = True
                 return None
             if not data:
+                self._closed = True
                 return None
             return data.decode("utf-8").strip()
 
         async def write_line(self, line: str) -> None:
             """写入一行"""
-            self._writer.write((line + "\n").encode("utf-8"))
-            await self._writer.drain()
+            if self._closed:
+                raise OSError("Unix socket 连接已关闭")
+            try:
+                self._writer.write((line + "\n").encode("utf-8"))
+                await self._writer.drain()
+            except OSError:
+                self._closed = True
+                raise
 
         async def close(self) -> None:
             """关闭连接"""
+            if self._closed:
+                return
+            self._closed = True
             self._writer.close()
             try:
                 await self._writer.wait_closed()
@@ -422,12 +436,18 @@ class DaemonServer:
         pipe_name: str | None = None,
         fingerprint: str | None = None,
         on_reload: Callable[[], None] | None = None,
+        on_start_channel: Callable[[str], None] | None = None,
+        on_stop_channel: Callable[[str], None] | None = None,
     ) -> None:
         self._daemon_type = daemon_type
         self._daemon_pid = daemon_pid
         self._pipe_name = pipe_name or _default_pipe_name(daemon_type)
         self._fingerprint = fingerprint
         self._on_reload = on_reload
+        # 渠道 runner 动态启停回调（由 serve.py 注入，在 IPC 线程调用，
+        # 回调内部用 loop.call_soon_threadsafe 调度到守护进程事件循环）
+        self._on_start_channel = on_start_channel
+        self._on_stop_channel = on_stop_channel
         self._connections: set[_BaseConnection] = set()
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._stop = False
@@ -608,6 +628,26 @@ class DaemonServer:
                     logger.warning("reload 回调异常: %s", exc)
                     return {"type": "error", "message": str(exc)}
             return {"type": "ok"}
+        elif msg_type == "start_channel":
+            # 启动指定渠道 runner（回调内部调度到守护进程事件循环）
+            name = str(msg.get("name", ""))
+            if self._on_start_channel is not None:
+                try:
+                    self._on_start_channel(name)
+                except (AttributeError, TypeError, RuntimeError) as exc:
+                    logger.warning("start_channel 回调异常: %s", exc)
+                    return {"type": "error", "message": str(exc)}
+            return {"type": "ok"}
+        elif msg_type == "stop_channel":
+            # 停止指定渠道 runner（回调内部调度到守护进程事件循环）
+            name = str(msg.get("name", ""))
+            if self._on_stop_channel is not None:
+                try:
+                    self._on_stop_channel(name)
+                except (AttributeError, TypeError, RuntimeError) as exc:
+                    logger.warning("stop_channel 回调异常: %s", exc)
+                    return {"type": "error", "message": str(exc)}
+            return {"type": "ok"}
         return None
 
     def _get_channel_status(self) -> dict[str, Any]:
@@ -679,8 +719,11 @@ class DaemonClient:
 
     @property
     def is_connected(self) -> bool:
-        """是否已连接"""
-        return self._conn is not None
+        """是否已连接（检查底层连接是否已关闭）"""
+        if self._conn is None:
+            return False
+        # 检查底层连接的 _closed 标志（read_line 超时或 write_line 失败后置 True）
+        return not getattr(self._conn, "_closed", False)
 
     async def connect(self) -> bool:
         """连接到守护进程
@@ -795,6 +838,54 @@ class DaemonClient:
         try:
             result: dict[str, Any] = json.loads(line)
             return result
+        except json.JSONDecodeError:
+            return None
+
+    async def start_channel(self, name: str, timeout: float = 5.0) -> dict[str, Any] | None:
+        """发送 start_channel 消息，启动指定渠道 runner
+
+        Args:
+            name: 渠道名（feishu/weixin/qq）
+            timeout: 超时秒数
+
+        Returns:
+            dict: 响应字典，失败返回 None
+        """
+        if self._conn is None:
+            return None
+        try:
+            await self._conn.write_line(json.dumps({"type": "start_channel", "name": name}))
+            line = await self._conn.read_line(timeout=timeout)
+        except (TimeoutError, OSError):
+            return None
+        if line is None:
+            return None
+        try:
+            return cast(dict[str, Any], json.loads(line))
+        except json.JSONDecodeError:
+            return None
+
+    async def stop_channel(self, name: str, timeout: float = 5.0) -> dict[str, Any] | None:
+        """发送 stop_channel 消息，停止指定渠道 runner
+
+        Args:
+            name: 渠道名（feishu/weixin/qq）
+            timeout: 超时秒数
+
+        Returns:
+            dict: 响应字典，失败返回 None
+        """
+        if self._conn is None:
+            return None
+        try:
+            await self._conn.write_line(json.dumps({"type": "stop_channel", "name": name}))
+            line = await self._conn.read_line(timeout=timeout)
+        except (TimeoutError, OSError):
+            return None
+        if line is None:
+            return None
+        try:
+            return cast(dict[str, Any], json.loads(line))
         except json.JSONDecodeError:
             return None
 

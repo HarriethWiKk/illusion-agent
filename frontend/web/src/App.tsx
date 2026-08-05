@@ -24,6 +24,7 @@ import RightPanel from './components/RightPanel';
 import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
+import { SetupForm } from './components/SetupForm';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -345,6 +346,18 @@ export default function App() {
   // Agent 创建向导显示状态（/agent create 或 /agent new 触发）
   const [showAgentWizard, setShowAgentWizard] = useState(false);
 
+  // 设置配置表单显示状态（首次登录自动弹出，或点击左栏 settings 齿轮手动打开）
+  const [showSetupForm, setShowSetupForm] = useState(false);
+
+  // 首次登录：后端 ready 且 first_login=true 时自动弹出配置表单（仅触发一次）
+  const setupShownRef = useRef(false);
+  useEffect(() => {
+    if (session.ready && session.firstLogin && !setupShownRef.current) {
+      setupShownRef.current = true;
+      setShowSetupForm(true);
+    }
+  }, [session.ready, session.firstLogin]);
+
   /**
    * 处理关闭侧问卡片
    *
@@ -381,6 +394,32 @@ export default function App() {
   const handleSubmitAgentWizard = useCallback((fields: Record<string, unknown>, scope: 'user' | 'project') => {
     session.sendAgentWizardSubmit(fields, scope);
   }, [session.sendAgentWizardSubmit]);
+
+  /**
+   * 处理设置表单中界面语言变更
+   *
+   * 通过 WebSocket web_set_setting 即时同步到后端运行时，后端推送
+   * web_setting_changed / state_snapshot 后前端 lang 自动更新。
+   */
+  const handleSetUiLanguage = useCallback((uiLang: 'zh-CN' | 'en-US') => {
+    session.sendRequest({ type: 'web_set_setting', setting_key: 'ui_language', setting_value: uiLang });
+  }, [session.sendRequest]);
+
+  /**
+   * 处理设置表单保存成功
+   *
+   * 配置已通过即时 REST API 写入 settings.json / channels.json / credentials.json，
+   * 前端 state 已同步更新，无需整页刷新。静默关闭表单即可。
+   */
+  const handleSetupSaved = useCallback(() => {
+    session.clearFirstLogin();
+    setShowSetupForm(false);
+  }, [session.clearFirstLogin]);
+
+  /** 处理关闭设置表单 */
+  const handleCloseSetupForm = useCallback(() => {
+    setShowSetupForm(false);
+  }, []);
 
   /** 处理停止当前任务（stopping 状态由 hook 管理：line_complete 清除 + 超时兜底） */
   const handleStop = useCallback(() => {
@@ -539,7 +578,8 @@ export default function App() {
         onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
         collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        width={sidebarWidth} restoringSessionId={session.restoringSessionId} />
+        width={sidebarWidth} restoringSessionId={session.restoringSessionId}
+        onOpenSettings={() => setShowSetupForm(true)} />
       {!sidebarCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
@@ -714,6 +754,17 @@ export default function App() {
           onGenerate={session.sendAgentGenerateRequest}
           onSubmit={handleSubmitAgentWizard}
           onClose={handleCloseAgentWizard}
+        />
+      )}
+
+      {/* 设置配置表单（首次登录自动弹出，或点击左栏 settings 齿轮触发） */}
+      {showSetupForm && (
+        <SetupForm
+          lang={lang}
+          firstLogin={session.firstLogin}
+          onSetUiLanguage={handleSetUiLanguage}
+          onSaved={handleSetupSaved}
+          onClose={handleCloseSetupForm}
         />
       )}
 

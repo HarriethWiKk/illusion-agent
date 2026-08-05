@@ -178,7 +178,12 @@ class AuthManager:
         extras = dict(self.settings.model_extra or {})
         if env_key in extras:
             del extras[env_key]
-            self._settings = self.settings.model_copy(update=extras)
+            # model_copy(update=...) 对 Pydantic extra 字段不可靠，
+            # 用 model_dump → 删除 → model_validate 重建确保 env_N 正确移除
+            data = self.settings.model_dump()
+            data.pop(env_key, None)
+            from illusion.config.settings import Settings
+            self._settings = Settings.model_validate(data)
             self.save_settings()
 
     def store_env_api_key(self, env_key: str, api_key: str) -> None:

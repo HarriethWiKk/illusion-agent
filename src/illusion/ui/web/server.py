@@ -82,6 +82,9 @@ def create_app(
     # 注册 env/oauth/settings REST 路由（在 StaticFiles mount 之前）
     from illusion.ui.web.env_routes import register_env_routes
     register_env_routes(app, host_config)
+    # 注册渠道配置 REST 路由（channels.json 读写）
+    from illusion.ui.web.channels_routes import register_channels_routes
+    register_channels_routes(app, host_config)
 
     if not dev:
         dist_dir = _find_frontend_dist()

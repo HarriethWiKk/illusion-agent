@@ -115,7 +115,6 @@ class WeixinChannel(Channel):
         import aiohttp  # 延迟导入
 
         from illusion.channels.weixin.ilink_api import _make_ssl_connector
-        from illusion.config.i18n import t
 
         self._loop = asyncio.get_running_loop()
         connector = _make_ssl_connector()
@@ -130,8 +129,6 @@ class WeixinChannel(Channel):
         # 加载持久化状态
         self._load_context_tokens()
         self._load_sync_buf()
-
-        print(t("channel_starting_weixin"))
 
     def _normalize(self, raw_msg: dict[str, Any]) -> InboundMessage | None:
         """把 iLink 入站消息标准化为 InboundMessage
