@@ -60,6 +60,15 @@ class UpdateWorkingDirectoryRequest(BaseModel):
     working_directory: str = ""
 
 
+class UpdateThemeRequest(BaseModel):
+    """修改 Web 端主题请求体。
+
+    取值：light（浅色）/ dark（深色）/ system（跟随系统）。
+    该字段仅用于 web 前端，不传递到 terminal 端。
+    """
+    theme: str = Field(..., pattern="^(light|dark|system)$")
+
+
 def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
     """注册 env/oauth/settings 相关 HTTP 路由到 FastAPI app。"""
 
@@ -240,7 +249,19 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             "ui_language": settings.ui_language,
             "working_directory": settings.working_directory,
             "model": settings.model,
+            "theme": settings.theme,
         }
+
+    @app.patch("/api/settings/theme")
+    async def update_theme(req: UpdateThemeRequest) -> dict[str, Any]:
+        """修改 Web 端主题。
+
+        取值：light / dark / system。仅写入 settings.json，不传递到 terminal 端。
+        """
+        settings = load_settings()
+        new_settings = settings.model_copy(update={"theme": req.theme})
+        save_settings(new_settings)
+        return {"success": True}
 
     @app.patch("/api/settings/working_directory")
     async def update_working_directory(req: UpdateWorkingDirectoryRequest) -> dict[str, Any]:

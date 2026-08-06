@@ -252,3 +252,33 @@ def test_update_ui_language_invalid_returns_422(client):
     """PATCH /api/settings/ui_language 非法值返回 422。"""
     resp = client.patch("/api/settings/ui_language", json={"ui_language": "fr-FR"})
     assert resp.status_code == 422
+
+
+def test_get_settings_returns_default_theme(client):
+    """GET /api/settings 响应含 theme 字段，默认为 light。"""
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["theme"] == "light"
+
+
+def test_update_theme(client):
+    """PATCH /api/settings/theme 合法值修改主题并持久化。"""
+    # 修改为 dark
+    resp = client.patch("/api/settings/theme", json={"theme": "dark"})
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    # 回读验证
+    get_resp = client.get("/api/settings")
+    assert get_resp.json()["theme"] == "dark"
+    # 修改为 system
+    resp = client.patch("/api/settings/theme", json={"theme": "system"})
+    assert resp.status_code == 200
+    get_resp = client.get("/api/settings")
+    assert get_resp.json()["theme"] == "system"
+
+
+def test_update_theme_invalid_returns_422(client):
+    """PATCH /api/settings/theme 非法值返回 422。"""
+    resp = client.patch("/api/settings/theme", json={"theme": "blue"})
+    assert resp.status_code == 422

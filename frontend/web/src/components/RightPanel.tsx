@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
-import { useTheme } from '../hooks/useTheme';
+import { useTheme, type Theme } from '../hooks/useTheme';
 import TodoPanel from './TodoPanel';
 import type { McpServerSnapshot, PluginSnapshot, RuleSnapshot, SkillSnapshot, TodoItemSnapshot } from '../types/protocol';
 
@@ -60,8 +60,15 @@ export default function RightPanel({
   lang, status, connected, busy, collapsed, onToggle, todoItems,
   skills, plugins, rules, mcpServers, width = 260,
 }: RightPanelProps) {
-  // 主题（深色/浅色）— 在折叠判断前调用以保证 hook 始终执行
+  // 主题（浅色/深色/跟随系统）— 在折叠判断前调用以保证 hook 始终执行
   const { theme, toggleTheme } = useTheme();
+  // 主题按钮 title：查表获取当前主题模式对应名称
+  const themeLabels: Record<Theme, string> = {
+    light: t(lang, 'theme_light'),
+    dark: t(lang, 'theme_dark'),
+    system: t(lang, 'theme_system'),
+  };
+  const themeTitle = themeLabels[theme];
   // 上下文使用量
   const contextWindow = Number(status?.context_window ?? 0);
   const contextTokens = Number(status?.context_tokens ?? 0);
@@ -109,19 +116,27 @@ export default function RightPanel({
     <aside className="glass-panel border-l border-white/30 flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
       {/* 标题行：主题切换按钮 + 居中标题 + 折叠按钮（3 列 grid 严格居中） */}
       <div className="grid grid-cols-3 items-center px-5 pt-3 pb-2">
-        <button onClick={toggleTheme} title={t(lang, 'toggle_theme')}
-          aria-label={t(lang, 'toggle_theme')}
+        <button onClick={toggleTheme} title={themeTitle}
+          aria-label={themeTitle}
           className="justify-self-start w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
-          {theme === 'dark' ? (
-            /* 太阳图标（深色模式下点击切换到浅色） */
+          {theme === 'light' && (
+            /* 太阳图标（当前浅色，点击切换到深色） */
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="8" cy="8" r="3" />
               <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" />
             </svg>
-          ) : (
-            /* 月亮图标（浅色模式下点击切换到深色） */
+          )}
+          {theme === 'dark' && (
+            /* 月亮图标（当前深色，点击切换到跟随系统） */
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M13 8.5a5 5 0 0 1-5.5-5.5 5 5 0 1 0 5.5 5.5z" />
+            </svg>
+          )}
+          {theme === 'system' && (
+            /* 显示器图标（当前跟随系统，点击切换到浅色） */
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="12" height="8" rx="1" />
+              <path d="M6 13h4M8 11v2" />
             </svg>
           )}
         </button>

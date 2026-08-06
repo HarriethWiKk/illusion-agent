@@ -257,6 +257,7 @@ class Settings(BaseModel):
     show_thinking: bool = True
     effort: str = "medium"
     working_directory: str | None = None  # 固定工作目录
+    theme: str = "light"
 
     @field_validator("mcp_servers", mode="before")
     @classmethod

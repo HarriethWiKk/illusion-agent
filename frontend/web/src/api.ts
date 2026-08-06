@@ -41,6 +41,8 @@ export interface SettingsResponse {
   working_directory: string | null;
   /** 当前活跃模型引用，如 env_1.model_1 */
   model: string;
+  /** Web 端主题：light（浅色）/ dark（深色）/ system（跟随系统） */
+  theme: 'light' | 'dark' | 'system';
 }
 
 /** OAuth device flow 启动响应 */
@@ -227,6 +229,12 @@ export const settingsApi = {
     request<{ success: boolean; working_directory: string | null }>('/api/settings/working_directory', {
       method: 'PATCH',
       body: JSON.stringify({ working_directory: workingDirectory }),
+    }),
+  /** 修改 Web 端主题（light / dark / system），同步写入 settings.json */
+  updateTheme: (theme: 'light' | 'dark' | 'system') =>
+    request<{ success: boolean }>('/api/settings/theme', {
+      method: 'PATCH',
+      body: JSON.stringify({ theme }),
     }),
 };
 
