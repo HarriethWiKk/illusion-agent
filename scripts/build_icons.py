@@ -22,28 +22,43 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image
-
 DESKTOP_ROOT = Path(__file__).resolve().parent.parent / "desktop"
 ASSETS = DESKTOP_ROOT / "build" / "assets"
 BUILD = DESKTOP_ROOT / "build"
 RESOURCES = DESKTOP_ROOT / "resources"
 
 
+def _png_size(data: bytes) -> tuple[int, int]:
+    """从 PNG 文件头解析宽高（8 字节签名 + IHDR chunk）。"""
+    # PNG 签名(8) + 长度(4) + "IHDR"(4) + 宽(4) + 高(4)
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("不是有效的 PNG 文件")
+    width, height = struct.unpack(">II", data[16:24])
+    return width, height
+
+
 def build_ico_from_pngs() -> bool:
-    """从 assets/ 下的多分辨率 PNG 合成 icon.ico，写入 build/ 和 assets/"""
+    """从 assets/ 下的多分辨率 PNG 合成 icon.ico，写入 build/ 和 assets/
+
+    不依赖 PIL：assets 中的 PNG 已是目标尺寸，直接以原始字节嵌入
+    ICO 条目（ICO 格式支持 PNG 压缩图像），避免 CI 环境额外安装 Pillow。
+    """
     sizes = [16, 32, 64, 128, 256, 512, 1024]
-    import io
-    images = []
+    images: list[bytes] = []
     for size in sizes:
         path = ASSETS / f"icon_{size}x{size}.png"
         if not path.exists():
             print(f"警告: 缺少 {path.name}", file=sys.stderr)
             return False
-        img = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        images.append(buf.getvalue())
+        data = path.read_bytes()
+        try:
+            w, h = _png_size(data)
+        except ValueError as exc:
+            print(f"错误: {path.name} 不是有效 PNG: {exc}", file=sys.stderr)
+            return False
+        images.append(data)
+        if w != size or h != size:
+            print(f"警告: {path.name} 实际尺寸 {w}x{h}，与文件名 {size} 不符", file=sys.stderr)
 
     # 构建 ICO 文件：头部 + 目录 + 数据
     header = struct.pack("<HHH", 0, 1, len(images))
