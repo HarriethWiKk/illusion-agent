@@ -135,7 +135,7 @@ export default function Sidebar({
             <path d="M10 3l-5 5 5 5" />
           </svg>
         </button>
-        <span className="font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'sidebar_title')}</span>
+        <span className="font-body font-bold text-content-primary text-sm tracking-wider">{t(lang, 'sidebar_title')}</span>
         <div className="relative" onBlur={(e) => { if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget as Node)) { setMenuOpen(false); } }}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}

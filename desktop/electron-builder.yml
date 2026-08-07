@@ -1,0 +1,43 @@
+# electron-builder 配置
+# ======================
+# 三端打包配置。便携版策略：
+#   - Windows: dir target（产出文件夹，CI 后续打 zip），解压即用、启动快
+#   - macOS:   dmg target（未签名，用户需绕过 Gatekeeper，见 docs/zh-CN/desktop.md）
+#   - Linux:   AppImage（单文件便携）
+#
+# 内置 Python / Node 通过 extraResources 放到 Resources/ 下（asar 外，可 spawn）。
+
+appId: com.illusionagent.desktop
+productName: IllusionAgent
+artifactName: ${productName}-${version}-${os}${arch}
+directories:
+  output: release
+  buildResources: build
+
+# 打进 asar 的文件（主进程编译产物）
+files:
+  - dist/**/*
+  - package.json
+
+asar: true
+
+# 内置运行时复制到 Resources/（asar 外，运行时 process.resourcesPath 访问）
+extraResources:
+  - from: resources/
+    to: .
+
+win:
+  target: dir
+  icon: build/icon.ico
+
+mac:
+  target: dmg
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+linux:
+  target: AppImage
+  icon: build/icon.png
+  category: Development

@@ -360,7 +360,7 @@ export default function ChatArea({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto relative" ref={scrollRef} onScroll={handleScroll}>
+    <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef} onScroll={handleScroll}>
       {!connected && !hasContent && (
         <div className="flex items-center justify-center h-full text-content-disabled text-sm font-medium">
           {t(lang, 'connecting')}
@@ -370,6 +370,7 @@ export default function ChatArea({
         <WelcomeScreen lang={lang} />
       )}
 
+      {(hasContent || busy) && (
       <div className="mx-auto max-w-5xl px-6 md:px-10 lg:px-16 py-6">
         {/* 折叠的更早消息入口 */}
         {hiddenCount > 0 && (
@@ -461,6 +462,7 @@ export default function ChatArea({
           <QuestionCard modal={modal} lang={lang} onRespond={onQuestionResponse} />
         )}
       </div>
+      )}
 
       {/* 一键回到底部浮动按钮 */}
       {showScrollDown && (

@@ -6,4 +6,4 @@
  */
 
 /** 当前版本号 */
-export const VERSION = '0.3.5';
+export const VERSION = '0.4.0';

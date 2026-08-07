@@ -176,6 +176,10 @@ def main() -> None:
     update_package_lock_version(root / "frontend" / "web" / "package-lock.json", version)
     update_package_lock_version(root / "frontend" / "terminal" / "package-lock.json", version)
 
+    # 同步桌面壳版本号
+    update_package_json_version(root / "desktop" / "package.json", version)
+    update_package_lock_version(root / "desktop" / "package-lock.json", version)
+
     print("Version sync completed successfully.")
 
 

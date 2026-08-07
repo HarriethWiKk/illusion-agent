@@ -96,8 +96,13 @@ def web_start(
     url = f"http://{host}:{port}"
     typer.echo(f"Illusion Agent Web UI: {url}")
     if not dev:
-        import webbrowser
-        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+        import os
+
+        # 桌面壳（Electron）通过 ILLUSION_NO_BROWSER_OPEN=1 禁止自动打开系统浏览器，
+        # 由桌面壳自行 loadURL 加载界面；CLI 直接运行时该变量未设置，行为不变
+        if not os.environ.get("ILLUSION_NO_BROWSER_OPEN"):
+            import webbrowser
+            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
     # Ctrl+C / 正常退出时关闭 IPC 连接，守护进程检测到连接归零后自动退出
     try:

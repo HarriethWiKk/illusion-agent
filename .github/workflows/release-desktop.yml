@@ -1,0 +1,76 @@
+name: Release Desktop
+
+# 打 v* tag 触发：三平台并行打包，上传到 GitHub Release
+# 与 publish.yml（PyPI 发布）并行触发，互不干扰
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            plat: win
+          - os: macos-latest
+            plat: mac
+          - os: ubuntu-latest
+            plat: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Read version from pyproject.toml
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build web frontend
+        run: |
+          cd frontend/web
+          npm install --no-fund --no-audit
+          npm run build
+
+      - name: Build terminal frontend
+        run: |
+          cd frontend/terminal
+          npm install --no-fund --no-audit
+          npm run build
+
+      - name: Build desktop (fetch runtimes + install backend + icons + dist)
+        run: python scripts/build_desktop.py --all
+
+      - name: Compress Windows portable to zip
+        if: matrix.plat == 'win'
+        shell: pwsh
+        run: |
+          cd desktop/release
+          7z a -tzip "IllusionAgent-${{ steps.ver.outputs.version }}-win-x64.zip" win-unpacked
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/release/*.zip
+            desktop/release/*.dmg
+            desktop/release/*.AppImage

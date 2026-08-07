@@ -68,5 +68,18 @@ yarn-error.log*
 frontend/terminal/dist/
 frontend/web/dist/
 
+# Desktop (Electron)
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+# build/ 通用规则(第7行)会排除 desktop/build/，这里先恢复目录再排除生成产物，保留 assets 源图
+!desktop/build/
+desktop/build/*
+!desktop/build/assets/
+!desktop/build/assets/**
+desktop/resources/python/
+desktop/resources/node/
+desktop/resources/icon.png
+
 temp_test_data/
 temp_test_config/

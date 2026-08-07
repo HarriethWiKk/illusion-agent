@@ -140,7 +140,7 @@ export default function RightPanel({
             </svg>
           )}
         </button>
-        <span className="justify-self-center font-display font-bold text-content-primary text-sm tracking-wider">{t(lang, 'management_title')}</span>
+        <span className="justify-self-center font-body font-bold text-content-primary text-sm tracking-wider">{t(lang, 'management_title')}</span>
         <button onClick={onToggle} title={t(lang, 'collapse_panel')}
           className="justify-self-end w-7 h-7 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

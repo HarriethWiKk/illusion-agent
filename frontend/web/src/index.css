@@ -132,6 +132,7 @@ html {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 body {
@@ -145,6 +146,7 @@ body {
   background-attachment: fixed;
   color: var(--text-primary);
   min-height: 100vh;
+  overflow: hidden;
 }
 
 /* 深色模式 body 背景（合并到上方 :root.dark 块的补充变量） */
@@ -633,6 +635,14 @@ pre code.hljs,
   outline: none;
 }
 
+/* ========== Electron 桌面壳自定义顶部栏拖拽区 ========== */
+.app-region-drag {
+  -webkit-app-region: drag;
+}
+.app-region-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* ========== 动画 ========== */
 @keyframes pulse-scale {
   0%, 100% { transform: scale(1); opacity: 1; }
@@ -640,6 +650,21 @@ pre code.hljs,
 }
 .animate-pulse-scale {
   animation: pulse-scale 1.2s ease-in-out infinite;
+}
+
+/* 柔和呼吸：scale 1↔1.08，opacity 0.9↔1，用于连接遮罩层莫比乌斯环整体 */
+@keyframes pulse-soft {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 2.5s ease-in-out infinite;
+}
+
+/* 莫比乌斯环光带流动：stroke-dashoffset 循环 */
+@keyframes mobi-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -128; }
 }
 
 @keyframes blink {

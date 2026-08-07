@@ -21,6 +21,8 @@ import ChatArea from './components/ChatArea';
 import PromptInput from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
+import TitleBar from './components/TitleBar';
+import ConnectingOverlay from './components/ConnectingOverlay';
 import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
@@ -44,6 +46,16 @@ const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'turns', '
  */
 export default function App() {
   const session = useWebSocketSession(WS_URL);
+
+  // Electron 桌面壳：首次后端连接成功（遮罩层消失）后自动最大化窗口
+  // 仅触发一次（autoMaximizedRef 兜底），避免重连时反复最大化
+  const autoMaximizedRef = useRef(false);
+  useEffect(() => {
+    if (session.connected && !autoMaximizedRef.current) {
+      autoMaximizedRef.current = true;
+      window.illusionDesktop?.maximize();
+    }
+  }, [session.connected]);
   const lang: UiLanguage = useMemo(
     () => normalizeLanguage(session.status?.ui_language),
     [session.status?.ui_language],
@@ -572,7 +584,10 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex flex-col h-screen">
+      {/* Electron 桌面壳自定义顶部栏（浏览器端返回 null） */}
+      <TitleBar lang={lang} />
+      <div className="flex flex-1 min-h-0">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={handleListSessions}
@@ -584,10 +599,7 @@ export default function App() {
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
       )}
-      <div className="flex flex-col flex-1 min-w-0">
-        {!session.connected && (
-          <div className="px-4 py-2.5 bg-primary-light border-b border-primary/20 text-sm text-primary text-center font-medium">{t(lang, 'connecting')}</div>
-        )}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <ChatArea lang={lang} staticItems={session.staticItems} assistantBuffer={session.assistantBuffer}
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
           busy={session.busy} connected={session.connected}
@@ -618,6 +630,7 @@ export default function App() {
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
+      </div>
 
       {/* 删除会话弹窗（仅 sidebar 触发） */}
       {showDeleteModal && (
@@ -795,6 +808,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 首次启动连接后端的全屏遮罩层（替代原顶部"正在连接..."横条） */}
+      {!session.connected && <ConnectingOverlay lang={lang} />}
     </div>
   );
 }

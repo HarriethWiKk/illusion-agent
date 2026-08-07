@@ -41,6 +41,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 - 🎯 **Reasoning Effort Control** - low/medium/high/xhigh/max levels
 - 🪟 **Deep Windows Optimization** - Auto-detect Git, PowerShell support
 - 🖥️ **Zero Terminal Flicker** - Stable rendering based on Ink Static component
+- 📦 **Desktop Edition** - Electron shell with bundled Python/Node.js, portable builds for Windows/macOS/Linux, zero environment setup
 
 ### Interface Preview
 
@@ -142,6 +143,7 @@ The terminal (`illusion`) and Web UI (`illusion web`) are two independent, first
 | Architecture | [docs/en/architecture.md](docs/en/architecture.md) | [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md) |
 | Token Metering & Compaction | [docs/en/token-metering.md](docs/en/token-metering.md) | [docs/zh-CN/token-metering.md](docs/zh-CN/token-metering.md) |
 | Messaging Channels | [docs/en/channels.md](docs/en/channels.md) | [docs/zh-CN/channels.md](docs/zh-CN/channels.md) |
+| Desktop Edition | [docs/en/desktop.md](docs/en/desktop.md) | [docs/zh-CN/desktop.md](docs/zh-CN/desktop.md) |
 
 ---
 

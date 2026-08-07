@@ -40,23 +40,23 @@ export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
       {/* leading-tight 而非 text-6xl 默认的 line-height:1：背景渐变（background-clip:text）
           只绘制在元素盒内，line-height:1 时 "g" 的 descender 溢出元素盒导致下半部分无背景
           （文字透明不可见），视觉上像被下方副标题截断 */}
-      <h1 className="gradient-text text-6xl leading-tight font-bold tracking-tight animate-blur-in relative z-10"
-        style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <h1 className="gradient-text text-7xl leading-tight font-bold tracking-tight animate-blur-in relative z-10"
+        style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
         Illusion Agent
       </h1>
 
       {/* 副标题 — 闪光扫过文字 */}
-      <p className="mt-4 text-base tracking-[0.3em] uppercase shiny-text animate-blur-in relative z-10"
+      <p className="mt-5 text-lg tracking-[0.3em] uppercase shiny-text animate-blur-in relative z-10"
         style={{ animationDelay: '200ms' }}>
         AI Coding Assistant
       </p>
 
       {/* 分割线 */}
-      <div className="mt-10 w-20 h-px bg-border-medium animate-blur-in relative z-10"
+      <div className="mt-12 w-24 h-px bg-border-medium animate-blur-in relative z-10"
         style={{ animationDelay: '350ms' }} />
 
       {/* 命令提示 — 模糊入场 */}
-      <div className="mt-10 flex flex-col gap-3 relative z-10">
+      <div className="mt-12 flex flex-col gap-4 relative z-10">
         {[
           { cmd: '/context', desc: lang === 'zh-CN' ? '管理上下文窗口' : 'manage context window', delay: 450 },
           { cmd: '/language', desc: lang === 'zh-CN' ? '切换语言' : 'switch language', delay: 550 },
@@ -65,10 +65,10 @@ export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
           <div key={item.cmd}
             className="animate-blur-in flex items-center gap-3"
             style={{ animationDelay: `${item.delay}ms` }}>
-            <span className="text-primary font-mono font-semibold text-sm">
+            <span className="text-primary font-mono font-semibold text-base">
               {item.cmd}
             </span>
-            <span className="text-sm text-content-disabled">
+            <span className="text-base text-content-disabled">
               {item.desc}
             </span>
           </div>

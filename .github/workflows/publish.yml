@@ -39,10 +39,9 @@ jobs:
       - name: Lint
         run: ruff check src/
 
-      # Test step skipped - verified locally (1591 passed)
-      # - name: Test
-      #   timeout-minutes: 10
-      #   run: pytest tests/ -q --timeout=600
+      - name: Test
+        timeout-minutes: 10
+        run: pytest tests/ -q --timeout=600
 
       - name: Build
         run: python -m build

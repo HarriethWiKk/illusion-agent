@@ -1,0 +1,231 @@
+/**
+ * Electron 主进程入口
+ * =====================
+ *
+ * 职责：
+ *   1. 单实例锁：重复启动聚焦到现有窗口
+ *   2. 检测运行时（Python/Node）
+ *   3. 启动后端（动态端口）
+ *   4. 创建主窗口并加载后端 URL
+ *   5. 创建系统托盘（关闭最小化到托盘，菜单退出）
+ *   6. 真正退出时清理后端进程树
+ *
+ * 生命周期对应 docs/zh-CN/desktop.md "托盘行为" 与 "守护进程生命周期"。
+ */
+import { app, BrowserWindow, shell, dialog, Menu, ipcMain } from 'electron';
+import { spawn } from 'node:child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { getUiLanguage } from './settings';
+import type { UiLanguage } from './settings';
+import { resolveRuntime } from './runtime';
+import { Backend } from './backend';
+import { createTray } from './tray';
+import { createDesktopShortcutIfAbsent } from './shortcut';
+import { t } from './i18n';
+
+// 全局引用，防止被 GC 回收导致窗口/托盘消失
+let mainWindow: BrowserWindow | null = null;
+let tray: ReturnType<typeof createTray> | null = null;
+let backend: Backend | null = null;
+// 是否处于"真正退出"流程（区分关闭到托盘与退出）
+let isQuitting = false;
+
+/** 窗口图标路径解析：打包资源 → 工程内 resources → 源 assets（开发时） */
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'icon.png'),
+    path.resolve(__dirname, '..', 'resources', 'icon.png'),
+    path.resolve(__dirname, '..', 'build', 'assets', 'icon_256x256.png'),
+  ];
+  return candidates.find((c) => fs.existsSync(c));
+}
+
+/** 创建主窗口 */
+function createWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    show: false, // 等后端就绪后再 show
+    title: 'Illusion Agent',
+    icon: resolveWindowIcon(),
+    autoHideMenuBar: true, // Windows/Linux 菜单栏自动隐藏（按 Alt 可唤出）
+    // 自定义顶部栏：macOS 隐藏标题栏保留交通灯按钮，Win/Linux 完全无边框
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const }
+      : { frame: false }),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  // 彻底隐藏窗口内菜单栏（File/Edit/View/Window）
+  win.setMenuBarVisibility(false);
+
+  // 关闭按钮 → 最小化到托盘（除非正在真正退出）
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+
+  // 外链点击在系统浏览器打开，不在应用内跳转
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  return win;
+}
+
+/** 真正退出：杀后端、退出应用 */
+function quitApp(): void {
+  if (isQuitting) return;
+  isQuitting = true;
+  if (backend) {
+    backend.kill();
+    backend = null;
+  }
+  app.quit();
+}
+
+/**
+ * 打开内置终端。
+ * 当前阶段先用系统默认终端兜底；后续集成应用内 xterm，
+ * 暴露内置 python/node 给无环境用户。
+ */
+function openTerminal(): void {
+  // TODO: 集成应用内 xterm 终端，注入内置 python/node 到 PATH
+  if (process.platform === 'win32') {
+    spawn('cmd', ['/k', 'title Illusion Agent Terminal'], { detached: true, shell: true });
+  } else if (process.platform === 'darwin') {
+    spawn('open', ['-a', 'Terminal'], { detached: true });
+  } else {
+    spawn('x-terminal-emulator', [], { detached: true });
+  }
+}
+
+app.whenReady().then(async () => {
+  // 移除默认应用菜单（File/Edit/View/Window）。
+  // macOS 保留系统菜单栏（屏幕顶部，不占窗口空间，且保留 Cmd+Q 等系统快捷键）。
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+  }
+
+  // --- 单实例锁：重复启动聚焦现有窗口 ---
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  const lang: UiLanguage = getUiLanguage();
+
+  // --- 检测运行时 ---
+  const runtime = resolveRuntime();
+  if (!runtime.python) {
+    dialog.showErrorBox(t(lang, 'app_name'), t(lang, 'err_no_runtime'));
+    app.quit();
+    return;
+  }
+
+  // --- 启动后端 ---
+  // 构造 env：当用内置运行时（用户无环境）时，把内置 python/node 目录加到 PATH 前面，
+  // 让后端进程及其子进程（agent 的 bash 工具执行 `python xxx.py` / `node xxx.js`）都能找到
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const extraPaths: string[] = [];
+  if (!runtime.pythonFromUser && runtime.python) {
+    const pyDir = path.dirname(runtime.python);
+    extraPaths.push(pyDir);
+    // Windows: pip 等脚本在 Scripts/ 子目录
+    const scriptsDir = path.join(pyDir, 'Scripts');
+    if (fs.existsSync(scriptsDir)) extraPaths.push(scriptsDir);
+  }
+  if (!runtime.nodeFromUser && runtime.node) {
+    extraPaths.push(path.dirname(runtime.node));
+  }
+  if (extraPaths.length > 0) {
+    // Windows 环境变量键名大小写不敏感（Path vs PATH），先提取原值再删除所有变体，避免冲突
+    const origPath = env.PATH ?? env.Path ?? (env as Record<string, string>).path ?? '';
+    for (const k of Object.keys(env)) {
+      if (k.toUpperCase() === 'PATH') delete env[k];
+    }
+    env.PATH = extraPaths.join(path.delimiter) + path.delimiter + origPath;
+  }
+  backend = new Backend({ pythonPath: runtime.python, env });
+  let url: string;
+  try {
+    url = await backend.start();
+  } catch (e) {
+    dialog.showErrorBox(
+      t(lang, 'app_name'),
+      t(lang, 'err_backend_failed', { message: (e as Error).message }),
+    );
+    app.quit();
+    return;
+  }
+
+  // 后端意外退出时提示用户并退出（主动退出时 isQuitting=true，不触发）
+  backend.on('exit', (code) => {
+    if (!isQuitting && code !== 0) {
+      dialog.showErrorBox(t(lang, 'app_name'), t(lang, 'err_backend_crashed', { code: String(code) }));
+      quitApp();
+    }
+  });
+
+  // --- 创建窗口并加载 ---
+  mainWindow = createWindow();
+  await mainWindow.loadURL(url);
+  mainWindow.show();
+
+  // --- 首次启动自动创建桌面快捷方式（仅 Windows 打包后，已存在则跳过） ---
+  createDesktopShortcutIfAbsent();
+
+  // --- 托盘 ---
+  tray = createTray(mainWindow, lang, {
+    onQuit: quitApp,
+    onOpenTerminal: openTerminal,
+  });
+
+  // macOS: 关闭所有窗口时不退出（托盘常驻）；win/linux 同样靠托盘菜单退出
+  app.on('window-all-closed', () => {
+    // 不调用 app.quit，保持托盘常驻
+  });
+  app.on('activate', () => {
+    if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
+  });
+
+  // 应用被要求退出（Cmd+Q / 系统关机）→ 走真正退出流程
+  app.on('before-quit', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      quitApp();
+    }
+  });
+});
+
+// 兜底：退出时确保后端被杀
+app.on('will-quit', () => {
+  if (backend) backend.kill();
+});
+
+// ========== 窗口控制 IPC（自定义顶部栏按钮） ==========
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => mainWindow?.maximize());
+ipcMain.on('window-toggle-maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.on('window-close', () => mainWindow?.close());
