@@ -79,6 +79,20 @@ cd illusion-agent
 pip install .
 ```
 
+### 桌面版
+
+不想安装 Python 或 Node.js？直接下载对应平台的便携版，解压即用，零环境配置：
+
+| 平台 | 下载文件 |
+|------|----------|
+| Windows | `IllusionAgent-0.4.0-win-x64.zip` |
+| macOS | `IllusionAgent-0.4.0-arm64.dmg` |
+| Linux | `IllusionAgent-0.4.0.AppImage` |
+
+👉 [从 GitHub Release 下载](https://github.com/YunTaiHua/illusion-agent/releases/tag/v0.4.0)
+
+桌面版内置 Python 3.12 和 Node.js 20 运行时，详见[桌面版文档](docs/zh-CN/desktop.md)。
+
 ### 基本使用
 
 ```bash
