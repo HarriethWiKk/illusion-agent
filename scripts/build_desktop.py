@@ -133,7 +133,10 @@ def build_dist() -> None:
         _run(_resolve_cmd([npm, "install", "--no-fund", "--no-audit"]), cwd=DESKTOP_DIR)
 
     # 编译 TypeScript + 打包
-    _run(_resolve_cmd([npm, "run", "dist"]), cwd=DESKTOP_DIR)
+    # 传 --publish never 给 electron-builder，禁用其自动发布到 GitHub Release。
+    # 我们用单独的 softprops/action-gh-release 步骤上传产物，避免 electron-builder
+    # 在检测到 GITHUB_TOKEN 时尝试自动 publish（会因缺少 repository 字段而报错）。
+    _run(_resolve_cmd([npm, "run", "dist", "--", "--publish", "never"]), cwd=DESKTOP_DIR)
 
 
 def main() -> None:
