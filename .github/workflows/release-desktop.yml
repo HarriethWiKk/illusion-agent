@@ -61,6 +61,8 @@ jobs:
         env:
           # Windows CI 控制台默认 cp1252 无法编码中文 print，强制 UTF-8 避免 UnicodeEncodeError
           PYTHONIOENCODING: utf-8
+          # 传 GITHUB_TOKEN 给 fetch_python.py 认证 GitHub API，避免限流（403 rate limit exceeded）
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/build_desktop.py --all
 
       - name: Compress Windows portable to zip

@@ -79,7 +79,12 @@ def find_asset(version: str) -> tuple[str, str]:
     triple_str = triple()
     suffix = f"{triple_str}-install_only.tar.gz"
     url = "https://api.github.com/repos/astral-sh/python-build-standalone/releases?per_page=20"
-    req = urllib.request.Request(url, headers={"User-Agent": "illusion-agent-desktop"})
+    headers = {"User-Agent": "illusion-agent-desktop"}
+    # CI 环境用 GITHUB_TOKEN 认证，提高 API 限流额度（匿名 60/小时 → 认证 5000/小时）
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req) as resp:
         if resp.status != 200:
             print(f"GitHub API 请求失败：{resp.status}", file=sys.stderr)
