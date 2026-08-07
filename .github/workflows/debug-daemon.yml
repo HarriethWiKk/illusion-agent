@@ -18,6 +18,28 @@ jobs:
         run: |
           pip install -e ".[dev,all]" pytest-timeout
 
-      - name: Run single test with faulthandler
+      - name: Minimal repro with faulthandler
         run: |
-          python -X faulthandler -m pytest "tests/test_utils/test_daemon_ipc.py::test_ping_pong" -x --timeout=20 -vv --log-cli-level=DEBUG 2>&1 | tail -60
+          python - <<'EOF'
+          import asyncio, os, tempfile, uuid, faulthandler
+          from pathlib import Path
+          from illusion.daemon_ipc import DaemonClient, DaemonServer, DaemonType
+
+          async def main():
+              sock = str(Path(tempfile.mkdtemp()) / f"t_{uuid.uuid4().hex[:8]}.sock")
+              server = DaemonServer(daemon_type=DaemonType.CRON, daemon_pid=os.getpid(), pipe_name=sock)
+              await server.start()
+              print("[1] server started", flush=True)
+              client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid(), pipe_name=sock)
+              connected = await client.connect()
+              print(f"[2] client connected: {connected}", flush=True)
+              resp = await client.ping()
+              print(f"[3] ping resp: {resp}", flush=True)
+              await client.close()
+              print("[4] client closed", flush=True)
+              await server.stop()
+              print("[5] server stopped OK", flush=True)
+
+          faulthandler.dump_traceback_later(8, exit=True)
+          asyncio.run(main())
+          EOF
