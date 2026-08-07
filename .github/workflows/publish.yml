@@ -1,9 +1,9 @@
 name: Publish to PyPI
 
 on:
-  # 临时改为手动触发：v0.4.0 已发布到 PyPI，重新打 tag 修复 desktop 时不应重复发布 PyPI。
-  # desktop CI 通过后恢复为 push.tags: ['v*']。
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 jobs:
   publish:
