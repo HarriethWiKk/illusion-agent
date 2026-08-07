@@ -262,8 +262,13 @@ async def terminate_process_tree(process: asyncio.subprocess.Process) -> None:
         pass
     with contextlib.suppress(ProcessLookupError, OSError):
         os.killpg(pgid, signal.SIGKILL)
-    with contextlib.suppress(Exception):
-        await process.wait()
+    # 关闭管道强制 EOF，避免 wait() 因管道被孙子进程继承持有而永久挂住
+    for pipe in (process.stdin, process.stdout, process.stderr):
+        if pipe is not None:
+            with contextlib.suppress(Exception):
+                pipe.close()
+    with contextlib.suppress(TimeoutError, Exception):
+        await asyncio.wait_for(process.wait(), timeout=2)
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:

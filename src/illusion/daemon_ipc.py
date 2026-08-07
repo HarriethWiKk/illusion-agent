@@ -585,7 +585,13 @@ class DaemonServer:
         """处理客户端连接：读取消息，响应 ping/register"""
         try:
             while not self._stop:
-                line = await conn.read_line()
+                # 传入有限 timeout 使循环定期回到顶部检查 _stop，
+                # 避免 readline() 无限阻塞导致 server.stop() 中
+                # wait_closed() 永久等待协程退出（CI Ubuntu 上曾因此挂死）
+                try:
+                    line = await asyncio.wait_for(conn.read_line(), timeout=1.0)
+                except TimeoutError:
+                    continue  # 读超时但未 stop，继续等待客户端消息
                 if line is None:
                     break  # 客户端断开
                 try:
