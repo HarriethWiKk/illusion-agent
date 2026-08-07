@@ -318,6 +318,13 @@ pre code.hljs,
   color: #a5d6ff;
 }
 
+/* f-string / 模板字符串插值 {expr}：亮灰。
+   必须覆盖：浅色主题 github.css 中 .hljs-subst 为深黑 #24292e，
+   深色模式下会与代码块背景融为一体不可见。 */
+:root.dark .hljs-subst {
+  color: #c9d1d9;
+}
+
 /* diff 新增：绿色（与字符串区分，语义化） */
 :root.dark .hljs-addition {
   color: #7ee787;
