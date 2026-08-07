@@ -250,18 +250,28 @@ async def terminate_process_tree(process: asyncio.subprocess.Process) -> None:
 
     # POSIX：kill 进程组
     try:
-        pgid = os.getpgid(process.pid)
+        child_pgid = os.getpgid(process.pid)
     except ProcessLookupError:
         return  # 进程已退出
+    # 仅当子进程处于独立进程组时才能 killpg：若与当前进程同组
+    # （如测试/未设置 new_process_group 的调用方直接用 create_subprocess_exec），
+    # killpg 会把信号发给包含自己的进程组（CI runner 曾因此被 SIGTERM 击杀挂死），
+    # 此时退化为只终止进程本身。
+    if child_pgid == os.getpgid(os.getpid()):
+        with contextlib.suppress(ProcessLookupError, OSError):
+            process.kill()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=2)
+        return
     with contextlib.suppress(ProcessLookupError, OSError):
-        os.killpg(pgid, signal.SIGTERM)
+        os.killpg(child_pgid, signal.SIGTERM)
     try:
         await asyncio.wait_for(process.wait(), timeout=3)
         return
     except TimeoutError:
         pass
     with contextlib.suppress(ProcessLookupError, OSError):
-        os.killpg(pgid, signal.SIGKILL)
+        os.killpg(child_pgid, signal.SIGKILL)
     # 关闭管道强制 EOF，避免 wait() 因管道被孙子进程继承持有而永久挂住
     for pipe in (process.stdin, process.stdout, process.stderr):
         if pipe is not None:
