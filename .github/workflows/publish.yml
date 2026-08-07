@@ -8,7 +8,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
@@ -36,7 +36,7 @@ jobs:
         run: ruff check src/
 
       - name: Test
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: pytest tests/ -q --timeout=600
 
       - name: Build

@@ -9,7 +9,10 @@
 
 appId: com.illusionagent.desktop
 productName: IllusionAgent
-artifactName: ${productName}-${version}-${os}${arch}
+# executableName 显式指定，避免从 package.json name(@illusion/desktop) 派生出含 @ 的可执行名（AppImage 不接受）
+executableName: IllusionAgent
+# 产物名用 ${os}-${arch}（带连字符），与 electron-builder 内部中间产物命名一致，避免 macOS dmg ENOENT
+artifactName: ${productName}-${version}-${os}-${arch}
 directories:
   output: release
   buildResources: build
