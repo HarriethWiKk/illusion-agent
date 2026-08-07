@@ -1,0 +1,23 @@
+name: Debug daemon ipc
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          pip install -e ".[dev,all]" pytest-timeout
+
+      - name: Run single test with faulthandler
+        run: |
+          python -X faulthandler -m pytest "tests/test_utils/test_daemon_ipc.py::test_ping_pong" -x --timeout=20 -vv --log-cli-level=DEBUG 2>&1 | tail -60
