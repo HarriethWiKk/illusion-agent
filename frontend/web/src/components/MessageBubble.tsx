@@ -17,7 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';

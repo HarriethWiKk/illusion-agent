@@ -280,6 +280,8 @@ export type BackendEvent = {
 	path?: string | null;
 	/** 校验错误字典（可选，agent_wizard_result 携带，字段名→错误信息） */
 	errors?: Record<string, string> | null;
+	/** 最新可用版本号（可选，update_available 事件携带） */
+	latest_version?: string | null;
 };
 
 /**

@@ -170,6 +170,8 @@ export interface WebSocketSessionState {
   clearStaticItems: () => void;
   setOnSelectRequest: (fn: ((payload: SelectRequestPayload) => void) | null) => void;
   setOnCommandResult: (fn: ((text: string, type: string, requestId?: string) => void) | null) => void;
+  /** 注册版本更新提醒回调（update_available 事件触发，参数为最新版本号） */
+  setOnUpdateAvailable: (fn: ((latestVersion: string) => void) | null) => void;
 }
 
 export function useWebSocketSession(url: string): WebSocketSessionState {
@@ -253,11 +255,13 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string, requestId?: string) => void) | null>(null);
+  const onUpdateAvailableRef = useRef<((latestVersion: string) => void) | null>(null);
   const suppressCommandResultCountRef = useRef(0);
   const suppressTranscriptRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
+  const setOnUpdateAvailable = useCallback((fn: ((latestVersion: string) => void) | null) => { onUpdateAvailableRef.current = fn; }, []);
   // suppress 方法不再导出，仅内部使用（refs 保留用于 transcript_item/replace_transcript/command_result 处理）
 
   const pushStatic = useCallback((item: TranscriptItem): void => {
@@ -490,6 +494,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'tasks_snapshot') { setTasks(evt.tasks ?? []); return; }
+      if (evt.type === 'update_available' && evt.latest_version) {
+        onUpdateAvailableRef.current?.(evt.latest_version);
+        return;
+      }
 
       // === 流式 ===
       if (evt.type === 'assistant_delta') {
@@ -831,7 +839,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
-    setOnSelectRequest, setOnCommandResult,
+    setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
     stopping, sendStop,
     modelSwitching, setModelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,
@@ -846,7 +854,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearModal, requestSelectCommand,
     setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
-    setOnSelectRequest, setOnCommandResult,
+    setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
     stopping, sendStop,
     modelSwitching,
     btwLoading, btwReply, btwError, btwRequestId,

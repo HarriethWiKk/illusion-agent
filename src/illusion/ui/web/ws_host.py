@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
@@ -85,6 +86,10 @@ from illusion.utils.aioqueue import Queue, QueueShutDown
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
+
+# 版本检查进程级缓存：{"latest": 最新版本号或 None, "at": 检查时间戳}，1 小时内不重复查询
+_update_check: dict[str, Any] | None = None
+_UPDATE_CHECK_TTL = 3600
 
 
 def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
@@ -272,6 +277,10 @@ class WebBackendHost:
         # Web 前端专属：ready 后推送资源与模型选项（替代旧 setTimeout 串行发指令 hack）
         await self._web_api._push_resources(self._bundle)
         await self._web_api._push_models(self._bundle)
+
+        # 版本更新检查：ready 后异步查询 PyPI（to_thread 不阻塞连接流程），
+        # 有新版本则通过 update_available 事件推送
+        self._create_background_task(self._push_update_notice())
 
         # 创建请求读取任务
         reader = asyncio.create_task(self._read_requests())
@@ -2159,6 +2168,35 @@ class WebBackendHost:
                 request_id=request_id,
                 error=str(exc),
             ))
+
+    async def _push_update_notice(self) -> None:
+        """异步查询 PyPI 最新版本，若有新版本则推送 update_available 事件。
+
+        带进程级缓存（1 小时 TTL），避免每次连接都查询 PyPI；
+        检查失败（网络等）静默跳过，不打扰用户。
+        """
+        global _update_check
+        try:
+            if self._ws_closed or not self._running:
+                return
+            now = time.time()
+            if _update_check is None or now - _update_check["at"] > _UPDATE_CHECK_TTL:
+                from illusion.commands.misc import _check_pypi_latest, _get_current_version
+
+                latest = await asyncio.to_thread(_check_pypi_latest)
+                _update_check = {"latest": latest, "at": now}
+            latest = _update_check.get("latest")
+            if not latest:
+                return
+            from packaging.version import Version
+
+            current = _get_current_version()
+            if Version(latest) > Version(current):
+                await self._emit(
+                    BackendEvent(type="update_available", latest_version=latest)
+                )
+        except Exception:
+            log.debug("版本检查失败，静默跳过", exc_info=True)
 
     def _create_background_task(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         """创建 fire-and-forget task 并保留强引用，防止 GC 回收未完成 task。

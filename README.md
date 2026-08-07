@@ -88,11 +88,11 @@ build for your platform — extract and run, zero environment setup:
 
 | Platform | Download |
 |----------|----------|
-| Windows | `IllusionAgent-0.4.0-win-x64.zip` |
-| macOS | `IllusionAgent-0.4.0-arm64.dmg` |
-| Linux | `IllusionAgent-0.4.0.AppImage` |
+| Windows | `IllusionAgent-<version>-win-x64.zip` |
+| macOS | `IllusionAgent-<version>-arm64.dmg` |
+| Linux | `IllusionAgent-<version>.AppImage` |
 
-👉 [Download from GitHub Release](https://github.com/YunTaiHua/illusion-agent/releases/tag/v0.4.0)
+👉 [Download from GitHub Release](https://github.com/YunTaiHua/illusion-agent/releases/latest)
 
 The desktop edition bundles Python 3.12 and Node.js 20 runtimes internally.
 See [Desktop Edition docs](docs/en/desktop.md) for details.

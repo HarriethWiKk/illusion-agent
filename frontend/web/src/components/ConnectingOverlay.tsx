@@ -46,7 +46,7 @@ const MOBIUS_PATH = [
 export default function ConnectingOverlay({ lang }: ConnectingOverlayProps) {
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-surface-main/95 backdrop-blur-2xl animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#ffffff]/95 backdrop-blur-2xl animate-fade-in"
       aria-label={lang === 'zh-CN' ? '正在连接...' : 'Connecting...'}
       role="status"
     >

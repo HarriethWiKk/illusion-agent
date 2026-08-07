@@ -1,11 +1,15 @@
 /**
  * @fileoverview 主题（浅色/深色/跟随系统）管理 Hook
  *
- * 主题来源与持久化均基于后端 settings.json 的 theme 字段，不再使用浏览器 localStorage：
+ * 主题权威源与持久化基于后端 settings.json 的 theme 字段：
  * - 初始加载：通过 GET /api/settings 读取 theme 字段（light / dark / system）
  * - 切换主题：通过 PATCH /api/settings/theme 同步写入 settings.json
  * - 跟随系统：当 theme === 'system' 时，根据 prefers-color-scheme 决定实际深浅
  * - 通过在 `<html>` 上添加/移除 `dark` 类切换主题（配合 :root.dark CSS 变量）
+ *
+ * localStorage 的 `illusion-theme` 仅作为"上次实际生效深浅"的快速缓存：
+ * index.html 内联脚本在 React 渲染前同步读取并应用，避免首帧主题闪烁（FOUC）；
+ * API 返回后以 settings.json 为准校正。
  *
  * 该字段仅用于 web 前端，不传递到 terminal 端（terminal 无主题系统）。
  *
@@ -20,6 +24,9 @@ export type Theme = 'light' | 'dark' | 'system';
 /** 实际生效的深浅主题（system 已解析为 light/dark） */
 type ResolvedTheme = 'light' | 'dark';
 
+/** localStorage 缓存键（与 index.html 内联脚本共用） */
+const THEME_CACHE_KEY = 'illusion-theme';
+
 /** 读取系统深色偏好 */
 function readSystemTheme(): ResolvedTheme {
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -31,6 +38,22 @@ function readSystemTheme(): ResolvedTheme {
 /** 将主题模式解析为实际深浅主题 */
 function resolveTheme(theme: Theme): ResolvedTheme {
   return theme === 'system' ? readSystemTheme() : theme;
+}
+
+/**
+ * 读取本地缓存的深浅主题（同步，供首帧使用）
+ *
+ * 与 index.html 内联脚本逻辑保持一致：有缓存用缓存；
+ * 无缓存（首次打开）跟随系统偏好，避免首帧与内联脚本不一致再次闪烁。
+ */
+function readCachedResolved(): ResolvedTheme {
+  try {
+    const cached = localStorage.getItem(THEME_CACHE_KEY);
+    if (cached === 'dark' || cached === 'light') return cached;
+  } catch {
+    // localStorage 不可用时忽略
+  }
+  return readSystemTheme();
 }
 
 /** 应用主题到 <html> 根节点 */
@@ -53,10 +76,11 @@ function applyTheme(resolved: ResolvedTheme) {
  *  - setTheme: 直接设置主题模式
  */
 export function useTheme() {
-  // 初始值默认 light（与 settings.json 默认值一致），待 API 返回后校正
+  // 初始模式默认 light（与 settings.json 默认值一致），待 API 返回后校正
   const [theme, setThemeState] = useState<Theme>('light');
-  // 实际应用的主题（light/dark），system 模式下跟随系统偏好
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveTheme('light'));
+  // 实际应用的主题：先从本地缓存读取（与 index.html 内联脚本一致，避免首帧闪烁），
+  // 待 API 返回 settings.json 的真实 theme 后校正
+  const [resolved, setResolved] = useState<ResolvedTheme>(readCachedResolved);
 
   // 初始加载：从 settings.json 读取 theme 字段
   useEffect(() => {
@@ -76,9 +100,14 @@ export function useTheme() {
     };
   }, []);
 
-  // 应用到 DOM
+  // 应用到 DOM，并写回本地缓存（供下次启动首帧使用）
   useEffect(() => {
     applyTheme(resolved);
+    try {
+      localStorage.setItem(THEME_CACHE_KEY, resolved);
+    } catch {
+      // localStorage 不可用时忽略
+    }
   }, [resolved]);
 
   // 监听系统主题变化：仅当 theme === 'system' 时跟随

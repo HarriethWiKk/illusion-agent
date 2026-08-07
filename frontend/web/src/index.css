@@ -1,3 +1,11 @@
+/* 嵌入字体（Inter 正文 / JetBrains Mono 等宽），随前端一起打包，不依赖系统安装 */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -274,6 +282,12 @@ pre code.hljs,
   overflow-x: auto;
 }
 
+/* diff 新增/删除：只保留字体颜色，去掉整块背景色 */
+.hljs-addition,
+.hljs-deletion {
+  background-color: transparent;
+}
+
 /* ========== 暗色模式代码高亮覆盖 ==========
    基础主题是 highlight.js 的 github.css（浅色配色，如 #0550ae 深蓝），
    在深色背景上对比度严重不足（注释/字符串/数字几乎融入背景）。
@@ -300,9 +314,13 @@ pre code.hljs,
 /* 字符串 / 正则 / 新增：浅蓝 */
 :root.dark .hljs-string,
 :root.dark .hljs-regexp,
-:root.dark .hljs-addition,
 :root.dark .hljs-meta .hljs-string {
   color: #a5d6ff;
+}
+
+/* diff 新增：绿色（与字符串区分，语义化） */
+:root.dark .hljs-addition {
+  color: #7ee787;
 }
 
 /* 标题 / 函数名 / 类名：淡紫 */

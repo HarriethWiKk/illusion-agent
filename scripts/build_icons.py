@@ -17,14 +17,51 @@
 from __future__ import annotations
 
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
+
+from PIL import Image
 
 DESKTOP_ROOT = Path(__file__).resolve().parent.parent / "desktop"
 ASSETS = DESKTOP_ROOT / "build" / "assets"
 BUILD = DESKTOP_ROOT / "build"
 RESOURCES = DESKTOP_ROOT / "resources"
+
+
+def build_ico_from_pngs() -> bool:
+    """从 assets/ 下的多分辨率 PNG 合成 icon.ico，写入 build/ 和 assets/"""
+    sizes = [16, 32, 64, 128, 256, 512, 1024]
+    import io
+    images = []
+    for size in sizes:
+        path = ASSETS / f"icon_{size}x{size}.png"
+        if not path.exists():
+            print(f"警告: 缺少 {path.name}", file=sys.stderr)
+            return False
+        img = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        images.append(buf.getvalue())
+
+    # 构建 ICO 文件：头部 + 目录 + 数据
+    header = struct.pack("<HHH", 0, 1, len(images))
+    directory = b""
+    data_blocks = b""
+    offset = 6 + len(images) * 16
+    for size, data in zip(sizes, images):
+        w = size if size < 256 else 0
+        h = size if size < 256 else 0
+        directory += struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(data), offset)
+        data_blocks += data
+        offset += len(data)
+
+    ico_bytes = header + directory + data_blocks
+    (BUILD / "icon.ico").write_bytes(ico_bytes)
+    (ASSETS / "icon.ico").write_bytes(ico_bytes)
+    print(f"icon.ico ({len(images)} resolutions, {len(ico_bytes)} bytes)")
+    return True
 
 
 def main() -> None:
@@ -35,20 +72,24 @@ def main() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
     RESOURCES.mkdir(parents=True, exist_ok=True)
 
-    # --- Windows: 复制 ico ---
-    ico_src = ASSETS / "icon.ico"
-    if ico_src.exists():
-        shutil.copy2(ico_src, BUILD / "icon.ico")
-        print("icon.ico")
-    else:
-        print("警告: 未找到源 icon.ico", file=sys.stderr)
+    # --- Windows: 从多分辨率 PNG 合成 ico ---
+    if not build_ico_from_pngs():
+        # 回退：直接复制旧 ico
+        ico_src = ASSETS / "icon.ico"
+        if ico_src.exists():
+            shutil.copy2(ico_src, BUILD / "icon.ico")
+            print("icon.ico (fallback copy)")
+        else:
+            print("错误: 无法生成 icon.ico", file=sys.stderr)
+            sys.exit(1)
 
     # --- Linux / 运行时托盘: 复制 512 png ---
     png512 = ASSETS / "icon_512x512.png"
     if png512.exists():
         shutil.copy2(png512, BUILD / "icon.png")
         shutil.copy2(png512, RESOURCES / "icon.png")
-        print("icon.png (build + resources)")
+        shutil.copy2(png512, ASSETS / "icon.png")
+        print("icon.png (build + resources + assets)")
     else:
         print("警告: 未找到源 icon_512x512.png", file=sys.stderr)
 

@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -35,11 +34,7 @@ async def exit_handler(_: str, context: CommandContext) -> CommandResult:
 async def version_handler(_: str, context: CommandContext) -> CommandResult:
     """显示版本号"""
     del context
-    try:
-        version = importlib.metadata.version("illusion-agent")
-    except importlib.metadata.PackageNotFoundError:
-        version = __version__
-    return CommandResult(message=f"IllusionAgent {version}")
+    return CommandResult(message=f"IllusionAgent {_get_current_version()}")
 
 
 async def copy_handler(args: str, context: CommandContext) -> CommandResult:
@@ -179,15 +174,16 @@ def _check_pypi_latest() -> str | None:
 
 
 def _get_current_version() -> str:
-    """获取当前安装的 illusion-agent 版本号
+    """获取当前实际运行代码的版本号
+
+    直接使用源码声明的 __version__（与 pyproject.toml 同步）。
+    不使用 importlib.metadata：可编辑安装（-e）时 dist-info 停留在安装时刻，
+    会滞后于实际运行的源码版本，导致更新检测误报。
 
     Returns:
         str: 当前版本号
     """
-    try:
-        return importlib.metadata.version("illusion-agent")
-    except importlib.metadata.PackageNotFoundError:
-        return __version__
+    return __version__
 
 
 def _run_pip_upgrade(packages: list[str]) -> tuple[bool, str]:

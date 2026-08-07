@@ -85,11 +85,11 @@ pip install .
 
 | 平台 | 下载文件 |
 |------|----------|
-| Windows | `IllusionAgent-0.4.0-win-x64.zip` |
-| macOS | `IllusionAgent-0.4.0-arm64.dmg` |
-| Linux | `IllusionAgent-0.4.0.AppImage` |
+| Windows | `IllusionAgent-<版本>-win-x64.zip` |
+| macOS | `IllusionAgent-<版本>-arm64.dmg` |
+| Linux | `IllusionAgent-<版本>.AppImage` |
 
-👉 [从 GitHub Release 下载](https://github.com/YunTaiHua/illusion-agent/releases/tag/v0.4.0)
+👉 [从 GitHub Release 下载](https://github.com/YunTaiHua/illusion-agent/releases/latest)
 
 桌面版内置 Python 3.12 和 Node.js 20 运行时，详见[桌面版文档](docs/zh-CN/desktop.md)。
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "illusion-agent"
-version = "0.4.0"
+version = "0.4.1"
 description = "Where fantasy meets functionality. The best of many worlds, refined into one intelligent agent."
 readme = "README.md"
 license = "MIT"
@@ -45,6 +45,7 @@ dependencies = [
     "croniter>=2.0.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
+    "packaging>=23.0",
 ]
 
 [project.optional-dependencies]

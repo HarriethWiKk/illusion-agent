@@ -254,6 +254,8 @@ class BackendEvent(BaseModel):
         "agent_wizard_init_response",
         "agent_generate_response",
         "agent_wizard_result",
+        # === 版本更新提醒 ===
+        "update_available",
     ]
     select_options: list[dict[str, Any]] | None = None
     message: str | None = None
@@ -312,6 +314,8 @@ class BackendEvent(BaseModel):
     errors: dict[str, Any] | None = None
     # === 首次登录标识（ready 事件携带，前端据此自动弹出配置表单）===
     first_login: bool | None = None
+    # === 版本更新提醒（update_available 事件携带）===
+    latest_version: str | None = None
 
     @classmethod
     def ready(

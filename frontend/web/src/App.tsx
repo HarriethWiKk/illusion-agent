@@ -136,8 +136,16 @@ export default function App() {
         showToast(text, type);
       }
     });
-    return () => { session.setOnSelectRequest(null); session.setOnCommandResult(null); };
-  }, [session.setOnSelectRequest, session.setOnCommandResult, showToast]);
+    // 版本更新提醒：连接建立后后端异步检查，有新版本时弹 toast
+    session.setOnUpdateAvailable((version) => {
+      showToast(t(lang, 'update_available').replace('{version}', version), 'info');
+    });
+    return () => {
+      session.setOnSelectRequest(null);
+      session.setOnCommandResult(null);
+      session.setOnUpdateAvailable(null);
+    };
+  }, [session.setOnSelectRequest, session.setOnCommandResult, session.setOnUpdateAvailable, showToast, lang]);
 
   /**
    * 处理面板大小调整开始

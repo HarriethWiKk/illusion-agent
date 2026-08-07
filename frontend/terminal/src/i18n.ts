@@ -29,6 +29,7 @@ type Dict = Record<string, string>;
  */
 const ZH: Dict = {
 	connecting: '正在抵达云端...',
+	updateAvailable: '发现新版本 v{version}',
 	exitProgram: '退出',
 	stopCurrentTask: '停止',
 	permissionMode: '权限模式',
@@ -148,6 +149,7 @@ const ZH: Dict = {
  */
 const EN: Dict = {
 	connecting: 'Ascending to the cloud...',
+	updateAvailable: 'New version v{version} available',
 	exitProgram: 'exit',
 	stopCurrentTask: 'stop',
 	permissionMode: 'Permission Mode',

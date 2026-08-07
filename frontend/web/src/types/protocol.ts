@@ -369,6 +369,8 @@ export interface BackendEvent {
   scope?: string;
   /** agent_generate_request 关联的提示词（可选，回声） */
   prompt?: string;
+  /** update_available 事件携带的最新版本号（可选） */
+  latest_version?: string;
 }
 
 /**

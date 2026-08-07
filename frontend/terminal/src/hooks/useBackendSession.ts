@@ -858,6 +858,16 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			});
 			return;
 		}
+		if (event.type === 'update_available' && event.latest_version) {
+			// 版本更新提醒：复用 commandResult toast 显示（3 秒自动消失），
+			// 文案语言从 status 中读取
+			const lang = normalizeLanguage(statusRef.current.ui_language);
+			setCommandResult({
+				text: t(lang, 'updateAvailable').replace('{version}', event.latest_version),
+				type: 'info',
+			});
+			return;
+		}
 		if (event.type === 'shutdown') {
 			onExit(0);
 		}
