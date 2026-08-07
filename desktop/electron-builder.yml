@@ -13,6 +13,15 @@ productName: IllusionAgent
 executableName: IllusionAgent
 # 不设 artifactName：用 electron-builder 默认命名，避免 macOS dmg 构建时内部中间产物路径不匹配（ENOENT）
 # upload 步骤用 *.zip/*.dmg/*.AppImage 通配符，不依赖具体产物名
+
+# publish 配置：仅用于计算 channel name 生成 latest-*.yml（auto-update 元数据）。
+# 实际上传由 --publish never 禁用，改由单独的 action-gh-release 步骤上传产物。
+# 不加此配置时，dmg/AppImage 生成 update info 会因 publish 为 null 报
+# 'Cannot read properties of null (reading channel')。
+publish:
+  provider: github
+  owner: YunTaiHua
+  repo: illusion-agent
 directories:
   output: release
   buildResources: build
