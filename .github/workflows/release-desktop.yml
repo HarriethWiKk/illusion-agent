@@ -58,6 +58,9 @@ jobs:
           npm run build
 
       - name: Build desktop (fetch runtimes + install backend + icons + dist)
+        env:
+          # Windows CI 控制台默认 cp1252 无法编码中文 print，强制 UTF-8 避免 UnicodeEncodeError
+          PYTHONIOENCODING: utf-8
         run: python scripts/build_desktop.py --all
 
       - name: Compress Windows portable to zip

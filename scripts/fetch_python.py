@@ -53,12 +53,11 @@ PLAT_ARCH_MAP = {
 
 def triple() -> str:
     """平台三元组（python-build-standalone 命名约定）"""
-    key = (sys.platform, os.uname().machine.lower() if hasattr(os, "uname") else "x64")
-    # Windows 上 os.uname 不可用，用 platform.machine()
-    if sys.platform == "win32":
-        import platform
-        mach = platform.machine().lower()
-        key = ("win32", "x64" if mach in ("amd64", "x86_64") else "arm64")
+    # 统一用 platform.machine() 并规范化 arch：x86_64/amd64 → x64，aarch64 → arm64
+    import platform
+    mach = platform.machine().lower()
+    arch = "arm64" if mach in ("arm64", "aarch64") else "x64"
+    key = (sys.platform, arch)
     result = TRIPLE_MAP.get(key)
     if result is None:
         print(f"不支持的平台：{key[0]}-{key[1]}", file=sys.stderr)
@@ -110,8 +109,8 @@ def main() -> None:
 
     print(f"解压到 {out_dir}")
     with tarfile.open(tarball, "r:gz") as tf:
-        # Python 3.12+ 支持 filter='data'，拒绝解压含绝对路径/软链接指向外部等危险条目
-        tf.extractall(out_dir, filter='data')
+        # filter='tar'：拒绝绝对路径/.. 但保留 symlinks（install_only 含 python3→python3.12 等符号链接）
+        tf.extractall(out_dir, filter='tar')
 
     tarball.unlink()
     print(f"Python {args.version} -> {out_dir}")

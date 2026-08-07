@@ -81,17 +81,33 @@ def install_backend() -> None:
         print("ERROR: 前端 dist 缺失，请先构建前端：python scripts/build_frontend.py", file=sys.stderr)
         sys.exit(1)
 
-    # 穷举内置 python 可执行路径（与 runtime.ts bundledPythonPath 布局一致）
-    python_dir = DESKTOP_DIR / "resources" / "python" / _plat_arch() / "python"
+    # 穷举内置 python 可执行路径（兼容不同平台 install_only 解压布局）
+    base_dir = DESKTOP_DIR / "resources" / "python" / _plat_arch()
     candidates = [
-        python_dir / "python.exe",                    # win: python/python.exe
-        python_dir / "python3",                       # unix: python/python3
-        python_dir / "install" / "bin" / "python",    # unix install_only: python/install/bin/python
-        python_dir / "install" / "bin" / "python3",
+        base_dir / "python" / "python.exe",                   # win: python/python.exe
+        base_dir / "python" / "python3",                      # unix: python/python3
+        base_dir / "python" / "install" / "bin" / "python",   # unix install_only: python/install/bin/python
+        base_dir / "python" / "install" / "bin" / "python3",
+        base_dir / "python.exe",                              # win 直解压
+        base_dir / "python3",                                 # unix 直解压
+        base_dir / "install" / "bin" / "python",              # unix 无 python/ 中间层
+        base_dir / "install" / "bin" / "python3",
+        base_dir / "bin" / "python",                          # unix bin/ 直接
+        base_dir / "bin" / "python3",
     ]
     python_exe = next((p for p in candidates if p.exists()), None)
+    # 兜底：rglob 搜索（兼容非标准顶层目录名，如 cpython-3.12.13+...）
     if python_exe is None:
-        print(f"ERROR: 内置 Python 不存在于 {python_dir}\n请先运行 --fetch 下载运行时", file=sys.stderr)
+        for name in ("python3", "python.exe"):
+            for match in base_dir.rglob(name):
+                # 排除 Scripts/（pip 脚本）、lib/（库文件）等非可执行目录
+                if "Scripts" not in match.parts and "lib" not in match.parts:
+                    python_exe = match
+                    break
+            if python_exe:
+                break
+    if python_exe is None:
+        print(f"ERROR: 内置 Python 不存在于 {base_dir}\n请先运行 --fetch 下载运行时", file=sys.stderr)
         sys.exit(1)
 
     # 安装项目根的 illusion[all]（含 feishu/weixin optional 全量依赖）
