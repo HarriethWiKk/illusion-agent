@@ -70,7 +70,8 @@ jobs:
         shell: pwsh
         run: |
           cd desktop/release
-          7z a -tzip "IllusionAgent-${{ steps.ver.outputs.version }}-win-x64.zip" win-unpacked
+          Rename-Item win-unpacked illusion-agent
+          7z a -tzip "IllusionAgent-${{ steps.ver.outputs.version }}-win-x64.zip" illusion-agent
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
