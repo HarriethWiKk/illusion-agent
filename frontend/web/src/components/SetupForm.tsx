@@ -934,9 +934,13 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
     return enabledNames.every((n) => status[n] != null);
   }, [channels]);
 
-  /** 刷新运行时状态 */
-  const refreshStatus = useCallback(async () => {
-    setStatusLoading(true);
+  /** 刷新运行时状态
+   *
+   * @param silent 静默模式（轮询用）：不置 statusLoading，避免每 2s
+   *   状态文本抖动/按钮闪烁；仅挂载时的首次加载显示加载态。
+   */
+  const refreshStatus = useCallback(async (silent = false) => {
+    if (!silent) setStatusLoading(true);
     try {
       const s = await channelsApi.getStatus();
       setRuntimeStatus(s);
@@ -944,7 +948,7 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
     } catch {
       // 守护进程未运行时静默
     } finally {
-      setStatusLoading(false);
+      if (!silent) setStatusLoading(false);
     }
   }, [checkInitDone]);
 
@@ -952,14 +956,14 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
 
-  // 挂载时加载运行时状态 + 初始化轮询（每 2s 直到完成或 60s 超时）
+  // 挂载时加载运行时状态 + 初始化轮询（每 2s 静默刷新直到完成或 60s 超时）
   // 依赖空数组：仅挂载时启动一次，轮询内部通过 ref 调用最新函数
   useEffect(() => {
     refreshStatusRef.current();
     let elapsed = 0;
     const timer = setInterval(async () => {
       elapsed += 2;
-      await refreshStatusRef.current();
+      await refreshStatusRef.current(true);
       if (elapsed >= 60) {
         setInitializing(false);
         clearInterval(timer);
@@ -1180,8 +1184,6 @@ function ChannelSection({ lang, channelName, title, enabled, onToggle, runtimeSt
                   </svg>
                   {t(lang, 'setupChannelInitializing')}
                 </span>
-              ) : statusLoading ? (
-                <span className="text-[11px] text-content-disabled">{t(lang, 'setupChannelStatusLoading')}</span>
               ) : (
                 <span className={`flex items-center gap-1 text-[11px] ${isRunning ? 'text-success' : 'text-content-disabled'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-success' : 'bg-content-disabled'}`} />
