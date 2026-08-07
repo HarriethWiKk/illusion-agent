@@ -402,9 +402,14 @@ else:
                 raise
 
         async def close(self) -> None:
-            """关闭连接"""
-            if self._closed:
-                return
+            """关闭连接
+
+            注意：即使 read_line 已检测到对端 EOF（_closed=True），本地 transport
+            仍必须显式 close——否则 transport 不会触发 connection_lost，
+            Python 3.12 的 Server.wait_closed() 会因 active_count 不归零永久挂起
+            （server.stop() 挂死，CI Ubuntu 曾因此超时）。
+            writer.close() 幂等，重复调用安全。
+            """
             self._closed = True
             self._writer.close()
             try:
