@@ -527,13 +527,17 @@ class DaemonServer:
                 await self._accept_task
             except asyncio.CancelledError:
                 pass
-        if self._unix_server:
-            self._unix_server.close()
-            await self._unix_server.wait_closed()
-        # 关闭所有活跃连接
+        # 先主动关闭所有活跃连接：唤醒阻塞在 read_line 上的 handler 协程
+        # （transport 关闭 → readline EOF → handler 退出 → connection_lost →
+        #  Server 的 active_count 归零），再 wait_closed() 等待完成。
+        # 顺序不可颠倒：若先 wait_closed()，handler 阻塞在无限 read_line 上
+        # 永不退出，wait_closed() 永久挂起。
         for conn in list(self._connections):
             await conn.close()
         self._connections.clear()
+        if self._unix_server:
+            self._unix_server.close()
+            await self._unix_server.wait_closed()
 
     async def _windows_accept_loop(self) -> None:
         """Windows Named Pipe accept 循环"""
@@ -590,13 +594,11 @@ class DaemonServer:
         """处理客户端连接：读取消息，响应 ping/register"""
         try:
             while not self._stop:
-                # 传入有限 timeout 使循环定期回到顶部检查 _stop，
-                # 避免 readline() 无限阻塞导致 server.stop() 中
-                # wait_closed() 永久等待协程退出（CI Ubuntu 上曾因此挂死）
-                try:
-                    line = await asyncio.wait_for(conn.read_line(), timeout=1.0)
-                except TimeoutError:
-                    continue  # 读超时但未 stop，继续等待客户端消息
+                # 无限等待读取。不用 wait_for 包裹：超时取消 read_line 会与
+                # 下一轮读取产生 StreamReader._waiter 竞态（旧协程取消的 finally
+                # 清掉新协程的 waiter，导致后续数据无人唤醒），曾造成 ping
+                # 约 50% 无响应。阻塞由 stop() 先关闭连接唤醒（EOF → 返回 None）。
+                line = await conn.read_line()
                 if line is None:
                     break  # 客户端断开
                 try:
