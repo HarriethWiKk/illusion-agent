@@ -11,8 +11,8 @@ appId: com.illusionagent.desktop
 productName: IllusionAgent
 # executableName 显式指定，避免从 package.json name(@illusion/desktop) 派生出含 @ 的可执行名（AppImage 不接受）
 executableName: IllusionAgent
-# 产物名用 ${os}-${arch}（带连字符），与 electron-builder 内部中间产物命名一致，避免 macOS dmg ENOENT
-artifactName: ${productName}-${version}-${os}-${arch}
+# 不设 artifactName：用 electron-builder 默认命名，避免 macOS dmg 构建时内部中间产物路径不匹配（ENOENT）
+# upload 步骤用 *.zip/*.dmg/*.AppImage 通配符，不依赖具体产物名
 directories:
   output: release
   buildResources: build
