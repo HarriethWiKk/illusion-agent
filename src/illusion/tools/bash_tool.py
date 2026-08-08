@@ -430,6 +430,11 @@ class BashTool(BaseTool[BashToolInput]):
             )
             await asyncio.to_thread(record.output_file.parent.mkdir, parents=True, exist_ok=True)
             await asyncio.to_thread(record.output_file.write_text, "", encoding="utf-8")
+            # stamp 归属会话 ID（Web 多会话模式下按上下文路由完成通知）
+            from illusion.tasks.manager import current_task_session_owner
+            owner_sid = current_task_session_owner()
+            if owner_sid:
+                record.metadata["owner_session_id"] = owner_sid
             manager._tasks[task_id] = record
             manager._output_locks[task_id] = asyncio.Lock()
             # 注册 process，使 stop_task 能找到并终止（否则 stop 直接返回，无法打断）

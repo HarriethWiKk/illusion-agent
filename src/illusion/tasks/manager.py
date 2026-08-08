@@ -36,6 +36,7 @@ import logging
 import shlex
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,28 @@ from illusion.utils.shell import create_shell_subprocess, terminate_process_tree
 logger = logging.getLogger(__name__)
 
 _TASK_LOG_TTL_DAYS = 7  # task log 保留天数
+
+# === 任务归属会话上下文 ===
+#
+# Web 多会话模式下，每个会话的行处理任务在独立 asyncio.Task 中运行。
+# 后台任务（agent / bash / powershell 等）由行任务内的工具调用创建，
+# asyncio 的 contextvars 会随 create_task / 协程调用自动传播，
+# 因此在任务创建处 stamp 归属会话 ID 到 metadata["owner_session_id"]，
+# 供后台任务完成通知按归属路由到对应会话引擎的 bg_agent_tracker
+# （避免全局单回调把完成通知投递到错误的会话）。
+# terminal 端不设置此上下文，stamp 值为空字符串，不影响现有逻辑。
+session_owner_ctx: ContextVar[str | None] = ContextVar(
+    "illusion_task_session_owner", default=None
+)
+
+
+def current_task_session_owner() -> str | None:
+    """返回当前异步上下文归属的会话 ID。
+
+    Returns:
+        str | None: 会话 ID；None 表示无归属（如 terminal 端 / 后台任务）
+    """
+    return session_owner_ctx.get()
 
 
 class BackgroundTaskManager:
@@ -103,6 +126,7 @@ class BackgroundTaskManager:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text("", encoding="utf-8")
+        self._stamp_owner_session(record)
         self._tasks[task_id] = record
         return record
 
@@ -129,6 +153,7 @@ class BackgroundTaskManager:
             started_at=time.time(),
         )
         output_path.write_text("", encoding="utf-8")
+        self._stamp_owner_session(record)
         self._tasks[task_id] = record
         self._output_locks[task_id] = asyncio.Lock()
         self._input_locks[task_id] = asyncio.Lock()
@@ -198,9 +223,23 @@ class BackgroundTaskManager:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text("", encoding="utf-8")
+        self._stamp_owner_session(record)
         self._tasks[task_id] = record
         self._output_locks[task_id] = asyncio.Lock()
         return record
+
+    def _stamp_owner_session(self, record: TaskRecord) -> None:
+        """stamp 任务归属会话 ID 到 metadata。
+
+        从当前异步上下文读取归属会话（Web 多会话模式下由行任务设置），
+        terminal 端上下文为空时跳过，保持原行为。
+
+        Args:
+            record: 任务记录
+        """
+        owner = session_owner_ctx.get()
+        if owner:
+            record.metadata["owner_session_id"] = owner
 
     async def write_to_task_output(self, task_id: str, data: str) -> None:
         """向任务输出文件追加数据（用于进程内 agent 输出累积）。
