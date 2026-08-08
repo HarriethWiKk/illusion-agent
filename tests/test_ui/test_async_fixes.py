@@ -137,6 +137,12 @@ async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch):
     host._bundle.cwd = "/fake/cwd"
     host._bundle.session_id = "current-sid"
     host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+    host._push_sessions = AsyncMock()
+    host._dispose_session = AsyncMock()
+    host._create_session = AsyncMock()
+    host._session_state_payload = MagicMock(return_value={})
+    host._sessions = {}
+    host._active_session_id = "current-sid"
 
     dispatcher = WebApiDispatcher(host)
 
@@ -156,9 +162,6 @@ async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch):
     )
     monkeypatch.setattr(
         "illusion.ui.web.ws_web_api._delete_session_by_id", fake_delete
-    )
-    monkeypatch.setattr(
-        "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
     )
 
     req = FrontendRequest(type="web_delete_sessions", delete_all=True)
@@ -186,6 +189,12 @@ async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypat
     host._bundle.cwd = "/fake/cwd"
     host._bundle.session_id = "current-sid"
     host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+    host._push_sessions = AsyncMock()
+    host._dispose_session = AsyncMock()
+    host._create_session = AsyncMock()
+    host._session_state_payload = MagicMock(return_value={})
+    host._sessions = {}
+    host._active_session_id = "current-sid"
 
     dispatcher = WebApiDispatcher(host)
 
@@ -203,9 +212,6 @@ async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypat
     monkeypatch.setattr(
         "illusion.ui.web.ws_web_api._delete_session_by_id", fake_delete
     )
-    monkeypatch.setattr(
-        "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
-    )
 
     req = FrontendRequest(
         type="web_delete_sessions",
@@ -215,10 +221,8 @@ async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypat
     await dispatcher.handle(req)
 
     assert call_count[0] == 3, "所有 3 个删除应都被调用"
-    # 应推送 web_sessions（即使有失败）
-    calls = host._emit.call_args_list
-    types = [c.args[0].type for c in calls]
-    assert "web_sessions" in types, "删除后应推送 web_sessions"
+    # 删除后应推送刷新的会话列表（即使有失败）
+    host._push_sessions.assert_awaited_once()
 
 
 # ─── Step 4: env_routes.py OAuth 守护测试 ──────────────────────────

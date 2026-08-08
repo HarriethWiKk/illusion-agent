@@ -19,6 +19,7 @@ class TestWebApiDispatcherRouting:
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
+        host._push_sessions = AsyncMock()
         dispatcher = WebApiDispatcher(host)
         return dispatcher
 
@@ -26,15 +27,18 @@ class TestWebApiDispatcherRouting:
         """测试分发器可构造并持有 host 引用"""
         assert dispatcher._host is not None
 
-    @pytest.mark.asyncio
-    async def test_handle_unknown_web_request_emits_error(self, dispatcher):
-        """测试未实现的 web_ 请求类型优雅返回 error 事件，不抛异常"""
+    def test_dispatch_table_covers_all_web_types(self, dispatcher):
+        """测试 dispatch 表覆盖全部 web_* 请求类型（防御：新增类型必须注册 handler）"""
         from illusion.ui.protocol import FrontendRequest
-        req = FrontendRequest(type="web_request_sessions")
-        # 暂未实现的请求应优雅返回 error，不抛异常
-        await dispatcher.handle(req)
-        # handle 内部应调用 host._emit 发送 error 或对应事件
-        assert dispatcher._host._emit.called
+
+        table = dispatcher._dispatch_table()
+        web_types = [
+            t
+            for t in FrontendRequest.model_fields["type"].annotation.__args__
+            if t.startswith("web_")
+        ]
+        for wt in web_types:
+            assert wt in table, f"web 请求类型 {wt} 未注册 handler"
 
     @pytest.mark.asyncio
     async def test_handle_isolates_handler_exception(self, monkeypatch):
@@ -81,6 +85,7 @@ class TestWebRequestSessions:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        host._push_sessions = AsyncMock()
         dispatcher = WebApiDispatcher(host)
 
         # mock session_storage.list_session_snapshots
@@ -95,18 +100,12 @@ class TestWebRequestSessions:
         return dispatcher
 
     @pytest.mark.asyncio
-    async def test_request_sessions_emits_web_sessions(self, dispatcher_with_bundle):
-        """测试拉取会话列表后发送 web_sessions 事件"""
+    async def test_request_sessions_delegates_to_host_push(self, dispatcher_with_bundle):
+        """测试拉取会话列表委托给 host._push_sessions（会话列表合并逻辑在 host）"""
         from illusion.ui.protocol import FrontendRequest
         req = FrontendRequest(type="web_request_sessions")
         await dispatcher_with_bundle.handle(req)
-        calls = dispatcher_with_bundle._host._emit.call_args_list
-        emitted_types = [c.args[0].type for c in calls]
-        assert "web_sessions" in emitted_types
-        # 验证 web_sessions 载荷结构
-        sessions_evt = next(c.args[0] for c in calls if c.args[0].type == "web_sessions")
-        assert len(sessions_evt.web_sessions) == 2
-        assert sessions_evt.web_sessions[0]["id"] == "s1"
+        dispatcher_with_bundle._host._push_sessions.assert_awaited_once()
 
 
 class TestWebRestoreSession:
@@ -114,7 +113,10 @@ class TestWebRestoreSession:
 
     @pytest.fixture
     def dispatcher_restore(self, monkeypatch):
-        """创建带 mock 恢复流程的分发器"""
+        """创建带 mock 恢复流程的分发器。
+
+        预置内存会话（s1），验证"运行时已存在 → 直接从引擎重建转录"路径。
+        """
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
@@ -123,29 +125,18 @@ class TestWebRestoreSession:
         host._bundle.cwd = "/fake/cwd"
         host._bundle.session_id = "old-sid"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        host._push_sessions = AsyncMock()
+        host._session_state_payload = MagicMock(return_value={"session_id": "restored-sid"})
+        host._refresh_session_display = MagicMock()
+        host._set_active_session = MagicMock()
+        # 预置内存会话：恢复走"已存在"分支，不触碰磁盘
+        memory_session = MagicMock()
+        memory_session.session_id = "restored-sid"
+        memory_session.engine.messages = []
+        memory_session.bundle = MagicMock()
+        host._sessions = {"s1": memory_session}
+        host._active_session_id = "old-sid"
         dispatcher = WebApiDispatcher(host)
-
-        # mock resume_handler 返回带 restored_session_id 和 replay_messages 的结果
-        async def fake_resume_handler(args, context):
-            result = MagicMock()
-            result.restored_session_id = "restored-sid"
-            result.replay_messages = []
-            result.message = None
-            result.reset_session = False
-            result.should_exit = False
-            result.needs_api_rebuild = False
-            return result
-
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._resume_handler", fake_resume_handler
-        )
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._list_session_snapshots", lambda cwd, limit=20: []
-        )
-        # mock _state_payload
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
-        )
         return dispatcher
 
     @pytest.mark.asyncio
@@ -162,6 +153,8 @@ class TestWebRestoreSession:
         completed = next(c.args[0] for c in calls if c.args[0].type == "web_restore_completed")
         assert completed.state is not None
         assert completed.session_id == "restored-sid"
+        # 恢复已存在会话应切换为活跃会话
+        dispatcher_restore._host._set_active_session.assert_called_once_with("restored-sid")
 
     @pytest.mark.asyncio
     async def test_restore_no_select_request_or_command_result(self, dispatcher_restore):
@@ -216,18 +209,31 @@ class _FakeEngine:
 
 
 class TestWebNewAndDeleteSession:
-    """web_new_session 与 web_delete_sessions 测试"""
+    """web_new_session 与 web_delete_sessions 测试（多会话架构）"""
 
     @pytest.fixture
     def dispatcher(self, monkeypatch):
+        """多会话架构下新建/删除会话的 mock 宿主。
+
+        新建会话由 host._create_session 负责（真实实现在 host 层测试覆盖），
+        此处 mock 返回预置的会话运行时。
+        """
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.session_id = "old-sid"
-        host._bundle.engine = _FakeEngine()
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        host._push_sessions = AsyncMock()
+        host._session_state_payload = MagicMock(return_value={"session_id": "new-sid"})
+        host._dispose_session = AsyncMock()
+        new_session = MagicMock()
+        new_session.session_id = "new-sid"
+        new_session.bundle = MagicMock()
+        host._create_session = AsyncMock(return_value=new_session)
+        host._sessions = {}
+        host._active_session_id = "old-sid"
         dispatcher = WebApiDispatcher(host)
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._list_session_snapshots", lambda cwd, limit=20: []
@@ -235,92 +241,69 @@ class TestWebNewAndDeleteSession:
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._delete_session_by_id", lambda cwd, sid: True
         )
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
-        )
         return dispatcher
 
     @pytest.mark.asyncio
-    async def test_new_session_emits_web_restore_completed_empty(self, dispatcher, monkeypatch):
-        """测试新建会话发送空 transcript 的 web_restore_completed"""
-        async def fake_new_handler(args, context):
-            result = MagicMock()
-            result.reset_session = True
-            result.message = None
-            result.replay_messages = None
-            result.restored_session_id = None
-            result.should_exit = False
-            result.needs_api_rebuild = False
-            return result
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._new_handler", fake_new_handler
-        )
+    async def test_new_session_emits_web_restore_completed_empty(self, dispatcher):
+        """测试新建会话：创建独立运行时并发送空 transcript 的 web_restore_completed"""
         from illusion.ui.protocol import FrontendRequest
         req = FrontendRequest(type="web_new_session")
         await dispatcher.handle(req)
+        # 新建会话应调用 host._create_session 并切换活跃会话
+        dispatcher._host._create_session.assert_awaited_once()
+        dispatcher._host._set_active_session.assert_called_once_with("new-sid")
         calls = dispatcher._host._emit.call_args_list
         types = [c.args[0].type for c in calls]
         assert "web_restore_completed" in types
+        completed = next(c.args[0] for c in calls if c.args[0].type == "web_restore_completed")
+        assert completed.session_id == "new-sid"
+        assert completed.items == []
 
     @pytest.mark.asyncio
-    async def test_new_session_rebuilds_checkpoint_store(self, dispatcher, monkeypatch):
-        """测试新建会话后重建 CheckpointStore 并同步 engine.session_id。
-
-        回归防护：_new_handler 的 full_reset 会清空 engine 的 checkpoint_store 与
-        session_id，若不重建，context.jsonl / file_history.json 不会写入磁盘，
-        meta.json 却按新 session_id 写入 → 会话目录结构不一致，resume 读不到消息。
-        """
-        async def fake_new_handler(args, context):
-            result = MagicMock()
-            result.reset_session = True
-            result.message = None
-            result.replay_messages = None
-            result.restored_session_id = None
-            result.should_exit = False
-            result.needs_api_rebuild = False
-            return result
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._new_handler", fake_new_handler
-        )
+    async def test_new_session_does_not_touch_existing_sessions(self, dispatcher):
+        """测试新建会话不影响已有会话的运行时（多会话并发核心保证）"""
         from illusion.ui.protocol import FrontendRequest
+        existing = MagicMock()
+        existing.session_id = "old-sid"
+        dispatcher._host._sessions = {"old-sid": existing}
         req = FrontendRequest(type="web_new_session")
         await dispatcher.handle(req)
-        bundle = dispatcher._host._bundle
-        engine = bundle.engine
-        # attach_session 已调用，engine.session_id 与 bundle.session_id 同步
-        assert engine.store is not None
-        assert bundle.session_id == engine.session_id == engine.store.session_id
-        # CheckpointStore 指向新 session_id 的会话目录
-        store = engine.store
-        assert store.session_dir.name == store.session_id
+        # 旧会话运行时必须原样保留
+        assert dispatcher._host._sessions["old-sid"] is existing
+        dispatcher._host._dispose_session.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_delete_sessions_emits_web_sessions(self, dispatcher):
-        """测试批量删除后推送 web_sessions"""
+    async def test_delete_sessions_pushes_list(self, dispatcher):
+        """测试批量删除后释放运行时并推送 web_sessions"""
         from illusion.ui.protocol import FrontendRequest
+        target = MagicMock()
+        target.session_id = "s1"
+        dispatcher._host._sessions = {"s1": target}
         req = FrontendRequest(type="web_delete_sessions", session_ids=["s1", "s2"])
         await dispatcher.handle(req)
-        calls = dispatcher._host._emit.call_args_list
-        types = [c.args[0].type for c in calls]
-        assert "web_sessions" in types
+        # 内存中的被删会话运行时被释放
+        dispatcher._host._dispose_session.assert_called_once_with("s1")
+        dispatcher._host._push_sessions.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_delete_current_session_rebuilds_checkpoint_store(self, dispatcher):
-        """测试删除当前会话后重建 CheckpointStore 并同步 engine.session_id。
-
-        回归防护：clear() 保留旧 session_id 的 checkpoint_store/file_history，
-        若不重建，context.jsonl / file_history.json 会写入已删除的旧目录
-        （rmtree 后下次 append 重新创建"幽灵目录"），meta.json 却写新目录。
-        """
+    async def test_delete_current_session_creates_fresh_session(self, dispatcher):
+        """测试删除活跃会话后原子化新建空会话（两阶段竞态防护）"""
         from illusion.ui.protocol import FrontendRequest
+        target = MagicMock()
+        target.session_id = "old-sid"
+        dispatcher._host._sessions = {"old-sid": target}
+        dispatcher._host._active_session_id = "old-sid"
         req = FrontendRequest(type="web_delete_sessions", session_ids=["old-sid"])
         await dispatcher.handle(req)
-        bundle = dispatcher._host._bundle
-        engine = bundle.engine
-        assert engine.store is not None
-        assert bundle.session_id == engine.session_id == engine.store.session_id
-        store = engine.store
-        assert store.session_dir.name == store.session_id
+        dispatcher._host._dispose_session.assert_called_once_with("old-sid")
+        # 活跃会话被删后新建空会话并切换
+        dispatcher._host._create_session.assert_awaited_once()
+        dispatcher._host._set_active_session.assert_called_once_with("new-sid")
+        calls = dispatcher._host._emit.call_args_list
+        types = [c.args[0].type for c in calls]
+        assert "web_restore_completed" in types
+        completed = next(c.args[0] for c in calls if c.args[0].type == "web_restore_completed")
+        assert completed.session_id == "new-sid"
 
 
 class TestWebSetSetting:
@@ -418,6 +401,98 @@ class TestWebSetSetting:
         assert "error" not in types
 
 
+class TestEngineSettingBroadcast:
+    """设置变更广播到所有会话引擎（多会话一致性）测试"""
+
+    @pytest.mark.asyncio
+    async def test_permission_mode_reaches_all_session_engines(self, monkeypatch):
+        """切换权限模式必须更新所有会话引擎的 PermissionChecker（安全相关）。"""
+        from illusion.ui.protocol import FrontendRequest
+        from illusion.ui.web.ws_web_api import WebApiDispatcher
+
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 初始引擎 + 两个会话引擎
+        host._bundle.engine = MagicMock()
+        engine_a = MagicMock()
+        engine_b = MagicMock()
+        session_a = MagicMock()
+        session_a.engine = engine_a
+        session_b = MagicMock()
+        session_b.engine = engine_b
+        host._sessions = {"a": session_a, "b": session_b}
+        dispatcher = WebApiDispatcher(host)
+
+        from illusion.config.settings import Settings
+        real_settings = Settings()
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._load_settings", lambda: real_settings
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._save_settings", lambda s: None
+        )
+
+        req = FrontendRequest(type="web_set_setting", setting_key="permission_mode", setting_value="plan")
+        await dispatcher.handle(req)
+
+        # 三个引擎（初始 + 两个会话）都被注入新的 PermissionChecker
+        host._bundle.engine.set_permission_checker.assert_called_once()
+        engine_a.set_permission_checker.assert_called_once()
+        engine_b.set_permission_checker.assert_called_once()
+        assert real_settings.permission.mode.value == "plan"
+
+    @pytest.mark.asyncio
+    async def test_model_switch_reaches_all_session_engines(self, monkeypatch):
+        """切换模型必须同步所有会话引擎的 model 与 api_client。"""
+        from illusion.ui.protocol import FrontendRequest
+        from illusion.ui.web.ws_web_api import WebApiDispatcher
+
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        host._bundle.engine = MagicMock()
+        host._bundle.api_client = MagicMock()
+        engine_a = MagicMock()
+        session_a = MagicMock()
+        session_a.engine = engine_a
+        host._sessions = {"a": session_a}
+        dispatcher = WebApiDispatcher(host)
+
+        fake_settings = MagicMock()
+        fake_settings.effort = "medium"
+        fake_settings.permission.mode.value = "default"
+        fake_settings.ui_language = "zh-CN"
+        fake_settings.context_window = 200000
+        fake_settings.output_style = "default"
+        fake_settings.model = "env_1.model_1"
+        fake_settings.active_model_name = "NewModel"
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._load_settings", lambda: fake_settings
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._save_settings", lambda s: None
+        )
+        monkeypatch.setattr(
+            "illusion.ui.runtime._rebuild_api_client", lambda b, s: None
+        )
+
+        req = FrontendRequest(type="web_set_setting", setting_key="model", setting_value="env_1.model_2")
+        await dispatcher.handle(req)
+
+        # 初始引擎 + 会话引擎都同步了 model 与 api_client
+        host._bundle.engine.set_model.assert_called_once_with("NewModel")
+        host._bundle.engine.set_api_client.assert_called_once()
+        engine_a.set_model.assert_called_once_with("NewModel")
+        engine_a.set_api_client.assert_called_once()
+
+
 class TestWebModels:
     """web_models 推送与 web_request_models 测试"""
 
@@ -504,14 +579,29 @@ class TestWebQuery:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # B 通道指令按会话路由：解析出会话后使用其 bundle
+        session = MagicMock()
+        session.session_id = "s1"
+        session.bundle = MagicMock()
+        host._resolve_session = MagicMock(return_value=session)
         dispatcher = WebApiDispatcher(host)
         return dispatcher
 
     @pytest.mark.asyncio
     async def test_query_setting_emits_web_query_result(self, dispatcher_query, monkeypatch):
         """测试设置类指令(/turns 200)走 web_query 后返回 web_query_result"""
+        fake_settings = MagicMock()
+        fake_settings.effort = "medium"
+        fake_settings.permission.mode.value = "default"
+        fake_settings.ui_language = "zh-CN"
+        fake_settings.context_window = 200000
+        fake_settings.output_style = "default"
+        fake_settings.model = "env_1.model_1"
         monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._state_payload", lambda state: {"model": "test"}
+            "illusion.ui.web.ws_web_api._load_settings", lambda: fake_settings
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._save_settings", lambda s: None
         )
         from illusion.ui.protocol import FrontendRequest
         req = FrontendRequest(type="web_query", command="turns", args="200", request_id="r1")

@@ -46,6 +46,8 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_config": None,
         "_websocket": _FakeWebSocket(),
         "_bundle": None,
+        "_sessions": {},
+        "_active_session_id": None,
         "_write_queue": Queue(),
         "_write_task": None,
         "_dispatch_tasks": set(),
@@ -53,12 +55,8 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_permission_requests": {},
         "_question_requests": {},
         "_always_allowed_tools": set(),
-        "_busy": False,
         "_running": True,
         "_ws_closed": False,
-        "_active_line_task": None,
-        "_last_tool_inputs": {},
-        "_emitted_tool_started_ids": set(),
         "_periodic_task": None,
     }
     defaults.update(fields)

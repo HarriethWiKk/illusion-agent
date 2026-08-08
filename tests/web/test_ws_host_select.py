@@ -31,6 +31,8 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_config": None,
         "_websocket": MagicMock(),
         "_bundle": None,
+        "_sessions": {},
+        "_active_session_id": None,
         "_write_queue": Queue(),
         "_write_task": None,
         "_dispatch_tasks": set(),
@@ -38,12 +40,8 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_permission_requests": {},
         "_question_requests": {},
         "_always_allowed_tools": set(),
-        "_busy": False,
         "_running": True,
         "_ws_closed": False,
-        "_active_line_task": None,
-        "_last_tool_inputs": {},
-        "_emitted_tool_started_ids": set(),
         "_periodic_task": None,
     }
     defaults.update(fields)
@@ -54,11 +52,15 @@ def _make_host(**fields: Any) -> WebBackendHost:
 
 @pytest.mark.asyncio
 async def test_max_tokens_routes_to_select_command():
-    """web_query 的 max-tokens 命令应委托给 _handle_select_command。"""
+    """web_query 的 max-tokens 命令应委托给 _handle_select_command（会话级）。"""
     host = MagicMock()
     host._emit = AsyncMock()
     host._bundle = MagicMock()  # 非 None，绕过 bundle 检查
     host._handle_select_command = AsyncMock()
+    session = MagicMock()
+    session.session_id = "s1"
+    session.bundle = MagicMock()
+    host._resolve_session = MagicMock(return_value=session)
     dispatcher = WebApiDispatcher(host)
 
     req = FrontendRequest(
@@ -69,7 +71,8 @@ async def test_max_tokens_routes_to_select_command():
     )
     await dispatcher.handle_web_query(req)
 
-    host._handle_select_command.assert_awaited_once_with("max-tokens")
+    host._resolve_session.assert_called_once_with(None)
+    host._handle_select_command.assert_awaited_once_with("max-tokens", session)
 
 
 @pytest.mark.asyncio
@@ -77,15 +80,25 @@ async def test_context_window_custom_does_not_emit_error():
     """context-window __custom__ 不应发射 error 事件。"""
     emitted_events: list[BackendEvent] = []
 
-    async def fake_emit(event: BackendEvent) -> None:
+    async def fake_emit(event: BackendEvent, **kwargs: Any) -> None:
+        # 模拟真实 _emit 的会话标记逻辑
+        sid = kwargs.get("session_id")
+        if sid:
+            event.session_id = sid
         emitted_events.append(event)
 
     host = _make_host()
     host._emit = fake_emit  # type: ignore[assignment]
+    session = MagicMock()
+    session.session_id = "s1"
+    session.rewind_target_idx = None
+    session.current_request_id = None
 
-    await host._apply_select_command("context-window", "__custom__")
+    await host._apply_select_command(session, "context-window", "__custom__")
 
     # 不应有 type=error 事件
     assert not any(e.type == "error" for e in emitted_events)
-    # 应发射 line_complete 提示前端关闭选择框
-    assert any(e.type == "line_complete" for e in emitted_events)
+    # 应发射 line_complete 提示前端关闭选择框（携带会话 ID）
+    line_completes = [e for e in emitted_events if e.type == "line_complete"]
+    assert line_completes
+    assert line_completes[0].session_id == "s1"
