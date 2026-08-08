@@ -309,9 +309,24 @@ export default function ChatArea({
   // 用户上滑过则仅在滚回底部附近（< FOLLOW_THRESHOLD_PX）时恢复跟随。
   // 程序赋值后派生的 scroll 事件用 programmaticScrollRef 忽略；即使被误判，
   // 位置兜底保证用户滚回底部后能恢复，不会永久卡住。
+  // 卡片弹出时强制回到底部：模态卡片是交互元素，即使此前用户上滑查看过历史，
+  // 也必须保证卡片可见，否则用户看不到问题与提交按钮
+  const prevModalRef = useRef<boolean | null>(null);
   useEffect(() => {
+    // 先更新状态机再取容器：restore 分支（无滚动容器）下 ref 保持最新，
+    // 避免恢复会话后首个 modal 的"出现"检测被陈旧值干扰
+    const modalAppeared = prevModalRef.current === false && !!modal;
+    prevModalRef.current = !!modal;
     const el = scrollRef.current;
     if (!el) return;
+    if (modalAppeared) {
+      userScrolledUpRef.current = false;
+      const prevTop = el.scrollTop;
+      el.scrollTop = el.scrollHeight;
+      if (el.scrollTop !== prevTop) programmaticScrollRef.current = true;
+      setShowScrollDown(false);
+      return;
+    }
     if (userScrolledUpRef.current) {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (distance > FOLLOW_THRESHOLD_PX) return; // 用户上滑中，不打扰
@@ -458,8 +473,9 @@ export default function ChatArea({
         {modal?.kind === 'permission' && (
           <PermissionCard modal={modal} lang={lang} onRespond={onPermissionResponse} />
         )}
+        {/* key 绑定 request_id：新模态框（新问题）到来时整体重置 QuestionCard 内部状态 */}
         {modal?.kind === 'question' && (
-          <QuestionCard modal={modal} lang={lang} onRespond={onQuestionResponse} />
+          <QuestionCard key={modal?.request_id ? String(modal.request_id) : 'q'} modal={modal} lang={lang} onRespond={onQuestionResponse} />
         )}
       </div>
       )}

@@ -168,6 +168,8 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   /** "其他"选项的输入内容（按题索引持久化） */
   const [allOtherText, setAllOtherText] = useState<Record<number, string>>({});
   const otherText = allOtherText[currentIndex] ?? '';
+  /** 单问题多选：当前是否有可提交的内容（勾选了普通选项或输入了"其他"文本） */
+  const canSubmitMulti = filteredOptions.some((_, i) => selectedIndices.has(i)) || otherText.trim().length > 0;
   const setOtherText = (updater: ((prev: string) => string) | string) => {
     setAllOtherText((prev) => ({
       ...prev,
@@ -176,9 +178,23 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   };
   /** "其他"选项是否聚焦（输入框可见） */
   const [isOtherFocused, setIsOtherFocused] = useState(false);
+  /** 单问题单选：当前选中的普通选项索引（null 表示未选） */
+  const [singleSelectedIdx, setSingleSelectedIdx] = useState<number | null>(null);
   const otherInputRef = useRef<HTMLInputElement>(null);
-  /** 问题卡片根元素引用，用于单问题多选的失焦提交 */
+  /** 问题卡片根元素引用，用于单问题的失焦提交 */
   const cardRef = useRef<HTMLDivElement>(null);
+  /**
+   * 已提交守卫：focusout 冒泡会让"其他"输入框失焦与卡片失焦在同一事件中
+   * 各触发一次提交，若无守卫会发出重复 question_response（后端 future 已
+   * resolve 后再次 set_result 抛 InvalidStateError）。request_id 变化时重置。
+   */
+  const submittedRef = useRef(false);
+  /**
+   * 卡片内点击标记：点击卡片内不可聚焦区域（如 plan 文本）时焦点落到 body，
+   * relatedTarget 判断会误判为"失焦到卡片外"。onPointerDown 捕获阶段记录
+   * 最近一次点击是否发生在卡片内，失焦提交时据此放行。
+   */
+  const clickedInsideRef = useRef(false);
 
   // 切换问题时恢复"其他"输入框的聚焦/显示状态：
   // 若该题已有"其他"输入内容（allOtherText 持久化），则显示输入框与选中态，
@@ -191,6 +207,11 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   // 单选已选答案（从 multiAnswers 回读）
   const currentHeader = currentQuestion?.header ?? `Q${currentIndex + 1}`;
   const singleSelectAnswer = !isMultiSelect && isMultiQuestion ? multiAnswers[currentHeader] : null;
+  /** 单问题单选：当前答案（普通选项的 `序号. 标签` 格式或"其他"文本），null 表示无答案 */
+  const singleAnswer =
+    singleSelectedIdx !== null && singleSelectedIdx < filteredOptions.length
+      ? `${singleSelectedIdx + 1}. ${filteredOptions[singleSelectedIdx]!.label}`
+      : otherText.trim() || null;
 
   // 多选：根据当前选中集合即时计算答案。
   // - 多问题多选：选中即时写入 multiAnswers（无确认按钮，最后统一提交）
@@ -237,6 +258,26 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
     onRespond(requestId, JSON.stringify({ [currentHeader]: labels }));
   }, [isMultiSelect, isMultiQuestion, filteredOptions, selectedIndices, otherIdx, otherText, requestId, onRespond, currentHeader]);
 
+  // 单问题单选提交：由提交按钮或卡片失焦触发，提交当前答案（普通选项优先，否则"其他"文本）
+  const submitSingleSelect = useCallback(() => {
+    if (isMultiSelect || isMultiQuestion) return;
+    if (!singleAnswer || submittedRef.current) return;
+    submittedRef.current = true;
+    onRespond(requestId, singleAnswer);
+  }, [isMultiSelect, isMultiQuestion, singleAnswer, requestId, onRespond]);
+
+  // 单问题多选提交：同样加守卫，防止失焦路径（输入框 blur + 卡片 blur 冒泡）双触发
+  const guardedSubmitSingleMultiSelect = useCallback(() => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+    submitSingleMultiSelect();
+  }, [submitSingleMultiSelect]);
+
+  // 新模态框（request_id 变化）到来时重置提交守卫
+  useEffect(() => {
+    submittedRef.current = false;
+  }, [requestId]);
+
   const handleOptionClick = useCallback(
     (idx: number, label: string) => {
       if (isMultiSelect) {
@@ -268,20 +309,24 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         });
         return;
       }
-      // 单选"其他"选项：聚焦输入框
+      // 单选"其他"选项：取消普通选项选中并聚焦输入框
       if (idx === otherIdx) {
+        setSingleSelectedIdx(null);
         setIsOtherFocused(true);
         setTimeout(() => otherInputRef.current?.focus(), 0);
         return;
       }
-      // 单选提交
+      // 单选
       if (isMultiQuestion) {
         setMultiAnswers((prev) => ({ ...prev, [currentHeader]: `${idx + 1}. ${label}` }));
       } else {
-        onRespond(requestId, `${idx + 1}. ${label}`);
+        // 单问题单选：更新选中状态并收起"其他"输入框，由提交按钮或失焦提交
+        setSingleSelectedIdx(idx);
+        setIsOtherFocused(false);
+        setOtherText('');
       }
     },
-    [isMultiSelect, requestId, onRespond, otherIdx, isMultiQuestion, currentHeader, commitMultiSelect],
+    [isMultiSelect, otherIdx, isMultiQuestion, currentHeader, commitMultiSelect],
   );
 
   // 多选"其他"输入回车时提交：
@@ -289,11 +334,11 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   // - 多问题多选：写入 multiAnswers（统一格式）
   const handleMultiConfirm = useCallback(() => {
     if (!isMultiQuestion) {
-      submitSingleMultiSelect();
+      guardedSubmitSingleMultiSelect();
     } else {
       commitMultiSelect(selectedIndices);
     }
-  }, [isMultiQuestion, selectedIndices, commitMultiSelect, submitSingleMultiSelect]);
+  }, [isMultiQuestion, selectedIndices, commitMultiSelect, guardedSubmitSingleMultiSelect]);
 
   const handleOtherSubmit = useCallback(() => {
     if (isMultiSelect) {
@@ -301,14 +346,15 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
       return;
     }
     // 单选"其他"提交
-    const text = otherText.trim();
-    if (!text) return;
     if (isMultiQuestion) {
+      const text = otherText.trim();
+      if (!text) return;
       setMultiAnswers((prev) => ({ ...prev, [currentHeader]: text }));
     } else {
-      onRespond(requestId, text);
+      // 单问题单选：统一由 submitSingleSelect 提交（普通选项或"其他"文本）
+      submitSingleSelect();
     }
-  }, [isMultiSelect, otherText, handleMultiConfirm, requestId, onRespond, isMultiQuestion, currentHeader]);
+  }, [isMultiSelect, isMultiQuestion, otherText, currentHeader, handleMultiConfirm, submitSingleSelect]);
 
   const questionText = currentQuestion?.question ?? String(modal.question ?? 'Question');
   const hintText = isMultiSelect
@@ -318,17 +364,32 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
   return (
     <div
       ref={cardRef}
-      tabIndex={isMultiSelect && !isMultiQuestion ? -1 : undefined}
+      tabIndex={!isMultiQuestion ? -1 : undefined}
+      onPointerDownCapture={() => {
+        // 记录最近一次指针按下是否发生在卡片内：点击 plan 文本等不可聚焦
+        // 区域时焦点会落到 body，relatedTarget 无法区分内外，需此标记辅助
+        clickedInsideRef.current = true;
+      }}
       onBlur={(e) => {
-        // 单问题多选失焦提交：焦点离开问题卡片时提交当前全部选中项
-        if (!(isMultiSelect && !isMultiQuestion)) return;
+        // 单问题失焦提交：焦点离开问题卡片时提交当前答案（单选或多选）
+        if (isMultiQuestion) return;
         // relatedTarget 为新聚焦元素；若它仍在卡片内，则不算失焦
         const next = e.relatedTarget as Node | null;
         if (next && cardRef.current?.contains(next)) return;
-        submitSingleMultiSelect();
+        // 焦点落到 body（点击卡片内不可聚焦区域或外部）：以最近一次指针
+        // 按下位置为准——在卡片内则不算失焦，不提交
+        if (clickedInsideRef.current) {
+          clickedInsideRef.current = false;
+          return;
+        }
+        if (isMultiSelect) {
+          guardedSubmitSingleMultiSelect();
+        } else {
+          submitSingleSelect();
+        }
       }}
       className={`my-3 rounded-2xl glass-surface overflow-hidden ${
-        isMultiSelect && !isMultiQuestion ? 'outline-none' : ''
+        !isMultiQuestion ? 'outline-none' : ''
       }`}
     >
       {typeof modal.plan === 'string' && modal.plan && (
@@ -389,10 +450,12 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
         {hasOptions ? (
           <div className="space-y-1.5 mb-3">
             {filteredOptions.map((opt, i) => {
-              // 多选：从持久化状态读取；单选：从 multiAnswers 回读
+              // 多选：从持久化状态读取；单选：多问题从 multiAnswers 回读，单问题从 singleSelectedIdx 读取
               const isSelected = isMultiSelect
                 ? selectedIndices.has(i)
-                : singleSelectAnswer === `${i + 1}. ${opt.label}`;
+                : isMultiQuestion
+                  ? singleSelectAnswer === `${i + 1}. ${opt.label}`
+                  : singleSelectedIdx === i;
               return (
                 <button
                   key={i}
@@ -481,13 +544,25 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
                         e.stopPropagation();
                       }}
                       // 失焦自动提交：焦点离开输入框时提交已输入内容（无需回车）
-                      // 注意：不限制 relatedTarget 是否在卡片内——切问题 tab 也应提交"其他"内容，
+                      // 多问题：不限制 relatedTarget 是否在卡片内——切问题 tab 也应提交"其他"内容，
                       // 否则用户输入的文字会丢失
-                      onBlur={() => {
-                        handleOtherSubmit();
+                      // 单问题多选：焦点仍在卡片内（如点击普通选项或确认按钮）则不提交，
+                      // 统一交给卡片失焦或确认按钮提交，避免点选其他选项时被误提交
+                      onBlur={(e) => {
+                        if (!isMultiQuestion) {
+                          const next = e.relatedTarget as Node | null;
+                          if (next && cardRef.current?.contains(next)) return;
+                        }
+                        // 单问题走守卫提交（卡片失焦会在同一事件中再触发一次，
+                        // 守卫保证只提交一次）；多问题直接持久化
+                        if (isMultiQuestion) {
+                          handleOtherSubmit();
+                        } else {
+                          submitSingleSelect();
+                        }
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      placeholder={lang === 'zh-CN' ? '输入后离开输入框自动提交（或按 Enter）' : 'Auto-submit on blur (or press Enter)'}
+                      placeholder={lang === 'zh-CN' ? '输入后离开卡片自动提交（或按 Enter）' : 'Auto-submit on leaving card (or press Enter)'}
                       className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-content-primary placeholder:text-content-disabled"
                       autoFocus
                     />
@@ -594,6 +669,28 @@ export function QuestionCard({ modal, lang, onRespond }: QuestionCardProps) {
               className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer"
             >
               {lang === 'zh-CN' ? '提交' : 'Submit'}
+            </button>
+          )}
+          {/* 单问题单选提交按钮：选中后点击提交（保留失焦自动提交兜底）；无选项纯输入场景走上方输入框 */}
+          {!isMultiQuestion && !isMultiSelect && hasOptions && (
+            <button
+              type="button"
+              onClick={() => submitSingleSelect()}
+              disabled={!singleAnswer}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t(lang, 'question_submit')}
+            </button>
+          )}
+          {/* 单问题多选确认按钮：可见的提交入口，点击即提交全部选中项（保留失焦自动提交兜底） */}
+          {!isMultiQuestion && isMultiSelect && (
+            <button
+              type="button"
+              onClick={() => guardedSubmitSingleMultiSelect()}
+              disabled={!canSubmitMulti}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t(lang, 'multi_select_confirm')}
             </button>
           )}
         </div>
