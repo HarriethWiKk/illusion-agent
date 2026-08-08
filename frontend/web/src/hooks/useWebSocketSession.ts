@@ -1,14 +1,18 @@
 /**
- * @fileoverview WebSocket 会话管理 Hook
+ * @fileoverview WebSocket 会话管理 Hook（多会话并发）
  *
- * 本模块提供了 useWebSocketSession Hook，用于管理与后端的 WebSocket 通信会话。
- * 主要功能包括：
- * - 建立和维护 WebSocket 连接
- * - 处理后端发送的 JSON 协议事件
- * - 管理会话状态（转录项、任务、命令等）
- * - 处理助手流式回复的缓冲和刷新
- * - 管理工具调用的生命周期
- * - 处理模态对话框和选择请求
+ * 本模块提供 useWebSocketSession Hook，用于管理与后端的 WebSocket 通信。
+ *
+ * 多会话架构：
+ * - 后端为每个会话维护独立运行时（独立引擎），行任务并发执行互不阻塞。
+ * - 前端为每个会话维护独立视图（SessionView）：转录、流式缓冲、工具调用、
+ *   模态框、busy 状态等全部按会话隔离。
+ * - 后端事件携带 session_id 字段，本 hook 按会话路由到对应视图；
+ *   全局事件（设置/任务/资源/模型）保持全局。
+ * - 切换会话为纯本地切换（视图已就绪时），无需请求后端；
+ *   首次打开/页面刷新后的会话通过 web_restore_session 惰性恢复。
+ * - 对外暴露的 API 表面保持单会话语义：staticItems / assistantBuffer /
+ *   busy / modal 等均读取"活跃会话"视图，上层组件无需感知多会话。
  *
  * @module useWebSocketSession
  */
@@ -40,6 +44,40 @@ const ASSISTANT_DELTA_FLUSH_MS = 8;
  * 当缓冲的字符数达到此值时立即刷新
  */
 const ASSISTANT_DELTA_FLUSH_CHARS = 16;
+
+/**
+ * 会话级上下文/用量字段（随 web_sessions 推送，行任务结束时刷新）
+ *
+ * 多会话模式下这些数据按会话推送（后端全局 state_snapshot 已剔除），
+ * web_sessions 到达时合并进对应会话视图的 status，供右栏展示。
+ */
+const SESSION_STATUS_FIELDS = [
+  'context_tokens',
+  'input_tokens',
+  'output_tokens',
+  'cache_read_input_tokens',
+  'cache_creation_input_tokens',
+  'context_cache_read',
+  'context_cache_creation',
+  'context_input',
+  'context_output',
+] as const;
+
+/**
+ * restore_completed 的 state 载荷中属于会话的键
+ *
+ * 后端 _session_state_payload 基于全局 app_state 生成，包含全局键
+ * （model/effort/permission_mode/ui_language 等）。这些全局键必须由
+ * 全局 state_snapshot / web_setting_changed 驱动，若存入 view.status
+ * 会用恢复时的旧值影子化后续全局更新（工具栏下拉显示过期）。
+ */
+const SESSION_STATUS_KEYS = new Set<string>([
+  ...SESSION_STATUS_FIELDS,
+  'session_id',
+  'phase',
+  // 注意：context_window 是全局设置，由 state_snapshot 权威驱动，
+  // 不放入会话键——否则恢复快照会影子化用户后续的窗口调整
+]);
 
 /**
  * 工具调用行匹配正则表达式
@@ -81,44 +119,120 @@ export type SelectRequestPayload = {
 };
 
 /**
+ * 会话视图状态接口
+ *
+ * 前端为每个会话维护的独立状态。所有会话级事件按 session_id 路由到
+ * 对应视图，未 materialized 的视图在恢复完成后填充。
+ */
+interface SessionViewState {
+  /** 会话 ID */
+  id: string;
+  /** 会话显示标签 */
+  label: string;
+  /** 是否正在运行任务 */
+  busy: boolean;
+  /** 会话阶段：idle/thinking/tool_executing/awaiting_input */
+  phase: string;
+  /** 是否已加载转录（恢复完成） */
+  materialized: boolean;
+  /** 是否正在恢复中（列表项显示加载动画） */
+  restoring: boolean;
+  /** 后端是否持有该会话的内存运行时 */
+  inMemory: boolean;
+  /** 转录项列表 */
+  items: TranscriptItem[];
+  /** 助手流式缓冲 */
+  assistantBuffer: string;
+  /** 流式思考文本 */
+  streamingReasoning: string;
+  /** 待处理工具调用 */
+  pendingToolCalls: PendingToolCall[];
+  /** 会话级状态（restore_completed 携带，覆盖全局状态的部分字段） */
+  status: Record<string, unknown>;
+  /** 会话级模态框（权限/问答/计划审批） */
+  modal: Record<string, unknown> | null;
+  /** 会话级待办事项 */
+  todoItems: TodoItemSnapshot[];
+  /** 会话级内联选项（B 通道多步选择） */
+  inlineOptions: SelectRequestPayload | null;
+  /** 会话级侧问状态 */
+  btwLoading: boolean;
+  btwReply: string | null;
+  btwError: string | null;
+  btwRequestId: string | null;
+  /** 停止请求已发送、等待后端确认 */
+  stopping: boolean;
+}
+
+/**
+ * 会话级流式缓冲
+ *
+ * assistant_delta 等流式事件按会话分桶缓冲，避免并发会话互相串扰。
+ */
+interface StreamBuffer {
+  pending: string;
+  raw: string;
+  reasoning: string;
+  flushedForTool: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
  * WebSocket 会话状态接口
  *
  * 定义了 useWebSocketSession Hook 返回的所有状态和操作方法。
+ * 会话级字段（staticItems/assistantBuffer/busy/modal 等）均指向
+ * 当前活跃会话的视图；全局字段（tasks/modelOptions/connected 等）
+ * 与具体会话无关。
  */
 export interface WebSocketSessionState {
+  // === 活跃会话视图（单会话语义，兼容既有组件）===
   staticItems: TranscriptItem[];
   assistantBuffer: string;
   streamingReasoning: string;
   status: Record<string, unknown>;
+  busy: boolean;
+  modal: Record<string, unknown> | null;
+  todoItems: TodoItemSnapshot[];
+  pendingToolCalls: PendingToolCall[];
+  /** 正在恢复的会话 ID（null 表示无恢复进行中，活跃视图） */
+  restoringSessionId: string | null;
+  /** 设置正在恢复的会话 ID */
+  setRestoringSessionId: (id: string | null) => void;
+  // === 全局状态 ===
   tasks: TaskSnapshot[];
   commands: string[];
   mcpServers: McpServerSnapshot[];
   skills: SkillSnapshot[];
   plugins: PluginSnapshot[];
   rules: RuleSnapshot[];
-  modal: Record<string, unknown> | null;
   modelOptions: Option[];
-  busy: boolean;
   ready: boolean;
   /** 首次登录标识（后端 ready 事件携带，无 env_N 且无 working_directory 时为 true） */
   firstLogin: boolean;
   showThinking: boolean;
-  todoItems: TodoItemSnapshot[];
-  pendingToolCalls: PendingToolCall[];
   swarmTeammates: SwarmTeammateSnapshot[];
   swarmNotifications: SwarmNotificationSnapshot[];
   bgAgentLabel: string | null;
   connected: boolean;
-  sessions: { value: string; label: string }[];
-  /** 正在恢复的会话 ID（null 表示无恢复进行中） */
-  restoringSessionId: string | null;
-  /** 设置正在恢复的会话 ID */
-  setRestoringSessionId: (id: string | null) => void;
   /** 模型是否正在切换中 */
   modelSwitching: boolean;
   /** 设置模型切换状态 */
   setModelSwitching: (v: boolean) => void;
-  // ---- btw 侧问相关 ----
+  // === 多会话管理 ===
+  /** 会话列表（含 busy/phase/active 状态，供侧边栏渲染） */
+  sessions: { value: string; label: string; busy: boolean; phase: string; active: boolean }[];
+  /** 当前活跃会话 ID（null 表示尚未建立） */
+  activeSessionId: string | null;
+  /** 切换活跃会话：视图已就绪时纯本地切换；未恢复的会话自动请求恢复 */
+  activateSession: (id: string) => void;
+  /** 新建会话（后端创建后自动切换为活跃） */
+  newSession: () => void;
+  /** 会话级内联选项（活跃视图） */
+  inlineOptions: SelectRequestPayload | null;
+  /** 设置活跃会话的内联选项（/language 等前端本地弹出的选择框） */
+  setInlineOptions: (payload: SelectRequestPayload | null) => void;
+  // ---- btw 侧问相关（活跃视图）----
   /** 侧问请求进行中 */
   btwLoading: boolean;
   /** 侧问回复文本（非 null 表示成功回复） */
@@ -133,7 +247,7 @@ export interface WebSocketSessionState {
   sendBtwCancel: (requestId: string) => void;
   /** 清空所有 btw 状态（关闭卡片时调用） */
   clearBtwState: () => void;
-  // ---- agent 向导相关 ----
+  // ---- agent 向导相关（全局）----
   /** agent 向导可选工具列表（来自 agent_wizard_init_response） */
   agentWizardTools: { name: string; description: string }[] | null;
   /** agent 向导可选模型列表（来自 agent_wizard_init_response，后端返回 name 字段） */
@@ -162,10 +276,11 @@ export interface WebSocketSessionState {
   requestSelectCommand: (command: string) => void;
   setEffortValue: (value: string) => void;
   setModelValue: (value: string) => void;
+  /** 发送请求（自动附带当前活跃会话 ID，无需调用方填写） */
   sendRequest: (payload: Record<string, unknown>) => void;
   /** 停止请求已发送、等待后端确认（按钮旋转动画），line_complete 后清除 */
   stopping: boolean;
-  /** 发送停止请求（自动管理 stopping 状态与超时兜底） */
+  /** 发送停止请求（针对活跃会话，自动管理 stopping 状态与超时兜底） */
   sendStop: () => void;
   clearStaticItems: () => void;
   setOnSelectRequest: (fn: ((payload: SelectRequestPayload) => void) | null) => void;
@@ -174,10 +289,50 @@ export interface WebSocketSessionState {
   setOnUpdateAvailable: (fn: ((latestVersion: string) => void) | null) => void;
 }
 
+/**
+ * 创建空会话视图
+ *
+ * @param id - 会话 ID
+ * @returns 初始会话视图
+ */
+function createSessionView(id: string): SessionViewState {
+  return {
+    id,
+    label: '',
+    busy: false,
+    phase: 'idle',
+    materialized: false,
+    restoring: false,
+    inMemory: true,
+    items: [],
+    assistantBuffer: '',
+    streamingReasoning: '',
+    pendingToolCalls: [],
+    status: {},
+    modal: null,
+    todoItems: [],
+    inlineOptions: null,
+    btwLoading: false,
+    btwReply: null,
+    btwError: null,
+    btwRequestId: null,
+    stopping: false,
+  };
+}
+
+/**
+ * 生成唯一请求 ID（btw / agent generate 用）
+ *
+ * 优先使用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底。
+ */
+function genRequestId(prefix: string): string {
+  return (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function useWebSocketSession(url: string): WebSocketSessionState {
-  const [staticItems, setStaticItems] = useState<TranscriptItem[]>([]);
-  const [assistantBuffer, setAssistantBuffer] = useState('');
-  const [streamingReasoning, setStreamingReasoning] = useState('');
+  // === 全局状态 ===
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
   const [commands, setCommands] = useState<string[]>([]);
@@ -185,72 +340,45 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [skills, setSkills] = useState<SkillSnapshot[]>([]);
   const [plugins, setPlugins] = useState<PluginSnapshot[]>([]);
   const [rules, setRules] = useState<RuleSnapshot[]>([]);
-  const [modal, setModal] = useState<Record<string, unknown> | null>(null);
   const [modelOptions, setModelOptions] = useState<Option[]>([]);
-  const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [showThinking, setShowThinking] = useState(true);
-  const [todoItems, setTodoItems] = useState<TodoItemSnapshot[]>([]);
-  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
   const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
   const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
   const [bgAgentLabel, setBgAgentLabel] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   /** 首次登录标识（后端 ready 事件携带，无 env_N 且无 working_directory 时为 true） */
   const [firstLogin, setFirstLogin] = useState(false);
-  const [sessions, setSessions] = useState<{ value: string; label: string }[]>([]);
-  // 正在恢复的会话 ID（用于显示加载动画），由发出恢复请求时即设置
-  const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
   // 模型切换中（用于 Toolbar 显示加载动画）
   const [modelSwitching, setModelSwitching] = useState(false);
-  // 停止请求已发送、等待后端确认（按钮显示旋转动画）。由 line_complete 清除
-  // （不依赖 busy 变化——后台任务场景 busy 恒为 false，busy 监听会漏清除）。
-  const [stopping, setStopping] = useState(false);
-  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearStopTimer = useCallback((): void => {
-    if (stopTimerRef.current !== null) {
-      clearTimeout(stopTimerRef.current);
-      stopTimerRef.current = null;
-    }
-  }, []);
 
-  // ---- btw 侧问相关状态 ----
-  /** 侧问请求进行中 */
-  const [btwLoading, setBtwLoading] = useState(false);
-  /** 侧问回复文本 */
-  const [btwReply, setBtwReply] = useState<string | null>(null);
-  /** 侧问错误文本 */
-  const [btwError, setBtwError] = useState<string | null>(null);
-  /** 当前活跃的 btw 请求 ID（用于响应匹配与取消） */
-  const [btwRequestId, setBtwRequestId] = useState<string | null>(null);
-  /** btw 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
-  const btwRequestIdRef = useRef<string | null>(null);
+  // === 会话视图状态 ===
+  const [sessionViews, setSessionViews] = useState<Record<string, SessionViewState>>({});
+  const [sessionList, setSessionList] = useState<
+    { value: string; label: string; busy: boolean; phase: string; active: boolean }[]
+  >([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // 视图最新引用：事件处理器（WS 闭包）与回调中读取，避免陈旧闭包
+  const viewsRef = useRef<Record<string, SessionViewState>>({});
+  const activeSessionIdRef = useRef<string | null>(null);
+  // 会话级流式缓冲（assistant_delta 分桶）
+  const buffersRef = useRef<Record<string, StreamBuffer>>({});
+  const pendingToolCallsRef = useRef<Record<string, PendingToolCall[]>>({});
+  const showThinkingRef = useRef(true);
+  // 会话级 stop 超时定时器（sendStop 15s 兜底，line_complete 时清理）
+  const stopTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // ---- agent 向导相关状态 ----
-  /** agent 向导可选工具列表 */
+  // === agent 向导状态（全局）===
   const [agentWizardTools, setAgentWizardTools] = useState<{ name: string; description: string }[] | null>(null);
-  /** agent 向导可选模型列表 */
   const [agentWizardModels, setAgentWizardModels] = useState<{ name: string; label: string }[] | null>(null);
-  /** LLM 生成的 agent 草稿 */
   const [agentGenerated, setAgentGenerated] = useState<{ identifier: string; when_to_use: string; system_prompt: string } | null>(null);
-  /** agent 生成中标志 */
   const [agentGenerateLoading, setAgentGenerateLoading] = useState(false);
-  /** agent 生成错误文本 */
   const [agentGenerateError, setAgentGenerateError] = useState<string | null>(null);
-  /** agent 向导提交结果 */
   const [agentWizardResult, setAgentWizardResult] = useState<{ success: boolean; path?: string; errors?: Record<string, string>; error?: string } | null>(null);
   /** agent generate 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
   const agentGenerateRequestIdRef = useRef<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const assistantBufferRef = useRef('');
-  const pendingAssistantDeltaRef = useRef('');
-  const assistantFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reasoningBufferRef = useRef('');
-  const rawBufferRef = useRef('');
-  const assistantFlushedForToolRef = useRef(false);
-  const pendingToolCallsRef = useRef<PendingToolCall[]>([]);
-  const showThinkingRef = useRef(true);
 
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
@@ -262,73 +390,171 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
   const setOnUpdateAvailable = useCallback((fn: ((latestVersion: string) => void) | null) => { onUpdateAvailableRef.current = fn; }, []);
-  // suppress 方法不再导出，仅内部使用（refs 保留用于 transcript_item/replace_transcript/command_result 处理）
 
-  const pushStatic = useCallback((item: TranscriptItem): void => {
-    setStaticItems((prev) => [...prev, item]);
+  /**
+   * 同步视图状态到 state 与 ref（双写，事件处理器经 ref 读取最新值）
+   *
+   * @param sid - 会话 ID
+   * @param patch - 视图字段补丁
+   */
+  const patchView = useCallback((sid: string, patch: Partial<SessionViewState>) => {
+    const current = viewsRef.current[sid];
+    if (!current) return;
+    const next = { ...current, ...patch };
+    viewsRef.current = { ...viewsRef.current, [sid]: next };
+    setSessionViews(viewsRef.current);
   }, []);
 
-  const flushAssistantDelta = useCallback((): void => {
-    const pending = pendingAssistantDeltaRef.current;
+  /**
+   * 确保会话视图存在（未知会话 ID 惰性创建）
+   *
+   * @param sid - 会话 ID
+   * @returns 会话视图（ref 中的最新值）
+   */
+  const ensureView = useCallback((sid: string): SessionViewState => {
+    let view = viewsRef.current[sid];
+    if (!view) {
+      view = createSessionView(sid);
+      viewsRef.current = { ...viewsRef.current, [sid]: view };
+      setSessionViews(viewsRef.current);
+    }
+    return view;
+  }, []);
+
+  /**
+   * 获取事件归属会话 ID（事件携带时用事件值，否则回退到活跃会话）
+   *
+   * @param evt - 后端事件
+   * @returns 会话 ID
+   */
+  const routeSessionId = useCallback((evt: BackendEvent): string | null => {
+    return evt.session_id ?? activeSessionIdRef.current;
+  }, []);
+
+  // === 流式缓冲（按会话分桶）===
+
+  const getBuffer = useCallback((sid: string): StreamBuffer => {
+    let buf = buffersRef.current[sid];
+    if (!buf) {
+      buf = { pending: '', raw: '', reasoning: '', flushedForTool: false, timer: null };
+      buffersRef.current[sid] = buf;
+    }
+    return buf;
+  }, []);
+
+  const flushAssistantDelta = useCallback((sid: string): void => {
+    const buf = getBuffer(sid);
+    const pending = buf.pending;
     if (!pending) return;
-    pendingAssistantDeltaRef.current = '';
-    rawBufferRef.current += pending;
-    let displayText = rawBufferRef.current
+    buf.pending = '';
+    buf.raw += pending;
+    let displayText = buf.raw
       .replace(/<think\b[^>]*>[\s\S]*?<\/think\b[^>]*>/gi, '')
       .replace(/<\/think\b[^>]*>/gi, '')
       .replace(/<think\b[^>]*>/gi, '')
       .replace(/<th(?:i(?:n(?:k)?)?)?\s*$/i, '');
-    assistantBufferRef.current = displayText;
-    setAssistantBuffer(displayText);
-  }, []);
+    patchView(sid, { assistantBuffer: displayText });
+  }, [getBuffer, patchView]);
 
-  const clearAssistantDelta = useCallback((): void => {
-    pendingAssistantDeltaRef.current = '';
-    assistantBufferRef.current = '';
-    rawBufferRef.current = '';
-    if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
-    setAssistantBuffer('');
-    reasoningBufferRef.current = '';
-    setStreamingReasoning('');
-  }, []);
+  const clearAssistantDelta = useCallback((sid: string): void => {
+    const buf = getBuffer(sid);
+    buf.pending = '';
+    buf.raw = '';
+    buf.reasoning = '';
+    if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+    patchView(sid, { assistantBuffer: '', streamingReasoning: '' });
+  }, [getBuffer, patchView]);
 
-  const sendRequest = useCallback((payload: Record<string, unknown>): void => {
+  /** 向指定会话追加转录项 */
+  const pushStatic = useCallback((sid: string, item: TranscriptItem): void => {
+    const view = viewsRef.current[sid];
+    if (!view) return;
+    patchView(sid, { items: [...view.items, item] });
+  }, [patchView]);
+
+  /** 发送原始请求（不注入 session_id，供内部使用） */
+  const sendRaw = useCallback((payload: Record<string, unknown>): void => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(payload));
   }, []);
 
-  /** 发送停止请求：按钮进入旋转动画，直到后端确认（line_complete）清除；
-   *  15s 超时兜底（后端异常挂起时避免按钮永久旋转） */
+  /** 发送请求（自动附带当前活跃会话 ID） */
+  const sendRequest = useCallback((payload: Record<string, unknown>): void => {
+    const sid = activeSessionIdRef.current;
+    sendRaw(sid ? { ...payload, session_id: sid } : payload);
+  }, [sendRaw]);
+
+  /**
+   * 停止请求（针对活跃会话）：按钮进入旋转动画，直到后端确认（line_complete）清除；
+   * 15s 超时兜底（后端异常挂起时避免按钮永久旋转）
+   */
   const sendStop = useCallback((): void => {
-    setStopping(true);
-    clearStopTimer();
-    stopTimerRef.current = setTimeout(() => {
-      setStopping(false);
-      stopTimerRef.current = null;
-    }, 15000);
+    const sid = activeSessionIdRef.current;
+    if (!sid) return;
+    patchView(sid, { stopping: true });
     sendRequest({ type: 'stop' });
-  }, [sendRequest, clearStopTimer]);
+    // 15s 超时兜底（后端异常挂起时避免按钮永久旋转）；重复 stop 先清旧定时器
+    const prev = stopTimersRef.current[sid];
+    if (prev) clearTimeout(prev);
+    stopTimersRef.current[sid] = setTimeout(() => {
+      delete stopTimersRef.current[sid];
+      patchView(sid, { stopping: false });
+    }, 15000);
+  }, [patchView, sendRequest]);
 
-  const setBusyTrue = useCallback((): void => { setBusy(true); }, []);
+  const setBusyTrue = useCallback((): void => {
+    const sid = activeSessionIdRef.current;
+    if (sid) patchView(sid, { busy: true });
+  }, [patchView]);
 
-  const clearStaticItems = useCallback((): void => { setStaticItems([]); clearAssistantDelta(); }, [clearAssistantDelta]);
+  const clearStaticItems = useCallback((): void => {
+    const sid = activeSessionIdRef.current;
+    if (!sid) return;
+    clearAssistantDelta(sid);
+    patchView(sid, { items: [], pendingToolCalls: [] });
+    pendingToolCallsRef.current[sid] = [];
+  }, [clearAssistantDelta, patchView]);
+
   const deleteSessions = useCallback((sessionIds: string[], deleteAll: boolean = false): void => {
-    // 立即从本地状态中移除
+    // 立即从本地状态中移除（视图与列表），后端推送 web_sessions 兜底同步
+    const removed = deleteAll
+      ? Object.keys(viewsRef.current)
+      : sessionIds.filter((sid) => viewsRef.current[sid]);
+    if (removed.length > 0) {
+      const next = { ...viewsRef.current };
+      for (const sid of removed) {
+        delete next[sid];
+        delete buffersRef.current[sid];
+        delete pendingToolCallsRef.current[sid];
+        const stopTimer = stopTimersRef.current[sid];
+        if (stopTimer) {
+          clearTimeout(stopTimer);
+          delete stopTimersRef.current[sid];
+        }
+      }
+      viewsRef.current = next;
+      setSessionViews(next);
+    }
     if (deleteAll) {
-      setSessions([]);
+      setSessionList([]);
     } else {
-      setSessions(prev => prev.filter(s => !sessionIds.includes(s.value)));
+      setSessionList((prev) => prev.filter((s) => !sessionIds.includes(s.value)));
     }
 
     // 发送删除请求到后端
-    sendRequest({
+    sendRaw({
       type: 'web_delete_sessions',
       session_ids: sessionIds,
       delete_all: deleteAll,
     });
-  }, [sendRequest]);
-  const clearModal = useCallback((): void => { setModal(null); }, []);
+  }, [sendRaw]);
+
+  const clearModal = useCallback((): void => {
+    const sid = activeSessionIdRef.current;
+    if (sid) patchView(sid, { modal: null });
+  }, [patchView]);
+
   const requestSelectCommand = useCallback((command: string): void => {
     sendRequest({ type: 'select_command', command });
   }, [sendRequest]);
@@ -342,80 +568,74 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   }, [sendRequest]);
 
   /**
-   * 发送 btw 侧问请求
-   *
-   * 生成 request_id（优先用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底），
-   * 发送 btw_request 并将本地状态置为 loading。同时清空上一次的 reply/error。
-   *
-   * @param question - 侧问问题文本
+   * 期望激活的会话 ID：发出恢复/新建请求时记录，restore_completed 到达时
+   * 若匹配则切换活跃会话。`'__new__'` 表示等待新建会话的 restore_completed。
+   * 用户在恢复期间手动切换会话会覆盖此值，保证"以用户最后操作为准"。
    */
-  const sendBtwRequest = useCallback((question: string): void => {
-    const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-      ? crypto.randomUUID()
-      : `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    btwRequestIdRef.current = requestId;
-    setBtwRequestId(requestId);
-    setBtwLoading(true);
-    setBtwReply(null);
-    setBtwError(null);
-    sendRequest({ type: 'btw_request', question, request_id: requestId });
-  }, [sendRequest]);
+  const pendingActivateRef = useRef<string | null>(null);
 
-  /**
-   * 取消进行中的 btw 请求
-   *
-   * 向后端发送 btw_cancel 并清空本地 btw 状态。
-   * 当 requestId 为空（无活跃请求）时静默忽略，避免无意义请求。
-   *
-   * @param requestId - 要取消的 btw 请求 ID
-   */
+  /** 切换活跃会话：视图已就绪时纯本地切换；未恢复或已被后端淘汰的会话自动请求恢复 */
+  const activateSession = useCallback((id: string) => {
+    const view = viewsRef.current[id];
+    if (!view || !view.materialized || !view.inMemory) {
+      // 视图未就绪或后端已淘汰运行时（in_memory=false）：
+      // 必须重新恢复，否则提交请求会因后端无此会话而静默丢弃
+      pendingActivateRef.current = id;
+      activeSessionIdRef.current = id;
+      setActiveSessionId(id);
+      patchView(id, { restoring: true });
+      sendRaw({ type: 'web_restore_session', session_id: id });
+    } else {
+      // 视图已就绪：纯本地切换，无待激活目标
+      pendingActivateRef.current = null;
+      activeSessionIdRef.current = id;
+      setActiveSessionId(id);
+    }
+  }, [patchView, sendRaw]);
+
+  /** 新建会话：后端创建后通过 web_restore_completed 自动切换为活跃 */
+  const newSession = useCallback(() => {
+    pendingActivateRef.current = '__new__';
+    sendRaw({ type: 'web_new_session' });
+  }, [sendRaw]);
+
+  const setInlineOptions = useCallback((payload: SelectRequestPayload | null) => {
+    const sid = activeSessionIdRef.current;
+    if (sid) patchView(sid, { inlineOptions: payload });
+  }, [patchView]);
+
+  /** 发送 btw 侧问请求（针对活跃会话） */
+  const sendBtwRequest = useCallback((question: string): void => {
+    const sid = activeSessionIdRef.current;
+    if (!sid) return;
+    const requestId = genRequestId('btw');
+    patchView(sid, { btwLoading: true, btwReply: null, btwError: null, btwRequestId: requestId });
+    sendRequest({ type: 'btw_request', question, request_id: requestId });
+  }, [patchView, sendRequest]);
+
+  /** 取消进行中的 btw 请求（针对活跃会话） */
   const sendBtwCancel = useCallback((requestId: string): void => {
     if (requestId) {
       sendRequest({ type: 'btw_cancel', request_id: requestId });
     }
-    btwRequestIdRef.current = null;
-    setBtwLoading(false);
-    setBtwReply(null);
-    setBtwError(null);
-    setBtwRequestId(null);
-  }, [sendRequest]);
+    const sid = activeSessionIdRef.current;
+    if (sid) patchView(sid, { btwLoading: false, btwReply: null, btwError: null, btwRequestId: null });
+  }, [patchView, sendRequest]);
 
-  /**
-   * 清空所有 btw 状态
-   *
-   * 关闭卡片时调用，仅清空本地展示状态，不向后端发取消请求。
-   * 进行中的请求若需取消，调用方应先调用 sendBtwCancel。
-   */
+  /** 清空活跃会话所有 btw 状态（关闭卡片时调用） */
   const clearBtwState = useCallback((): void => {
-    btwRequestIdRef.current = null;
-    setBtwLoading(false);
-    setBtwReply(null);
-    setBtwError(null);
-    setBtwRequestId(null);
-  }, []);
+    const sid = activeSessionIdRef.current;
+    if (sid) patchView(sid, { btwLoading: false, btwReply: null, btwError: null, btwRequestId: null });
+  }, [patchView]);
 
-  /**
-   * 请求初始化 agent 向导
-   *
-   * 触发后端返回 agent_wizard_init_response（工具列表 + 模型列表）。
-   */
+  /** 请求初始化 agent 向导（全局） */
   const sendAgentWizardInit = useCallback((): void => {
     sendRequest({ type: 'agent_wizard_init' });
   }, [sendRequest]);
 
-  /**
-   * 请求 LLM 生成 agent 草稿
-   *
-   * 生成 request_id（优先用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底），
-   * 发送 agent_generate_request 并将本地状态置为 loading。同时清空上一次的草稿/错误。
-   *
-   * @param prompt - 用户输入的描述性提示词
-   * @param model - 使用的模型名称（'inherit' 表示继承当前会话模型）
-   */
+  /** 请求 LLM 生成 agent 草稿（全局表单，使用活跃会话引擎） */
   const sendAgentGenerateRequest = useCallback((prompt: string, model: string): void => {
-    const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-      ? crypto.randomUUID()
-      : `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestId = genRequestId('agent');
     agentGenerateRequestIdRef.current = requestId;
     setAgentGenerateLoading(true);
     setAgentGenerateError(null);
@@ -423,22 +643,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     sendRequest({ type: 'agent_generate_request', prompt, model, request_id: requestId });
   }, [sendRequest]);
 
-  /**
-   * 提交 agent 向导表单
-   *
-   * @param fields - 表单字段（name/description/system_prompt/model/tools 等）
-   * @param scope - 写入范围：'user' 或 'project'
-   */
+  /** 提交 agent 向导表单（全局） */
   const sendAgentWizardSubmit = useCallback((fields: Record<string, unknown>, scope: 'user' | 'project'): void => {
     sendRequest({ type: 'agent_wizard_submit', fields, scope });
   }, [sendRequest]);
 
-  /**
-   * 清空所有 agent 向导相关状态
-   *
-   * 重置工具/模型列表、生成草稿、提交结果、生成 loading 与错误，
-   * 用于关闭表单或重新打开时避免残留旧数据干扰新一次填写。
-   */
+  /** 清空所有 agent 向导相关状态（关闭表单时调用） */
   const clearAgentWizardState = useCallback((): void => {
     agentGenerateRequestIdRef.current = null;
     setAgentWizardTools(null);
@@ -458,7 +668,13 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       setConnected(false);
       setReady(false);
       setFirstLogin(false);
-      setRestoringSessionId(null);
+      // 清空全部视图的 restoring 态，避免断线后残留加载动画
+      const next = { ...viewsRef.current };
+      for (const view of Object.values(next)) {
+        view.restoring = false;
+      }
+      viewsRef.current = next;
+      setSessionViews(next);
     };
     ws.onerror = () => setConnected(false);
     ws.onmessage = (event) => {
@@ -478,15 +694,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         setTasks(evt.tasks ?? []);
         setCommands(evt.commands ?? []);
         setMcpServers((evt.mcp_servers as McpServerSnapshot[]) ?? []);
-        // 会话列表、skills/plugins/rules、模型选项均由后端在 ready 后主动推送
-        // （web_sessions / web_resources / web_models），无需前端 setTimeout 拉取
+        // 会话列表 / 活跃会话转录由后端随后的 web_sessions + web_restore_completed 驱动
         return;
       }
       if (evt.type === 'state_snapshot') {
+        // 全局状态快照：工具栏级字段（model/effort/language 等）
         const newState = evt.state ?? {};
-        // 工具栏状态权威来源：web_setting_changed 即时更新 + state_snapshot 兜底合并。
-        // 移除旧的"status.model/effort 变化时主动发 select_command 重新拉选项"补偿逻辑，
-        // 模型选项改由后端 web_models 推送驱动。
         setStatus(newState);
         const st = newState.show_thinking;
         if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
@@ -499,186 +712,357 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
 
-      // === 流式 ===
-      if (evt.type === 'assistant_delta') {
-        assistantFlushedForToolRef.current = false;
-        setBusy(true);
-        if (evt.reasoning) { reasoningBufferRef.current += evt.reasoning; setStreamingReasoning(reasoningBufferRef.current); }
-        const delta = evt.message ?? '';
-        if (!delta) return;
-        pendingAssistantDeltaRef.current += delta;
-        if (pendingAssistantDeltaRef.current.length >= ASSISTANT_DELTA_FLUSH_CHARS) { flushAssistantDelta(); return; }
-        if (!assistantFlushTimerRef.current) {
-          assistantFlushTimerRef.current = setTimeout(() => { assistantFlushTimerRef.current = null; flushAssistantDelta(); }, ASSISTANT_DELTA_FLUSH_MS);
-        }
-        return;
-      }
-      if (evt.type === 'assistant_complete') {
-        if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
-        flushAssistantDelta();
-        if (!assistantFlushedForToolRef.current) {
-          const text = evt.message ?? rawBufferRef.current;
-          const reasoning = (evt.reasoning ?? reasoningBufferRef.current) || undefined;
-          if (text.trim() || (reasoning ?? '').trim()) pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
-        }
-        assistantFlushedForToolRef.current = false;
-        clearAssistantDelta();
-        return;
-      }
-      if (evt.type === 'line_complete') {
-        clearAssistantDelta();
-        pendingToolCallsRef.current = [];
-        setPendingToolCalls([]);
-        setBgAgentLabel(null);
-        setBusy(false);
-        // 停止确认：清除按钮旋转动画（含超时定时器）
-        setStopping(false);
-        clearStopTimer();
-        return;
-      }
+      // === 会话路由（携带 session_id 的会话级事件）===
+      const sid = routeSessionId(evt);
+      if (sid) {
+        ensureView(sid);
+        const view = viewsRef.current[sid]!;
 
-      // === 转录 ===
-      if (evt.type === 'transcript_item' && evt.item) {
-        // 过滤 / 开头的 user 消息：这些是 apply_select_command → _process_line 产生的
-        // 命令产物（如 /context set 512000），不是真实用户输入，不应显示在会话中
-        if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
-        // 过滤后台任务完成通知（<task-notification> XML）：注入给 LLM 的系统消息，
-        // 不应作为真实用户消息显示
-        if (evt.item.role === 'user' && evt.item.text.startsWith('<task-notification>')) return;
-        if (suppressTranscriptRef.current) return;
-        pushStatic(evt.item as TranscriptItem);
-        return;
-      }
-
-      // === 工具 ===
-      if ((evt.type === 'tool_started' || evt.type === 'tool_completed') && evt.item) {
-        if (evt.type === 'tool_started') {
-          if (rawBufferRef.current.trim() || pendingAssistantDeltaRef.current || reasoningBufferRef.current.trim()) {
-            if (assistantFlushTimerRef.current) { clearTimeout(assistantFlushTimerRef.current); assistantFlushTimerRef.current = null; }
-            flushAssistantDelta();
-            const text = rawBufferRef.current;
-            const reasoning = reasoningBufferRef.current || undefined;
-            if (text.trim() || (reasoning ?? '').trim()) pushStatic({ role: 'assistant', text: stripToolCallLines(text), reasoning });
-            clearAssistantDelta();
-            assistantFlushedForToolRef.current = true;
+        // 流式
+        if (evt.type === 'assistant_delta') {
+          view.busy = true;
+          if (evt.reasoning) {
+            const buf = getBuffer(sid);
+            buf.reasoning += evt.reasoning;
+            patchView(sid, { busy: true, streamingReasoning: buf.reasoning });
           }
-          setBusy(true);
-          const toolInput = evt.item.tool_input ?? evt.tool_input;
-          const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
-          pendingToolCallsRef.current = [...pendingToolCallsRef.current, {
-            tool_name: evt.item.tool_name ?? evt.tool_name ?? 'tool', tool_use_id: toolUseId,
-            tool_input: (toolInput && Object.keys(toolInput as Record<string, unknown>).length > 0) ? toolInput as Record<string, unknown> : undefined,
-          }];
-          setPendingToolCalls(pendingToolCallsRef.current);
+          const delta = evt.message ?? '';
+          if (delta) {
+            const buf = getBuffer(sid);
+            buf.pending += delta;
+            if (buf.pending.length >= ASSISTANT_DELTA_FLUSH_CHARS) {
+              flushAssistantDelta(sid);
+            } else if (!buf.timer) {
+              buf.timer = setTimeout(() => { buf.timer = null; flushAssistantDelta(sid); }, ASSISTANT_DELTA_FLUSH_MS);
+            }
+          }
           return;
         }
-        const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
-        const pendingIdx = pendingToolCallsRef.current.findIndex((p) => p.tool_use_id === toolUseId);
-        let toolName = evt.item.tool_name ?? evt.tool_name ?? 'tool';
-        let toolInput = (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined;
-        // 完成时从 pending 保留流式进度（agent 思考过程），随 tool_result 折叠展示
-        let progressMessages: Array<{message: string; type?: string}> | undefined;
-        if (pendingIdx !== -1) {
-          const pending = pendingToolCallsRef.current[pendingIdx]!;
-          toolName = pending.tool_name || toolName; toolInput = pending.tool_input || toolInput;
-          progressMessages = pending.progressMessages;
-          pendingToolCallsRef.current = pendingToolCallsRef.current.filter((p) => p.tool_use_id !== toolUseId);
-          setPendingToolCalls(pendingToolCallsRef.current);
+        if (evt.type === 'assistant_complete') {
+          const buf = getBuffer(sid);
+          if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+          flushAssistantDelta(sid);
+          if (!buf.flushedForTool) {
+            const text = evt.message ?? buf.raw;
+            const reasoning = (evt.reasoning ?? buf.reasoning) || undefined;
+            if (text.trim() || (reasoning ?? '').trim()) {
+              pushStatic(sid, { role: 'assistant', text: stripToolCallLines(text), reasoning });
+            }
+          }
+          buf.flushedForTool = false;
+          clearAssistantDelta(sid);
+          return;
         }
-        pushStatic({ role: 'tool', text: toolName, tool_name: toolName, tool_input: toolInput, tool_use_id: toolUseId || undefined });
-        pushStatic({ ...evt.item, role: 'tool_result', tool_name: toolName,
-          tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined,
-          progress_messages: progressMessages });
-        return;
-      }
-      if (evt.type === 'tool_input_updated') {
-        const uid = evt.tool_use_id;
-        pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) => p.tool_use_id === uid ? { ...p, tool_input: evt.tool_input ?? undefined } : p);
-        setPendingToolCalls(pendingToolCallsRef.current);
-        return;
-      }
-      // 流式进度消息：累积到对应 pendingToolCall 的 progressMessages（对称于 terminal 端）
-      // thinking/text 为增量片段，累积到同类型最后一条；tool/status 为完整消息，直接追加
-      if (evt.type === 'tool_progress') {
-        const uid = evt.tool_use_id;
-        if (uid) {
-          const msgType = evt.progress_type ?? 'status';
-          const msgContent = evt.message ?? '';
-          pendingToolCallsRef.current = pendingToolCallsRef.current.map((p) => {
-            if (p.tool_use_id !== uid) return p;
-            const prev = p.progressMessages ?? [];
-            let next;
-            if (msgType === 'thinking' || msgType === 'text') {
-              const lastIdx = prev.length - 1;
-              const lastEntry = lastIdx >= 0 ? prev[lastIdx] : undefined;
-              if (lastEntry && lastEntry.type === msgType) {
-                next = [...prev];
-                next[lastIdx] = {message: lastEntry.message + msgContent, type: msgType};
+        if (evt.type === 'line_complete') {
+          clearAssistantDelta(sid);
+          pendingToolCallsRef.current[sid] = [];
+          patchView(sid, { pendingToolCalls: [], busy: false });
+          // 停止确认：清除按钮旋转动画与超时定时器
+          const stopTimer = stopTimersRef.current[sid];
+          if (stopTimer) {
+            clearTimeout(stopTimer);
+            delete stopTimersRef.current[sid];
+          }
+          patchView(sid, { stopping: false });
+          return;
+        }
+
+        // 转录
+        if (evt.type === 'transcript_item' && evt.item) {
+          // 过滤 / 开头的 user 消息：这些是 apply_select_command → _process_line 产生的
+          // 命令产物（如 /context set 512000），不是真实用户输入，不应显示在会话中
+          if (evt.item.role === 'user' && evt.item.text.startsWith('/')) return;
+          // 过滤后台任务完成通知（<task-notification> XML）：注入给 LLM 的系统消息，
+          // 不应作为真实用户消息显示
+          if (evt.item.role === 'user' && evt.item.text.startsWith('<task-notification>')) return;
+          if (suppressTranscriptRef.current) return;
+          pushStatic(sid, evt.item);
+          return;
+        }
+
+        // 工具
+        if ((evt.type === 'tool_started' || evt.type === 'tool_completed') && evt.item) {
+          if (evt.type === 'tool_started') {
+            const buf = getBuffer(sid);
+            if (buf.raw.trim() || buf.pending || buf.reasoning.trim()) {
+              if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+              flushAssistantDelta(sid);
+              const text = buf.raw;
+              const reasoning = buf.reasoning || undefined;
+              if (text.trim() || (reasoning ?? '').trim()) {
+                pushStatic(sid, { role: 'assistant', text: stripToolCallLines(text), reasoning });
+              }
+              clearAssistantDelta(sid);
+              buf.flushedForTool = true;
+            }
+            const toolInput = evt.item.tool_input ?? evt.tool_input;
+            const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
+            const pendingList = pendingToolCallsRef.current[sid] ?? [];
+            pendingToolCallsRef.current[sid] = [...pendingList, {
+              tool_name: evt.item.tool_name ?? evt.tool_name ?? 'tool', tool_use_id: toolUseId,
+              tool_input: (toolInput && Object.keys(toolInput as Record<string, unknown>).length > 0) ? toolInput as Record<string, unknown> : undefined,
+            }];
+            patchView(sid, { busy: true, pendingToolCalls: pendingToolCallsRef.current[sid] });
+            return;
+          }
+          const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
+          const pendingList = pendingToolCallsRef.current[sid] ?? [];
+          const pendingIdx = pendingList.findIndex((p) => p.tool_use_id === toolUseId);
+          let toolName = evt.item.tool_name ?? evt.tool_name ?? 'tool';
+          let toolInput = (evt.item.tool_input ?? undefined) as Record<string, unknown> | undefined;
+          // 完成时从 pending 保留流式进度（agent 思考过程），随 tool_result 折叠展示
+          let progressMessages: Array<{message: string; type?: string}> | undefined;
+          if (pendingIdx !== -1) {
+            const pending = pendingList[pendingIdx]!;
+            toolName = pending.tool_name || toolName; toolInput = pending.tool_input || toolInput;
+            progressMessages = pending.progressMessages;
+            pendingToolCallsRef.current[sid] = pendingList.filter((p) => p.tool_use_id !== toolUseId);
+            patchView(sid, { pendingToolCalls: pendingToolCallsRef.current[sid] });
+          }
+          pushStatic(sid, { role: 'tool', text: toolName, tool_name: toolName, tool_input: toolInput, tool_use_id: toolUseId || undefined });
+          pushStatic(sid, { ...evt.item, role: 'tool_result', tool_name: toolName,
+            tool_use_id: toolUseId || undefined, is_error: (evt.item.is_error ?? evt.is_error ?? undefined) as boolean | undefined,
+            progress_messages: progressMessages });
+          return;
+        }
+        if (evt.type === 'tool_input_updated') {
+          const uid = evt.tool_use_id;
+          const pendingList = pendingToolCallsRef.current[sid] ?? [];
+          pendingToolCallsRef.current[sid] = pendingList.map((p) => p.tool_use_id === uid ? { ...p, tool_input: evt.tool_input ?? undefined } : p);
+          patchView(sid, { pendingToolCalls: pendingToolCallsRef.current[sid] });
+          return;
+        }
+        // 流式进度消息：累积到对应 pendingToolCall 的 progressMessages（对称于 terminal 端）
+        // thinking/text 为增量片段，累积到同类型最后一条；tool/status 为完整消息，直接追加
+        if (evt.type === 'tool_progress') {
+          const uid = evt.tool_use_id;
+          if (uid) {
+            const msgType = evt.progress_type ?? 'status';
+            const msgContent = evt.message ?? '';
+            const pendingList = pendingToolCallsRef.current[sid] ?? [];
+            pendingToolCallsRef.current[sid] = pendingList.map((p) => {
+              if (p.tool_use_id !== uid) return p;
+              const prev = p.progressMessages ?? [];
+              let next;
+              if (msgType === 'thinking' || msgType === 'text') {
+                const lastIdx = prev.length - 1;
+                const lastEntry = lastIdx >= 0 ? prev[lastIdx] : undefined;
+                if (lastEntry && lastEntry.type === msgType) {
+                  next = [...prev];
+                  next[lastIdx] = {message: lastEntry.message + msgContent, type: msgType};
+                } else {
+                  next = [...prev, {message: msgContent, type: msgType}];
+                }
               } else {
                 next = [...prev, {message: msgContent, type: msgType}];
               }
-            } else {
-              next = [...prev, {message: msgContent, type: msgType}];
-            }
-            // 累积全部进度（web 端不受 terminal 行数限制；pending 在
-            // tool_completed 后即被丢弃，生命周期短，无内存风险）
-            return {...p, progressMessages: next};
-          });
-          setPendingToolCalls(pendingToolCallsRef.current);
-        }
-        return;
-      }
-
-      // === 转录管理 ===
-      if (evt.type === 'clear_transcript') { setStaticItems([]); clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return; }
-      if (evt.type === 'replace_transcript' && evt.items) {
-        // 检查是否需要抑制显示（用于左侧栏操作解耦）
-        if (suppressTranscriptRef.current) {
-          suppressTranscriptRef.current = false;
+              return {...p, progressMessages: next};
+            });
+            patchView(sid, { pendingToolCalls: pendingToolCallsRef.current[sid] });
+          }
           return;
         }
-        // 过滤 / 开头 user 消息与后台任务完成通知（<task-notification> XML）
-        setStaticItems((evt.items as TranscriptItem[]).filter((item) => {
-          if (item.role !== 'user') return true;
-          if (item.text.startsWith('/')) return false;
-          if (item.text.startsWith('<task-notification>')) return false;
-          return true;
-        }));
-        clearAssistantDelta(); pendingToolCallsRef.current = []; setPendingToolCalls([]); return;
+
+        // 转录管理
+        if (evt.type === 'clear_transcript') {
+          pendingToolCallsRef.current[sid] = [];
+          clearAssistantDelta(sid);
+          patchView(sid, { items: [], pendingToolCalls: [] });
+          return;
+        }
+        if (evt.type === 'replace_transcript' && evt.items) {
+          // 检查是否需要抑制显示（用于左侧栏操作解耦）
+          if (suppressTranscriptRef.current) {
+            suppressTranscriptRef.current = false;
+            return;
+          }
+          // 过滤 / 开头 user 消息与后台任务完成通知（<task-notification> XML）
+          const items = (evt.items as TranscriptItem[]).filter((item) => {
+            if (item.role !== 'user') return true;
+            if (item.text.startsWith('/')) return false;
+            if (item.text.startsWith('<task-notification>')) return false;
+            return true;
+          });
+          pendingToolCallsRef.current[sid] = [];
+          clearAssistantDelta(sid);
+          patchView(sid, { items, pendingToolCalls: [] });
+          return;
+        }
+
+        // 模态框（权限/问答/计划审批）：按会话路由，仅活跃会话展示
+        if (evt.type === 'modal_request') {
+          patchView(sid, { modal: evt.modal ?? null });
+          return;
+        }
+
+        // 内联选项（B 通道多步选择：rewind/context 等）
+        if (evt.type === 'select_request') {
+          const m = evt.modal ?? {};
+          const cmd = String(m.command ?? '');
+          const rawOpts = evt.select_options ?? [];
+          const options = rawOpts.map((o) => ({
+            value: String(o.value ?? ''),
+            label: String(o.label ?? ''),
+            description: o.description ? String(o.description) : undefined,
+            active: o.active === true,
+          }));
+          const payload: SelectRequestPayload = {
+            command: cmd,
+            title: String(m.title ?? cmd),
+            options,
+          };
+          // 通知 App（旧路径，用于需要全局处理的分支）；同时存入会话视图
+          onSelectRequestRef.current?.(payload);
+          patchView(sid, { inlineOptions: payload });
+          patchView(sid, { busy: false });
+          return;
+        }
+
+        // 待办事项（TodoWrite 工具产生，按会话隔离）
+        if (evt.type === 'todo_update' && evt.todo_items != null) {
+          patchView(sid, { todoItems: evt.todo_items });
+          return;
+        }
+
+        // 会话恢复
+        if (evt.type === 'web_restore_started') {
+          patchView(sid, { restoring: true });
+          return;
+        }
+        if (evt.type === 'web_restore_completed') {
+          pendingToolCallsRef.current[sid] = [];
+          const items = (evt.items ?? []).filter((i) => !(i.role === 'user' && i.text.startsWith('/')));
+          // 只合并会话专属键：全局键（model/effort 等）由 state_snapshot 权威驱动，
+          // 避免恢复快照影子化后续全局设置变更
+          const restoreState = evt.state ?? {};
+          const sessionStatus: Record<string, unknown> = {};
+          for (const key of Object.keys(restoreState)) {
+            if (SESSION_STATUS_KEYS.has(key)) sessionStatus[key] = restoreState[key];
+          }
+          patchView(sid, {
+            items,
+            pendingToolCalls: [],
+            materialized: true,
+            restoring: false,
+            status: sessionStatus,
+          });
+          if (evt.web_error) {
+            pushStatic(sid, { role: 'system', text: `恢复会话失败: ${evt.web_error}` });
+          }
+          // 激活期望的会话：
+          // 1. 用户通过 activateSession/newSession 发起且尚未切换（pendingActivateRef 匹配）
+          // 2. 当前活跃视图已失效（如删除当前会话后后端原子化新建的会话）
+          const currentView = activeSessionIdRef.current
+            ? viewsRef.current[activeSessionIdRef.current]
+            : undefined;
+          const shouldActivate = pendingActivateRef.current === sid
+            || pendingActivateRef.current === '__new__'
+            || currentView === undefined;
+          if (shouldActivate) {
+            pendingActivateRef.current = null;
+            activeSessionIdRef.current = sid;
+            setActiveSessionId(sid);
+          }
+          return;
+        }
+
+        // btw 侧问响应（按会话路由，request_id 匹配）
+        if (evt.type === 'btw_response') {
+          const viewNow = viewsRef.current[sid];
+          if (!viewNow || !viewNow.btwRequestId) {
+            // 无活跃请求时（用户已取消/关闭卡片）忽略所有迟到响应
+            return;
+          }
+          // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
+          if (evt.request_id && evt.request_id !== viewNow.btwRequestId) {
+            return;
+          }
+          if (evt.error) {
+            patchView(sid, { btwLoading: false, btwError: evt.error });
+          } else if (evt.reply != null) {
+            patchView(sid, { btwLoading: false, btwReply: evt.reply });
+          }
+          // 保留 btwRequestId 以便后续关闭卡片时仍可发 btw_cancel
+          return;
+        }
+
+        // 会话级错误 → 转录
+        if (evt.type === 'error') {
+          pushStatic(sid, { role: 'system', text: `error: ${evt.message ?? 'unknown error'}` });
+          clearAssistantDelta(sid);
+          patchView(sid, { busy: false });
+          return;
+        }
+
+        // 后台 agent 状态提示
+        if (evt.type === 'bg_agent_status') {
+          setBgAgentLabel(evt.message ?? null);
+          return;
+        }
       }
 
-      // === Web 专属推送事件（web_* 命名空间）===
+      // === 全局事件（无会话路由）===
+
       if (evt.type === 'web_sessions') {
-        // 后端推送的会话列表，格式化为 sessions 状态
-        const opts = (evt.web_sessions ?? []).map((o) => ({ value: String(o.id ?? ''), label: String(o.label ?? '') }));
-        setSessions(opts);
-        setBusy(false);
-        return;
-      }
-      if (evt.type === 'web_restore_started') {
-        // 恢复开始：动画由发出请求时即设置，此处无需重复设置
-        return;
-      }
-      if (evt.type === 'web_restore_completed') {
-        // 恢复完成（或失败）：始终清除加载动画
-        setRestoringSessionId(null);
-        clearAssistantDelta();
-        pendingToolCallsRef.current = [];
-        setPendingToolCalls([]);
-        if (evt.web_error) {
-          // 恢复失败：显示错误提示，不替换转录（保留当前内容）
-          pushStatic({ role: 'system', text: `恢复会话失败: ${evt.web_error}` });
-        } else {
-          // 恢复成功：一次性替换转录（过滤历史中的命令产物 user 消息）
-          const items = (evt.items ?? []) as TranscriptItem[];
-          setStaticItems(items.filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
-          // 同步工具栏状态（model/effort/permission_mode 全部对齐恢复的会话）
-          if (evt.state) setStatus(evt.state as Record<string, unknown>);
+        // 列表基础信息（value/label）以后端推送为准；
+        // busy/phase/active 由前端本地实时驱动（见下方 sessions 暴露），
+        // 此处仅存储原始列表供 label 同步与视图兜底初始化。
+        const items = (evt.web_sessions ?? []).map((o) => ({
+          value: String(o.id ?? ''),
+          label: String(o.label ?? ''),
+          busy: o.busy === true,
+          phase: o.phase ?? 'idle',
+          active: o.active === true,
+        }));
+        setSessionList(items);
+        // 同步各会话视图的静态信息：busy 不覆盖本地实时状态
+        // （本地 busy 由 assistant_delta/tool_started/line_complete 事件驱动，
+        //  后端推送只在行任务结束/切换时发生，存在明显延迟）；
+        // 未 materialized 的新建视图用后端 busy 兜底初始化。
+        const viewPatch: Record<string, SessionViewState> = { ...viewsRef.current };
+        for (const item of evt.web_sessions ?? []) {
+          const id = String(item.id ?? '');
+          const view = viewPatch[id];
+          if (view) {
+            if (!view.materialized) {
+              view.busy = item.busy === true;
+            }
+            view.phase = item.phase ?? view.phase;
+            view.inMemory = item.in_memory !== false;
+            view.label = item.label ?? view.label;
+            // 会话级上下文/用量数据（行任务结束时随列表推送，右栏实时展示）
+            const statusPatch: Record<string, unknown> = {};
+            for (const field of SESSION_STATUS_FIELDS) {
+              if (item[field] !== undefined) statusPatch[field] = item[field];
+            }
+            if (Object.keys(statusPatch).length > 0) {
+              view.status = { ...view.status, ...statusPatch };
+            }
+          }
+        }
+        viewsRef.current = viewPatch;
+        setSessionViews(viewPatch);
+        // 活跃会话：仅当本地尚无活跃会话（首次连接/重连）时采用后端权威；
+        // 本地切换会话是纯前端操作，后端推送的 active 不代表用户当前视图。
+        if (evt.active_session_id) {
+          const sid = evt.active_session_id;
+          ensureView(sid);
+          const hasLocalActive = activeSessionIdRef.current != null
+            && viewsRef.current[activeSessionIdRef.current] != null;
+          if (!hasLocalActive) {
+            activeSessionIdRef.current = sid;
+            setActiveSessionId(sid);
+          }
+          // 后端已淘汰（in_memory=false）的活跃会话视图：标记需重新恢复
+          const view = viewsRef.current[sid];
+          if (view && !view.materialized) {
+            view.restoring = true;
+          }
         }
         return;
       }
       if (evt.type === 'web_setting_changed') {
-        // 单项设置变更：合并到 status，前端工具栏读 status 字段即时更新
+        // 单项设置变更：合并到全局 status，前端工具栏读 status 字段即时更新
         const key = evt.setting_key;
         const value = evt.setting_value;
         if (key && value !== undefined && value !== null) {
@@ -712,35 +1096,16 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             onCommandResultRef.current(payload, 'info');
           }
         } else if (evt.web_query_kind === 'transcript_replace' && Array.isArray(payload)) {
-          setStaticItems(payload as TranscriptItem[]);
+          const target = routeSessionId(evt) ?? activeSessionIdRef.current;
+          if (target) {
+            patchView(target, { items: payload as TranscriptItem[] });
+          }
         }
-        setBusy(false);
+        if (sid) patchView(sid, { busy: false });
         return;
       }
 
-      // === btw 侧问响应 ===
-      if (evt.type === 'btw_response') {
-        // 无活跃请求时（用户已取消/关闭卡片）忽略所有迟到响应，
-        // 避免在途的 btw_response 重新弹出已被用户主动关闭的卡片
-        const activeId = btwRequestIdRef.current;
-        if (!activeId) {
-          return;
-        }
-        // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
-        if (evt.request_id && evt.request_id !== activeId) {
-          return;
-        }
-        setBtwLoading(false);
-        if (evt.error) {
-          setBtwError(evt.error);
-        } else if (evt.reply != null) {
-          setBtwReply(evt.reply);
-        }
-        // 保留 btwRequestId 以便后续关闭卡片时仍可发 btw_cancel
-        return;
-      }
-
-      // === agent 向导响应 ===
+      // === agent 向导响应（全局）===
       if (evt.type === 'agent_wizard_init_response') {
         setAgentWizardTools(evt.tools ?? null);
         setAgentWizardModels(evt.models ?? null);
@@ -777,40 +1142,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
 
-      // === 选择请求 ===
-      if (evt.type === 'select_request') {
-        const m = evt.modal ?? {};
-        const cmd = String(m.command ?? '');
-        const rawOpts = evt.select_options ?? [];
-        // 注：resume/delete/effort/model/permissions 分支已全部删除——会话管理转
-        // web_restore_session/web_delete_sessions，设置类转 web_set_setting/web_models。
-        // select_request 现仅服务 B 通道的 rewind/context 多步选择。
-
-        // 其他命令（context、rewind 等）→ 通知 App 显示内联选项
-        if (onSelectRequestRef.current) {
-          const title = String(m.title ?? cmd);
-          const options = rawOpts.map((o) => ({
-            value: String(o.value ?? ''),
-            label: String(o.label ?? ''),
-            description: o.description ? String(o.description) : undefined,
-            active: o.active === true,
-          }));
-          onSelectRequestRef.current({ command: cmd, title, options });
-        }
-        setBusy(false);
-        return;
-      }
-
-      // === 其他 ===
-      if (evt.type === 'modal_request') { setModal(evt.modal ?? null); return; }
-      if (evt.type === 'error') { pushStatic({ role: 'system', text: `error: ${evt.message ?? 'unknown error'}` }); clearAssistantDelta(); setBusy(false); return; }
-      if (evt.type === 'todo_update' && evt.todo_items != null) { setTodoItems(evt.todo_items); return; }
-      if (evt.type === 'swarm_status') { if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates); if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20)); return; }
-      if (evt.type === 'plan_mode_change' && evt.plan_mode != null) { setStatus((s) => ({ ...s, permission_mode: evt.plan_mode })); return; }
+      // === 其他全局事件 ===
       if (evt.type === 'command_result' && evt.command_result_data) {
         const msg = evt.command_result_data.message ?? '';
-        // skills/plugins/rules 已由后端 web_resources 推送驱动，
-        // 移除旧的 pendingInfoCommand 链式发指令 + 文本正则解析逻辑
         // 检查是否需要抑制显示
         if (suppressCommandResultCountRef.current > 0) {
           suppressCommandResultCountRef.current--;
@@ -823,45 +1157,93 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         }
         return;
       }
-      if (evt.type === 'bg_agent_status') { setBgAgentLabel(evt.message ?? null); return; }
+      if (evt.type === 'swarm_status') {
+        if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates);
+        if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20));
+        return;
+      }
+      if (evt.type === 'plan_mode_change' && evt.plan_mode != null) {
+        setStatus((s) => ({ ...s, permission_mode: evt.plan_mode }));
+        return;
+      }
       if (evt.type === 'shutdown') { ws.close(); }
     }
 
     return () => { ws.close(); wsRef.current = null; };
-  }, [url, pushStatic, flushAssistantDelta, clearAssistantDelta]);
+  }, [url, routeSessionId, ensureView, patchView, getBuffer, flushAssistantDelta, clearAssistantDelta, pushStatic, sendRaw]);
 
   // 首次登录配置保存后手动清除 firstLogin 状态（避免再次打开表单仍显示首次登录）
   const clearFirstLogin = useCallback(() => setFirstLogin(false), []);
 
-  return useMemo(() => ({
-    staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, firstLogin, showThinking,
-    todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, setRestoringSessionId, clearModal, requestSelectCommand,
-    setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
+  return useMemo(() => {
+    const view = activeSessionId ? viewsRef.current[activeSessionId] : undefined;
+    return {
+      // 活跃会话视图
+      staticItems: view?.items ?? [],
+      assistantBuffer: view?.assistantBuffer ?? '',
+      streamingReasoning: view?.streamingReasoning ?? '',
+      status: { ...status, ...(view?.status ?? {}) },
+      busy: view?.busy ?? false,
+      modal: view?.modal ?? null,
+      todoItems: view?.todoItems ?? [],
+      pendingToolCalls: view?.pendingToolCalls ?? [],
+      restoringSessionId: view?.restoring ? view.id : null,
+      setRestoringSessionId: (id: string | null) => {
+        if (id) patchView(id, { restoring: true });
+      },
+      // 全局状态
+      tasks, commands, mcpServers, skills, plugins, rules, modelOptions,
+      ready, firstLogin, showThinking,
+      swarmTeammates, swarmNotifications, bgAgentLabel, connected,
+      modelSwitching, setModelSwitching,
+      // 多会话管理
+      // busy/phase/active 以本地会话视图实时状态为准（事件驱动，无推送延迟）：
+      // busy 由 assistant_delta/tool_started/line_complete 即时驱动；
+      // active 以本地切换为准（后端推送的 active 仅用于首次连接初始化）。
+      sessions: sessionList.map((s) => {
+        const v = viewsRef.current[s.value];
+        return {
+          ...s,
+          busy: v?.busy ?? s.busy,
+          phase: v?.phase ?? s.phase,
+          active: s.value === activeSessionId,
+        };
+      }),
+      activeSessionId,
+      activateSession,
+      newSession,
+      inlineOptions: view?.inlineOptions ?? null,
+      setInlineOptions,
+      // btw（活跃视图）
+      btwLoading: view?.btwLoading ?? false,
+      btwReply: view?.btwReply ?? null,
+      btwError: view?.btwError ?? null,
+      btwRequestId: view?.btwRequestId ?? null,
+      sendBtwRequest, sendBtwCancel, clearBtwState,
+      // agent 向导（全局）
+      agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
+      agentGenerateError, agentWizardResult,
+      sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
+      clearFirstLogin,
+      deleteSessions, clearModal, setBusyTrue,
+      requestSelectCommand, setEffortValue, setModelValue,
+      sendRequest, stopping: view?.stopping ?? false, sendStop,
+      clearStaticItems,
+      setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
+    };
+  }, [
+    status, tasks, commands, mcpServers, skills, plugins, rules, modelOptions,
+    ready, firstLogin, showThinking, swarmTeammates, swarmNotifications,
+    bgAgentLabel, connected, sessionViews, sessionList, activeSessionId,
+    activateSession, newSession, setInlineOptions, patchView,
+    sendBtwRequest, sendBtwCancel, clearBtwState,
+    agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
+    agentGenerateError, agentWizardResult,
+    sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
+    clearFirstLogin, deleteSessions, clearModal, setBusyTrue,
+    requestSelectCommand, setEffortValue, setModelValue,
+    sendRequest, sendStop, clearStaticItems,
     setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
-    stopping, sendStop,
     modelSwitching, setModelSwitching,
-    btwLoading, btwReply, btwError, btwRequestId,
-    sendBtwRequest, sendBtwCancel, clearBtwState,
-    agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
-    agentGenerateError, agentWizardResult,
-    sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
-    clearFirstLogin,
-  }), [
-    staticItems, assistantBuffer, streamingReasoning, status, tasks, commands,
-    mcpServers, skills, plugins, rules, modal, modelOptions, busy, ready, firstLogin, showThinking,
-    todoItems, pendingToolCalls, swarmTeammates, swarmNotifications,
-    bgAgentLabel, connected, sessions, deleteSessions, restoringSessionId, clearModal, requestSelectCommand,
-    setEffortValue, setModelValue, sendRequest, clearStaticItems, setBusyTrue,
-    setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
-    stopping, sendStop,
-    modelSwitching,
-    btwLoading, btwReply, btwError, btwRequestId,
-    sendBtwRequest, sendBtwCancel, clearBtwState,
-    agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
-    agentGenerateError, agentWizardResult,
-    sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
-    clearFirstLogin,
   ]);
 }

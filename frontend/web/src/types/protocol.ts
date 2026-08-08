@@ -230,13 +230,13 @@ export interface RuleSnapshot {
  * submit_line/apply_select_command 等类型隔离。
  */
 export type FrontendRequest =
-  | { type: 'submit_line'; line: string; treat_as_text?: boolean }
-  | { type: 'stop' }
-  | { type: 'permission_response'; request_id: string; allowed: boolean; always_allow?: boolean; tool_name?: string }
-  | { type: 'question_response'; request_id: string; answer: string }
+  | { type: 'submit_line'; line: string; treat_as_text?: boolean; session_id?: string }
+  | { type: 'stop'; session_id?: string }
+  | { type: 'permission_response'; request_id: string; allowed: boolean; always_allow?: boolean; tool_name?: string; session_id?: string }
+  | { type: 'question_response'; request_id: string; answer: string; session_id?: string }
   | { type: 'list_sessions' }
-  | { type: 'select_command'; command: string }
-  | { type: 'apply_select_command'; command: string; value: string }
+  | { type: 'select_command'; command: string; session_id?: string }
+  | { type: 'apply_select_command'; command: string; value: string; session_id?: string }
   | { type: 'shutdown' }
   // === Web 前端专属通道（web_* 命名空间）===
   | { type: 'web_new_session' }
@@ -246,13 +246,13 @@ export type FrontendRequest =
   | { type: 'web_request_sessions'; limit?: number; offset?: number }
   | { type: 'web_request_models' }
   | { type: 'web_request_resources' }
-  | { type: 'web_query'; command: string; args?: string; request_id: string }
+  | { type: 'web_query'; command: string; args?: string; request_id: string; session_id?: string }
   // === btw 侧问（terminal + web 共用）===
-  | { type: 'btw_request'; question: string; request_id: string }
-  | { type: 'btw_cancel'; request_id: string }
+  | { type: 'btw_request'; question: string; request_id: string; session_id?: string }
+  | { type: 'btw_cancel'; request_id: string; session_id?: string }
   // === agent 向导（terminal + web 共用）===
   | { type: 'agent_wizard_init' }
-  | { type: 'agent_generate_request'; prompt: string; model: string; request_id: string }
+  | { type: 'agent_generate_request'; prompt: string; model: string; request_id: string; session_id?: string }
   | { type: 'agent_generate_cancel'; request_id: string }
   | { type: 'agent_wizard_submit'; fields: Record<string, unknown>; scope: 'user' | 'project' };
 
@@ -314,10 +314,12 @@ export interface BackendEvent {
   /** 指令结果数据（可选） */
   command_result_data?: { message: string; type: 'success' | 'error' | 'info'; request_id?: string };
   // === web_* 推送事件字段 ===
-  /** web_restore_started/completed 的会话 ID（可选） */
+  /** web_restore_started/completed 等会话级事件的归属会话 ID（可选，前端按此路由到会话视图） */
   session_id?: string;
   /** web_sessions 推送的会话列表（可选） */
   web_sessions?: WebSessionItem[];
+  /** web_sessions 携带的活跃会话 ID（可选） */
+  active_session_id?: string;
   /** web_resources 推送的资源快照（可选） */
   web_resources?: {
     skills: SkillSnapshot[];
@@ -387,8 +389,36 @@ export interface WebSessionItem {
   created_at?: number;
   /** 消息数量（可选） */
   message_count?: number;
+  /** 轮次数量（可选） */
+  turn_count?: number;
   /** 会话摘要（可选） */
   summary?: string;
+  /** 会话是否正在运行任务（可选） */
+  busy?: boolean;
+  /** 会话阶段：idle/thinking/tool_executing/awaiting_input（可选） */
+  phase?: string;
+  /** 是否为活跃会话（可选） */
+  active?: boolean;
+  /** 后端是否持有该会话的内存运行时（可选，false 时前端点击需重新恢复） */
+  in_memory?: boolean;
+  /** 会话实时上下文占用 tokens（可选） */
+  context_tokens?: number;
+  /** 累积输入 tokens（可选，右栏用量展示） */
+  input_tokens?: number;
+  /** 累积输出 tokens（可选） */
+  output_tokens?: number;
+  /** 累积缓存读 tokens（可选） */
+  cache_read_input_tokens?: number;
+  /** 累积缓存创建 tokens（可选） */
+  cache_creation_input_tokens?: number;
+  /** 最后一次 API 调用的缓存读 tokens（可选，缓存命中率计算） */
+  context_cache_read?: number;
+  /** 最后一次 API 调用的缓存创建 tokens（可选） */
+  context_cache_creation?: number;
+  /** 最后一次 API 调用的未缓存输入 tokens（可选） */
+  context_input?: number;
+  /** 最后一次 API 调用的输出 tokens（可选） */
+  context_output?: number;
 }
 
 /**

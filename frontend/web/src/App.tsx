@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeLanguage, t, type UiLanguage } from './i18n';
-import { useWebSocketSession, type SelectRequestPayload } from './hooks/useWebSocketSession';
+import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import PromptInput from './components/PromptInput';
@@ -66,8 +66,8 @@ export default function App() {
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
   const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
 
-  // 内联选项状态
-  const [inlineOptions, setInlineOptions] = useState<SelectRequestPayload | null>(null);
+  // 内联选项状态：由 hook 按会话维护（session.inlineOptions / session.setInlineOptions），
+  // 切换会话时选项随会话隔离，互不串扰
 
   // 自定义数字输入模态框状态（/max-tokens 与 /context-window 的 custom 分支触发）
   const [customInputModal, setCustomInputModal] = useState<{
@@ -126,7 +126,8 @@ export default function App() {
    * 将内联选项请求和指令结果回调注册到会话中。
    */
   useEffect(() => {
-    session.setOnSelectRequest((payload) => setInlineOptions(payload));
+    // 注：select_request 内联选项已由 hook 按会话路由（session.inlineOptions），
+    // 无需在此注册 onSelectRequest 回调
     session.setOnCommandResult((text, type, requestId) => {
       // 使用 request_id 精确匹配 agent 摘要响应，避免竞态条件
       if (agentRequestIdRef.current && requestId === agentRequestIdRef.current) {
@@ -200,7 +201,7 @@ export default function App() {
       // /language（无参数）→ 弹出语言选择框，不走 web_query
       if (cmdName === 'language' && !args) {
         const current = String(session.status?.ui_language ?? 'zh-CN');
-        setInlineOptions({
+        session.setInlineOptions({
           command: 'language',
           title: t(lang, 'language'),
           options: [
@@ -229,7 +230,7 @@ export default function App() {
           return;
         }
         if (!sub) {
-          setInlineOptions({
+          session.setInlineOptions({
             command: 'agent_branch',
             title: t(lang, 'agentBranchTitle'),
             options: [
@@ -273,7 +274,7 @@ export default function App() {
   const handleInlineSelect = useCallback((command: string, value: string) => {
     // /agent 分支选择器
     if (command === 'agent_branch') {
-      setInlineOptions(null);
+      session.setInlineOptions(null);
       if (value === '__view__') {
         session.setBusyTrue();
         session.sendRequest({ type: 'select_command', command: 'agent' });
@@ -291,7 +292,7 @@ export default function App() {
         command: 'max-tokens',
         invalidMessage: t(lang, 'maxTokensInvalid'),
       });
-      setInlineOptions(null);
+      session.setInlineOptions(null);
       return;
     }
     // context-window __custom__ 分支：切换到数字输入模态框
@@ -301,10 +302,10 @@ export default function App() {
         command: 'context-window',
         invalidMessage: t(lang, 'contextWindowInvalid'),
       });
-      setInlineOptions(null);
+      session.setInlineOptions(null);
       return;
     }
-    setInlineOptions(null);
+    session.setInlineOptions(null);
     // language 走 web_query 通道（前端弹出选择框后提交）
     if (command === 'language') {
       session.sendRequest({
@@ -329,7 +330,7 @@ export default function App() {
    *
    * 当用户关闭内联选项列表时触发。
    */
-  const handleInlineClose = useCallback(() => setInlineOptions(null), []);
+  const handleInlineClose = useCallback(() => session.setInlineOptions(null), []);
 
   /**
    * 处理自定义数字输入提交
@@ -497,9 +498,9 @@ export default function App() {
     prevBusyRef.current = session.busy;
   }, [session.busy, session]);
 
-  /** 处理新建会话 */
+  /** 处理新建会话：后端创建后自动切换为活跃会话，列表即时更新 */
   const handleNewSession = () => {
-    session.sendRequest({ type: 'web_new_session' });
+    session.newSession();
   };
 
   /**
@@ -511,9 +512,10 @@ export default function App() {
    * @param id - 会话 ID
    */
   const handleSelectSession = useCallback((id: string) => {
-    session.setRestoringSessionId(id);
-    session.sendRequest({ type: 'web_restore_session', session_id: id });
-  }, [session.setRestoringSessionId, session.sendRequest]);
+    // 视图已就绪的会话纯本地切换（瞬时，无加载态）；未恢复的会话由
+    // hook 自动发送 web_restore_session 并显示加载动画
+    session.activateSession(id);
+  }, [session.activateSession]);
 
   /** 处理列出会话（A 通道，后端推送 web_sessions） */
   const handleListSessions = useCallback(() => {
@@ -617,7 +619,7 @@ export default function App() {
         <PromptInput lang={lang} busy={session.busy} connected={session.connected}
           hasActiveTasks={session.tasks.some((t) => t.status === 'in_progress' || t.status === 'pending')}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
-          inlineOptions={inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
+          inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
           btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />
         <Toolbar lang={lang} status={session.status}
           modelOptions={session.modelOptions}
