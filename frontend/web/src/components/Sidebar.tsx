@@ -4,7 +4,8 @@
  * Web 前端的侧边栏组件，支持：
  * - 折叠/展开功能
  * - 新建会话
- * - 会话列表显示和选择
+ * - 会话列表显示和选择（多会话并发）
+ * - 运行中/等待输入会话的视觉区分
  * - 删除会话功能
  * - 连接状态显示
  *
@@ -15,6 +16,22 @@ import { useCallback, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 /**
+ * 会话列表项（供侧边栏渲染的最小结构）
+ */
+export interface SidebarSession {
+  /** 会话 ID */
+  value: string;
+  /** 会话显示标签 */
+  label: string;
+  /** 是否正在运行任务（彩色流动边框） */
+  busy: boolean;
+  /** 会话阶段：idle/thinking/tool_executing/awaiting_input */
+  phase: string;
+  /** 是否为活跃会话（左侧渐变指示条） */
+  active: boolean;
+}
+
+/**
  * Sidebar 组件属性接口
  */
 interface SidebarProps {
@@ -22,8 +39,8 @@ interface SidebarProps {
   lang: UiLanguage;
   /** 是否已连接 */
   connected: boolean;
-  /** 会话列表 */
-  sessions: { value: string; label: string }[];
+  /** 会话列表（含运行状态） */
+  sessions: SidebarSession[];
   /** 新建会话回调 */
   onNewSession: () => void;
   /** 选择会话回调 */
@@ -45,20 +62,13 @@ interface SidebarProps {
 }
 
 /**
- * 侧边栏组件
- *
- * Web 前端的侧边栏组件。
- *
- * @param props - 组件属性
- * @returns 返回侧边栏的 JSX 元素
+ * 会话列表项（带聚光灯悬停效果、活跃指示条与运行状态视觉）
  */
-/**
- * 会话列表项（带聚光灯悬停效果和活跃指示条）
- */
-function SessionItem({ session, index, isRestoring, onSelect }: {
-  session: { value: string; label: string };
+function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
+  session: SidebarSession;
   index: number;
   isRestoring: boolean;
+  isActive: boolean;
   onSelect: (id: string) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -71,12 +81,24 @@ function SessionItem({ session, index, isRestoring, onSelect }: {
     el.style.setProperty('--spotlight-y', `${e.clientY - rect.top}px`);
   }, []);
 
+  // 状态样式：
+  // - 所有会话项预留 1px 透明边框（状态切换无布局跳动）
+  // - 活跃（active）：主色淡背景 + 主色细边框（不再加重字重）
+  // - 运行中（busy）：细边框 + 一小段主色系光束沿边框流动（BorderBeam 风格）
+  const className = [
+    'session-item spotlight-hover w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up',
+    isActive
+      ? 'session-active text-content-primary'
+      : 'text-content-secondary glass-option-hover hover:text-content-primary',
+    session.busy ? 'session-running' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <button
       ref={ref}
       onClick={() => onSelect(session.value)}
       onMouseMove={handleMouseMove}
-      className="spotlight-hover w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up"
+      className={className}
       style={{ animationDelay: `${index * 30}ms` }}
       title={session.label}
     >
@@ -191,6 +213,7 @@ export default function Sidebar({
                   session={s}
                   index={idx}
                   isRestoring={restoringSessionId === s.value}
+                  isActive={s.active}
                   onSelect={onSelectSession}
                 />
               ))}

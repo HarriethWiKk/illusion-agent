@@ -66,6 +66,15 @@
   --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.12), 0 2px 8px rgba(31, 38, 135, 0.08);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 
+  /* 会话项状态样式（浅色版：青蓝色系，与深色版同构的明暗层次）
+   * 层次：流动光束（饱和实色）> 活跃边框（中）> 常驻轨道（淡），
+   * 避免浅底上三者都是深色线导致的低区分度 */
+  --session-active-bg: rgba(42, 157, 153, 0.13);
+  --session-active-border: rgba(8, 145, 178, 0.5);
+  --beam-track: rgba(8, 145, 178, 0.22);
+  --beam-color-a: #0891b2;
+  --beam-color-b: #6366f1;
+
   /* 小圆 badge 背景（count/tag 胶囊）— 浅色模式保持半透明白 */
   --badge-bg: rgba(255, 255, 255, 0.5);
 }
@@ -120,6 +129,12 @@
   --glass-border-strong: rgba(61, 186, 181, 0.22);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* 会话项状态样式（深色版） */
+  --session-active-border: rgba(61, 186, 181, 0.35);
+  --beam-track: rgba(61, 186, 181, 0.22);
+  --beam-color-a: #66d9e8;
+  --beam-color-b: #a29bfe;
 
   /* badge 背景：深色模式下改为深色半透明，让亮色文字（primary/secondary）清晰可读 */
   --badge-bg: rgba(255, 255, 255, 0.08);
@@ -812,26 +827,65 @@ pre code.hljs,
   opacity: 1;
 }
 
-/* 会话项活跃指示条 */
-.session-item-active {
+/* ========== 会话项状态样式（react-bits BorderBeam 风格） ========== */
+
+/* 会话项统一预留 1px 透明边框：状态切换时无布局跳动 */
+.session-item {
+  border: 1px solid transparent;
+}
+
+/* 活跃会话（当前查看）：主色淡背景 + 主色细边框，不加重字重 */
+.session-active {
+  background: var(--session-active-bg, var(--primary-light, rgba(42, 157, 153, 0.1)));
+  border-color: var(--session-active-border, rgba(42, 157, 153, 0.28));
+}
+.session-active:hover {
+  /* 悬停时保持活跃态底色（避免被 glass-option-hover 完全覆盖） */
+  background: var(--session-active-bg, var(--primary-light, rgba(42, 157, 153, 0.1)));
+}
+
+/* 运行中会话（busy）：细边框 + 一小段主色系光束沿边框流动
+ * ::after 用 conic 渐变 + mask 只保留 1px 边框环；
+ * 渐变绝大部分为常驻细边框色，仅一小段为光束（柔和主色渐变），
+ * 通过 --beam-angle 旋转实现流动，克制不花哨 */
+@property --beam-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.session-running {
   position: relative;
 }
-.session-item-active::after {
+.session-running::after {
   content: '';
   position: absolute;
-  left: 0;
-  top: 4px;
-  bottom: 4px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: linear-gradient(to bottom, var(--primary), var(--secondary));
-  opacity: 0;
-  transform: scaleY(0);
-  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--beam-angle) at 50% 50%,
+    var(--beam-track, rgba(42, 157, 153, 0.28)) 0deg,
+    var(--beam-track, rgba(42, 157, 153, 0.28)) 300deg,
+    var(--beam-color-a, #2a9d99) 315deg,
+    var(--beam-color-b, #7c6fb0) 345deg,
+    var(--beam-track, rgba(42, 157, 153, 0.28)) 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: beam-spin 4s linear infinite;
 }
-.session-item-active:hover::after {
-  opacity: 1;
-  transform: scaleY(1);
+@keyframes beam-spin {
+  to { --beam-angle: 360deg; }
+}
+
+/* 尊重系统减弱动态效果偏好：光束静止（保留常驻细边框） */
+@media (prefers-reduced-motion: reduce) {
+  .session-running::after {
+    animation: none;
+  }
 }
 
 /* 工具栏胶囊 — 玻璃面板上的玻璃浮层（明显于纯白渐变） */
