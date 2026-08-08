@@ -294,7 +294,8 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span>
           <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{displayName}</span>
-          {!open && summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
+          {/* 预览行在展开/折叠时均保留，展开后与结果正文并存 */}
+          {summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
           {isError && <span className="text-xs text-danger font-medium"> ERROR</span>}
         </span>
       </button>

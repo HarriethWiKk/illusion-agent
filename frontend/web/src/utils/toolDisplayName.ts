@@ -29,15 +29,15 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   fileedit: 'Update',
 
   // 搜索类
-  grep: 'Search',
-  glob: 'Search',
+  grep: 'Grep',
+  glob: 'Glob',
 
   // 子代理
   agent: 'Agent',
 
   // Web 类
   web_search: 'WebSearch',
-  web_fetch: 'Fetch',
+  web_fetch: 'WebFetch',
 
   // LSP / Notebook / Skill
   lsp: 'LSP',

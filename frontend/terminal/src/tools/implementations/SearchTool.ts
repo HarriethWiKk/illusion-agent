@@ -12,7 +12,7 @@ export const grepTool: Tool = {
 	name: 'grep',
 
 	displayName(): string {
-		return 'Search';
+		return 'Grep';
 	},
 
 	renderToolUseMessage(input?: Record<string, unknown>): string {
@@ -58,7 +58,7 @@ export const globTool: Tool = {
 	name: 'glob',
 
 	displayName(): string {
-		return 'Search';
+		return 'Glob';
 	},
 
 	renderToolUseMessage(input?: Record<string, unknown>): string {
