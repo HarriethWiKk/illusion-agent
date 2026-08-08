@@ -367,6 +367,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const showThinkingRef = useRef(true);
   // 会话级 stop 超时定时器（sendStop 15s 兜底，line_complete 时清理）
   const stopTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // 会话级恢复超时定时器（activateSession 10s 兜底，restore_completed 时清理）
+  const restoreTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // === agent 向导状态（全局）===
   const [agentWizardTools, setAgentWizardTools] = useState<{ name: string; description: string }[] | null>(null);
@@ -532,6 +534,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           clearTimeout(stopTimer);
           delete stopTimersRef.current[sid];
         }
+        const restoreTimer = restoreTimersRef.current[sid];
+        if (restoreTimer) {
+          clearTimeout(restoreTimer);
+          delete restoreTimersRef.current[sid];
+        }
       }
       viewsRef.current = next;
       setSessionViews(next);
@@ -585,11 +592,24 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       setActiveSessionId(id);
       patchView(id, { restoring: true });
       sendRaw({ type: 'web_restore_session', session_id: id });
+      // 恢复响应兜底：restore_completed 丢失/后端异常时 10s 后清除加载态，
+      // 避免"正在恢复"动画永久挂起导致无法进入其他会话
+      const prev = restoreTimersRef.current[id];
+      if (prev) clearTimeout(prev);
+      restoreTimersRef.current[id] = setTimeout(() => {
+        delete restoreTimersRef.current[id];
+        patchView(id, { restoring: false });
+      }, 10000);
     } else {
       // 视图已就绪：纯本地切换，无待激活目标
       pendingActivateRef.current = null;
       activeSessionIdRef.current = id;
       setActiveSessionId(id);
+      const prev = restoreTimersRef.current[id];
+      if (prev) {
+        clearTimeout(prev);
+        delete restoreTimersRef.current[id];
+      }
     }
   }, [patchView, sendRaw]);
 
@@ -946,6 +966,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             restoring: false,
             status: sessionStatus,
           });
+          // 恢复完成：清除超时兜底定时器
+          const restoreTimer = restoreTimersRef.current[sid];
+          if (restoreTimer) {
+            clearTimeout(restoreTimer);
+            delete restoreTimersRef.current[sid];
+          }
           if (evt.web_error) {
             pushStatic(sid, { role: 'system', text: `恢复会话失败: ${evt.web_error}` });
           }

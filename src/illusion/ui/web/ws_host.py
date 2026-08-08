@@ -2562,6 +2562,14 @@ class WebBackendHost:
         if self._bundle is not None:
             from illusion.ui.runtime import stop_all_tasks
             await stop_all_tasks(self._bundle, session_ids=[session.session_id])
+        # 清空该会话 tracker 的积压完成通知：stop 后行任务 finally 会触发
+        # _check_post_idle_bg，若不清空，已在停止前完成的后台任务通知会
+        # 驱动 auto_resume 再次调用 LLM（对话"无法终止"的偶发根因）。
+        # （stop_all_tasks 内部 clear 的是共享 bundle 的 tracker，与目标
+        #   会话的 tracker 不是同一个，必须在此处按会话清理。）
+        session_tracker = session.engine._bg_agent_tracker
+        if session_tracker is not None:
+            session_tracker.clear()
         session.busy = False
         await self._update_phase(session, "idle")
         await self._emit(BackendEvent(type="modal_request", modal=None), session_id=session.session_id)

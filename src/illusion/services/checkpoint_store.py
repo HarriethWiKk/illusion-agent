@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
-from pydantic import ValidationError
 
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import ConversationMessage
@@ -317,13 +316,90 @@ class CheckpointStore:
             self._next_checkpoint_id = 1
 
     async def _append_line(self, record: dict[str, Any]) -> None:
-        """加锁追加一行 JSON。第一次调用时延迟创建会话目录。"""
+        """加锁追加一行 JSON。第一次调用时延迟创建会话目录。
+
+        进程内用 _io_lock 互斥；跨进程（多实例/多标签页共用同一会话目录）
+        用文件锁保护，避免并发 append 造成行交错损坏（损坏行在 restore
+        时被跳过，表现为会话消息缺失/恢复后为空）。
+        """
         async with self._io_lock:
             if not self._dir_ensured:
                 self._session_dir.mkdir(parents=True, exist_ok=True)
                 self._dir_ensured = True
-            async with aiofiles.open(self._file, "a", encoding="utf-8") as f:
-                await f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            with self._cross_process_lock():
+                async with aiofiles.open(self._file, "a", encoding="utf-8") as f:
+                    await f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _cross_process_lock(self) -> Any:
+        """跨进程文件锁（上下文管理器）。
+
+        Windows 用 msvcrt.locking 锁 context.jsonl 首字节；POSIX 用
+        fcntl.flock。锁与数据文件共用，避免额外文件；加锁失败或平台
+        不支持时降级为无锁（保持原行为）。
+        """
+        import sys
+
+        if sys.platform == "win32":
+            import msvcrt
+
+            class _WinLock:
+                def __init__(self, path: Path) -> None:
+                    self._fh: Any | None = None
+                    # 独立锁文件：msvcrt 锁是字节范围锁，若直接锁数据文件，
+                    # 同一进程内 aiofiles 写句柄与锁句柄会互相冲突
+                    self._lock_path = path.with_suffix(path.suffix + ".lock")
+
+                def __enter__(self) -> None:
+                    try:
+                        self._fh = self._lock_path.open("a+b")
+                        self._fh.seek(0)
+                        msvcrt.locking(self._fh.fileno(), msvcrt.LK_LOCK, 1)
+                    except OSError:
+                        if self._fh is not None:
+                            self._fh.close()
+                            self._fh = None
+
+                def __exit__(self, *exc: object) -> None:
+                    if self._fh is not None:
+                        try:
+                            self._fh.seek(0)
+                            msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+                        except OSError:
+                            pass
+                        self._fh.close()
+
+            return _WinLock(self._file)
+
+        try:
+            import fcntl
+
+            class _PosixLock:
+                def __init__(self, path: Path) -> None:
+                    self._fh: Any | None = None
+                    # 独立锁文件（与 Windows 分支一致）
+                    self._lock_path = path.with_suffix(path.suffix + ".lock")
+
+                def __enter__(self) -> None:
+                    try:
+                        self._fh = self._lock_path.open("a")
+                        fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
+                    except OSError:
+                        if self._fh is not None:
+                            self._fh.close()
+                            self._fh = None
+
+                def __exit__(self, *exc: object) -> None:
+                    if self._fh is not None:
+                        try:
+                            fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+                        except OSError:
+                            pass
+                        self._fh.close()
+
+            return _PosixLock(self._file)
+        except ImportError:
+            import contextlib
+            return contextlib.nullcontext()
 
     def _build_result_from_lines(self, lines: list[str]) -> RestoreResult:
         """从 JSONL 行列表构建 RestoreResult（无锁，内部使用）。
@@ -380,8 +456,10 @@ class CheckpointStore:
                 if msg_data:
                     try:
                         messages.append(ConversationMessage.model_validate(msg_data))
-                    except (ValidationError, ValueError, TypeError) as e:
-                        # 损坏的消息行跳过，避免影响整次 restore
+                    except Exception as e:  # noqa: BLE001
+                        # 损坏的消息行跳过，避免影响整次 restore：
+                        # 跨进程并发写可能产生结构不完整的行（JSON 合法但
+                        # 字段缺失/类型错误），单行损坏不应让整个会话恢复失败
                         logging.getLogger(__name__).warning(
                             "跳过损坏的 %s 消息行: %s", role, e
                         )
