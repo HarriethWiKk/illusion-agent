@@ -149,18 +149,30 @@ async def compact_handler(args: str, context: CommandContext) -> CommandResult:
     checkpoint_store = context.engine.checkpoint_store
     if checkpoint_store is not None:
         total = context.engine.total_usage
-        await checkpoint_store.rebuild_after_compact(
-            compacted,
-            usage_input=total.input_tokens,
-            usage_output=total.output_tokens,
-            usage_cache_read=total.cache_read_input_tokens,
-            usage_cache_creation=total.cache_creation_input_tokens,
-        )
+        try:
+            await checkpoint_store.rebuild_after_compact(
+                compacted,
+                usage_input=total.input_tokens,
+                usage_output=total.output_tokens,
+                usage_cache_read=total.cache_read_input_tokens,
+                usage_cache_creation=total.cache_creation_input_tokens,
+            )
+        except OSError as exc:
+            # 会话目录/context.jsonl 缺失（历史文件被清理等）时跳过重建：
+            # 压缩已作用于内存引擎，checkpoint 缺失只影响重启后的恢复
+            import logging
+            logging.getLogger(__name__).warning(
+                "compact checkpoint 重建失败（跳过）: %s", exc
+            )
     after_tokens = estimate_conversation_tokens(compacted)
     saved = max(0, before_tokens - after_tokens)
     from illusion.config.i18n import t
     return CommandResult(
         message=t("compact_result", before=before, after=len(compacted), saved=f"{saved:,}"),
+        # 返回压缩后的消息供前端替换转录：terminal 走 replace_transcript_items，
+        # web 端 web_query 检测到 replay_messages 后发 transcript_replace，
+        # 否则前端仍显示压缩前的完整历史，与后端状态不一致
+        replay_messages=compacted,
         refresh_state=True,
     )
 

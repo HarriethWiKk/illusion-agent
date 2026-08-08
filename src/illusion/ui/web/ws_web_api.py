@@ -670,6 +670,21 @@ class WebApiDispatcher:
         if result is None:
             # 已通过 select_request 或其他机制处理
             return
+        # 命令返回了 replay_messages（如 compact 压缩后的历史）：
+        # 先发文本结果（toast 提示压缩前后数量），再发 transcript_replace
+        # 让前端一次性替换转录，与后端引擎状态对齐
+        if result.replay_messages:
+            if result.message:
+                await self._emit(BackendEvent(
+                    type="web_query_result", web_request_id=request_id, web_command=command,
+                    web_query_kind="text", web_query_payload=result.message,
+                ), session_id=session_id)
+            replay_items = build_replay_items(result.replay_messages)
+            await self._emit(BackendEvent(
+                type="web_query_result", web_request_id=request_id, web_command=command,
+                web_query_kind="transcript_replace", web_query_payload=replay_items,
+            ), session_id=session_id)
+            return
         payload = result.message or ""
         await self._emit(BackendEvent(
             type="web_query_result", web_request_id=request_id, web_command=command,
