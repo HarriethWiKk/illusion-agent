@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -167,6 +167,93 @@ class RuntimeBundle:
             if status.resources:
                 lines.append(f"  resources: {', '.join(resource.uri for resource in status.resources)}")
         return "\n".join(lines)
+
+
+def build_session_engine(
+    bundle: RuntimeBundle,
+    session_id: str,
+    *,
+    permission_prompt: PermissionPrompt | None = None,
+    ask_user_prompt: AskUserPrompt | None = None,
+    plan_approval_prompt: PlanApprovalPrompt | None = None,
+) -> QueryEngine:
+    """构建与共享运行时隔离的会话引擎（Web 多会话并发用）。
+
+    Web 多会话模式下，每个会话持有独立的 QueryEngine（消息历史、
+    checkpoint、cost、bg_agent_tracker 完全隔离），但共享 bundle 的
+    api_client / tool_registry / permission_checker / mcp_manager /
+    hook_executor 等基础设施。行任务在各自引擎上并发执行互不干扰。
+
+    与 build_runtime 的引擎构造保持同构（工具元数据、CheckpointStore
+    attach、file_history 懒加载均一致），区别在于：
+    - 不注册全局 on_task_complete 回调（由 WebBackendHost 统一按归属路由）
+    - 复用 bundle 已解析的共享组件，不做重复初始化
+
+    Args:
+        bundle: 共享运行时 bundle（承载共享基础设施）
+        session_id: 目标会话 ID
+        permission_prompt: 权限确认回调（Web 端按会话绑定）
+        ask_user_prompt: 用户问答回调（Web 端按会话绑定）
+        plan_approval_prompt: 计划审批回调（Web 端按会话绑定）
+
+    Returns:
+        QueryEngine: 绑定新会话的独立引擎
+    """
+    settings = bundle.current_settings()
+    # 工具元数据：共享 mcp_manager / app_state_store / session_hook_store，
+    # 会话专属 query_engine / bg_agent_tracker 由新引擎自身提供
+    tool_metadata = dict(bundle.engine.tool_metadata)
+    tool_metadata["session_id"] = session_id
+    engine = QueryEngine(
+        api_client=bundle.api_client,
+        tool_registry=bundle.tool_registry,
+        permission_checker=bundle.engine.permission_checker,
+        cwd=bundle.cwd,
+        model=settings.active_model_name,
+        system_prompt=bundle.engine.system_prompt,
+        max_tokens=settings.max_tokens,
+        max_turns=settings.max_turns,
+        permission_prompt=permission_prompt,
+        ask_user_prompt=ask_user_prompt,
+        plan_approval_prompt=plan_approval_prompt,
+        hook_executor=bundle.hook_executor,
+        tool_metadata=tool_metadata,
+        effort=bundle.engine.effort,
+        session_id=session_id,
+    )
+    # 将引擎自身与后台代理追踪器加入工具元数据（与 build_runtime 同构）
+    engine._tool_metadata["query_engine"] = engine
+    engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
+    # 构造 CheckpointStore 并 attach（懒创建策略与 build_runtime 一致：
+    # 不立即 mkdir，第一条用户消息提交时才落盘）
+    from illusion.services.checkpoint_store import CheckpointStore
+    from illusion.services.session_storage import session_dir_for
+    checkpoint_store = CheckpointStore(session_dir_for(bundle.cwd, session_id), session_id)
+    engine.attach_session(checkpoint_store)
+    engine.load_file_history()
+    return engine
+
+
+def build_session_bundle(
+    bundle: RuntimeBundle,
+    session_id: str,
+    engine: QueryEngine,
+) -> RuntimeBundle:
+    """构造持有独立引擎的会话 bundle（Web 多会话并发用）。
+
+    基于共享 bundle 浅拷贝出会话级 bundle：engine 与 session_id 替换为
+    会话专属值，其余（app_state / mcp_manager / tool_registry / hooks /
+    settings_overrides）与共享 bundle 共用同一对象。
+
+    Args:
+        bundle: 共享运行时 bundle
+        session_id: 会话 ID
+        engine: 该会话的独立引擎
+
+    Returns:
+        RuntimeBundle: 会话级 bundle
+    """
+    return replace(bundle, engine=engine, session_id=session_id)
 
 
 def _on_task_complete(
@@ -1057,17 +1144,27 @@ async def handle_line(
     return True
 
 
-async def stop_all_tasks(bundle: RuntimeBundle) -> None:
-    """停止所有正在运行或待处理的后台任务，清理 tracker 状态。
+async def stop_all_tasks(
+    bundle: RuntimeBundle, *, session_ids: list[str] | None = None
+) -> None:
+    """停止所有运行中或待处理的后台任务，清理 tracker 状态。
 
-    Ctrl+X 时调用，确保 agent / bash / powershell 等子进程被终止，
-    并防止 kill 通知触发 auto_resume_bg 错误恢复。
+    Ctrl+X（或 Web 端按会话停止）时调用，确保 agent / bash / powershell
+    等子进程被终止，并防止 kill 通知触发 auto_resume_bg 错误恢复。
+
     Args:
         bundle: 运行时数据 bundle
+        session_ids: 可选：仅停止归属于这些会话 ID 的任务（Web 多会话
+            模式下按会话停止；None 表示停止全部）
     """
     from illusion.tasks.manager import get_task_manager
     manager = get_task_manager()
     running = [t for t in manager.list_tasks() if t.status in ("running", "pending")]
+    if session_ids is not None:
+        running = [
+            t for t in running
+            if t.metadata.get("owner_session_id", "") in session_ids
+        ]
     for t in running:
         try:
             await manager.stop_task(t.id)

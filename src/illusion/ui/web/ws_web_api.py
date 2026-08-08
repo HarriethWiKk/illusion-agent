@@ -24,12 +24,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time as _time
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from illusion.commands.registry import create_default_command_registry
-from illusion.commands.session import new_handler as _new_handler
 from illusion.commands.session import resume_handler as _resume_handler
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.settings import (
@@ -45,8 +43,12 @@ from illusion.services.session_storage import (
 from illusion.services.session_storage import (
     list_session_snapshots as _list_session_snapshots,
 )
-from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
-from illusion.ui.runtime import RuntimeBundle
+from illusion.ui.protocol import BackendEvent, FrontendRequest
+from illusion.ui.runtime import RuntimeBundle, build_session_engine
+from illusion.ui.web.session_runtime import SessionRuntime
+
+if TYPE_CHECKING:
+    from illusion.ui.web.ws_host import WebBackendHost
 
 
 def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]]:
@@ -121,7 +123,7 @@ class WebApiDispatcher:
         _host: WebBackendHost 实例（提供 bundle/emit/_busy 等访问）
     """
 
-    def __init__(self, host: object) -> None:
+    def __init__(self, host: WebBackendHost) -> None:
         """初始化分发器。
 
         Args:
@@ -180,75 +182,53 @@ class WebApiDispatcher:
         }
 
     # === emit 辅助：委托给 host ===
-    async def _emit(self, event: BackendEvent) -> None:
+    async def _emit(self, event: BackendEvent, *, session_id: str | None = None) -> None:
         """通过 host 发送后端事件。
 
         Args:
             event: 要发送的后端事件
+            session_id: 可选：标记事件归属会话（前端按此路由到会话视图）
         """
-        await self._host._emit(event)  # type: ignore[attr-defined]
+        await self._host._emit(event, session_id=session_id)
 
     # === 以下方法在后续 Task 中实现，骨架阶段先返回 error 占位 ===
 
     async def handle_web_new_session(self, request: FrontendRequest) -> None:
-        """新建会话。
+        """新建会话（多会话并发）。
 
-        复用 new_handler 重置会话状态，然后发送空的 web_restore_completed
-        让前端清空主区域。
+        创建全新的会话运行时（独立引擎 + 独立 CheckpointStore），
+        设为活跃会话。旧会话的运行时与行任务不受影响，可继续运行。
 
         Args:
             request: 前端请求（无额外载荷）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        host = self._host
+        bundle = host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
-        context = CommandContext(
-            engine=bundle.engine,
-            hooks_summary=bundle.hook_summary(),
-            mcp_summary=bundle.mcp_summary(),
-            plugin_summary=bundle.plugin_summary(),
-            cwd=bundle.cwd,
-            tool_registry=bundle.tool_registry,
-            app_state=bundle.app_state,
-            session_id=bundle.session_id,
-        )
-        await _new_handler("", context)
-        # new_handler 内部已重置会话，此处重新生成 session_id 保持一致
-        from uuid import uuid4
-        bundle.session_id = uuid4().hex[:12]
-        # 重建 CheckpointStore 并 attach：attach_session 以 store 为唯一权威
-        # （session_id/file_history 均由 store 派生），context.jsonl /
-        # meta.json / file_history.json 必然落在同一会话目录，杜绝
-        # bundle.session_id 与 engine._session_id 不同步导致的目录不一致。
-        # （terminal 端由 handle_line 的 reset_session 分支负责，web 端需
-        # 在此处显式重建——_new_handler 的 full_reset 已清空 engine 状态。）
-        from illusion.services.checkpoint_store import CheckpointStore
-        from illusion.services.session_storage import session_dir_for
-        new_store = CheckpointStore(
-            session_dir_for(bundle.cwd, bundle.session_id), bundle.session_id
-        )
-        bundle.engine.attach_session(new_store)
-        bundle.session_id = bundle.engine.session_id
-        # 同步 app_state（含 context_tokens），使新建会话后右侧栏上下文窗口显示正确（0 tokens）
-        from illusion.ui.runtime import sync_app_state
-        sync_app_state(bundle)
-        # 发送空 transcript 的恢复完成事件，前端据此清空主区域
+        session = await host._create_session()
+        host._set_active_session(session.session_id)
+        # 发送空 transcript 的恢复完成事件，前端据此切换到新会话视图
         await self._emit(BackendEvent(
             type="web_restore_completed",
-            session_id=bundle.session_id,
+            session_id=session.session_id,
             items=[],
-            state=_state_payload(bundle.app_state.get()),
-        ))
-        await self._push_sessions()
-        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+            state=host._session_state_payload(session),
+        ), session_id=session.session_id)
+        await host._push_sessions()
+        await self._emit(host._status_snapshot())
 
     async def handle_web_restore_session(self, request: FrontendRequest) -> None:
-        """恢复指定会话（零 suppress 流程）。
+        """恢复指定会话（多会话并发）。
 
         直接调用 resume_handler，不经过 handle_line，避免触发
         select_request/command_result/transcript_item 等 terminal 副作用。
         通过 web_restore_started/completed 显式标注，前端据此显示加载动画。
+
+        内存中已有运行时（前端切走但运行时保留）→ 直接从引擎重建转录，
+        不触碰磁盘；否则创建独立引擎并载入会话历史。恢复操作只影响目标
+        会话，其他会话的运行时与行任务不受影响。
 
         每个 emit 调用前检查 _ws_closed——WebSocket 已关闭时 _emit 静默返回
         不抛异常，导致 handle() 的 try/except 不触发，前端永远收不到
@@ -257,64 +237,107 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（session_id 必填）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        host = self._host
+        bundle = host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
         session_id = request.session_id or ""
 
         # WebSocket 已关闭：直接返回，不尝试 emit
-        if self._host._ws_closed:  # type: ignore[attr-defined]
+        if host._ws_closed:
             return
 
         error_msg = None
         replay_items = []
+        session = host._sessions.get(session_id)
 
         # 1. 发送恢复开始事件（前端据此显示动画）
-        await self._emit(BackendEvent(type="web_restore_started", session_id=session_id))
+        await self._emit(BackendEvent(type="web_restore_started", session_id=session_id),
+                         session_id=session_id)
 
-        # 2. 构建命令上下文并调用 resume_handler
-        try:
-            context = CommandContext(
-                engine=bundle.engine,
-                hooks_summary=bundle.hook_summary(),
-                mcp_summary=bundle.mcp_summary(),
-                plugin_summary=bundle.plugin_summary(),
-                cwd=bundle.cwd,
-                tool_registry=bundle.tool_registry,
-                app_state=bundle.app_state,
-                session_id=bundle.session_id,
-            )
-            result = await _resume_handler(session_id, context)
-            if result.restored_session_id:
-                bundle.session_id = result.restored_session_id
-            replay_items = build_replay_items(result.replay_messages)
-            # 同步 app_state（含 context_tokens），使 web_restore_completed 的
-            # state 快照包含正确的上下文窗口使用量
-            from illusion.ui.runtime import sync_app_state
-            sync_app_state(bundle)
-        except Exception as exc:
-            log.exception("恢复会话 %s 失败", session_id)
-            error_msg = str(exc)
+        # 2. 运行时已存在（内存会话）：直接重建转录，无需读盘
+        if session is not None:
+            try:
+                replay_items = build_replay_items(session.engine.messages)
+            except Exception as exc:
+                # 罕见：引擎消息结构异常时仍发 completed（带错误），
+                # 避免前端 restoring 加载动画永久挂起
+                log.exception("重建内存会话 %s 转录失败", session_id)
+                error_msg = str(exc)
+        else:
+            # 2'. 运行时不存在：创建独立引擎并载入会话历史
+            try:
+                engine = build_session_engine(
+                    bundle,
+                    session_id,
+                    permission_prompt=host._make_permission_prompt(session_id),
+                    ask_user_prompt=host._make_ask_user_prompt(session_id),
+                    plan_approval_prompt=host._make_plan_approval_prompt(session_id),
+                )
+                from illusion.ui.runtime import build_session_bundle
+                session = SessionRuntime(
+                    session_id=session_id,
+                    bundle=build_session_bundle(bundle, session_id, engine),
+                )
+                host._sessions[session_id] = session
+                host._maybe_evict_sessions()
+                context = CommandContext(
+                    engine=session.engine,
+                    hooks_summary=session.bundle.hook_summary(),
+                    mcp_summary=session.bundle.mcp_summary(),
+                    plugin_summary=session.bundle.plugin_summary(),
+                    cwd=session.bundle.cwd,
+                    tool_registry=session.bundle.tool_registry,
+                    app_state=session.bundle.app_state,
+                    session_id=session_id,
+                )
+                result = await _resume_handler(session_id, context)
+                if result.restored_session_id and result.restored_session_id != session_id:
+                    # resume_handler 可能规范化会话 id（如 # 轮次引用）：
+                    # 同步注册表 key，避免 dict key 与 session_id 不一致
+                    # 导致后续请求按新 id 路由时找不到运行时
+                    host._sessions.pop(session_id, None)
+                    session.session_id = result.restored_session_id
+                    session.bundle.session_id = result.restored_session_id
+                    host._sessions[session.session_id] = session
+                    session_id = session.session_id
+                replay_items = build_replay_items(result.replay_messages)
+            except Exception as exc:
+                log.exception("恢复会话 %s 失败", session_id)
+                error_msg = str(exc)
+                session = host._sessions.pop(session_id, None)
+                # 关闭失败恢复的引擎，避免每次失败泄漏一个运行时
+                if session is not None:
+                    try:
+                        await session.engine.aclose()
+                    except Exception:
+                        log.exception("关闭失败恢复的会话 %s 引擎出错", session_id)
 
-        # 3. WebSocket 在恢复过程中关闭：跳过 emit，直接返回
-        if self._host._ws_closed:  # type: ignore[attr-defined]
+        # 3. 恢复成功（或已存在）：设为活跃会话
+        if error_msg is None and session is not None:
+            host._set_active_session(session.session_id)
+            session_id = session.session_id
+            host._refresh_session_display(session)
+
+        # 4. WebSocket 在恢复过程中关闭：跳过 emit，直接返回
+        if host._ws_closed:
             return
 
-        # 4. 始终发 web_restore_completed——前端据此清除 restoringSessionId
+        # 5. 始终发 web_restore_completed——前端据此清除 restoringSessionId
         await self._emit(BackendEvent(
             type="web_restore_completed",
-            session_id=bundle.session_id,
+            session_id=session_id,
             items=replay_items,  # type: ignore[arg-type]
-            state=_state_payload(bundle.app_state.get()),
+            state=host._session_state_payload(session) if session is not None else {},
             web_error=error_msg,
-        ))
-        # 5. 推送会话列表刷新
-        await self._push_sessions()
-        # 6. 发送任务快照与状态快照
+        ), session_id=session_id)
+        # 6. 推送会话列表刷新
+        await host._push_sessions()
+        # 7. 发送任务快照与状态快照
         from illusion.tasks import get_task_manager
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+        await self._emit(self._host._status_snapshot())
 
     # _build_replay_items 已提取为模块级函数 build_replay_items()，供本类和 ws_host 共用
 
@@ -329,11 +352,12 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（session_ids 或 delete_all）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        host = self._host
+        bundle = host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
-        deleted_current = False
+        deleted_ids: set[str] = set()
         if request.delete_all:
             sessions = _list_session_snapshots(bundle.cwd, limit=1000)
             # 并行删除：每个 _delete_session_by_id 是同步文件 I/O，用 to_thread 隔离，
@@ -345,7 +369,7 @@ class WebApiDispatcher:
                 ),
                 return_exceptions=True,
             )
-            deleted_current = True
+            deleted_ids = {s["session_id"] for s in sessions}
         elif request.session_ids:
             await asyncio.gather(
                 *(
@@ -354,38 +378,26 @@ class WebApiDispatcher:
                 ),
                 return_exceptions=True,
             )
-            deleted_current = bundle.session_id in request.session_ids
-        # 若删除了当前会话或全部会话，后端原子化地新建一个空会话：
-        # 清空引擎、切换 session_id 并推送 web_restore_completed（空转录），
+            deleted_ids = set(request.session_ids)
+        # 释放被删会话的运行时（取消行任务、关闭引擎）；若删除了活跃会话，
+        # 后端原子化地新建一个空会话并推送 web_restore_completed（空转录），
         # 使前端主区域即时进入新会话，无需前端编排两阶段删除。
-        if deleted_current:
-            bundle.engine.clear()
-            from uuid import uuid4
-            bundle.session_id = uuid4().hex[:12]
-            # 重建 CheckpointStore 并 attach：clear() 保留旧 session_id 的
-            # store/file_history，若不重建，context.jsonl / file_history.json
-            # 会写入已删除的旧目录（rmtree 后下次 append 重新创建"幽灵目录"），
-            # 而 meta.json 按新 session_id 写入 → 目录结构不一致。
-            # attach_session 重置 file_history（旧会话记录不迁移），由
-            # submit_message 按新目录懒加载/重建（与 handle_web_new_session 同理）。
-            from illusion.services.checkpoint_store import CheckpointStore
-            from illusion.services.session_storage import session_dir_for
-            new_store = CheckpointStore(
-                session_dir_for(bundle.cwd, bundle.session_id), bundle.session_id
-            )
-            bundle.engine.attach_session(new_store)
-            bundle.session_id = bundle.engine.session_id
-            from illusion.ui.runtime import sync_app_state
-            sync_app_state(bundle)
+        active_deleted = host._active_session_id in deleted_ids
+        for sid in list(deleted_ids):
+            if sid in host._sessions:
+                await host._dispose_session(sid)
+        if active_deleted:
+            session = await host._create_session()
+            host._set_active_session(session.session_id)
             await self._emit(BackendEvent(
                 type="web_restore_completed",
-                session_id=bundle.session_id,
+                session_id=session.session_id,
                 items=[],
-                state=_state_payload(bundle.app_state.get()),
-            ))
+                state=host._session_state_payload(session),
+            ), session_id=session.session_id)
         # 删除后推送刷新的会话列表与状态快照
-        await self._push_sessions()
-        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+        await host._push_sessions()
+        await self._emit(host._status_snapshot())
 
     async def handle_web_set_setting(self, request: FrontendRequest) -> None:
         """统一设置标量（A 通道：工具栏/会话控件触发）。
@@ -397,7 +409,7 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（setting_key/setting_value 必填）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        bundle = self._host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
@@ -414,7 +426,7 @@ class WebApiDispatcher:
             setting_value=value,
         ))
         # 2. 发送完整状态快照（兜底，保证派生字段一致）
-        await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+        await self._emit(self._host._status_snapshot())
         # 3. 若是 model 切换：先推送模型选项让 UI 即时更新 active 态，
         #    再重建 API 客户端（重建可能耗时，如 copilot token 刷新，放最后避免阻塞 UI）
         if key == "model":
@@ -422,15 +434,38 @@ class WebApiDispatcher:
             try:
                 from illusion.ui.runtime import _rebuild_api_client
                 _rebuild_api_client(bundle, _load_settings())
-                # 修复：同时更新 engine 的 model，确保后续请求使用正确的模型名
+                # 修复：同时更新所有会话引擎的 model 与 api_client，
+                # 确保后续请求使用正确的模型名与客户端（多会话下仅更新
+                # 初始引擎会让其他会话继续使用旧模型/旧凭据）
                 new_settings = _load_settings()
-                bundle.engine.set_model(new_settings.active_model_name)
+                new_client = bundle.api_client
+                def _sync_engine(e: Any) -> None:
+                    e.set_api_client(new_client)
+                    e.set_model(new_settings.active_model_name)
+                self._apply_engine_setting(_sync_engine)
             except Exception as exc:
                 log.exception("重建 API 客户端失败")
                 await self._emit(BackendEvent(
                     type="error",
                     message=f"模型已切换但 API 客户端重建失败: {exc}",
                 ))
+
+    def _apply_engine_setting(self, fn: Callable[[Any], None]) -> None:
+        """将引擎级设置应用到所有会话引擎（含初始引擎）。
+
+        多会话架构下每个会话持有独立引擎；设置类变更（权限检查器/模型/
+        effort）必须广播到全部引擎，否则只对初始会话生效——例如切换到
+        计划模式后，其他已物化会话仍持有旧的 PermissionChecker，权限
+        限制被绕过（安全相关）。
+
+        Args:
+            fn: 对单个引擎执行的设置回调
+        """
+        host = self._host
+        if host._bundle is not None:
+            fn(host._bundle.engine)
+        for session in host._sessions.values():
+            fn(session.engine)
 
     async def _apply_setting(self, bundle: RuntimeBundle, key: str, value: Any) -> tuple[bool, str | None]:
         """应用设置到 settings 与 app_state（A/B 通道共用）。
@@ -461,12 +496,13 @@ class WebApiDispatcher:
                 settings.permission.mode = PermissionMode(str(value))
                 _save_settings(settings)
                 bundle.app_state.set(permission_mode=settings.permission.mode.value)
-                # 更新引擎的权限检查器——引擎初始化时创建的 PermissionChecker 持有旧的
-                # PermissionSettings 引用，必须重建并注入，否则计划模式等权限限制不生效
+                # 更新所有会话引擎的权限检查器——引擎初始化时创建的 PermissionChecker
+                # 持有旧的 PermissionSettings 引用，必须重建并注入，否则计划模式等
+                # 权限限制不生效（多会话下仅更新初始引擎会绕过其他会话的权限限制）
                 from illusion.permissions import PermissionChecker
                 checker = PermissionChecker(settings.permission)
                 checker.sync_sandbox_restrictions(settings.sandbox)
-                bundle.engine.set_permission_checker(checker)
+                self._apply_engine_setting(lambda e: e.set_permission_checker(checker))
             elif key == "turns":
                 # turns: unlimited → None，否则 int；影响 engine.max_turns
                 turns_val: int | None
@@ -493,13 +529,16 @@ class WebApiDispatcher:
                 # 修复：同步更新 settings_overrides，避免 current_settings() 返回缓存的旧值
                 if key in ("effort", "model", "max_turns", "base_url", "api_key", "api_format"):
                     bundle.settings_overrides[key] = value
-                # 修复：effort 需要同步到 engine，确保后续请求使用正确的 effort 级别
+                # 修复：effort 需要同步到所有会话引擎，确保后续请求使用正确的 effort 级别
                 if key == "effort":
                     from illusion.api.effort import EffortLevel
                     try:
-                        bundle.engine.effort = EffortLevel(str(value))
+                        effort_level = EffortLevel(str(value))
                     except ValueError:
+                        effort_level = None
                         log.warning("无效的 effort 值: %s", value)
+                    if effort_level is not None:
+                        self._apply_engine_setting(lambda e: setattr(e, "effort", effort_level))
         except Exception as exc:
             log.exception("应用设置 %s 失败", key)
             return False, f"设置 {key} 失败: {exc}"
@@ -511,37 +550,11 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（limit/offset 可选）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
-        if bundle is None:
+        host = self._host
+        if host._bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
-        await self._push_sessions()
-
-    async def _push_sessions(self) -> None:
-        """推送会话列表（供多处复用）。
-
-        从 session_storage 读取会话快照，格式化为前端需要的结构后推送。
-        """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
-        if bundle is None:
-            return
-        locale = str(bundle.app_state.get().ui_language or "zh-CN")
-        zh = locale.lower().startswith("zh")
-        sessions = _list_session_snapshots(bundle.cwd, limit=20)
-        options = []
-        for s in sessions:
-            ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
-            summary = (s.get("summary", "") or ("（无摘要）" if zh else "(no summary)"))[:50]
-            turn_count = s.get("turn_count", 0)
-            options.append({
-                "id": s["session_id"],
-                "label": f"{ts}  {turn_count}轮  {summary}",
-                "created_at": s["created_at"],
-                "message_count": s["message_count"],
-                "turn_count": turn_count,
-                "summary": s.get("summary", ""),
-            })
-        await self._emit(BackendEvent(type="web_sessions", web_sessions=options))
+        await host._push_sessions()
 
     async def handle_web_request_models(self, request: FrontendRequest) -> None:
         """拉取模型选项并发送 web_models 事件。
@@ -549,7 +562,7 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（无额外载荷）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        bundle = self._host._bundle
         if bundle is None:
             return
         await self._push_models(bundle)
@@ -564,7 +577,7 @@ class WebApiDispatcher:
         """
         settings = bundle.current_settings()
         current_model = settings.active_model_name
-        options = self._host._model_select_options(current_model)  # type: ignore[attr-defined]
+        options = self._host._model_select_options(current_model)
         await self._emit(BackendEvent(type="web_models", web_models=options))
 
     async def handle_web_request_resources(self, request: FrontendRequest) -> None:
@@ -573,7 +586,7 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（无额外载荷）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        bundle = self._host._bundle
         if bundle is None:
             return
         await self._push_resources(bundle)
@@ -605,17 +618,22 @@ class WebApiDispatcher:
         Args:
             request: 前端请求（command/args/request_id 必填）
         """
-        bundle = self._host._bundle  # type: ignore[attr-defined]
+        host = self._host
+        bundle = host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        session = host._resolve_session(request.session_id)
+        if session is None:
             return
         command = request.command or ""
         args = request.args or ""
         request_id = request.request_id or ""
+        session_id = session.session_id
 
         # rewind/context/max-tokens 需要多步选择，仍走 select_request 机制（保留旧 _handle_select_command）
         if command in ("rewind", "context", "max-tokens"):
-            await self._host._handle_select_command(command)  # type: ignore[attr-defined]
+            await host._handle_select_command(command, session)
             return
 
         # 设置类指令：内部走 _apply_setting（与 A 通道共用写入逻辑，DRY）
@@ -637,18 +655,18 @@ class WebApiDispatcher:
                 await self._emit(BackendEvent(
                     type="web_setting_changed", setting_key=key, setting_value=value,
                 ))
-                await self._emit(self._host._status_snapshot())  # type: ignore[attr-defined]
+                await self._emit(host._status_snapshot())
                 payload = "已更新"
             else:
                 payload = error or "设置失败"
             await self._emit(BackendEvent(
                 type="web_query_result", web_request_id=request_id, web_command=command,
                 web_query_kind="text", web_query_payload=payload,
-            ))
+            ), session_id=session_id)
             return
 
         # 执行型/查询型（compact/export/init 及无参查询）：复用 registry handler
-        result = await _run_command_via_registry(f"/{command} {args}".strip(), bundle)
+        result = await _run_command_via_registry(f"/{command} {args}".strip(), session.bundle)
         if result is None:
             # 已通过 select_request 或其他机制处理
             return
@@ -656,7 +674,7 @@ class WebApiDispatcher:
         await self._emit(BackendEvent(
             type="web_query_result", web_request_id=request_id, web_command=command,
             web_query_kind="text", web_query_payload=payload,
-        ))
+        ), session_id=session_id)
 
 
 async def _run_command_via_registry(line: str, bundle: RuntimeBundle) -> CommandResult | None:

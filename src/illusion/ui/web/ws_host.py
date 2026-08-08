@@ -74,14 +74,19 @@ from illusion.ui.protocol import (
 )
 from illusion.ui.runtime import (
     RuntimeBundle,
+    _on_task_complete,
     _wrap_in_system_reminder,
     build_runtime,
+    build_session_bundle,
+    build_session_engine,
     close_runtime,
     handle_background_completions,
     handle_line,
     start_runtime,
     sync_app_state,
 )
+from illusion.ui.web.session_runtime import MAX_MATERIALIZED_SESSIONS, SessionRuntime
+from illusion.ui.web.ws_web_api import build_replay_items
 from illusion.utils.aioqueue import Queue, QueueShutDown
 
 # 配置模块级日志记录器
@@ -91,6 +96,23 @@ log = logging.getLogger(__name__)
 _update_check: dict[str, Any] | None = None
 _UPDATE_CHECK_TTL = 3600
 
+
+# 会话专属状态字段：多会话模式下不随全局 state_snapshot 推送。
+# 全局快照只携带工具栏级字段；会话的上下文/用量数据经
+# web_sessions / web_restore_completed 按会话推送，避免张冠李戴。
+_SESSION_SCOPED_STATE_KEYS = (
+    "session_id",
+    "phase",
+    "context_tokens",
+    "context_cache_read",
+    "context_cache_creation",
+    "context_input",
+    "context_output",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
 
 def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
     """从助手文本中移除工具预览行。
@@ -146,10 +168,17 @@ class WebBackendHost:
     通过 WebSocket 协议与 Web 前端通信，驱动 IllusionAgent 运行时。
     处理所有前端请求并发送后端事件。
 
+    多会话架构：宿主持有共享运行时 bundle（api_client / tool_registry /
+    mcp / hooks / app_state 等全局基础设施）与一组会话运行时（_sessions，
+    每个会话持有独立 QueryEngine）。行处理任务按会话隔离并发执行，
+    互不阻塞；事件按 session_id 路由到前端对应会话视图。
+
     Attributes:
         _config: Web 后端配置
         _websocket: WebSocket 连接实例
-        _bundle: 运行时数据 bundle
+        _bundle: 共享运行时 bundle（初始会话亦复用其引擎）
+        _sessions: 会话运行时注册表（session_id -> SessionRuntime）
+        _active_session_id: 当前活跃会话 ID
         _write_queue: 写入事件队列（串行化所有 WebSocket 写入）
         _write_task: 单一消费者写循环 Task
         _dispatch_tasks: fire-and-forget task 强引用集合
@@ -157,18 +186,17 @@ class WebBackendHost:
         _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
         _always_allowed_tools: "总是允许"的工具集合
-        _busy: 当前是否正在处理请求
         _running: 是否正在运行
         _ws_closed: WebSocket 是否已关闭
-        _active_line_task: 当前活动的行处理任务
         _periodic_task: 周期状态更新 Task
-        _last_tool_inputs: 每个工具名称的最后输入（用于富事件发射）
     """
 
     def __init__(self, config: WebHostConfig, websocket: WebSocket) -> None:
         self._config = config
         self._websocket = websocket
         self._bundle: RuntimeBundle | None = None
+        self._sessions: dict[str, SessionRuntime] = {}
+        self._active_session_id: str | None = None
         self._write_queue: Queue[BackendEvent] = (
             Queue()
         )  # 替代 _write_lock，串行化所有 WebSocket 写入
@@ -178,21 +206,13 @@ class WebBackendHost:
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}  # 用户问答
         self._always_allowed_tools: set[str] = set()  # 总是允许的工具
-        self._busy = False  # 忙碌状态
         self._running = True  # 运行状态
         self._ws_closed = False  # WebSocket 是否已关闭
-        self._active_line_task: asyncio.Task[bool] | None = None  # 当前任务
         self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
         # modal 串行化锁：前端 modal 是单例，并发 modal_request 会互相覆盖导致
         # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
         # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
         self._modal_lock: asyncio.Lock = asyncio.Lock()
-        # 跟踪每个工具名称的最后输入，用于富事件发射
-        self._last_tool_inputs: dict[str, dict[str, Any]] = {}
-        # 跟踪已发送 tool_started 事件的工具调用ID，避免重复显示
-        self._emitted_tool_started_ids: set[str] = set()
-        # 当前 apply_select_command 的请求 ID，用于 command_result 精确匹配
-        self._current_request_id: str | None = None
         # btw 侧问任务映射：request_id -> asyncio.Task，支持 btw_cancel 取消
         self._btw_tasks: dict[str, asyncio.Task[None]] = {}
         # Web 专属请求分发器（处理 web_* 前缀请求，与 terminal 路径隔离）
@@ -204,6 +224,7 @@ class WebBackendHost:
         """运行后端主机主循环。"""
         # 构建运行时环境
         try:
+            initial_sid = self._config.restore_session_id or uuid4().hex[:12]
             self._bundle = await build_runtime(
                 model=self._config.model,
                 max_turns=self._config.max_turns,
@@ -213,10 +234,10 @@ class WebBackendHost:
                 api_format=self._config.api_format,
                 api_client=self._config.api_client,
                 restore_messages=self._config.restore_messages,
-                restore_session_id=self._config.restore_session_id,
-                permission_prompt=self._ask_permission,
-                ask_user_prompt=self._ask_question,  # type: ignore[arg-type]
-                plan_approval_prompt=self._ask_plan_approval,
+                restore_session_id=initial_sid,
+                permission_prompt=self._make_permission_prompt(initial_sid),
+                ask_user_prompt=self._make_ask_user_prompt(initial_sid),
+                plan_approval_prompt=self._make_plan_approval_prompt(initial_sid),
                 effort=self._config.effort,
                 channel_hint=self._config.channel_hint,
                 channel_tools=self._config.channel_tools,
@@ -231,27 +252,40 @@ class WebBackendHost:
         sync_app_state(self._bundle)
         # 加载总是允许的工具列表
         self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
+        # 初始会话：共享 bundle 直接作为其会话级 bundle（引擎即初始引擎），
+        # 后续新建/恢复的会话通过 build_session_engine 构建独立引擎
+        initial_session = SessionRuntime(
+            session_id=self._bundle.session_id,
+            bundle=self._bundle,
+        )
+        self._sessions[initial_session.session_id] = initial_session
+        self._active_session_id = initial_session.session_id
 
-        # 包装 on_task_complete：后台任务完成后发送 tasks_snapshot，
-        # 并在主循环空闲时自动进入 busy 处理积压的完成通知。
-        # （runtime.build_runtime 内部注册的原回调仅通知 bg_agent_tracker，
-        #   不会驱动 host 恢复主循环，导致空闲期后台完成无人消费。）
+        # 包装 on_task_complete：按任务归属路由到对应会话引擎的
+        # bg_agent_tracker（多会话并发下避免完成通知投递到错误会话），
+        # 并发送 tasks_snapshot、驱动该会话自动恢复处理积压通知。
+        # （runtime.build_runtime 内部注册的原回调仅通知单一 tracker，
+        #   多会话模式下不再适用，由本路由器完全接管。）
         _task_manager = get_task_manager()
-        _original_on_task_complete = _task_manager.on_task_complete
 
         def _wrapped_on_task_complete(task_id: str, task: Any) -> None:
-            # 先调用原回调（通知 bg_agent_tracker）
-            if _original_on_task_complete is not None:
-                _original_on_task_complete(task_id, task)
+            target = self._route_task_completion(task)
+            if target is not None:
+                _on_task_complete(task_id, task, target.engine._bg_agent_tracker)
+            else:
+                # 无归属任务（可能属于其他 WebSocket 连接的 host——task manager
+                # 全局共享）：不投递到本 host 的任何 tracker，避免完成通知
+                # 注入无关会话导致 LLM 被无意义调用
+                log.debug("任务 %s 无归属会话，丢弃完成通知（type=%s）", task_id, task.type)
             # 异步发送 tasks_snapshot，让前端 statusBar 立即更新
             self._create_background_task(
                 self._emit(BackendEvent.tasks_snapshot(_task_manager.list_tasks()))
             )
-            # 后台任务完成且主循环空闲 → 自动进入 busy 处理积压通知
-            if not self._busy and self._bundle is not None:
-                tracker = self._bundle.engine._bg_agent_tracker
+            # 后台任务完成且归属会话空闲 → 自动恢复处理积压通知
+            if target is not None and not target.busy:
+                tracker = target.engine._bg_agent_tracker
                 if tracker is not None and tracker.has_completions():
-                    self._create_background_task(self._auto_resume_bg())
+                    self._create_background_task(self._auto_resume_bg(target))
 
         _task_manager.on_task_complete = _wrapped_on_task_complete
 
@@ -272,8 +306,21 @@ class WebBackendHost:
         )
         # 发送状态快照
         await self._emit(self._status_snapshot())
-        # Web 前端专属：ready 后推送会话列表（替代旧 list_sessions setTimeout hack）
-        await self._web_api._push_sessions()
+        # Web 前端专属：ready 后推送会话列表（含内存会话与活跃标记）
+        await self._push_sessions()
+        # Web 前端专属：ready 后推送活跃会话的转录与状态（前端据此
+        # materialize 当前会话视图；若为全新会话则为空转录）
+        assert self._active_session_id is not None
+        active_session = self._sessions[self._active_session_id]
+        await self._emit(
+            BackendEvent(
+                type="web_restore_completed",
+                session_id=active_session.session_id,
+                items=build_replay_items(active_session.engine.messages),  # type: ignore[arg-type]
+                state=self._session_state_payload(active_session),
+            ),
+            session_id=active_session.session_id,
+        )
         # Web 前端专属：ready 后推送资源与模型选项（替代旧 setTimeout 串行发指令 hack）
         await self._web_api._push_resources(self._bundle)
         await self._web_api._push_models(self._bundle)
@@ -350,9 +397,9 @@ class WebBackendHost:
         if request.type == "shutdown":
             await self._emit(BackendEvent(type="shutdown"))
             return False
-        # 停止当前任务
+        # 停止指定会话的任务（request.session_id 缺省时回退到活跃会话）
         if request.type == "stop":
-            await self._stop_active_line()
+            await self._stop_active_line(request.session_id)
             return True
         # 权限响应
         if request.type == "permission_response":
@@ -390,32 +437,31 @@ class WebBackendHost:
             return True
         # 选择命令
         if request.type == "select_command":
-            await self._handle_select_command(request.command or "")
+            session = self._resolve_session(request.session_id)
+            if session is not None:
+                await self._handle_select_command(request.command or "", session)
             return True
-        # 应用选择命令
+        # 应用选择命令（按会话隔离，fire-and-forget，不阻塞主循环）
         if request.type == "apply_select_command":
-            if self._busy:
-                await self._emit(BackendEvent(type="error", message="Session is busy"))
+            session = self._resolve_session(request.session_id)
+            if session is None:
                 return True
-            self._busy = True
-            try:
-                self._active_line_task = asyncio.create_task(
-                    self._apply_select_command(
-                        request.command or "",
-                        request.value or "",
-                        request_id=getattr(request, "request_id", None),
-                    )
+            if session.busy:
+                await self._emit(
+                    BackendEvent(type="error", message="Session is busy"),
+                    session_id=session.session_id,
                 )
-                should_continue = await self._active_line_task
-            except asyncio.CancelledError:
-                should_continue = True
-            finally:
-                self._active_line_task = None
-                self._busy = False
-                self._create_background_task(self._check_post_idle_bg())
-            if not should_continue:
-                await self._emit(BackendEvent(type="shutdown"))
-                return False
+                return True
+            session.busy = True
+            self._spawn_session_line(
+                session,
+                self._apply_select_command(
+                    session,
+                    request.command or "",
+                    request.value or "",
+                    request_id=getattr(request, "request_id", None),
+                ),
+            )
             return True
         # btw 侧问
         if request.type == "btw_request":
@@ -440,34 +486,26 @@ class WebBackendHost:
                 BackendEvent(type="error", message=f"Unknown request type: {request.type}")
             )
             return True
-        # 忙碌中
-        if self._busy:
-            await self._emit(BackendEvent(type="error", message="Session is busy"))
+        # 提交行（按会话隔离，fire-and-forget，不阻塞主循环）
+        session = self._resolve_session(request.session_id)
+        if session is None:
             return True
-        # 处理提交的行
+        if session.busy:
+            await self._emit(
+                BackendEvent(type="error", message="Session is busy"),
+                session_id=session.session_id,
+            )
+            return True
         line = (request.line or "").strip()
         if not line:
             return True
-        self._busy = True
-        try:
+        session.busy = True
+        if request.treat_as_text:
             # treat_as_text=True 时跳过命令注册表，直接当 user 消息提交给 LLM
             # （前端非指定命令如 /resume、/model 走此路径，不被当作命令执行）
-            if request.treat_as_text:
-                self._active_line_task = asyncio.create_task(
-                    self._submit_line_as_text(line)
-                )
-            else:
-                self._active_line_task = asyncio.create_task(self._process_line(line))
-            should_continue = await self._active_line_task
-        except asyncio.CancelledError:
-            should_continue = True
-        finally:
-            self._active_line_task = None
-            self._busy = False
-            self._create_background_task(self._check_post_idle_bg())
-        if not should_continue:
-            await self._emit(BackendEvent(type="shutdown"))
-            return False
+            self._spawn_session_line(session, self._submit_line_as_text(session, line))
+        else:
+            self._spawn_session_line(session, self._process_line(session, line))
         return True
 
     async def _read_requests(self) -> None:
@@ -513,7 +551,7 @@ class WebBackendHost:
                 await self._emit(BackendEvent(type="modal_request", modal=None))
                 continue
             if request.type == "stop":
-                await self._stop_active_line()
+                await self._stop_active_line(request.session_id)
                 continue
             if request.type == "question_response":
                 if request.request_id in self._question_requests:
@@ -523,15 +561,21 @@ class WebBackendHost:
 
             await self._request_queue.put(request)
 
-    async def _make_render_event(self) -> Callable[[StreamEvent], Awaitable[None]]:
-        """创建共享的流式事件渲染器。
+    async def _make_render_event(self, session: SessionRuntime) -> Callable[[StreamEvent], Awaitable[None]]:
+        """创建会话级流式事件渲染器。
 
-        返回一个 _render_event 闭包，供 _process_line 和 _submit_line_as_text 共用，
-        消除重复代码并确保 TodoWrite/plan_mode_change 等事件处理一致。
+        返回一个 _render_event 闭包，供 _process_line / _submit_line_as_text /
+        _process_bg_completions 共用，消除重复代码并确保 TodoWrite/
+        plan_mode_change 等事件处理一致。所有事件携带会话 ID，供前端
+        按会话路由。
+
+        Args:
+            session: 目标会话运行时
 
         Returns:
             异步事件渲染函数
         """
+        session_id = session.session_id
 
         async def _render_event(event: StreamEvent) -> None:
             """渲染流式事件。"""
@@ -543,7 +587,8 @@ class WebBackendHost:
                         type="assistant_delta",
                         message=event.text,
                         reasoning=reasoning if reasoning else None,
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 return
             # 助手回合完成
@@ -560,34 +605,44 @@ class WebBackendHost:
                             text=cleaned,
                             reasoning=reasoning if reasoning else None,
                         ),
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
                 # 透传最新累积用量与反推值到前端
                 if self._bundle is not None:
-                    sync_app_state(self._bundle)
+                    sync_app_state(session.bundle)
                     # 更新会话 meta（CheckpointStore 已在 query_engine 内每轮 append）
                     from illusion.ui.runtime import _update_session_meta
-                    _update_session_meta(self._bundle)
+                    _update_session_meta(session.bundle)
+                    # 刷新列表展示字段并推送：每轮回复完成后右栏的
+                    # 上下文用量/输入输出/缓存分项随 web_sessions 即时更新，
+                    # 不必等整轮行任务结束
+                    self._refresh_session_display(session)
+                    await self._push_sessions()
                 return
             # 工具链开始
             if isinstance(event, ToolChainStarted):
-                await self._update_phase("tool_executing")
+                await self._update_phase(session, "tool_executing")
                 await self._emit(
-                    BackendEvent(type="tool_chain_started", tool_count=event.tool_count)
+                    BackendEvent(type="tool_chain_started", tool_count=event.tool_count),
+                    session_id=session_id,
                 )
                 return
             # 工具链完成
             if isinstance(event, ToolChainCompleted):
-                await self._update_phase("thinking")
-                await self._emit(BackendEvent(type="tool_chain_completed", phase="thinking"))
+                await self._update_phase(session, "thinking")
+                await self._emit(
+                    BackendEvent(type="tool_chain_completed", phase="thinking"),
+                    session_id=session_id,
+                )
                 return
             # 工具开始执行
             if isinstance(event, ToolExecutionStarted):
                 tool_use_id = getattr(event, "tool_use_id", "") or ""
                 if event.tool_input:
-                    self._last_tool_inputs[event.tool_name] = event.tool_input
-                if tool_use_id and tool_use_id in self._emitted_tool_started_ids:
+                    session.last_tool_inputs[event.tool_name] = event.tool_input
+                if tool_use_id and tool_use_id in session.emitted_tool_started_ids:
                     if event.tool_input:
                         await self._emit(
                             BackendEvent(
@@ -595,11 +650,12 @@ class WebBackendHost:
                                 tool_name=event.tool_name,
                                 tool_input=event.tool_input,
                                 tool_use_id=tool_use_id,
-                            )
+                            ),
+                            session_id=session_id,
                         )
                     return
                 if tool_use_id:
-                    self._emitted_tool_started_ids.add(tool_use_id)
+                    session.emitted_tool_started_ids.add(tool_use_id)
                 await self._emit(
                     BackendEvent(
                         type="tool_started",
@@ -614,7 +670,8 @@ class WebBackendHost:
                             if event.tool_input
                             else event.tool_name,
                         ),
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 return
             # 工具进度消息（对称于 backend_host，转发为 tool_progress 事件）
@@ -625,7 +682,8 @@ class WebBackendHost:
                         tool_use_id=event.tool_use_id or None,
                         message=event.message,
                         progress_type=event.progress_type,
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 return
             # 工具执行完成
@@ -645,13 +703,14 @@ class WebBackendHost:
                             is_error=event.is_error,
                             tool_use_id=tool_use_id or None,
                         ),
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 # === Task/Todo 双向同步 ===
                 # 仅 in_process_teammate 类型参与互通；同步后再发射快照保证前端看到一致状态
                 _manager = get_task_manager()
                 if event.tool_name in ("TodoWrite", "todo_write"):
-                    tool_input = self._last_tool_inputs.get(event.tool_name, {})
+                    tool_input = session.last_tool_inputs.get(event.tool_name, {})
                     todos = tool_input.get("todos") or []
                     if isinstance(todos, list):
                         todo_items = []
@@ -671,7 +730,10 @@ class WebBackendHost:
                             and len(todo_items) >= 1
                         ):
                             todo_items = []
-                        await self._emit(BackendEvent(type="todo_update", todo_items=todo_items))
+                        await self._emit(
+                            BackendEvent(type="todo_update", todo_items=todo_items),
+                            session_id=session_id,
+                        )
                 await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
                 await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
@@ -686,7 +748,8 @@ class WebBackendHost:
                     formatted_mode = format_permission_mode(raw_mode)
                     self._bundle.app_state.set(permission_mode=raw_mode)
                     await self._emit(
-                        BackendEvent(type="plan_mode_change", plan_mode=formatted_mode)
+                        BackendEvent(type="plan_mode_change", plan_mode=formatted_mode),
+                        session_id=session_id,
                     )
                     await self._emit(self._status_snapshot())
                 return
@@ -696,127 +759,185 @@ class WebBackendHost:
                     BackendEvent(
                         type="transcript_item",
                         item=TranscriptItem(role="system", text=event.message),
-                    )
+                    ),
+                    session_id=session_id,
                 )
                 return
             # 状态事件
             if isinstance(event, StatusEvent):
                 if event.bg_agent:
-                    await self._emit(BackendEvent(type="bg_agent_status", message=event.message))
+                    await self._emit(
+                        BackendEvent(type="bg_agent_status", message=event.message),
+                        session_id=session_id,
+                    )
                 else:
                     await self._emit(
                         BackendEvent(
                             type="transcript_item",
                             item=TranscriptItem(role="system", text=event.message),
-                        )
+                        ),
+                        session_id=session_id,
                     )
                 return
 
         return _render_event
 
-    async def _auto_resume_bg(self) -> None:
-        """后台完成通知到达且主循环空闲时，自动进入 busy 处理通知。
+    async def _auto_resume_bg(self, session: SessionRuntime) -> None:
+        """后台完成通知到达且会话空闲时，自动进入 busy 处理通知。
 
         修复：idle 超时/用户退出 busy 后，通知只发前端 bg_agent_status 提示
         但无人消费，只能等手动输入。此方法由 on_task_complete 包装回调调度，
-        自动恢复主循环处理积压通知。
+        自动恢复处理该会话积压的通知。
+
+        Args:
+            session: 目标会话运行时
         """
-        if self._busy or self._bundle is None:
+        if session.busy or self._bundle is None:
             return
-        tracker = self._bundle.engine._bg_agent_tracker
+        tracker = session.engine._bg_agent_tracker
         # 仅在有实际完成通知时才恢复处理，避免任务未完成时误触发 LLM 调用
         if tracker is None or not tracker.has_completions():
             return
-        self._busy = True
+        session.busy = True
         try:
-            self._active_line_task = asyncio.create_task(self._process_bg_completions())
-            await self._active_line_task
+            await self._process_bg_completions(session)
         except asyncio.CancelledError:
             pass
         except Exception:
             log.exception("处理后台完成通知时出错")
             # 确保前端 busy 状态释放，避免异常路径卡死输入框
-            await self._emit(BackendEvent(type="line_complete"))
+            await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
         finally:
-            self._active_line_task = None
-            self._busy = False
+            session.busy = False
 
-    async def _process_bg_completions(self) -> bool:
-        """处理积压的后台完成通知（自动进入 busy），不新增用户输入。"""
+    async def _process_bg_completions(self, session: SessionRuntime) -> None:
+        """处理积压的后台完成通知（自动进入 busy），不新增用户输入。
+
+        Args:
+            session: 目标会话运行时
+        """
         assert self._bundle is not None
         # 清除上一轮的工具调用去重记录
-        self._emitted_tool_started_ids.clear()
+        session.emitted_tool_started_ids.clear()
         # 更新会话阶段为思考中
-        await self._update_phase("thinking")
+        await self._update_phase(session, "thinking")
 
         async def _print_system(message: str) -> None:
             """打印系统消息。"""
             await self._emit(
-                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message))
+                BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=message)),
+                session_id=session.session_id,
             )
 
-        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
-        _render_event = await self._make_render_event()
+        # 复用会话级的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event(session)
 
-        should_continue = await handle_background_completions(
-            self._bundle,
+        await handle_background_completions(
+            session.bundle,
             print_system=_print_system,
             render_event=_render_event,
         )
 
-        # 更新会话阶段为空闲
-        await self._update_phase("idle")
-        await self._emit(self._status_snapshot())
-        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"))
-        return should_continue
+        await self._finish_session_line(session)
 
-    async def _check_post_idle_bg(self) -> None:
-        """_busy 变为 False 后检查是否有后台完成通知需要自动恢复。
+    async def _check_post_idle_bg(self, session: SessionRuntime) -> None:
+        """会话行任务结束后检查是否有后台完成通知需要自动恢复。
 
         弥补斜杠命令执行期间后台完成通知被跳过的缺口：命令执行完后
-        _busy=False，但后台在命令期间完成的通知未被消费，用此方法
+        会话不再 busy，但后台在命令期间完成的通知未被消费，用此方法
         触发 _auto_resume_bg 恢复处理。
-        """
-        if self._bundle is not None:
-            tracker = self._bundle.engine._bg_agent_tracker
-            if tracker is not None and tracker.has_completions():
-                self._create_background_task(self._auto_resume_bg())
 
-    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
-        """处理用户输入的行内容。"""
-        assert self._bundle is not None
+        Args:
+            session: 目标会话运行时
+        """
+        tracker = session.engine._bg_agent_tracker
+        if tracker is not None and tracker.has_completions():
+            self._create_background_task(self._auto_resume_bg(session))
+
+    async def _finish_session_line(self, session: SessionRuntime) -> None:
+        """收尾一轮会话行处理（状态快照 + 列表刷新 + line_complete）。"""
+        await self._update_phase(session, "idle")
+        # 先清 busy 再推送列表：避免列表推送携带过期的 busy=true
+        # （前端以本地事件为准实时更新运行态，此处推送仅作兜底同步）
+        session.busy = False
+        self._refresh_session_display(session)
+        await self._push_sessions()
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
+
+    def _refresh_session_after_submit(self, session: SessionRuntime, line: str) -> None:
+        """提交消息后立即刷新会话列表显示字段并推送。
+
+        引擎在 submit_message 时才把 user 消息写入 messages，而列表推送
+        需要发生在这之前（新会话提交后应立刻出现在侧栏）。此时
+        _refresh_session_display 因引擎无消息会判定为空会话，故对尚无
+        摘要的新会话手动写入显示字段；已有内容的会话由后续
+        assistant_complete / 行结束的常规刷新接管。
+
+        Args:
+            session: 目标会话运行时
+            line: 用户提交的文本
+        """
+        if not session.summary:
+            session.summary = line.strip()[:80]
+            session.turn_count = 1
+            session.message_count = 1
+            ts = time.strftime("%m/%d %H:%M", time.localtime(session.created_at))
+            session.label = f"{ts}  1轮  {session.summary}"
+        self._create_background_task(self._push_sessions())
+
+    async def _process_line(self, session: SessionRuntime, line: str, *, transcript_line: str | None = None) -> bool:
+        """处理用户输入的行内容（会话隔离）。
+
+        Args:
+            session: 目标会话运行时
+            line: 用户输入的行
+            transcript_line: 非 None 时发送该文本为用户消息转录（静默场景传 None）
+
+        Returns:
+            bool: 是否继续会话（始终 True，web 端退出由 shutdown 请求控制）
+        """
+        assert session.bundle is not None
         # 清除上一轮的工具调用去重记录
-        self._emitted_tool_started_ids.clear()
+        session.emitted_tool_started_ids.clear()
         # 更新会话阶段为思考中
-        await self._update_phase("thinking")
+        await self._update_phase(session, "thinking")
         # 发送用户消息（transcript_line 为 None 时不发送转录，用于左侧栏操作等静默场景）
         if transcript_line is not None:
             await self._emit(
                 BackendEvent(
                     type="transcript_item",
                     item=TranscriptItem(role="user", text=transcript_line or line),
-                )
+                ),
+                session_id=session.session_id,
             )
+            # 提交即刷新列表：新会话立即出现在侧栏（label 带摘要），
+            # 不必等行任务结束才推送
+            self._refresh_session_after_submit(session, line)
 
         async def _print_system(message: str) -> None:
             """打印系统消息。"""
             await self._emit(
                 BackendEvent(
                     type="transcript_item", item=TranscriptItem(role="system", text=message)
-                )
+                ),
+                session_id=session.session_id,
             )
 
-        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
-        _render_event = await self._make_render_event()
+        # 复用会话级的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event(session)
 
         async def _replay_transcript_item(item: dict[str, Any]) -> None:
             """重播 transcript_item。"""
-            await self._emit(BackendEvent(type="transcript_item", item=TranscriptItem(**item)))
+            await self._emit(
+                BackendEvent(type="transcript_item", item=TranscriptItem(**item)),
+                session_id=session.session_id,
+            )
 
         async def _clear_output() -> None:
             """清空输出。"""
-            await self._emit(BackendEvent(type="clear_transcript"))
+            await self._emit(BackendEvent(type="clear_transcript"), session_id=session.session_id)
 
         async def _command_result_emitter(message: str, result_type: str) -> None:
             """发射指令结果事件。"""
@@ -825,24 +946,28 @@ class WebBackendHost:
                 "type": result_type,
             }
             # 回传当前请求的 ID（用于前端精确匹配响应）
-            req_id = getattr(self, "_current_request_id", None)
+            req_id = session.current_request_id
             if req_id:
                 data["request_id"] = req_id
-                self._current_request_id = None  # 消费后清除，避免泄漏到后续事件
+                session.current_request_id = None  # 消费后清除，避免泄漏到后续事件
             await self._emit(
                 BackendEvent(
                     type="command_result",
                     command_result_data=data,
-                )
+                ),
+                session_id=session.session_id,
             )
 
         async def _replace_transcript_items(items: list[dict[str, Any]]) -> None:
             """替换转录项列表（一次性清空并替换，避免 Ink Static 重复渲染）。"""
             transcript_items = [TranscriptItem(**item) for item in items]
-            await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
+            await self._emit(
+                BackendEvent(type="replace_transcript", items=transcript_items),
+                session_id=session.session_id,
+            )
 
-        should_continue = await handle_line(
-            self._bundle,
+        await handle_line(
+            session.bundle,
             line,
             print_system=_print_system,
             render_event=_render_event,
@@ -852,14 +977,10 @@ class WebBackendHost:
             replace_transcript_items=_replace_transcript_items,
         )
 
-        # 更新会话阶段为空闲
-        await self._update_phase("idle")
-        await self._emit(self._status_snapshot())
-        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"))
-        return should_continue
+        await self._finish_session_line(session)
+        return True
 
-    async def _submit_line_as_text(self, line: str) -> bool:
+    async def _submit_line_as_text(self, session: SessionRuntime, line: str) -> bool:
         """直接将用户输入当文本提交给 LLM，跳过命令注册表。
 
         用于前端 treat_as_text=True 的 submit_line 请求（非指定命令如
@@ -867,41 +988,47 @@ class WebBackendHost:
         而是作为普通 user 消息发给 LLM。
 
         Args:
+            session: 目标会话运行时
             line: 用户输入的文本
 
         Returns:
             bool: 是否继续会话（始终返回 True）
         """
-        assert self._bundle is not None
-        self._emitted_tool_started_ids.clear()
-        await self._update_phase("thinking")
+        assert session.bundle is not None
+        session.emitted_tool_started_ids.clear()
+        await self._update_phase(session, "thinking")
         # 发送 user 消息到转录
         await self._emit(
-            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=line))
+            BackendEvent(type="transcript_item", item=TranscriptItem(role="user", text=line)),
+            session_id=session.session_id,
         )
+        # 提交即刷新列表：新会话立即出现在侧栏（label 带摘要），
+        # 不必等行任务结束才推送
+        self._refresh_session_after_submit(session, line)
 
-        # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
-        _render_event = await self._make_render_event()
+        # 复用会话级的事件渲染器（含 TodoWrite/plan_mode_change 处理）
+        _render_event = await self._make_render_event(session)
 
         # 直接调用 engine.submit_message，跳过 handle_line 的命令注册表
         from illusion.engine.query import MaxTurnsExceeded
 
-        settings = self._bundle.current_settings()
-        self._bundle.engine.set_max_turns(settings.max_turns)
+        bundle = session.bundle
+        settings = bundle.current_settings()
+        bundle.engine.set_max_turns(settings.max_turns)
         from illusion.prompts import build_runtime_system_prompt
 
         system_prompt = build_runtime_system_prompt(
             settings,
-            cwd=self._bundle.cwd,
+            cwd=bundle.cwd,
             latest_user_prompt=line,
-            channel_hint=self._bundle.channel_hint,
+            channel_hint=bundle.channel_hint,
         )
-        for ctx in self._bundle.hook_additional_contexts:
+        for ctx in bundle.hook_additional_contexts:
             if ctx:
                 system_prompt = system_prompt + "\n\n" + _wrap_in_system_reminder(ctx)
-        self._bundle.engine.set_system_prompt(system_prompt)
+        bundle.engine.set_system_prompt(system_prompt)
         try:
-            async for event in self._bundle.engine.submit_message(line):
+            async for event in bundle.engine.submit_message(line):
                 await _render_event(event)
         except MaxTurnsExceeded as exc:
             await self._emit(
@@ -910,22 +1037,17 @@ class WebBackendHost:
                     item=TranscriptItem(
                         role="system", text=f"Stopped after {exc.max_turns} turns (max_turns)."
                     ),
-                )
+                ),
+                session_id=session.session_id,
             )
         # 更新会话 meta（替代旧 save_session_snapshot）
         from illusion.ui.runtime import _update_session_meta
-        _update_session_meta(self._bundle)
-        sync_app_state(self._bundle)
-        await self._update_phase("idle")
-        await self._emit(self._status_snapshot())
-        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"))
+        _update_session_meta(bundle)
+        sync_app_state(bundle)
+        await self._finish_session_line(session)
         return True
 
-    # rewind 两步选择的中间状态
-    _rewind_target_idx: int | None = None
-
-    async def _handle_rewind_message_selected(self, value: str) -> bool:
+    async def _handle_rewind_message_selected(self, session: SessionRuntime, value: str) -> bool:
         """rewind 第一步：用户选择了要回退的消息，弹出模式选择。"""
         if self._bundle is None:
             return True
@@ -933,7 +1055,7 @@ class WebBackendHost:
             target_idx = int(value)
         except ValueError:
             return True
-        self._rewind_target_idx = target_idx
+        session.rewind_target_idx = target_idx
         state = self._bundle.app_state.get()
         zh = str(state.ui_language or "zh-CN").lower().startswith("zh")
         options = [
@@ -968,20 +1090,21 @@ class WebBackendHost:
                     "command": "rewind_mode",
                 },
                 select_options=options,
-            )
+            ),
+            session_id=session.session_id,
         )
         return True
 
-    async def _handle_rewind_mode_selected(self, value: str) -> bool:
+    async def _handle_rewind_mode_selected(self, session: SessionRuntime, value: str) -> bool:
         """rewind 第二步：用户选择了回退模式，执行回退。"""
-        if self._bundle is None or self._rewind_target_idx is None:
+        if self._bundle is None or session.rewind_target_idx is None:
             return True
-        target_idx = self._rewind_target_idx
-        self._rewind_target_idx = None
+        target_idx = session.rewind_target_idx
+        session.rewind_target_idx = None
         mode = value.strip()
         if mode not in ("both", "conversation", "code"):
             return True
-        messages = self._bundle.engine.messages
+        messages = session.engine.messages
         # 计算 target 之后需回退的真实用户轮次（排除 / 命令与后台任务完成通知）
         turns = sum(
             1
@@ -994,86 +1117,60 @@ class WebBackendHost:
         )
         if turns <= 0:
             return True
-        return await self._process_line(f"/rewind {turns} {mode}", transcript_line="/rewind")
+        return await self._process_line(session, f"/rewind {turns} {mode}", transcript_line="/rewind")
 
-    async def _apply_select_command(self, command_name: str, value: str, request_id: str | None = None) -> bool:
-        """应用选择的命令值。"""
+    async def _apply_select_command(
+        self, session: SessionRuntime, command_name: str, value: str, request_id: str | None = None
+    ) -> bool:
+        """应用选择的命令值（会话隔离）。"""
         # 存储当前请求 ID，供 _command_result_emitter 回传
-        self._current_request_id = request_id
+        session.current_request_id = request_id
         command = command_name.strip().lstrip("/").lower()
         selected = value.strip()
         # 特殊路由：context → change window 时弹出子选择器
         if command == "context" and selected == "__change_window__":
-            await self._handle_select_command("context-window")
+            await self._handle_select_command("context-window", session)
             return True
         # context-window → __custom__ 由前端 CustomInputModal 接管，此处不应到达
         # 防御性处理：静默忽略并提示前端关闭选择框
         if command == "context-window" and selected == "__custom__":
-            await self._emit(BackendEvent(type="line_complete"))
+            await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
             return True
         # rewind 两步选择：第一步（选消息）→ 存储目标，弹出模式选择
         if command == "rewind":
-            return await self._handle_rewind_message_selected(selected)
+            return await self._handle_rewind_message_selected(session, selected)
         # rewind 两步选择：第二步（选模式）→ 执行回退
         if command == "rewind_mode":
-            return await self._handle_rewind_mode_selected(selected)
+            return await self._handle_rewind_mode_selected(session, selected)
         # resume 命令：独立处理，不通过 _process_line，避免触发输入框命令交互
         if command == "resume":
-            return await self._restore_session(selected)
+            return await self._restore_session(session, selected)
         line = self._build_select_command_line(command, selected)
         if line is None:
             await self._emit(
-                BackendEvent(type="error", message=f"Unknown select command: {command_name}")
+                BackendEvent(type="error", message=f"Unknown select command: {command_name}"),
+                session_id=session.session_id,
             )
-            await self._emit(BackendEvent(type="line_complete"))
+            await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
             return True
-        return await self._process_line(line, transcript_line=f"/{command}")
+        return await self._process_line(session, line, transcript_line=f"/{command}")
 
-    async def _restore_session(self, session_id: str) -> bool:
-        """恢复会话（独立处理，不触发输入框命令交互）。
+    async def _restore_session(self, session: SessionRuntime, session_id: str) -> bool:
+        """恢复会话（apply_select_command 的 resume 分支）。
 
-        这个函数直接调用 resume_handler，不通过 _process_line，
-        避免发送 transcript_item 事件显示用户输入的命令。
+        多会话架构下恢复操作作用于目标会话的独立运行时（与
+        web_restore_session 同一流程），不污染当前会话的引擎。
+
+        Args:
+            session: 当前会话运行时（兼容旧签名，恢复目标由 session_id 指定）
+            session_id: 要恢复的会话 ID
+
+        Returns:
+            bool: 是否继续会话（始终 True）
         """
-        assert self._bundle is not None
-        from illusion.commands.session import resume_handler
-        from illusion.commands.types import CommandContext
-
-        # 创建命令上下文
-        context = CommandContext(
-            engine=self._bundle.engine,
-            hooks_summary=self._bundle.hook_summary(),
-            mcp_summary=self._bundle.mcp_summary(),
-            plugin_summary=self._bundle.plugin_summary(),
-            cwd=self._bundle.cwd,
-            tool_registry=self._bundle.tool_registry,
-            app_state=self._bundle.app_state,
-            session_id=self._bundle.session_id,
+        await self._web_api.handle_web_restore_session(
+            FrontendRequest(type="web_restore_session", session_id=session_id)
         )
-
-        # 调用 resume_handler 恢复会话
-        result = await resume_handler(session_id, context)
-
-        # 处理恢复结果
-        if result.restored_session_id:
-            self._bundle.session_id = result.restored_session_id
-
-        # 会话指令后刷新状态
-        if result.refresh_state:
-            sync_app_state(self._bundle)
-
-        # 如果有 replay_messages，替换转录项（复用共享的 build_replay_items 函数）
-        if result.replay_messages:
-            from illusion.ui.web.ws_web_api import build_replay_items
-
-            replay_items = build_replay_items(result.replay_messages)
-            transcript_items = [TranscriptItem(**item) for item in replay_items]
-            await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
-
-        # 发送状态更新
-        await self._emit(self._status_snapshot())
-        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"))
         return True
 
     def _build_select_command_line(self, command: str, value: str) -> str | None:
@@ -1116,12 +1213,390 @@ class WebBackendHost:
         return None
 
     def _status_snapshot(self) -> BackendEvent:
-        """生成状态快照事件。"""
+        """生成全局状态快照事件（工具栏级：model/effort/language 等）。
+
+        会话专属字段（上下文用量/输入输出/缓存分项）从全局快照中剔除，
+        由 web_sessions / web_restore_completed 按会话推送，避免多会话
+        并发时把某会话的上下文数据张冠李戴到其他会话。
+        """
         assert self._bundle is not None
-        return BackendEvent.status_snapshot(
-            state=self._bundle.app_state.get(),
-            mcp_servers=self._bundle.mcp_manager.list_statuses(),
+        from illusion.ui.protocol import _state_payload
+
+        payload = _state_payload(self._bundle.app_state.get())
+        for key in _SESSION_SCOPED_STATE_KEYS:
+            payload.pop(key, None)
+        return BackendEvent(
+            type="state_snapshot",
+            state=payload,
+            mcp_servers=[
+                {
+                    "name": server.name,
+                    "state": server.state,
+                    "detail": server.detail,
+                    "transport": server.transport,
+                    "auth_configured": server.auth_configured,
+                    "tool_count": len(server.tools),
+                    "resource_count": len(server.resources),
+                }
+                for server in self._bundle.mcp_manager.list_statuses()
+            ],
         )
+
+    def _session_state_payload(self, session: SessionRuntime) -> dict[str, Any]:
+        """生成会话级状态载荷。
+
+        在全局 app_state 载荷基础上，用会话引擎的实时数据覆盖
+        session_id / phase / context_tokens / usage 等会话专属字段，
+        避免多会话并发时共享 app_state 的字段互相污染。
+
+        Args:
+            session: 目标会话运行时
+
+        Returns:
+            dict[str, Any]: 会话状态载荷
+        """
+        assert self._bundle is not None
+        from illusion.ui.protocol import _state_payload
+
+        payload = _state_payload(self._bundle.app_state.get())
+        payload["session_id"] = session.session_id
+        payload["phase"] = session.phase
+        engine = session.engine
+        payload["context_tokens"] = engine.current_context_tokens()
+        # 最后一次 API 调用的真实分项：引擎无调用记录时显式置 0。
+        # 不能依赖 app_state 的值——全局 app_state 可能残留其他会话 sync 的
+        # 分项数据，新建会话（无 last_api_usage）时会显示上一会话的旧值。
+        last_usage = engine.last_api_usage
+        payload["context_cache_read"] = last_usage.cache_read_input_tokens if last_usage else 0
+        payload["context_cache_creation"] = last_usage.cache_creation_input_tokens if last_usage else 0
+        payload["context_input"] = last_usage.input_tokens if last_usage else 0
+        payload["context_output"] = last_usage.output_tokens if last_usage else 0
+        total = engine.total_usage
+        payload["input_tokens"] = total.input_tokens
+        payload["output_tokens"] = total.output_tokens
+        payload["cache_read_input_tokens"] = total.cache_read_input_tokens
+        payload["cache_creation_input_tokens"] = total.cache_creation_input_tokens
+        return payload
+
+    def _refresh_session_display(self, session: SessionRuntime) -> None:
+        """刷新会话列表展示字段（label/summary/turn_count/message_count）。
+
+        以会话引擎实时数据为准（对话进行中摘要/轮数即时可见），
+        引擎无消息时回退到磁盘 meta。
+
+        Args:
+            session: 目标会话运行时
+        """
+        assert self._bundle is not None
+        from illusion.engine.messages import ToolResultBlock
+
+        zh = str(
+            self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language
+        ).lower().startswith("zh")
+        engine = session.engine
+        messages = engine.messages
+        # 摘要：第一条真实用户消息（排除 / 命令与后台任务完成通知）
+        summary = ""
+        for msg in messages:
+            if msg.role == "user" and msg.text.strip():
+                if msg.text.strip().startswith("/") or is_task_notification(msg.text):
+                    continue
+                summary = msg.text.strip()[:80]
+                break
+        # 轮数：真正由用户输入的消息数（与 _update_session_meta 口径一致）
+        turn_count = sum(
+            1
+            for m in messages
+            if m.role == "user"
+            and not any(isinstance(b, ToolResultBlock) for b in m.content)
+            and m.text.strip()
+            and not m.text.strip().startswith("/")
+            and not is_task_notification(m.text)
+        )
+        message_count = len(messages)
+        session.summary = summary
+        session.turn_count = turn_count
+        session.message_count = message_count
+        session.context_tokens = engine.current_context_tokens()
+        if summary:
+            ts = time.strftime("%m/%d %H:%M", time.localtime(session.created_at))
+            session.label = f"{ts}  {turn_count}轮  {summary}"
+        else:
+            # 空会话：优先取磁盘 meta 摘要（restore 后引擎可能为空但 meta 有历史）
+            from illusion.services.session_storage import read_meta
+            meta = None
+            try:
+                meta = read_meta(self._bundle.cwd, session.session_id)
+            except (OSError, ValueError):
+                meta = None
+            if meta and meta.get("summary"):
+                ts = time.strftime("%m/%d %H:%M", time.localtime(meta.get("created_at") or session.created_at))
+                session.label = f"{ts}  {meta.get('turn_count', 0)}轮  {meta.get('summary', '')}"
+            else:
+                session.label = "新会话" if zh else "New session"
+
+    async def _push_sessions(self) -> None:
+        """推送会话列表（磁盘快照 + 内存运行时合并）。
+
+        内存会话（含空会话）始终显示且携带 busy/phase/active 等实时状态；
+        未 materialized 的磁盘会话标记 in_memory=False，由前端惰性恢复。
+        """
+        bundle = self._bundle
+        if bundle is None:
+            return
+        from illusion.services.session_storage import list_session_snapshots
+
+        locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
+        zh = locale.lower().startswith("zh")
+        # 磁盘扫描（iterdir + 解析 meta.json）移到线程池，避免阻塞事件循环
+        # （_push_sessions 在每次行任务结束/模态等待时调用，频率较高）
+        disk_snapshots = await asyncio.to_thread(list_session_snapshots, bundle.cwd, 50)
+        disk = {s["session_id"]: s for s in disk_snapshots}
+        options: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for sr in sorted(self._sessions.values(), key=lambda s: s.created_at, reverse=True):
+            # 跳过无内容的纯内存空会话：列表只展示有内容的会话，
+            # 空会话（未发消息）由主区域承载，避免出现"新会话"占位条目
+            if sr.message_count == 0 and sr.session_id not in disk:
+                continue
+            seen.add(sr.session_id)
+            if not sr.label:
+                self._refresh_session_display(sr)
+            # 会话级上下文/用量实时数据（供右栏展示，行任务结束时随列表刷新）
+            total = sr.engine.total_usage
+            last_usage = sr.engine.last_api_usage
+            options.append({
+                "id": sr.session_id,
+                "label": sr.label or ("新会话" if zh else "New session"),
+                "created_at": sr.created_at,
+                "message_count": sr.message_count,
+                "turn_count": sr.turn_count,
+                "summary": sr.summary,
+                "busy": sr.busy,
+                "phase": sr.phase,
+                "active": sr.session_id == self._active_session_id,
+                "in_memory": True,
+                "context_tokens": sr.context_tokens,
+                "input_tokens": total.input_tokens,
+                "output_tokens": total.output_tokens,
+                "cache_read_input_tokens": total.cache_read_input_tokens,
+                "cache_creation_input_tokens": total.cache_creation_input_tokens,
+                "context_cache_read": last_usage.cache_read_input_tokens if last_usage else 0,
+                "context_cache_creation": last_usage.cache_creation_input_tokens if last_usage else 0,
+                "context_input": last_usage.input_tokens if last_usage else 0,
+                "context_output": last_usage.output_tokens if last_usage else 0,
+            })
+        # 磁盘上存在但未 materialized 的会话
+        for sid, meta in disk.items():
+            if sid in seen:
+                continue
+            ts = time.strftime("%m/%d %H:%M", time.localtime(meta.get("created_at", 0)))
+            summary = (meta.get("summary", "") or ("（无摘要）" if zh else "(no summary)"))[:50]
+            options.append({
+                "id": sid,
+                "label": f"{ts}  {meta.get('turn_count', 0)}轮  {summary}",
+                "created_at": meta.get("created_at", 0),
+                "message_count": meta.get("message_count", 0),
+                "turn_count": meta.get("turn_count", 0),
+                "summary": meta.get("summary", ""),
+                "busy": False,
+                "phase": "idle",
+                "active": False,
+                "in_memory": False,
+                "context_tokens": 0,
+            })
+        await self._emit(BackendEvent(
+            type="web_sessions",
+            web_sessions=options,
+            active_session_id=self._active_session_id,
+        ))
+
+    # === 会话运行时管理 ===
+
+    def _resolve_session(self, session_id: str | None) -> SessionRuntime | None:
+        """按 ID 解析会话运行时，缺省回退到活跃会话。
+
+        Args:
+            session_id: 会话 ID（可为 None）
+
+        Returns:
+            SessionRuntime | None: 会话运行时；无活跃会话时返回 None
+        """
+        if session_id and session_id in self._sessions:
+            return self._sessions[session_id]
+        if self._active_session_id and self._active_session_id in self._sessions:
+            return self._sessions[self._active_session_id]
+        return None
+
+    def _active_session(self) -> SessionRuntime | None:
+        """返回当前活跃会话运行时。"""
+        if self._active_session_id and self._active_session_id in self._sessions:
+            return self._sessions[self._active_session_id]
+        return None
+
+    def _route_task_completion(self, task: Any) -> SessionRuntime | None:
+        """按任务归属路由后台任务完成通知到对应会话。
+
+        任务创建时经 ContextVar stamp 了 owner_session_id（见 tasks.manager），
+        多会话并发下据此把完成通知投递到发起会话的 tracker；无归属的任务
+        （启动期/terminal 遗留）回退 None，由调用方投递到初始引擎。
+
+        Args:
+            task: 任务记录
+
+        Returns:
+            SessionRuntime | None: 归属会话运行时；无归属时返回 None
+        """
+        owner = str(task.metadata.get("owner_session_id", "") if task.metadata else "")
+        return self._sessions.get(owner)
+
+    def _set_active_session(self, session_id: str) -> None:
+        """切换活跃会话（仅改指针，不触碰任何引擎状态）。"""
+        self._active_session_id = session_id
+        # 同步 app_state 的 session_id（全局状态快照展示用）
+        if self._bundle is not None:
+            self._bundle.app_state.set(session_id=session_id)
+
+    async def _create_session(self) -> SessionRuntime:
+        """创建一个全新的会话运行时（独立引擎 + 独立 CheckpointStore）。
+
+        Returns:
+            SessionRuntime: 新建的会话运行时
+        """
+        assert self._bundle is not None
+        session_id = uuid4().hex[:12]
+        engine = build_session_engine(
+            self._bundle,
+            session_id,
+            permission_prompt=self._make_permission_prompt(session_id),
+            ask_user_prompt=self._make_ask_user_prompt(session_id),
+            plan_approval_prompt=self._make_plan_approval_prompt(session_id),
+        )
+        session = SessionRuntime(
+            session_id=session_id,
+            bundle=build_session_bundle(self._bundle, session_id, engine),
+        )
+        self._sessions[session_id] = session
+        self._maybe_evict_sessions()
+        return session
+
+    async def _dispose_session(self, session_id: str) -> None:
+        """释放会话运行时（取消行任务并关闭引擎）。
+
+        Args:
+            session_id: 会话 ID
+        """
+        session = self._sessions.pop(session_id, None)
+        if session is None:
+            return
+        if session.active_line_task is not None and not session.active_line_task.done():
+            session.active_line_task.cancel()
+        # 停止该会话发起的后台任务（agent/bash/powershell）：
+        # 否则任务被孤立，完成通知会因归属会话已不存在而污染其他会话
+        from illusion.ui.runtime import stop_all_tasks
+        await stop_all_tasks(session.bundle, session_ids=[session_id])
+        if self._active_session_id == session_id:
+            self._active_session_id = None
+        engine = session.engine
+        try:
+            await engine.aclose()
+        except Exception:
+            log.exception("关闭会话 %s 引擎失败", session_id)
+
+    def _maybe_evict_sessions(self) -> None:
+        """超过内存上限时淘汰最旧的非 busy 非 active 会话运行时。
+
+        防止长时间使用导致会话引擎无限累积（内存膨胀）。被淘汰的会话
+        在 _push_sessions 中标记 in_memory=False，前端下次点击时重新
+        走 web_restore_session 恢复。
+        """
+        if len(self._sessions) <= MAX_MATERIALIZED_SESSIONS:
+            return
+        idle = [
+            sr for sr in self._sessions.values()
+            if sr.session_id != self._active_session_id and not sr.busy
+        ]
+        idle.sort(key=lambda s: s.created_at)
+        excess = len(self._sessions) - MAX_MATERIALIZED_SESSIONS
+        for sr in idle[:excess]:
+            self._create_background_task(self._dispose_session(sr.session_id))
+        # 淘汰后立即推送列表：前端据此把被淘汰会话标记为需重新恢复，
+        # 避免用户点击时走纯本地切换导致提交请求静默丢失
+        if excess > 0:
+            self._create_background_task(self._push_sessions())
+
+    def _spawn_session_line(self, session: SessionRuntime, coro: Coroutine[Any, Any, bool]) -> None:
+        """以独立任务启动会话行处理（fire-and-forget，不阻塞主循环）。
+
+        会话行任务并发执行：主循环只做请求分发，任一会话的行任务
+        不再阻塞其他会话的请求处理（含新建/切换会话）。
+
+        Args:
+            session: 目标会话运行时
+            coro: 行处理协程
+        """
+        task = asyncio.create_task(
+            self._run_session_line(session, coro), name=f"session-line-{session.session_id}"
+        )
+        session.active_line_task = task
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+
+    async def _run_session_line(self, session: SessionRuntime, coro: Coroutine[Any, Any, bool]) -> None:
+        """运行会话行任务：设置任务归属上下文、执行、清理 busy 状态。
+
+        Args:
+            session: 目标会话运行时
+            coro: 行处理协程
+        """
+        from illusion.tasks.manager import session_owner_ctx
+
+        token = session_owner_ctx.set(session.session_id)
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("会话 %s 行任务异常", session.session_id)
+            await self._emit(
+                BackendEvent(type="error", message="Internal error, please retry"),
+                session_id=session.session_id,
+            )
+            await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
+            await self._update_phase(session, "idle")
+            await self._push_sessions()
+        finally:
+            session_owner_ctx.reset(token)
+            if session.active_line_task is asyncio.current_task():
+                session.active_line_task = None
+            session.busy = False
+            self._create_background_task(self._check_post_idle_bg(session))
+
+    # === 会话绑定的 modal 回调 ===
+
+    def _make_permission_prompt(self, session_id: str) -> Any:
+        """为指定会话构造权限确认回调（modal 事件携带会话 ID）。"""
+
+        async def _ask_permission(tool_name: str, reason: str) -> bool:
+            return await self._ask_permission(session_id, tool_name, reason)
+
+        return _ask_permission
+
+    def _make_ask_user_prompt(self, session_id: str) -> Any:
+        """为指定会话构造用户问答回调（modal 事件携带会话 ID）。"""
+
+        async def _ask_question(question: str, questions: object = None) -> str | dict[Any, Any]:
+            return await self._ask_question(session_id, question, questions)
+
+        return _ask_question
+
+    def _make_plan_approval_prompt(self, session_id: str) -> Any:
+        """为指定会话构造计划审批回调（modal 事件携带会话 ID）。"""
+
+        async def _ask_plan_approval(plan: str) -> tuple[bool, str]:
+            return await self._ask_plan_approval(session_id, plan)
+
+        return _ask_plan_approval
 
     def _emit_swarm_status(
         self, teammates: list[dict[str, Any]], notifications: list[dict[str, Any]] | None = None
@@ -1171,7 +1646,7 @@ class WebBackendHost:
             )
         )
 
-    async def _handle_select_command(self, command_name: str) -> None:
+    async def _handle_select_command(self, command_name: str, session: SessionRuntime) -> None:
         """处理选择命令请求。"""
         assert self._bundle is not None
         command = command_name.strip().lstrip("/").lower()
@@ -1206,7 +1681,8 @@ class WebBackendHost:
                         "command": "env",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1242,7 +1718,8 @@ class WebBackendHost:
                         "command": "permissions",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1265,7 +1742,8 @@ class WebBackendHost:
                         "command": "output-style",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1311,7 +1789,8 @@ class WebBackendHost:
                         "command": "effort",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1349,12 +1828,13 @@ class WebBackendHost:
                         "command": "max-tokens",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
         if command == "turns":
-            current_turns: int | None = self._bundle.engine.max_turns
+            current_turns: int | None = session.engine.max_turns
             values = {32, 64, 128, 200, 256, 512}
             if isinstance(current_turns, int):
                 values.add(current_turns)
@@ -1383,7 +1863,8 @@ class WebBackendHost:
                         "command": "turns",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1398,7 +1879,7 @@ class WebBackendHost:
 
             # 1. 前台 agent：从 transcript 提取 tool_result（跳过后台启动通知）
             pending_labels: dict[str, str] = {}
-            for msg in self._bundle.engine.messages:
+            for msg in session.engine.messages:
                 if msg.role == "assistant":
                     for use_block in msg.tool_uses:
                         if use_block.name == "agent":
@@ -1430,7 +1911,7 @@ class WebBackendHost:
 
             # 2. 后台任务：从 transcript 的 task-notification 提取
             tasks_dir = get_tasks_dir()
-            for msg in self._bundle.engine.messages:
+            for msg in session.engine.messages:
                 if msg.role != "user":
                     continue
                 for text_block in msg.content:
@@ -1467,14 +1948,18 @@ class WebBackendHost:
                     })
 
             if not task_options:
-                await self._emit(BackendEvent(type="error", message=("没有已完成的 agent" if zh else "No completed agents")))
+                await self._emit(
+    BackendEvent(type="error", message=("没有已完成的 agent" if zh else "No completed agents"),
+                    session_id=session.session_id,
+                ))
                 return
             await self._emit(
                 BackendEvent(
                     type="select_request",
                     modal={"kind": "select", "title": ("已完成任务摘要" if zh else "Completed Task Summary"), "command": "agent"},
                     select_options=task_options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1503,7 +1988,8 @@ class WebBackendHost:
                         "command": "language",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1518,12 +2004,13 @@ class WebBackendHost:
                         "command": "model",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
         if command == "rewind":
-            messages = self._bundle.engine.messages
+            messages = session.engine.messages
             # 过滤后台任务完成通知（<task-notification>），它们不应出现在回退选项中
             user_msgs = [
                 (i, msg)
@@ -1537,7 +2024,8 @@ class WebBackendHost:
                     BackendEvent(
                         type="error",
                         message=("没有可回退的消息。" if zh else "No messages to rewind to."),
-                    )
+                    ),
+                    session_id=session.session_id,
                 )
                 return
             options = []
@@ -1561,7 +2049,8 @@ class WebBackendHost:
                         "command": "rewind",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1576,7 +2065,8 @@ class WebBackendHost:
                     BackendEvent(
                         type="error",
                         message=("没有已保存的会话。" if zh else "No saved sessions found."),
-                    )
+                    ),
+                    session_id=session.session_id,
                 )
                 return
             options = []
@@ -1607,7 +2097,8 @@ class WebBackendHost:
                         "command": "delete",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1628,7 +2119,8 @@ class WebBackendHost:
                     BackendEvent(
                         type="error",
                         message=("所有规则已被禁用" if zh else "All rules are disabled"),
-                    )
+                    ),
+                    session_id=session.session_id,
                 )
                 return
 
@@ -1643,7 +2135,8 @@ class WebBackendHost:
                             if zh
                             else f"No rules found in {rules_dir}"
                         ),
-                    )
+                    ),
+                    session_id=session.session_id,
                 )
                 return
 
@@ -1668,7 +2161,8 @@ class WebBackendHost:
                     BackendEvent(
                         type="error",
                         message=("没有可用的规则文件" if zh else "No available rules files"),
-                    )
+                    ),
+                    session_id=session.session_id,
                 )
                 return
             await self._emit(
@@ -1680,7 +2174,8 @@ class WebBackendHost:
                         "command": "rules",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1691,7 +2186,10 @@ class WebBackendHost:
             skills = skill_registry.list_skills()
 
             if not skills:
-                await self._emit(BackendEvent(type="error", message="No skills available."))
+                await self._emit(
+                    BackendEvent(type="error", message="No skills available."),
+                    session_id=session.session_id,
+                )
                 return
 
             options = []
@@ -1719,14 +2217,15 @@ class WebBackendHost:
                         "command": "skills",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
         if command == "context":
             current_window = settings.context_window
             # 上下文占用：最后一次 API 调用的真实值 + 新增消息估算
-            estimated = self._bundle.engine.current_context_tokens()
+            estimated = session.engine.current_context_tokens()
             percentage = round(estimated * 100 / current_window) if current_window > 0 else 0
             options = [
                 {
@@ -1753,7 +2252,8 @@ class WebBackendHost:
                         "command": "context",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1786,7 +2286,8 @@ class WebBackendHost:
                         "command": "context-window",
                     },
                     select_options=options,
-                )
+                ),
+                session_id=session.session_id,
             )
             return
 
@@ -1796,7 +2297,8 @@ class WebBackendHost:
                 message=(
                     f"/{command} 暂无可选项" if zh else f"No selector available for /{command}"
                 ),
-            )
+            ),
+            session_id=session.session_id,
         )
 
     def _model_select_options(self, current_model: str) -> list[dict[str, object]]:
@@ -1839,13 +2341,14 @@ class WebBackendHost:
 
         return options
 
-    async def _ask_permission(self, tool_name: str, reason: str) -> bool:
+    async def _ask_permission(self, session_id: str, tool_name: str, reason: str) -> bool:
         """请求用户权限确认。
 
         如果工具在"总是允许"列表中，则直接允许。
         否则通过 WebSocket 发送权限请求模态框，等待用户响应。
 
         Args:
+            session_id: 发起请求的会话 ID（modal 事件携带，前端按会话展示）
             tool_name: 工具名称
             reason: 权限请求原因
 
@@ -1855,6 +2358,12 @@ class WebBackendHost:
         # 如果工具在"总是允许"列表中，则直接允许
         if tool_name in self._always_allowed_tools:
             return True
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.awaiting_input = True
+            await self._update_phase(session, "awaiting_input")
+            # 实时推送列表：侧栏 phase=awaiting_input 立即可见（不等到行结束）
+            self._create_background_task(self._push_sessions())
         # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
         async with self._modal_lock:
             request_id = uuid4().hex
@@ -1869,32 +2378,43 @@ class WebBackendHost:
                         "tool_name": tool_name,
                         "reason": reason,
                     },
-                )
+                ),
+                session_id=session_id,
             )
             try:
                 return await future
             finally:
                 self._permission_requests.pop(request_id, None)
+                if session is not None:
+                    session.awaiting_input = False
 
-    async def _ask_question(self, question: str, questions: object = None) -> str | dict[Any, Any]:
+    async def _ask_question(
+        self, session_id: str, question: str, questions: object = None
+    ) -> str | dict[Any, Any]:
         """向用户提问并等待回答。
 
         Args:
+            session_id: 发起请求的会话 ID（modal 事件携带，前端按会话展示）
             question: 提问内容
             questions: 结构化问题数据（可选）
 
         Returns:
             str | dict[str, Any]: 用户回答
         """
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.awaiting_input = True
+            await self._update_phase(session, "awaiting_input")
+            self._create_background_task(self._push_sessions())
         # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
         async with self._modal_lock:
             request_id = uuid4().hex
             future: asyncio.Future[str | dict[Any, Any]] = asyncio.get_running_loop().create_future()
             self._question_requests[request_id] = future
-            # 优先使用显式传入的结构化问题数据，回退到 _last_tool_inputs
+            # 优先使用显式传入的结构化问题数据，回退到会话最后工具输入
             questions_data = questions
-            if questions_data is None:
-                tool_input = self._last_tool_inputs.get("ask_user_question", {})
+            if questions_data is None and session is not None:
+                tool_input = session.last_tool_inputs.get("ask_user_question", {})
                 questions_data = tool_input.get("questions")
             # 如果是 pydantic 模型列表，转为 dict[str, Any]
             if questions_data is not None and isinstance(questions_data, list):
@@ -1912,20 +2432,24 @@ class WebBackendHost:
                 BackendEvent(
                     type="modal_request",
                     modal=modal_payload,
-                )
+                ),
+                session_id=session_id,
             )
             try:
                 return await future
             finally:
                 self._question_requests.pop(request_id, None)
+                if session is not None:
+                    session.awaiting_input = False
 
-    async def _ask_plan_approval(self, plan: str) -> tuple[bool, str]:
+    async def _ask_plan_approval(self, session_id: str, plan: str) -> tuple[bool, str]:
         """向用户展示计划并等待审批。
 
         先将计划内容作为 plan 消息写入对话流，再复用 question 模态让用户选择批准或拒绝。
         用户可通过"其他"选项输入反馈文字。
 
         Args:
+            session_id: 发起请求的会话 ID（modal 事件携带，前端按会话展示）
             plan: 计划内容（Markdown 格式）
 
         Returns:
@@ -1936,11 +2460,17 @@ class WebBackendHost:
             BackendEvent(
                 type="transcript_item",
                 item=TranscriptItem(role="plan", text=plan),
-            )
+            ),
+            session_id=session_id,
         )
         # 复用 question 模态，提供批准/拒绝选项
         from illusion.config.i18n import t as _t
 
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.awaiting_input = True
+            await self._update_phase(session, "awaiting_input")
+            self._create_background_task(self._push_sessions())
         # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
         async with self._modal_lock:
             request_id = uuid4().hex
@@ -1969,7 +2499,8 @@ class WebBackendHost:
                 BackendEvent(
                     type="modal_request",
                     modal=modal_payload,
-                )
+                ),
+                session_id=session_id,
             )
             try:
                 answer = await future
@@ -1984,26 +2515,39 @@ class WebBackendHost:
                     return False, answer
             finally:
                 self._question_requests.pop(request_id, None)
+                if session is not None:
+                    session.awaiting_input = False
 
-    async def _stop_active_line(self) -> None:
-        """停止当前活动的行处理任务。"""
-        task = self._active_line_task
-        # 检查是否有运行中的后台任务：主循环空闲（后台 agent 在跑）时
-        # _active_line_task 为 None，但 stop 仍应终止 agent 进程
-        has_running_tasks = False
-        if self._bundle is not None:
-            has_running_tasks = any(
-                t.status in ("running", "pending")
-                for t in get_task_manager().list_tasks()
-            )
-        if (task is None or task.done()) and not has_running_tasks:
+    async def _stop_active_line(self, session_id: str | None = None) -> None:
+        """停止指定会话的活动行任务及其归属的后台任务。
+
+        多会话模式下 stop 只作用于目标会话：取消该会话的行处理任务，
+        并停止该会话发起的后台任务（按任务归属会话 ID 过滤，避免
+        误杀其他会话正在运行的任务）。
+
+        Args:
+            session_id: 目标会话 ID（缺省回退到活跃会话）
+        """
+        session = self._resolve_session(session_id)
+        if session is None:
+            return
+        task = session.active_line_task
+        # 检查该会话是否还有运行中的后台任务：行任务已结束（后台 agent 在跑）时
+        # active_line_task 为 None，但 stop 仍应终止这些 agent 进程
+        owned_tasks = [
+            t for t in get_task_manager().list_tasks()
+            if t.status in ("running", "pending")
+            and t.metadata.get("owner_session_id", "") == session.session_id
+        ]
+        if (task is None or task.done()) and not owned_tasks:
             from illusion.config.i18n import t as _t
 
             await self._emit(
                 BackendEvent(
                     type="command_result",
                     command_result_data={"message": _t("no_active_task"), "type": "info"},
-                )
+                ),
+                session_id=session.session_id,
             )
             return
         if task is not None and not task.done():
@@ -2014,13 +2558,13 @@ class WebBackendHost:
                 pass
             except Exception:
                 log.exception("停止行处理任务异常")
-        # 停止所有正在运行的后台任务（agent / bash / powershell 等）
+        # 停止该会话发起的后台任务（agent / bash / powershell 等）
         if self._bundle is not None:
             from illusion.ui.runtime import stop_all_tasks
-            await stop_all_tasks(self._bundle)
-        self._busy = False
-        await self._update_phase("idle")
-        await self._emit(BackendEvent(type="modal_request", modal=None))
+            await stop_all_tasks(self._bundle, session_ids=[session.session_id])
+        session.busy = False
+        await self._update_phase(session, "idle")
+        await self._emit(BackendEvent(type="modal_request", modal=None), session_id=session.session_id)
         from illusion.config.i18n import t as _t
 
         stopped_message = _t("task_stopped")
@@ -2028,25 +2572,30 @@ class WebBackendHost:
             BackendEvent(
                 type="transcript_item",
                 item=TranscriptItem(role="system", text=stopped_message),
-            )
+            ),
+            session_id=session.session_id,
         )
         await self._emit(
             BackendEvent(
                 type="command_result",
                 command_result_data={"message": stopped_message, "type": "info"},
-            )
+            ),
+            session_id=session.session_id,
         )
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"))
+        await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
+        await self._push_sessions()
 
-    async def _update_phase(self, phase: str) -> None:
+    async def _update_phase(self, session: SessionRuntime, phase: str) -> None:
         """更新会话阶段。
 
         Args:
-            phase: 新的会话阶段（idle/thinking/tool_executing）
+            session: 目标会话运行时
+            phase: 新的会话阶段（idle/thinking/tool_executing/awaiting_input）
         """
         assert self._bundle is not None
+        session.phase = phase
         self._bundle.app_state.set(phase=phase)
 
     async def _write_loop(self) -> None:
@@ -2072,12 +2621,15 @@ class WebBackendHost:
                 # 它会入队 shutdown 请求并调用 _shutdown 关闭队列。
                 log.debug("WebSocket 写入失败，跳过本次发送")
 
-    async def _emit(self, event: BackendEvent) -> None:
+    async def _emit(self, event: BackendEvent, *, session_id: str | None = None) -> None:
         """入队事件给写循环。非阻塞。
 
         Args:
             event: 要发送的后端事件
+            session_id: 可选：标记事件归属会话（前端按此路由到会话视图）
         """
+        if session_id:
+            event.session_id = session_id
         try:
             self._write_queue.put_nowait(event)
         except QueueShutDown:
@@ -2088,25 +2640,33 @@ class WebBackendHost:
 
         将 side_question 调用包装为后台任务，存入 _btw_tasks 以支持
         btw_cancel 中途取消。任务完成后（无论成功/失败）自动从映射移除。
+        侧问绑定发起会话的引擎，响应事件携带会话 ID。
         """
         assert self._bundle is not None
         request_id = req.request_id or ""
-        engine = self._bundle.engine
+        session = self._resolve_session(req.session_id)
+        if session is None:
+            return
+        engine = session.engine
         question = req.question or ""
+        session_id = session.session_id
 
         async def _run() -> None:
             try:
                 reply = await run_side_question(question, engine)
                 await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, reply=reply)
+                    BackendEvent(type="btw_response", request_id=request_id, reply=reply),
+                    session_id=session_id,
                 )
             except SideQuestionError as exc:
                 await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
+                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc)),
+                    session_id=session_id,
                 )
             except Exception as exc:  # noqa: BLE001
                 await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
+                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc)),
+                    session_id=session_id,
                 )
             finally:
                 self._btw_tasks.pop(request_id, None)
@@ -2148,10 +2708,16 @@ class WebBackendHost:
         await self._emit(BackendEvent(type="agent_wizard_result", success=True, path=str(path)))
 
     async def _handle_agent_generate_request(self, req: FrontendRequest) -> None:
-        """处理 agent_generate_request：LLM 辅助生成 agent 配置。"""
+        """处理 agent_generate_request：LLM 辅助生成 agent 配置。
+
+        使用发起会话的引擎生成草稿，响应事件携带会话 ID。
+        """
         assert self._bundle is not None
         request_id = req.request_id or ""
-        engine = self._bundle.engine
+        session = self._resolve_session(req.session_id)
+        if session is None:
+            return
+        engine = session.engine
         existing = [a.name for a in get_all_agent_definitions()]
         try:
             generated = await generate_agent_from_description(
@@ -2161,13 +2727,13 @@ class WebBackendHost:
                 type="agent_generate_response",
                 request_id=request_id,
                 agent={"identifier": generated.identifier, "when_to_use": generated.when_to_use, "system_prompt": generated.system_prompt},
-            ))
+            ), session_id=session.session_id)
         except Exception as exc:  # noqa: BLE001
             await self._emit(BackendEvent(
                 type="agent_generate_response",
                 request_id=request_id,
                 error=str(exc),
-            ))
+            ), session_id=session.session_id)
 
     async def _push_update_notice(self) -> None:
         """异步查询 PyPI 最新版本，若有新版本则推送 update_available 事件。
@@ -2179,10 +2745,10 @@ class WebBackendHost:
         try:
             if self._ws_closed or not self._running:
                 return
+            from illusion.commands.misc import _check_pypi_latest, _get_current_version
+
             now = time.time()
             if _update_check is None or now - _update_check["at"] > _UPDATE_CHECK_TTL:
-                from illusion.commands.misc import _check_pypi_latest, _get_current_version
-
                 latest = await asyncio.to_thread(_check_pypi_latest)
                 _update_check = {"latest": latest, "at": now}
             latest = _update_check.get("latest")
@@ -2243,12 +2809,25 @@ class WebBackendHost:
             except Exception:
                 log.exception("周期状态更新 task 关闭异常")
 
-        # 3. gather 所有 dispatch tasks（return_exceptions=True 不抛异常）
+        # 3. 取消所有会话行任务并关闭会话引擎（初始引擎由 run() finally 的
+        #    close_runtime 负责，此处跳过避免双重关闭）
+        for session in list(self._sessions.values()):
+            if session.bundle is self._bundle:
+                continue  # 初始会话：共享 bundle，由 close_runtime 统一关闭
+            if session.active_line_task is not None and not session.active_line_task.done():
+                session.active_line_task.cancel()
+            try:
+                await session.engine.aclose()
+            except Exception:
+                log.exception("关闭会话 %s 引擎失败", session.session_id)
+        self._sessions.clear()
+
+        # 4. gather 所有 dispatch tasks（return_exceptions=True 不抛异常）
         if self._dispatch_tasks:
             await asyncio.gather(*self._dispatch_tasks, return_exceptions=True)
             self._dispatch_tasks.clear()
 
-        # 4. 关闭写队列 + 等写循环排空（_write_queue.shutdown() 唤醒 _write_loop）
+        # 5. 关闭写队列 + 等写循环排空（_write_queue.shutdown() 唤醒 _write_loop）
         self._write_queue.shutdown()
         if self._write_task is not None and not self._write_task.done():
             try:
@@ -2258,7 +2837,7 @@ class WebBackendHost:
             except Exception:
                 log.exception("写循环 task 关闭异常")
 
-        # 5. 标记停止
+        # 6. 标记停止
         self._running = False
 
 

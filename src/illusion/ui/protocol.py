@@ -292,6 +292,7 @@ class BackendEvent(BaseModel):
     # === web_* 推送事件字段 ===
     session_id: str | None = None                       # web_restore_started/completed 的会话 ID
     web_sessions: list[dict[str, Any]] | None = None    # web_sessions 推送的会话列表
+    active_session_id: str | None = None                # web_sessions 携带的活跃会话 ID
     web_resources: dict[str, Any] | None = None         # web_resources 推送的资源快照
     web_models: list[dict[str, Any]] | None = None      # web_models 推送的模型选项
     setting_key: str | None = None                      # web_setting_changed 的键名
