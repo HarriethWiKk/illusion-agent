@@ -282,37 +282,44 @@ class CheckpointStore:
             last_usage: 压缩后最后一次 API 调用的单次用量（若无后续调用则为 None）
             last_message_count: 该次调用时的消息数快照
         """
+        # 原子重建：先写临时文件再 os.replace 替换。
+        # 旧实现先 unlink 再 open("w")，且无跨进程锁——若与另一进程的
+        # append 竞争失败，文件已被删除 → 0 字节数据丢失（会话恢复为空）。
         async with self._io_lock:
-            if self._file.exists():
-                self._file.unlink()
-            self._next_checkpoint_id = 0
-            self._dir_ensured = True
-            async with aiofiles.open(self._file, "w", encoding="utf-8") as f:
-                await f.write(json.dumps({"role": "_checkpoint", "id": 0}) + "\n")
-                for msg in messages:
-                    record = {
-                        "role": msg.role,
-                        "message": msg.model_dump(mode="json"),
+            with self._cross_process_lock():
+                tmp_file = self._file.with_suffix(self._file.suffix + ".tmp")
+                async with aiofiles.open(tmp_file, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps({"role": "_checkpoint", "id": 0}) + "\n")
+                    for msg in messages:
+                        record = {
+                            "role": msg.role,
+                            "message": msg.model_dump(mode="json"),
+                        }
+                        await f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    usage_record: dict[str, Any] = {
+                        "role": "_usage",
+                        "input_tokens": usage_input,
+                        "output_tokens": usage_output,
+                        "cache_read_input_tokens": usage_cache_read,
+                        "cache_creation_input_tokens": usage_cache_creation,
                     }
-                    await f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                usage_record: dict[str, Any] = {
-                    "role": "_usage",
-                    "input_tokens": usage_input,
-                    "output_tokens": usage_output,
-                    "cache_read_input_tokens": usage_cache_read,
-                    "cache_creation_input_tokens": usage_cache_creation,
-                }
-                if last_usage is not None:
-                    usage_record["last_input_tokens"] = last_usage.input_tokens
-                    usage_record["last_output_tokens"] = last_usage.output_tokens
-                    usage_record["last_cache_read_input_tokens"] = (
-                        last_usage.cache_read_input_tokens
-                    )
-                    usage_record["last_cache_creation_input_tokens"] = (
-                        last_usage.cache_creation_input_tokens
-                    )
-                    usage_record["last_message_count"] = last_message_count
-                await f.write(json.dumps(usage_record, ensure_ascii=False) + "\n")
+                    if last_usage is not None:
+                        usage_record["last_input_tokens"] = last_usage.input_tokens
+                        usage_record["last_output_tokens"] = last_usage.output_tokens
+                        usage_record["last_cache_read_input_tokens"] = (
+                            last_usage.cache_read_input_tokens
+                        )
+                        usage_record["last_cache_creation_input_tokens"] = (
+                            last_usage.cache_creation_input_tokens
+                        )
+                        usage_record["last_message_count"] = last_message_count
+                    await f.write(json.dumps(usage_record, ensure_ascii=False) + "\n")
+                    # 确保文件句柄刷盘后再退出（关闭）——os.replace 要求 tmp
+                    # 文件未被占用（Windows 上替换打开的文件会失败）
+                    await f.flush()
+                # 文件句柄已关闭，原子替换（失败时原文件保留，数据不丢）
+                import os
+                os.replace(tmp_file, self._file)
             self._next_checkpoint_id = 1
 
     async def _append_line(self, record: dict[str, Any]) -> None:

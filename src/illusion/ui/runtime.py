@@ -1254,6 +1254,12 @@ async def _render_command_result(
 		replace_transcript_items: 替换转录项列表的回调
 		rewind_restored_emitter: rewind 被回退的 user 消息回调（前端回填输入框）
 	"""
+	# rewind 被回退的 user 消息：通知前端回填输入框（重新编辑）。
+	# 必须在分支前调用——rewind 返回 replay_messages（回退后的消息），
+	# 会命中下方 replay 分支并提前 return，末尾调用会被跳过。
+	if result.rewind_restored_text and rewind_restored_emitter is not None:
+		await rewind_restored_emitter(result.rewind_restored_text)
+
 	if result.replay_messages and replace_transcript_items is not None:
 		from illusion.engine.messages import ToolResultBlock, ToolUseBlock
 
@@ -1387,6 +1393,3 @@ async def _render_command_result(
 			await command_result_emitter(result.message, "info")
 		else:
 			await print_system(result.message)
-	# rewind 被回退的 user 消息：通知前端回填输入框（重新编辑）
-	if result.rewind_restored_text and rewind_restored_emitter is not None:
-		await rewind_restored_emitter(result.rewind_restored_text)
