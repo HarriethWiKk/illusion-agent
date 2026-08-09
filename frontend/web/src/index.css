@@ -10,6 +10,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 内容区文本可选但不显示 I-beam 光标（学习 opencode：仅交互元素用 pointer） */
+.select-text {
+  cursor: default;
+}
+
 :root {
   /* 主色 - 青绿色系 (清新风格) */
   --primary: #2a9d99;
