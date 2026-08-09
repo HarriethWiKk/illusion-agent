@@ -17,6 +17,7 @@ from illusion.services import (
     estimate_conversation_tokens,
     get_context_window,
 )
+from illusion.tasks.types import is_task_notification
 
 
 async def new_handler(_: str, context: CommandContext) -> CommandResult:
@@ -330,6 +331,19 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
     removed = 0
     restored_messages: list[ConversationMessage] | None = None
 
+    # 记录被回退的最后一条 user 消息（回退后引擎消息已变，须在回退前取），
+    # 供前端回填输入框方便重新编辑
+    restored_text: str | None = None
+    for msg in reversed(context.engine.messages):
+        if (
+            msg.role == "user"
+            and msg.text.strip()
+            and not msg.text.strip().startswith("/")
+            and not is_task_notification(msg.text)
+        ):
+            restored_text = msg.text.strip()
+            break
+
     # 回退对话
     if mode in ("both", "conversation"):
         result = await store.rewind_to(target_id)
@@ -361,6 +375,7 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
         replay_messages=restored_messages if mode in ("both", "conversation") else None,
         message="\n".join(lines),
         refresh_state=True,
+        rewind_restored_text=restored_text if mode in ("both", "conversation") else None,
     )
 
 

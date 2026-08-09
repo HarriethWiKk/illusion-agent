@@ -44,6 +44,7 @@ class CommandResult:
     restored_session_id: str | None = None  # 恢复的会话ID
     refresh_state: bool = False  # 命令处理后是否刷新 app_state（sync_app_state）
     ephemeral: bool = False  # 临时结果（如 /btw 侧问）：不写入会话记录，UI 仅临时显示
+    rewind_restored_text: str | None = None  # rewind 被回退的最后一条 user 消息（供前端回填输入框）
 
 
 @dataclass

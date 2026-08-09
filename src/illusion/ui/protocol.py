@@ -289,6 +289,9 @@ class BackendEvent(BaseModel):
     progress_type: str | None = None
     # 新增：会话回退
     rewind_to_index: int | None = None
+    # === rewind / 会话回退事件字段 ===
+    restored_text: str | None = None                    # session_rewind 携带的被回退 user 消息（回填输入框）
+
     # === web_* 推送事件字段 ===
     session_id: str | None = None                       # web_restore_started/completed 的会话 ID
     web_sessions: list[dict[str, Any]] | None = None    # web_sessions 推送的会话列表

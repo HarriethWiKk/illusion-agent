@@ -966,6 +966,13 @@ class WebBackendHost:
                 session_id=session.session_id,
             )
 
+        async def _rewind_restored(text: str) -> None:
+            """rewind 被回退的 user 消息：通知前端回填输入框（重新编辑）。"""
+            await self._emit(
+                BackendEvent(type="session_rewind", restored_text=text),
+                session_id=session.session_id,
+            )
+
         await handle_line(
             session.bundle,
             line,
@@ -975,6 +982,7 @@ class WebBackendHost:
             replay_transcript_item=_replay_transcript_item,
             command_result_emitter=_command_result_emitter,
             replace_transcript_items=_replace_transcript_items,
+            rewind_restored_emitter=_rewind_restored,
         )
 
         await self._finish_session_line(session)

@@ -908,6 +908,10 @@ class ReactBackendHost:
             transcript_items = [TranscriptItem(**item) for item in items]
             await self._emit(BackendEvent(type="replace_transcript", items=transcript_items))
 
+        async def _rewind_restored(text: str) -> None:
+            """rewind 被回退的 user 消息：通知前端回填输入框（重新编辑）。"""
+            await self._emit(BackendEvent(type="session_rewind", restored_text=text))
+
         should_continue = await handle_line(
             self._bundle,
             line,
@@ -917,6 +921,7 @@ class ReactBackendHost:
             replay_transcript_item=_replay_transcript_item,
             command_result_emitter=_command_result_emitter,
             replace_transcript_items=_replace_transcript_items,
+            rewind_restored_emitter=_rewind_restored,
         )
 
         # 更新会话阶段为空闲

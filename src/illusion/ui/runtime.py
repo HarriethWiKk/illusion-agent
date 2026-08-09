@@ -1015,6 +1015,7 @@ async def handle_line(
     replay_transcript_item: TranscriptItemSender | None = None,
     command_result_emitter: CommandResultEmitter | None = None,
     replace_transcript_items: ReplaceTranscriptItems | None = None,
+    rewind_restored_emitter: Callable[[str], Awaitable[None]] | None = None,
 ) -> bool:
     """处理提交的一行输入（用于无头或 TUI 渲染）。
 
@@ -1029,6 +1030,7 @@ async def handle_line(
         replay_transcript_item: 重播 transcript_item 的回调（用于 /resume）
         command_result_emitter: 指令结果发射回调
         replace_transcript_items: 替换转录项列表的回调（用于 /rewind 等，避免 Ink Static 重复渲染）
+        rewind_restored_emitter: rewind 被回退的 user 消息回调（前端回填输入框）
 
     Returns:
         bool: 是否继续会话
@@ -1077,7 +1079,11 @@ async def handle_line(
             suffix = result.message or ""
             detail = f"\n{suffix}" if suffix else ""
             result.message = f"{prefix}{bundle.session_id}{detail}"
-        await _render_command_result(result, print_system, clear_output, render_event, replay_transcript_item, command_result_emitter, replace_transcript_items)
+        await _render_command_result(
+            result, print_system, clear_output, render_event,
+            replay_transcript_item, command_result_emitter,
+            replace_transcript_items, rewind_restored_emitter,
+        )
         if result.restored_session_id:
             bundle.session_id = result.restored_session_id
         # 会话指令后刷新状态（context_tokens / usage / overhead）
@@ -1234,6 +1240,7 @@ async def _render_command_result(
 	replay_transcript_item: TranscriptItemSender | None = None,
 	command_result_emitter: CommandResultEmitter | None = None,
 	replace_transcript_items: ReplaceTranscriptItems | None = None,
+	rewind_restored_emitter: Callable[[str], Awaitable[None]] | None = None,
 ) -> None:
 	"""渲染命令执行结果。
 
@@ -1245,6 +1252,7 @@ async def _render_command_result(
 		replay_transcript_item: 重播 transcript_item 的回调
 		command_result_emitter: 指令结果发射回调
 		replace_transcript_items: 替换转录项列表的回调
+		rewind_restored_emitter: rewind 被回退的 user 消息回调（前端回填输入框）
 	"""
 	if result.replay_messages and replace_transcript_items is not None:
 		from illusion.engine.messages import ToolResultBlock, ToolUseBlock
@@ -1379,3 +1387,6 @@ async def _render_command_result(
 			await command_result_emitter(result.message, "info")
 		else:
 			await print_system(result.message)
+	# rewind 被回退的 user 消息：通知前端回填输入框（重新编辑）
+	if result.rewind_restored_text and rewind_restored_emitter is not None:
+		await rewind_restored_emitter(result.rewind_restored_text)
