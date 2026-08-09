@@ -100,6 +100,21 @@ function stripToolCallLines(text: string): string {
 }
 
 /**
+ * 重放/恢复的 assistant 消息剥离工具调用预览行
+ *
+ * 直播路径（assistant_complete / tool_started flush）pushStatic 前都会
+ * stripToolCallLines，而 rewind/restore 重放的 msg.text 是未清洗的原始文本，
+ * 此处统一清洗，保证与直播显示一致。
+ */
+function stripReplayItems(items: TranscriptItem[]): TranscriptItem[] {
+  return items.map((item) =>
+    item.role === 'assistant' && item.text
+      ? { ...item, text: stripToolCallLines(item.text) }
+      : item,
+  );
+}
+
+/**
  * 选项类型
  */
 type Option = { value: string; label: string; active?: boolean };
@@ -910,7 +925,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           });
           pendingToolCallsRef.current[sid] = [];
           clearAssistantDelta(sid);
-          patchView(sid, { items, pendingToolCalls: [] });
+          patchView(sid, { items: stripReplayItems(items), pendingToolCalls: [] });
           return;
         }
 
@@ -956,7 +971,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         }
         if (evt.type === 'web_restore_completed') {
           pendingToolCallsRef.current[sid] = [];
-          const items = (evt.items ?? []).filter((i) => !(i.role === 'user' && i.text.startsWith('/')));
+          const items = stripReplayItems((evt.items ?? []).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
           // 只合并会话专属键：全局键（model/effort 等）由 state_snapshot 权威驱动，
           // 避免恢复快照影子化后续全局设置变更
           const restoreState = evt.state ?? {};

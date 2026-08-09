@@ -11,9 +11,9 @@
  * @module ChatArea
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, type UiLanguage } from '../i18n';
-import MessageBubble, { PendingToolBubble, StreamingBuffer, ReasoningContent } from './MessageBubble';
+import MessageBubble, { PendingToolBubble, StreamingBuffer, ThinkingBlock } from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';
 import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
@@ -28,10 +28,10 @@ const BOTTOM_THRESHOLD_PX = 80;
 /**
  * 将一轮对话的 items 拆分为三部分：
  * - userItems：用户消息（始终可见）
- * - thinkingItems：工具调用 + 中间 assistant 消息（归入"思考过程"可折叠区）
- * - finalAssistant：最后一条含文本的 assistant 消息（始终可见，其 reasoning 归入思考区）
+ * - thinkingItems：工具调用 + 中间 assistant 消息（各自独立折叠）
+ * - finalAssistant：最后一条含文本的 assistant 消息（始终可见，其 reasoning 独立折叠）
  *
- * 流式阶段（streaming=true）所有 assistant 消息都视作思考过程的一部分：
+ * 流式阶段（streaming=true）所有 assistant 消息都视作中间消息：
  * 最终回复由 StreamingBuffer 实时展示，避免中间 LLM 消息被误判为最终回复，
  * 导致后续工具调用显示在消息上方、以及复制/回退按钮闪烁等问题。
  *
@@ -87,71 +87,52 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
 }
 
 /**
- * 思考过程折叠区组件
+ * "任务完成"折叠区组件（三级标题样式）
  *
- * 将一轮对话中的工具调用、中间 assistant 消息、最终 assistant 的 reasoning
- * 统一收纳进一个可折叠的"思考过程"区域，减少历史消息的浏览器渲染负担。
+ * 将一轮对话中最终回复之前的所有内容（中间 text、工具调用、思考过程、
+ * 最终回复的思考过程）再折叠一次（二级折叠），折叠样式与普通折叠区分：
+ * - 三级标题"任务完成 >"（展开后箭头变为向下"任务完成 ∨"），字号/字重/颜色
+ *   与最终回复 markdown 渲染的 h3（.prose h3）保持一致
+ * - 流式阶段标题显示"任务进行中"
+ * - 标题下方是一条分隔直线
  *
- * 流式输出阶段（autoExpand=true）自动展开，完成后自动折叠。
+ * 流式阶段自动展开（内容可见）；轮次完成（streaming=false）时自动折叠。
+ * 用户手动操作过的折叠区不被自动状态覆盖（尊重用户选择）。
  *
- * @param props.thinkingItems - 工具调用 + 中间消息
- * @param props.finalReasoning - 最终 assistant 的 reasoning 文本
+ * @param props.streaming - 轮次是否仍在流式（流式展开、完成折叠）
  * @param props.lang - UI 语言
- * @param props.toolInputMap - 工具输入映射
- * @param props.autoExpand - 是否自动展开（流式阶段）
+ * @param props.hasContent - 折叠内容是否非空（空内容时展开态不渲染内容区）
+ * @param props.children - 折叠内容（中间 text、工具行、思考过程）
  */
-function ThinkingProcessSection({
-  thinkingItems,
-  finalReasoning,
-  lang,
-  toolInputMap,
-  autoExpand,
-  onToggle,
-}: {
-  thinkingItems: TranscriptItem[];
-  finalReasoning?: string;
-  lang: UiLanguage;
-  toolInputMap: Map<string, Record<string, unknown>>;
-  autoExpand: boolean;
-  onToggle?: () => void;
-}) {
-  const [open, setOpen] = useState(autoExpand);
-  const prevAutoExpand = useRef(autoExpand);
+function TaskCompleteSection({ streaming, lang, hasContent, children }: { streaming: boolean; lang: UiLanguage; hasContent: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(streaming);
+  // 用户是否手动操作过（展开/折叠）：手动操作后自动状态变化不再覆盖
+  const interactedRef = useRef(false);
+  // React 官方 "adjusting state during render" 模式：prev 值用 state 存储
+  const [prevStreaming, setPrevStreaming] = useState(streaming);
 
-  // autoExpand 变化时（流式开始/结束）自动同步展开状态
-  if (autoExpand !== prevAutoExpand.current) {
-    prevAutoExpand.current = autoExpand;
-    setOpen(autoExpand);
+  // streaming 变化（流式开始/完成）时自动同步展开状态；用户手动操作过则不覆盖
+  if (streaming !== prevStreaming) {
+    setPrevStreaming(streaming);
+    if (!interactedRef.current) setOpen(streaming);
   }
 
-  const hasContent = thinkingItems.length > 0 || !!finalReasoning?.trim();
-  if (!hasContent) return null;
-
-  const stepCount = thinkingItems.length + (finalReasoning?.trim() ? 1 : 0);
-  const label = t(lang, 'thinking_process_count').replace('{count}', String(stepCount));
-
   const handleToggle = () => {
+    interactedRef.current = true;
     setOpen(!open);
-    onToggle?.();
   };
 
   return (
-    <div className="my-1">
-      {autoExpand ? (
-        // 流式输出阶段：仅显示标题，不渲染可点击的折叠按钮，避免用户误操作
-        <div className="flex items-center gap-1.5 text-xs text-content-secondary py-1">
-          <svg className="w-3 h-3 rotate-90" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4.5 2.5L8 6L4.5 9.5" />
-          </svg>
-          <span className="font-medium">{label}</span>
-        </div>
-      ) : (
+    <div className="my-2">
+      {/* 三级标题：与最终回复 markdown 渲染的 h3（.prose h3 = 1.125em/700/主色）保持一致 */}
+      <h3 className="text-lg font-bold text-content-primary">
         <button
           onClick={handleToggle}
-          className="flex items-center gap-1.5 text-xs text-content-secondary hover:text-content-primary transition-colors py-1 cursor-pointer"
+          className="flex items-center gap-2 transition-colors py-1.5 cursor-pointer"
         >
+          <span>{t(lang, streaming ? 'task_in_progress' : 'task_complete')}</span>
           <svg
-            className={`w-3 h-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+            className={`w-4 h-4 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
             viewBox="0 0 12 12"
             fill="none"
             stroke="currentColor"
@@ -161,17 +142,11 @@ function ThinkingProcessSection({
           >
             <path d="M4.5 2.5L8 6L4.5 9.5" />
           </svg>
-          <span className="font-medium">{label}</span>
         </button>
-      )}
-      {open && (
-        <div className="mt-1.5">
-          {thinkingItems.map((item, idx) => (
-            <MessageBubble key={idx} item={item} toolInputMap={toolInputMap} lang={lang} showActions={false} inlineReasoning />
-          ))}
-          {finalReasoning?.trim() && <ReasoningContent text={finalReasoning} />}
-        </div>
-      )}
+      </h3>
+      {/* 标题下方的分隔直线 */}
+      <div className="border-t border-border-light" />
+      {open && hasContent && <div className="mt-1.5">{children}</div>}
     </div>
   );
 }
@@ -402,17 +377,17 @@ export default function ChatArea({
         {visibleTurns.map((turn, visIdx) => {
           const turnIdx = turnOffset + visIdx;
           const isLastTurn = turnIdx === turns.length - 1;
-          // autoExpand 仅对"真正的当前流式轮"生效。busy=true 与 user 消息
-          // （transcript_item）存在网络往返窗口期——若仅按 busy && isLastTurn
-          // 判定，窗口期内旧轮会被误判为流式轮，上一条回复的思考过程闪开又折叠。
-          // "轮已完成"判定：最后一条是 assistant 完成消息（tool_started 时
-          // pushStatic 的中间 assistant 消息伴随 pendingToolCalls 非空，排除）。
+          // 轮是否仍在流式：busy=true 与 user 消息（transcript_item）存在网络往返
+          // 窗口期——若仅按 busy && isLastTurn 判定，窗口期内旧轮会被误判为流式轮，
+          // 上一条回复的思考过程闪开又折叠。"轮已完成"判定：最后一条是 assistant
+          // 完成消息（tool_started 时 pushStatic 的中间 assistant 消息伴随
+          // pendingToolCalls 非空，排除）。
           const turnFinished =
             turn.length > 0 &&
             turn[turn.length - 1]!.role === 'assistant' &&
             pendingToolCalls.length === 0;
-          const autoExpand = busy && isLastTurn && !turnFinished;
-          const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn, autoExpand);
+          const turnStreaming = busy && isLastTurn && !turnFinished;
+          const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn, turnStreaming);
           const turnsToRewind = turns.length - turnIdx;
           return (
             <div key={turnIdx} className={visIdx > 0 ? 'mt-12' : ''}>
@@ -425,20 +400,28 @@ export default function ChatArea({
                   actionsDisabled={busy}
                 />
               ))}
-              <ThinkingProcessSection
-                thinkingItems={thinkingItems}
-                finalReasoning={finalAssistant?.reasoning}
-                lang={lang}
-                toolInputMap={toolInputMap}
-                autoExpand={autoExpand}
-                onToggle={isLastTurn ? () => {
-                  // 切换折叠后延迟滚动到底部，等待 DOM 更新完成
-                  setTimeout(() => {
-                    const el = scrollRef.current;
-                    if (el) el.scrollTop = el.scrollHeight;
-                  }, 0);
-                } : undefined}
-              />
+              {/* 二级折叠："任务完成"大标题区——折叠最终回复之前的所有内容
+                  （中间 text、工具行、思考过程、最终回复的思考过程）；
+                  流式阶段（turnStreaming）强制渲染显示"任务进行中"标题
+                  （即使中间内容尚未推入），完成后自动折叠 */}
+              {(turnStreaming || thinkingItems.length > 0 || finalAssistant?.reasoning?.trim()) && (
+                <TaskCompleteSection
+                  streaming={turnStreaming}
+                  lang={lang}
+                  hasContent={thinkingItems.length > 0 || !!finalAssistant?.reasoning?.trim()}
+                >
+                  {thinkingItems.map((item, msgIdx) => (
+                    <MessageBubble
+                      key={`t-${turnIdx}-${msgIdx}`}
+                      item={item}
+                      toolInputMap={toolInputMap}
+                      lang={lang}
+                      showActions={false}
+                    />
+                  ))}
+                  {finalAssistant?.reasoning?.trim() && <ThinkingBlock text={finalAssistant.reasoning} lang={lang} />}
+                </TaskCompleteSection>
+              )}
               {finalAssistant && (
                 <MessageBubble
                   key={`f-${turnIdx}`}
@@ -467,7 +450,7 @@ export default function ChatArea({
         )}
         {busy && (assistantBuffer || streamingReasoning) && (
           <div className={turns.length > 0 ? 'mt-4' : ''}>
-            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} />
+            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
           </div>
         )}
         {modal?.kind === 'permission' && (

@@ -127,9 +127,7 @@ interface MessageBubbleProps {
   onRegenerate?: () => void;
   /** 是否隐藏思考过程块（reasoning 由上层统一渲染时使用） */
   hideReasoning?: boolean;
-  /** 是否以内联方式渲染 reasoning（无折叠开关，用于思考过程区内展示） */
-  inlineReasoning?: boolean;
-  /** 是否显示操作按钮（复制/撤销），思考过程内的中间消息设为 false */
+  /** 是否显示操作按钮（复制/撤销） */
   showActions?: boolean;
   /** 禁用操作按钮（busy 时禁用撤销/重新生成，复制不受影响） */
   actionsDisabled?: boolean;
@@ -208,7 +206,7 @@ function MessageActions({ text, lang, onRewind, onRegenerate, disabled }: { text
  * @param props - 组件属性
  * @returns 返回消息气泡的 JSX 元素
  */
-export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRewind, onRegenerate, hideReasoning, inlineReasoning, showActions = true, actionsDisabled }: MessageBubbleProps) {
+export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRewind, onRegenerate, hideReasoning, showActions = true, actionsDisabled }: MessageBubbleProps) {
   if (item.role === 'user') {
     return (
       <div className="flex justify-end py-1.5 group">
@@ -223,9 +221,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
   }
 
   if (item.role === 'assistant') {
-    const reasoning = !hideReasoning && item.reasoning
-      ? (inlineReasoning ? <ReasoningContent text={item.reasoning} /> : <ThinkingBlock text={item.reasoning} lang={lang} />)
-      : null;
+    const reasoning = !hideReasoning && item.reasoning ? <ThinkingBlock text={item.reasoning} lang={lang} /> : null;
     return (
       <div className="py-1.5 group">
         {reasoning}
@@ -265,16 +261,15 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
  *
  * 显示工具执行结果，支持展开/折叠查看详情。
  *
- * 完成态默认折叠；展开后先显示执行期间保留的流式进度（agent 子任务的
- * 思考过程——仅供人查看，不进入 LLM 上下文），再显示工具结果正文。
- * 流式阶段由 PendingToolBubble 展示同一份进度，完成后无缝衔接。
+ * 完成态默认折叠（标题行 + 摘要）；展开后先显示执行期间保留的流式进度
+ * （agent 子任务的思考过程——仅供人查看，不进入 LLM 上下文），再显示
+ * 工具结果正文。流式阶段由 PendingToolBubble 展示同一份进度，完成后无缝衔接。
  *
  * @param props - 组件属性
  * @param props.name - 工具名称
  * @param props.text - 结果文本
  * @param props.isError - 是否为错误结果
  * @param props.toolInput - 工具输入参数
- * @param props.lang - UI 语言
  */
 function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
@@ -290,13 +285,15 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
     <div className="py-1.5">
       <button
         onClick={() => hasContent && setOpen(!open)}
-        className={`flex items-start gap-2 text-sm transition-colors cursor-pointer text-left ${hasContent ? 'text-content-secondary hover:text-content-primary' : ''}`}
+        className={`flex items-start text-base transition-colors cursor-pointer text-left ${hasContent ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-1.5 ${isError ? 'bg-danger' : 'bg-primary'}`} />
+        {/* 圆点右移 3px 使其对称轴（7px）与大脑图标重合；文本缩进不变
+            （3px + 8px + 9px = 14px + 6px = 20px）；mt-2 垂直居中 */}
+        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-2 ml-[3px] mr-[9px] ${isError ? 'bg-danger' : 'bg-primary'}`} />
         <span>
-          <span className={`font-medium font-mono ${isError ? 'text-danger' : 'text-content-primary'}`}>{displayName}</span>
-          {/* 预览行在展开/折叠时均保留，展开后与结果正文并存 */}
-          {summary && <span className={`text-xs ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
+          <span className={isError ? 'text-danger' : 'text-content-primary'}>{displayName}</span>
+          {/* 预览行在展开/折叠时均保留，展开后与结果正文并存；字号介于工具名与正文之间 */}
+          {summary && <span className={`text-sm ${isError ? 'text-danger' : 'text-content-disabled'}`}>（{summary}）</span>}
           {isError && <span className="text-xs text-danger font-medium"> ERROR</span>}
         </span>
       </button>
@@ -341,25 +338,108 @@ function ProgressMessages({ messages, showCursor }: { messages: Array<{message: 
 }
 
 /**
- * 思考过程块组件
+ * 思考过程块组件（独立折叠单元）
  *
- * 显示助手的思考/推理过程，支持折叠/展开。
- * 历史消息默认折叠以减少浏览器渲染负担（ReactMarkdown 渲染开销大），
- * 用户可点击标题展开查看完整思考过程。
+ * 显示助手的思考/推理过程，支持折叠/展开。每个思考过程块独立折叠，
+ * 互不影响（对齐 opencode 的 part 级独立折叠）。
+ *
+ * 自动折叠：`autoCollapsed` 信号变化（如 text 推入）时自动折叠/展开，
+ * 但用户手动点击过的块不再被自动信号覆盖，尊重用户选择。
+ *
+ * 点击内容区域本身也可折叠（无需翻回顶部标题处），但不会打断
+ * 文本选中/复制、链接点击、代码块复制按钮等交互。
  *
  * @param props - 组件属性
  * @param props.text - 思考过程文本
  * @param props.lang - UI 语言
+ * @param props.defaultOpen - 初始展开状态（默认折叠）
+ * @param props.autoCollapsed - 自动折叠信号：true 折叠、false 展开，仅对用户未手动操作过的块生效
+ * @param props.streaming - 是否正在流式输出（大脑图标切换为与工具行圆点一致的脉冲动画，展开内容底部显示流式光标）
  */
-function ThinkingBlock({ text, lang }: { text: string; lang: UiLanguage }) {
-  const [open, setOpen] = useState(false);
+export function ThinkingBlock({
+  text,
+  lang,
+  defaultOpen = false,
+  autoCollapsed,
+  streaming,
+}: {
+  text: string;
+  lang: UiLanguage;
+  defaultOpen?: boolean;
+  autoCollapsed?: boolean;
+  streaming?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  // 用户是否手动操作过（展开/折叠）此块：手动操作后自动折叠信号不再覆盖
+  const interactedRef = useRef(false);
+  // 待执行的点击折叠定时器：双击选词的第一击会触发 click（detail=1），
+  // 立即折叠会破坏双击/三击选词，故延迟折叠并允许 onDoubleClick 取消
+  const collapseTimerRef = useRef<number | undefined>(undefined);
+  // React 官方 "adjusting state during render" 模式：prev 值用 state 存储，
+  // 避免并发渲染（Suspense/transition 中断）下 ref 先写而 setState 未提交
+  const [prevAutoCollapsed, setPrevAutoCollapsed] = useState(autoCollapsed);
+
+  // autoCollapsed 信号变化时同步状态；用户手动操作过的块保持用户选择
+  if (autoCollapsed !== prevAutoCollapsed) {
+    setPrevAutoCollapsed(autoCollapsed);
+    if (!interactedRef.current) setOpen(!autoCollapsed);
+  }
+
+  // 组件卸载时清除待执行的折叠定时器
+  useEffect(() => {
+    return () => {
+      if (collapseTimerRef.current !== undefined) {
+        window.clearTimeout(collapseTimerRef.current);
+      }
+    };
+  }, []);
+
   if (!text?.trim()) return null;
+
+  const handleToggle = () => {
+    interactedRef.current = true;
+    setOpen(!open);
+  };
+
+  /** 点击已展开的内容区域折叠（不打断选中/复制/链接/复制按钮/双击选词） */
+  const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.detail > 1) return; // 双击第二击（此时已选中词）：不折叠
+    const target = e.target as HTMLElement;
+    // 交互元素交给默认行为：链接跳转、代码块复制按钮等
+    if (target.closest('a, button, input, textarea')) return;
+    // 正在选中文本（复制场景）不折叠
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    // 延迟折叠（300ms）：双击的第一击 detail 也是 1，立即折叠会破坏
+    // 双击选词/三击选段；onDoubleClick 会在此窗口内取消定时器
+    collapseTimerRef.current = window.setTimeout(() => {
+      collapseTimerRef.current = undefined;
+      interactedRef.current = true;
+      setOpen(false);
+    }, 300);
+  };
+
+  /** 双击（选词）取消待执行的折叠 */
+  const handleContentDoubleClick = () => {
+    if (collapseTimerRef.current !== undefined) {
+      window.clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = undefined;
+    }
+  };
+
   return (
-    <div className="mb-3">
+    <div className="mb-1.5">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-content-secondary hover:text-content-primary transition-colors py-0.5 cursor-pointer"
+        onClick={handleToggle}
+        className="flex items-center gap-1.5 text-base text-content-primary leading-[1.8] transition-colors py-1.5 cursor-pointer"
       >
+        {/* 大脑图标：思考过程标识（行高与中间 text 的 prose 1.8 对齐；流式时与工具行圆点一致的脉冲动画） */}
+        <svg className={`w-3.5 h-3.5 shrink-0 text-primary ${streaming ? 'animate-pulse-scale' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+          <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+          <path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01" />
+        </svg>
+        <span>{t(lang, 'thinking_process')}</span>
         <svg
           className={`w-3 h-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
           viewBox="0 0 12 12"
@@ -371,38 +451,19 @@ function ThinkingBlock({ text, lang }: { text: string; lang: UiLanguage }) {
         >
           <path d="M4.5 2.5L8 6L4.5 9.5" />
         </svg>
-        <span className="font-medium">{t(lang, 'thinking_process')}</span>
       </button>
       {open && (
-        <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
-          <div className="prose prose-sm max-w-full">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
-              {text}
-            </ReactMarkdown>
+        <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
+          <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
+            <div className="prose prose-sm max-w-full">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
+                {text}
+              </ReactMarkdown>
+            </div>
+            {streaming && <span className="inline-block w-0.5 h-3 bg-content-secondary animate-blink ml-0.5 align-middle" />}
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * 纯推理内容渲染（无折叠开关）
- *
- * 供 ChatArea 的 ThinkingProcessSection 统一渲染最终 assistant 消息的 reasoning，
- * 避免与 section 自身的折叠开关形成嵌套。
- *
- * @param props.text - 思考过程文本
- */
-export function ReasoningContent({ text }: { text: string }) {
-  if (!text?.trim()) return null;
-  return (
-    <div className="text-sm text-content-secondary leading-relaxed select-text opacity-80 py-1">
-      <div className="prose prose-sm max-w-full">
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
-          {text}
-        </ReactMarkdown>
-      </div>
     </div>
   );
 }
@@ -412,15 +473,15 @@ export function ReasoningContent({ text }: { text: string }) {
  *
  * 显示正在执行的工具调用，带有脉冲动画效果。
  *
- * 流式阶段（pending）采用与工具结果一致的容器样式，累积显示全部进度消息
- * （不截断——web 端不受 terminal 行数限制），默认展开；工具完成（completed）
- * 后由 ToolResultBubble（默认折叠）替代。
+ * 默认折叠只显示工具名与摘要（对齐 opencode：工具默认折叠为标题行）；
+ * 用户可点击标题行展开查看全部进度消息（web 端不受 terminal 行数限制）。
+ * 工具完成（completed）后由 ToolResultBubble（同样默认折叠）替代。
  *
  * @param props - 组件属性
  * @param props.call - 待处理的工具调用信息
  */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
-  const [open, setOpen] = useState(true); // 流式阶段默认展开进度区
+  const [open, setOpen] = useState(false); // 工具调用默认折叠为标题行
   // 与 terminal 端 BlinkingToolIndicator 对齐：tool_input 未到达时 summary 为空，
   // 只显示工具名；到达后始终在同一行显示命令摘要，不随进度区折叠而隐藏
   const summary = call.tool_input ? summarizeInput(call.tool_name, call.tool_input) : '';
@@ -464,12 +525,13 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
     <div className="py-1.5">
       <button
         onClick={() => progressMessages.length > 0 && setOpen(!open)}
-        className={`flex items-start gap-2 text-sm transition-colors cursor-pointer text-left ${progressMessages.length > 0 ? 'text-content-secondary hover:text-content-primary' : ''}`}
+        className={`flex items-start text-base transition-colors cursor-pointer text-left ${progressMessages.length > 0 ? 'text-content-secondary hover:text-content-primary' : ''}`}
       >
-        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-1.5" />
+        {/* 圆点右移 3px 使其对称轴（7px）与大脑图标重合；文本缩进不变；mt-2 垂直居中 */}
+        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse-scale shrink-0 mt-2 ml-[3px] mr-[9px]" />
         <span className="flex-1 min-w-0">
-          <span className="font-medium font-mono text-content-primary">{displayName}</span>
-          {summary && <span className="text-xs text-content-disabled">（{summary}）</span>}
+          <span className="text-content-primary">{displayName}</span>
+          {summary && <span className="text-sm text-content-disabled">（{summary}）</span>}
         </span>
       </button>
       {open && progressMessages.length > 0 && (
@@ -592,25 +654,30 @@ function truncateCommand(str: string): string {
  *
  * 显示正在流式接收的助手回复，包括思考过程和正文。
  *
+ * 自动折叠模型（对齐 opencode 的 part 级独立折叠）：
+ * - 思考过程流式时默认展开，用户可随时折叠/展开
+ * - text 推入时自动折叠其上方思考过程（text 保留可见），
+ *   用户手动展开过的思考过程不被自动折叠覆盖
+ *
  * @param props - 组件属性
  * @param props.text - 正文文本
  * @param props.reasoning - 思考过程文本（可选）
+ * @param props.lang - UI 语言
  */
-export function StreamingBuffer({ text, reasoning }: { text: string; reasoning?: string }) {
-  const hasReasoning = reasoning && reasoning.trim();
-  const hasText = text && text.trim();
+export function StreamingBuffer({ text, reasoning, lang }: { text: string; reasoning?: string; lang: UiLanguage }) {
+  const hasReasoning = !!reasoning && !!reasoning.trim();
+  const hasText = !!text && !!text.trim();
 
   return (
     <div className="py-1.5">
       {hasReasoning && (
-        <div className="text-sm text-content-secondary leading-relaxed select-text mb-3 opacity-80 py-1">
-          <div className="prose prose-sm max-w-full">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
-              {reasoning}
-            </ReactMarkdown>
-          </div>
-          {!hasText && <span className="inline-block w-0.5 h-4 bg-content-secondary animate-blink ml-0.5 align-middle" />}
-        </div>
+        <ThinkingBlock
+          text={reasoning}
+          lang={lang}
+          streaming
+          defaultOpen={!hasText}
+          autoCollapsed={hasText}
+        />
       )}
       {hasText && (
         <div className="text-content-primary text-sm prose max-w-full select-text">

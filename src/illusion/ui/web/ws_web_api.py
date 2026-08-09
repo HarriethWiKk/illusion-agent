@@ -89,6 +89,14 @@ def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]
             assistant_text = msg.text.strip()
             has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
             if has_tool_use:
+                # 保留 reasoning 与工具前导 text（原实现 text 置空，
+                # 恢复会话后工具前导 text 丢失）；先 assistant 后 tool，
+                # 与 runtime.py 重放顺序及直播时序一致
+                if reasoning or assistant_text:
+                    item: dict[str, Any] = {"role": "assistant", "text": assistant_text}
+                    if reasoning:
+                        item["reasoning"] = reasoning
+                    items.append(item)
                 # 添加工具调用信息
                 for block in msg.content:
                     if isinstance(block, ToolUseBlock):
@@ -100,14 +108,12 @@ def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]
                             "tool_input": block.input,
                             "tool_use_id": block.id,
                         })
-                # 保留 reasoning
-                if reasoning:
-                    items.append({"role": "assistant", "text": "", "reasoning": reasoning})
             elif assistant_text or reasoning:
-                item: dict[str, Any] = {"role": "assistant", "text": assistant_text}
-                if reasoning:
-                    item["reasoning"] = reasoning
-                items.append(item)
+                items.append({
+                    "role": "assistant",
+                    "text": assistant_text,
+                    **({"reasoning": reasoning} if reasoning else {}),
+                })
     return items
 
 log = logging.getLogger(__name__)

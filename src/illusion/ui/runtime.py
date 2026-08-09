@@ -1294,11 +1294,15 @@ async def _render_command_result(
 				reasoning = msg.thinking_text.strip()
 				assistant_text = msg.text.strip()
 				has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
-				# 因为 tool_started 事件会在新回合中添加流式文本，避免重复显示。
-				# 但保留 reasoning/thinking（思考过程不应丢失）。
+				# 保留 reasoning 与工具前导 text（原实现把前导 text 置空，
+				# rewind 重放后工具前导 text 丢失；重放不会重新触发
+				# tool_started，不存在重复显示问题）
 				if has_tool_use:
-					if reasoning:
-						replay_items.append({"role": "assistant", "text": "", "reasoning": reasoning})
+					if reasoning or assistant_text:
+						item = {"role": "assistant", "text": assistant_text}
+						if reasoning:
+							item["reasoning"] = reasoning
+						replay_items.append(item)
 				elif assistant_text or reasoning:
 					item = {"role": "assistant", "text": assistant_text}
 					if reasoning:
@@ -1359,11 +1363,15 @@ async def _render_command_result(
 					reasoning = msg.thinking_text.strip()
 					assistant_text = msg.text.strip()
 					has_tool_use = any(isinstance(b, ToolUseBlock) for b in msg.content)
-					# 因为 tool_started 事件会在新回合中添加流式文本，避免重复显示。
-					# 但保留 reasoning/thinking（思考过程不应丢失）。
+					# 保留 reasoning 与工具前导 text（原实现把前导 text 置空，
+					# resume 重放后工具前导 text 丢失；重放不会重新触发
+					# tool_started，不存在重复显示问题）
 					if has_tool_use:
-						if reasoning and replay_transcript_item is not None:
-							await replay_transcript_item({"role": "assistant", "text": "", "reasoning": reasoning})
+						if replay_transcript_item is not None and (reasoning or assistant_text):
+							item = {"role": "assistant", "text": assistant_text}
+							if reasoning:
+								item["reasoning"] = reasoning
+							await replay_transcript_item(item)
 					else:
 						if replay_transcript_item is not None and (assistant_text or reasoning):
 							item = {"role": "assistant", "text": assistant_text}
