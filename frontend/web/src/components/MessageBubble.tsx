@@ -481,7 +481,9 @@ export function ThinkingBlock({
  * @param props.call - 待处理的工具调用信息
  */
 export function PendingToolBubble({ call }: { call: PendingToolCall }) {
-  const [open, setOpen] = useState(false); // 工具调用默认折叠为标题行
+  // 工具执行中默认展开（可实时查看执行过程；仅 agent 工具会上报进度消息，
+  // 普通工具无进度时展开态只显示标题行）；完成后由 ToolResultBubble 折叠展示
+  const [open, setOpen] = useState(true);
   // 与 terminal 端 BlinkingToolIndicator 对齐：tool_input 未到达时 summary 为空，
   // 只显示工具名；到达后始终在同一行显示命令摘要，不随进度区折叠而隐藏
   const summary = call.tool_input ? summarizeInput(call.tool_name, call.tool_input) : '';
