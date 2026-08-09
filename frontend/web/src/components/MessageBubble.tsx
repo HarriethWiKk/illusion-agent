@@ -20,6 +20,7 @@ import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
+import { renderAnsi } from '../utils/ansi';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 /** 从 rehype-highlight 注入的 className 中提取语言名 */
@@ -300,9 +301,9 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
         </span>
       </button>
       {open && hasContent && (
-        <div className={`mt-1 ml-3.5 p-2.5 font-mono text-xs leading-relaxed max-h-96 overflow-y-auto rounded-lg select-text ${isError ? 'text-danger bg-danger/5 border border-danger/20' : 'text-content-primary bg-surface-card-alt border border-border-light'}`}>
+        <div className={`mt-1 ml-3.5 p-2.5 font-mono text-xs leading-relaxed max-h-96 overflow-y-auto scrollbar-hidden rounded-lg select-text glass-surface border ${isError ? 'text-danger border-danger/25' : 'text-content-primary border-border-light/60'}`}>
           {text && (
-            <div className="whitespace-pre-wrap">{text}</div>
+            <div className="whitespace-pre-wrap break-words">{renderAnsi(text)}</div>
           )}
         </div>
       )}
@@ -475,7 +476,7 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
         <div
           ref={progressRef}
           onScroll={handleProgressScroll}
-          className="mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-96 overflow-y-auto rounded-lg select-text text-content-secondary bg-surface-card-alt border border-border-light"
+          className="mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-96 overflow-y-auto scrollbar-hidden rounded-lg select-text text-content-secondary glass-surface border border-border-light/60"
         >
           <ProgressMessages messages={progressMessages} showCursor={hasStreamingTail} />
         </div>
