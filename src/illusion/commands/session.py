@@ -331,18 +331,23 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
     removed = 0
     restored_messages: list[ConversationMessage] | None = None
 
-    # 记录被回退的最后一条 user 消息（回退后引擎消息已变，须在回退前取），
-    # 供前端回填输入框方便重新编辑
+    # 记录被回退轮次中"恢复点"的那条 user 消息（回退后引擎消息已变，
     restored_text: str | None = None
-    for msg in reversed(context.engine.messages):
-        if (
-            msg.role == "user"
-            and msg.text.strip()
-            and not msg.text.strip().startswith("/")
-            and not is_task_notification(msg.text)
-        ):
-            restored_text = msg.text.strip()
-            break
+    if turns > 0:
+        removed_user_texts: list[str] = []
+        for msg in reversed(context.engine.messages):
+            if (
+                msg.role == "user"
+                and msg.text.strip()
+                and not msg.text.strip().startswith("/")
+                and not is_task_notification(msg.text)
+            ):
+                removed_user_texts.append(msg.text.strip())
+                if len(removed_user_texts) >= turns:
+                    break
+        if removed_user_texts:
+            # 倒序收集：列表末尾 = 时间顺序最前 = 倒数第 N 轮
+            restored_text = removed_user_texts[-1]
 
     # 回退对话
     if mode in ("both", "conversation"):
