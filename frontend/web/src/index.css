@@ -1000,3 +1000,12 @@ pre code.hljs,
   }
 }
 
+
+/* 隐藏滚动条（右栏内部展开区域，避免布局微动） */
+.scrollbar-hidden {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge legacy */
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;                  /* Chrome / Safari / Edge */
+}

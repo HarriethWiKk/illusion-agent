@@ -287,6 +287,8 @@ export interface WebSocketSessionState {
   setOnCommandResult: (fn: ((text: string, type: string, requestId?: string) => void) | null) => void;
   /** 注册版本更新提醒回调（update_available 事件触发，参数为最新版本号） */
   setOnUpdateAvailable: (fn: ((latestVersion: string) => void) | null) => void;
+  /** 注册 rewind 回填回调（session_rewind 事件触发，参数为被回退的 user 消息） */
+  setOnRewindRestored: (fn: ((text: string) => void) | null) => void;
 }
 
 /**
@@ -385,12 +387,15 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   // 回调 refs：App 注入，用于 select_request 和 command_result 事件
   const onSelectRequestRef = useRef<((payload: SelectRequestPayload) => void) | null>(null);
   const onCommandResultRef = useRef<((text: string, type: string, requestId?: string) => void) | null>(null);
+  /** rewind 被回退的 user 消息回调（App 注册，回填输入框） */
+  const onRewindRestoredRef = useRef<((text: string) => void) | null>(null);
   const onUpdateAvailableRef = useRef<((latestVersion: string) => void) | null>(null);
   const suppressCommandResultCountRef = useRef(0);
   const suppressTranscriptRef = useRef(false);
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
+  const setOnRewindRestored = useCallback((fn: ((text: string) => void) | null) => { onRewindRestoredRef.current = fn; }, []);
   const setOnUpdateAvailable = useCallback((fn: ((latestVersion: string) => void) | null) => { onUpdateAvailableRef.current = fn; }, []);
 
   /**
@@ -992,6 +997,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           return;
         }
 
+        // rewind 被回退的 user 消息：回填输入框（转录已由 replace_transcript 刷新）
+        if (evt.type === 'session_rewind' && evt.restored_text) {
+          onRewindRestoredRef.current?.(evt.restored_text);
+          return;
+        }
+
         // btw 侧问响应（按会话路由，request_id 匹配）
         if (evt.type === 'btw_response') {
           const viewNow = viewsRef.current[sid];
@@ -1255,7 +1266,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       requestSelectCommand, setEffortValue, setModelValue,
       sendRequest, stopping: view?.stopping ?? false, sendStop,
       clearStaticItems,
-      setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
+      setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable, setOnRewindRestored,
     };
   }, [
     status, tasks, commands, mcpServers, skills, plugins, rules, modelOptions,
@@ -1269,7 +1280,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     clearFirstLogin, deleteSessions, clearModal, setBusyTrue,
     requestSelectCommand, setEffortValue, setModelValue,
     sendRequest, sendStop, clearStaticItems,
-    setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable,
+    setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable, setOnRewindRestored,
     modelSwitching, setModelSwitching,
   ]);
 }

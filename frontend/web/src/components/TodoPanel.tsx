@@ -147,7 +147,7 @@ function TodoRow({ item }: { item: TodoItemSnapshot }) {
           </svg>
         )}
         {status === 'in_progress' && (
-          <span className="w-3 h-3 rounded-full bg-primary animate-pulse-scale" />
+          <span className="w-3 h-3 rounded-full bg-primary" />
         )}
         {status === 'pending' && (
           <span className="w-3 h-3 rounded-full border-2 border-border-light bg-white" />

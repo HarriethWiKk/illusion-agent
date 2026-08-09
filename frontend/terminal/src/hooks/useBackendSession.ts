@@ -89,7 +89,7 @@ function stripToolCallLines(text: string): string {
  * @param onExit - 后端退出时的回调函数
  * @returns 包含所有会话状态和操作方法的对象
  */
-export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
+export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void, onRewindRestored?: (text: string) => void) {
 	/** 静态转录项列表（已完成的消息） */
 	const [staticItems, setStaticItems] = useState<TranscriptItem[]>([]);
 	/** 清空计数器，用于触发 ConversationView 重新渲染 */
@@ -733,6 +733,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			clearAssistantDelta();
 			pendingToolCallsRef.current = [];
 			setPendingToolCalls([]);
+			// 被回退的 user 消息：通知 App 回填输入框
+			if (event.restored_text && onRewindRestored) {
+				onRewindRestored(event.restored_text);
+			}
 			return;
 		}
 		if (event.type === 'clear_transcript') {

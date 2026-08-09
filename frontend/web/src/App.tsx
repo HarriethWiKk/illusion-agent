@@ -18,7 +18,7 @@ import { normalizeLanguage, t, type UiLanguage } from './i18n';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
-import PromptInput from './components/PromptInput';
+import PromptInput, { type PromptInputHandle } from './components/PromptInput';
 import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
 import TitleBar from './components/TitleBar';
@@ -85,6 +85,7 @@ export default function App() {
   // 重新生成：存储待重发的 user 消息文本，rewind 完成后自动重发
   const pendingRegenerateRef = useRef<string | null>(null);
   const prevBusyRef = useRef(false);
+  const promptInputRef = useRef<PromptInputHandle>(null);
 
   // Toast 状态
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -128,6 +129,9 @@ export default function App() {
   useEffect(() => {
     // 注：select_request 内联选项已由 hook 按会话路由（session.inlineOptions），
     // 无需在此注册 onSelectRequest 回调
+    session.setOnRewindRestored((text) => {
+      promptInputRef.current?.setDraft(text);
+    });
     session.setOnCommandResult((text, type, requestId) => {
       // 使用 request_id 精确匹配 agent 摘要响应，避免竞态条件
       if (agentRequestIdRef.current && requestId === agentRequestIdRef.current) {
@@ -143,7 +147,10 @@ export default function App() {
     });
     return () => {
       session.setOnSelectRequest(null);
-      session.setOnCommandResult(null);
+      session.setOnRewindRestored((text) => {
+      promptInputRef.current?.setDraft(text);
+    });
+    session.setOnCommandResult(null);
       session.setOnUpdateAvailable(null);
     };
   }, [session.setOnSelectRequest, session.setOnCommandResult, session.setOnUpdateAvailable, showToast, lang]);
@@ -616,7 +623,7 @@ export default function App() {
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
-        <PromptInput lang={lang} busy={session.busy} connected={session.connected}
+        <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
           hasActiveTasks={session.tasks.some((t) => t.status === 'in_progress' || t.status === 'pending')}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
           inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}

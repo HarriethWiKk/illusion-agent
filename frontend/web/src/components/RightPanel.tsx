@@ -113,7 +113,7 @@ export default function RightPanel({
   const projectRules = rules.filter((r) => r.source === 'project');
 
   return (
-    <aside className="glass-panel border-l border-white/30 flex flex-col h-full shrink-0 overflow-y-auto select-none" style={{ width: `${width}px` }}>
+    <aside className="glass-panel border-l border-white/30 flex flex-col h-full shrink-0 overflow-y-auto scrollbar-hidden select-none" style={{ width: `${width}px` }}>
       {/* 标题行：主题切换按钮 + 居中标题 + 折叠按钮（3 列 grid 严格居中） */}
       <div className="grid grid-cols-3 items-center px-5 pt-3 pb-2">
         <button onClick={toggleTheme} title={themeTitle}
@@ -308,7 +308,7 @@ function CollapsibleSection({
       </button>
       <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}>
         <div className="overflow-hidden">
-          <div className={`px-5 pb-2.5 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto ${collapsed ? '' : 'animate-fade-in-up'}`} style={{ animationDelay: '80ms' }}>
+          <div className={`px-5 pb-2.5 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto scrollbar-hidden ${collapsed ? '' : 'animate-fade-in-up'}`} style={{ animationDelay: '80ms' }}>
             {children}
           </div>
         </div>

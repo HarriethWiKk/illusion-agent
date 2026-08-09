@@ -11,7 +11,7 @@
  * @module PromptInput
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 /**
@@ -94,8 +94,28 @@ interface PromptInputProps {
  * @param props - 组件属性
  * @returns 返回提示输入的 JSX 元素
  */
-export default function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }: PromptInputProps) {
+export interface PromptInputHandle {
+  /** 设置输入框内容（用于 rewind 回填被回退的 user 消息） */
+  setDraft: (text: string) => void;
+}
+
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }, ref) {
   const [value, setValue] = useState('');
+
+  useImperativeHandle(ref, () => ({
+    setDraft: (text: string) => {
+      setValue(text);
+      // 聚焦输入框并移到末尾
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          const len = text.length;
+          ta.setSelectionRange(len, len);
+        }
+      });
+    },
+  }), []);
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -465,4 +485,6 @@ export default function PromptInput({ lang, busy, stopping, hasActiveTasks, conn
       </div>
     </div>
   );
-}
+});
+
+export default PromptInput;

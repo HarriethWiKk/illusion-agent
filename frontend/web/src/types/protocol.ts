@@ -313,6 +313,10 @@ export interface BackendEvent {
   swarm_notifications?: SwarmNotificationSnapshot[];
   /** 指令结果数据（可选） */
   command_result_data?: { message: string; type: 'success' | 'error' | 'info'; request_id?: string };
+  // === rewind / 会话回退事件字段 ===
+  /** session_rewind 携带的被回退 user 消息（回填输入框用） */
+  restored_text?: string;
+
   // === web_* 推送事件字段 ===
   /** web_restore_started/completed 等会话级事件的归属会话 ID（可选，前端按此路由到会话视图） */
   session_id?: string;

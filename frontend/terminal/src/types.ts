@@ -238,6 +238,8 @@ export type BackendEvent = {
 	progress_type?: string | null;
 	/** 回退位置索引（可选，用于 session_rewind 事件） */
 	rewind_to_index?: number | null;
+	/** rewind 被回退的 user 消息（可选，前端回填输入框） */
+	restored_text?: string;
 	// 新事件载荷
 	/** 待办事项列表快照（可选） */
 	todo_items?: TodoItemSnapshot[] | null;

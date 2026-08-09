@@ -141,7 +141,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [stopping, setStopping] = useState(false);
 	/** /agent create 触发的分步创建向导是否可见 */
 	const [showAgentWizard, setShowAgentWizard] = useState(false);
-	const session = useBackendSession(config, () => exit());
+	const session = useBackendSession(config, () => exit(), (text) => setInput(text));
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
 	// 上下文窗口占比（用于 idle 提示行末尾展示，保留一位小数）
