@@ -11,6 +11,7 @@
  *
  * 浏览器直接访问 Web 端时本脚本不执行，window.illusionDesktop 为 undefined。
  */
+/// <reference lib="dom" />
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('illusionDesktop', {
@@ -26,4 +27,27 @@ contextBridge.exposeInMainWorld('illusionDesktop', {
   maximize: () => ipcRenderer.send('window-maximize'),
   /** 关闭窗口（主进程 close 事件 → 最小化到托盘） */
   close: () => ipcRenderer.send('window-close'),
+});
+
+/**
+ * 外链点击拦截（渲染进程层）
+ * ==========================
+ *
+ * 监听 document 的 click 事件（事件冒泡），当点击目标是一个指向外部 URL 的
+ * <a> 标签时，阻止默认导航，通过 IPC 通知主进程在系统浏览器打开。
+ *
+ * 这与主进程的 will-navigate 拦截互为补充，共同确保外链不会在应用窗口内跳转。
+ */
+document.addEventListener('click', (e: MouseEvent) => {
+  // 已被其他处理器阻止默认行为的点击不再处理
+  if (e.defaultPrevented) return;
+  const anchor = (e.target as HTMLElement | null)?.closest('a[href]') as HTMLAnchorElement | null;
+  if (!anchor) return;
+  const href = anchor.href;
+  // 仅处理 http/https 协议（排除 mailto:、tel:、file:、#anchor 等）
+  if (!/^https?:\/\//i.test(href)) return;
+  // 应用内部链接不拦截
+  if (href.startsWith(window.location.origin)) return;
+  e.preventDefault();
+  ipcRenderer.send('open-external', href);
 });

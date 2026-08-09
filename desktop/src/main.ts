@@ -28,6 +28,8 @@ import { t } from './i18n';
 let mainWindow: BrowserWindow | null = null;
 let tray: ReturnType<typeof createTray> | null = null;
 let backend: Backend | null = null;
+// 当前应用后端 URL（用于区分内部导航与外链跳转）
+let appUrl = '';
 // 是否处于"真正退出"流程（区分关闭到托盘与退出）
 let isQuitting = false;
 
@@ -75,10 +77,17 @@ function createWindow(): BrowserWindow {
     }
   });
 
-  // 外链点击在系统浏览器打开，不在应用内跳转
+  // 外链点击在系统浏览器打开，不在应用内跳转（仅允许 http/https 协议）
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
     return { action: 'deny' };
+  });
+
+  // 拦截当前窗口内的导航（如点击普通 <a href> 链接），外部链接重定向到系统浏览器
+  win.webContents.on('will-navigate', (event, url) => {
+    if (appUrl && url.startsWith(appUrl)) return; // 应用内部导航
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
   });
 
   return win;
@@ -168,6 +177,7 @@ app.whenReady().then(async () => {
   let url: string;
   try {
     url = await backend.start();
+    appUrl = url;
   } catch (e) {
     dialog.showErrorBox(
       t(lang, 'app_name'),
@@ -230,3 +240,10 @@ ipcMain.on('window-toggle-maximize', () => {
   else mainWindow.maximize();
 });
 ipcMain.on('window-close', () => mainWindow?.close());
+
+// ========== 外链拦截 IPC（preload 渲染进程点击拦截） ==========
+ipcMain.on('open-external', (_event, url: string) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    shell.openExternal(url).catch(() => {});
+  }
+});
