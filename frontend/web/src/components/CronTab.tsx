@@ -1,0 +1,563 @@
+/**
+ * @fileoverview Cron 定时任务管理 Tab 组件
+ *
+ * 设置弹窗（SetupForm）中的第三个 Tab，用于管理 / 创建 cron 定时任务：
+ * - 顶部状态条：调度器运行状态 + 任务统计
+ * - 任务列表：折叠卡片展示名称 / cron 表达式 / 启用状态 / 运行记录
+ * - 操作：新建 / 编辑 / 删除 / 启用切换 / 手动运行，全部即时生效
+ *
+ * 数据流（与设置弹窗底部「保存」按钮解耦）：
+ * - 挂载时并行加载调度器状态 + 任务列表（独立 loading，不阻塞其他 Tab）
+ * - 每次操作完成后静默刷新列表（不置 loading、不重置展开状态，避免 UI 抖动）
+ * - 不做定时轮询：调度器每 30s tick 更新磁盘注册表，弹窗内无需主动跟随
+ *
+ * @module CronTab
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { t, type UiLanguage } from '../i18n';
+import { cronApi, type CronJob, type CronSchedulerStatus } from '../api';
+
+/** 输入框通用样式（聚焦散光，与 SetupForm 保持一致） */
+const inputClass = 'w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200';
+/** 字段标签样式 */
+const labelClass = 'text-xs font-medium text-content-secondary mb-1.5';
+
+/** 前端 cron 表达式基础校验（5 字段 + 合法字符；后端 croniter 严格校验兜底） */
+function isValidCron(s: string): boolean {
+  const parts = s.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  return parts.every((p) => /^[0-9*?,/\-#Lw]+$/i.test(p));
+}
+
+/** 时间字符串截断显示（本地时间 ISO，如 2026-08-10T14:30:00 → 2026-08-10 14:30） */
+function formatTime(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.length > 16 ? s.slice(0, 16).replace('T', ' ') : s;
+}
+
+/** 任务表单草稿（新建 / 编辑共用） */
+interface JobDraft {
+  name: string;
+  schedule: string;
+  prompt: string;
+  recurring: boolean;
+  enabled: boolean;
+  delete_after_run: boolean;
+  deliver_to: string;
+}
+
+/** 空表单草稿初始值 */
+function makeEmptyDraft(): JobDraft {
+  return {
+    name: '',
+    schedule: '',
+    prompt: '',
+    recurring: true,
+    enabled: true,
+    delete_after_run: false,
+    deliver_to: '',
+  };
+}
+
+/** 从任务填充表单草稿（编辑用） */
+function draftFromJob(job: CronJob): JobDraft {
+  return {
+    name: job.name,
+    schedule: job.schedule,
+    prompt: job.prompt,
+    recurring: job.recurring,
+    enabled: job.enabled,
+    delete_after_run: job.delete_after_run,
+    deliver_to: job.deliver_to.join(', '),
+  };
+}
+
+/**
+ * CronTab 组件属性接口
+ */
+interface CronTabProps {
+  /** 当前 UI 语言 */
+  lang: UiLanguage;
+}
+
+/**
+ * Cron 定时任务管理 Tab 组件
+ *
+ * @param props - 组件属性
+ * @returns Tab JSX
+ */
+export function CronTab({ lang }: CronTabProps) {
+  /** 任务列表 */
+  const [jobs, setJobs] = useState<CronJob[]>([]);
+  /** 调度器状态 */
+  const [status, setStatus] = useState<CronSchedulerStatus | null>(null);
+  /** 首次加载中 */
+  const [loading, setLoading] = useState(true);
+  /** 首次加载错误 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 操作错误（增删改/运行/切换的即时错误） */
+  const [opError, setOpError] = useState<string | null>(null);
+  /** 展开的任务卡片 id */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  /** 正在运行的任务 id（仅该按钮显示 spinner） */
+  const [runningId, setRunningId] = useState<string | null>(null);
+  /** 新建/编辑表单是否可见 */
+  const [formVisible, setFormVisible] = useState(false);
+  /** 编辑中的任务（null = 新建模式） */
+  const [editingJob, setEditingJob] = useState<CronJob | null>(null);
+  /** 表单草稿 */
+  const [draft, setDraft] = useState<JobDraft>(makeEmptyDraft);
+  /** 表单提交错误 */
+  const [formError, setFormError] = useState<string | null>(null);
+
+  /** 加载调度器状态 + 任务列表
+   *
+   * @param silent 静默模式（操作后刷新用）：不置 loading、不覆盖 loadError，
+   *   避免列表闪烁 / 错误闪现；仅挂载时的首次加载显示加载态。
+   */
+  const loadAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [s, j] = await Promise.all([cronApi.status(), cronApi.list()]);
+      setStatus(s);
+      setJobs(j.jobs);
+      setLoadError(null);
+    } catch (err) {
+      if (!silent) {
+        setLoadError(err instanceof Error ? err.message : String(err));
+      }
+      // 静默刷新失败不打扰用户（下次操作会再次刷新）
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  // 挂载时加载一次；卸载后不再设置状态
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [s, j] = await Promise.all([cronApi.status(), cronApi.list()]);
+        if (cancelled) return;
+        setStatus(s);
+        setJobs(j.jobs);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** 切换任务启用状态（即时 API + 静默刷新） */
+  const handleToggleEnabled = useCallback(async (job: CronJob, enabled: boolean) => {
+    setOpError(null);
+    try {
+      await cronApi.update(job.id, { enabled });
+      await loadAll(true);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  }, [loadAll]);
+
+  /** 手动触发运行（即时 API + 静默刷新；运行后 last_run/last_status 更新） */
+  const handleRun = useCallback(async (job: CronJob) => {
+    setOpError(null);
+    setRunningId(job.id);
+    try {
+      const result = await cronApi.run(job.id);
+      if (result.status !== 'success') {
+        const detail = result.stderr ? `: ${result.stderr.slice(0, 200)}` : '';
+        setOpError(`${t(lang, 'cronRunFailed')} (${result.status})${detail}`);
+      }
+      await loadAll(true);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunningId(null);
+    }
+  }, [lang, loadAll]);
+
+  /** 删除任务（确认后即时 API + 静默刷新） */
+  const handleDelete = useCallback(async (job: CronJob) => {
+    if (!window.confirm(t(lang, 'cronDeleteConfirm'))) return;
+    setOpError(null);
+    try {
+      await cronApi.remove(job.id);
+      setExpandedId((cur) => (cur === job.id ? null : cur));
+      await loadAll(true);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  }, [lang, loadAll]);
+
+  /** 打开新建表单 */
+  const openCreate = useCallback(() => {
+    setEditingJob(null);
+    setDraft(makeEmptyDraft());
+    setFormError(null);
+    setFormVisible(true);
+  }, []);
+
+  /** 打开编辑表单（预填任务字段） */
+  const openEdit = useCallback((job: CronJob) => {
+    setEditingJob(job);
+    setDraft(draftFromJob(job));
+    setFormError(null);
+    setFormVisible(true);
+  }, []);
+
+  /** 提交表单（新建走 POST，编辑走 PATCH；提交后静默刷新） */
+  const handleSubmit = useCallback(async () => {
+    setFormError(null);
+    // 前端基础校验（后端严格校验兜底）
+    if (!isValidCron(draft.schedule)) {
+      setFormError(t(lang, 'cronInvalidSchedule'));
+      return;
+    }
+    if (!draft.prompt.trim()) {
+      setFormError(t(lang, 'cronPromptRequired'));
+      return;
+    }
+    const deliverTo = draft.deliver_to
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    try {
+      if (editingJob) {
+        await cronApi.update(editingJob.id, {
+          name: draft.name.trim() || undefined,
+          schedule: draft.schedule.trim(),
+          prompt: draft.prompt.trim(),
+          recurring: draft.recurring,
+          enabled: draft.enabled,
+          delete_after_run: draft.delete_after_run,
+          deliver_to: deliverTo,
+        });
+      } else {
+        await cronApi.create({
+          name: draft.name.trim() || undefined,
+          schedule: draft.schedule.trim(),
+          prompt: draft.prompt.trim(),
+          recurring: draft.recurring,
+          enabled: draft.enabled,
+          delete_after_run: draft.delete_after_run,
+          deliver_to: deliverTo,
+        });
+      }
+      setFormVisible(false);
+      setEditingJob(null);
+      await loadAll(true);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    }
+  }, [lang, editingJob, draft, loadAll]);
+
+  /** 调度器状态文本与指示灯 */
+  const schedulerRunning = status?.running ?? false;
+  const statusText = schedulerRunning
+    ? t(lang, 'cronSchedulerRunning')
+    : t(lang, 'cronSchedulerStopped');
+
+  return (
+    <div className="space-y-4">
+      {/* 调度器状态条 */}
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border-light bg-surface-card-alt">
+        <span className={`w-2 h-2 rounded-full ${schedulerRunning ? 'bg-success' : 'bg-content-disabled'}`} />
+        <span className={`text-sm ${schedulerRunning ? 'text-success' : 'text-content-secondary'}`}>{statusText}</span>
+        {status && (
+          <span className="text-xs text-content-disabled">
+            {t(lang, 'cronJobsCount')
+              .replace('{enabled}', String(status.enabled_jobs))
+              .replace('{total}', String(status.total_jobs))}
+          </span>
+        )}
+      </div>
+
+      {/* 操作错误 */}
+      {opError && <div className="text-xs text-danger">{opError}</div>}
+
+      {/* 任务列表 */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8 text-sm text-content-disabled">
+          <svg className="w-4 h-4 animate-spin mr-2" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+            <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          {t(lang, 'setupFormSaving')}
+        </div>
+      ) : loadError ? (
+        <div className="space-y-2">
+          <div className="text-sm text-danger">{t(lang, 'setupFormLoadFailed')}: {loadError}</div>
+          <button
+            onClick={() => loadAll(false)}
+            className="px-3 py-1.5 rounded-md text-xs text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer"
+          >
+            {t(lang, 'cronLoadRetry')}
+          </button>
+        </div>
+      ) : jobs.length === 0 ? (
+        <div className="text-sm text-content-disabled italic py-4 text-center">{t(lang, 'cronJobsNone')}</div>
+      ) : (
+        <div className="space-y-1.5">
+          {jobs.map((job) => (
+            <CronJobCard
+              key={job.id}
+              lang={lang}
+              job={job}
+              expanded={expandedId === job.id}
+              onToggleExpand={() => setExpandedId((cur) => (cur === job.id ? null : job.id))}
+              running={runningId === job.id}
+              onToggleEnabled={(v) => handleToggleEnabled(job, v)}
+              onRun={() => handleRun(job)}
+              onEdit={() => openEdit(job)}
+              onDelete={() => handleDelete(job)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* 新建 / 编辑表单 */}
+      {formVisible ? (
+        <div className="rounded-lg border border-border-light p-4 space-y-3 bg-surface-card-alt/50">
+          <div className="text-sm font-medium text-content-primary">
+            {editingJob ? t(lang, 'cronJobEdit') : t(lang, 'cronJobAdd')}
+          </div>
+
+          {/* 名称（可选） */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldName')}</div>
+            <input
+              type="text"
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              className={inputClass}
+              placeholder="daily-report"
+            />
+          </div>
+
+          {/* cron 表达式 */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldSchedule')}</div>
+            <input
+              type="text"
+              value={draft.schedule}
+              onChange={(e) => setDraft({ ...draft, schedule: e.target.value })}
+              className={`${inputClass} font-mono`}
+              placeholder="0 9 * * *"
+            />
+            <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldScheduleHint')}</div>
+          </div>
+
+          {/* 提示词 */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldPrompt')}</div>
+            <textarea
+              value={draft.prompt}
+              onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
+              className={`${inputClass} resize-none`}
+              rows={3}
+            />
+            <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldPromptHint')}</div>
+          </div>
+
+          {/* 重复执行 / 启用 / 执行后自动删除 */}
+          <div className="space-y-2.5 pt-1">
+            <BoolFieldRow lang={lang} labelKey="cronFieldRecurring" checked={draft.recurring} onChange={(v) => setDraft({ ...draft, recurring: v })} />
+            <BoolFieldRow lang={lang} labelKey="cronFieldEnabled" checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+            <BoolFieldRow lang={lang} labelKey="cronFieldDeleteAfterRun" checked={draft.delete_after_run} onChange={(v) => setDraft({ ...draft, delete_after_run: v })} />
+          </div>
+
+          {/* 投递目标 */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldDeliverTo')}</div>
+            <input
+              type="text"
+              value={draft.deliver_to}
+              onChange={(e) => setDraft({ ...draft, deliver_to: e.target.value })}
+              className={inputClass}
+              placeholder="weixin:xxx, feishu:ou_xxx"
+            />
+            <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldDeliverToHint')}</div>
+          </div>
+
+          {/* 表单错误 */}
+          {formError && <div className="text-xs text-danger">{formError}</div>}
+
+          {/* 操作按钮 */}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={handleSubmit}
+              className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer"
+            >
+              {t(lang, 'cronJobSave')}
+            </button>
+            <button
+              onClick={() => { setFormVisible(false); setEditingJob(null); setFormError(null); }}
+              className="px-4 py-2 text-sm text-content-secondary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer border border-border-light"
+            >
+              {t(lang, 'cronJobCancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={openCreate}
+          className="px-3 py-1.5 rounded-md text-sm border border-border-light text-content-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+        >
+          + {t(lang, 'cronJobAdd')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ===== 子组件 =====
+
+/** 单个任务卡片属性 */
+interface CronJobCardProps {
+  lang: UiLanguage;
+  job: CronJob;
+  /** 是否展开 */
+  expanded: boolean;
+  /** 展开/收起回调 */
+  onToggleExpand: () => void;
+  /** 该任务是否正在手动运行（按钮显示 spinner） */
+  running: boolean;
+  /** 启用状态切换 */
+  onToggleEnabled: (v: boolean) => void;
+  /** 手动运行 */
+  onRun: () => void;
+  /** 编辑 */
+  onEdit: () => void;
+  /** 删除 */
+  onDelete: () => void;
+}
+
+/** 单个任务折叠卡片：折叠头显示名称/表达式/标签，展开显示详情与操作 */
+function CronJobCard({ lang, job, expanded, onToggleExpand, running, onToggleEnabled, onRun, onEdit, onDelete }: CronJobCardProps) {
+  const enabled = job.enabled;
+  const lastStatusLabel = job.last_status
+    ? ({
+        success: t(lang, 'cronStatusSuccess'),
+        failed: t(lang, 'cronStatusFailed'),
+        timeout: t(lang, 'cronStatusTimeout'),
+        error: t(lang, 'cronStatusError'),
+      })[job.last_status] ?? job.last_status
+    : '';
+  const lastRunText = job.last_run ? formatTime(job.last_run) : t(lang, 'cronNever');
+  const nextRunText = job.next_run ? formatTime(job.next_run) : '-';
+
+  return (
+    <div className={`rounded-lg border overflow-hidden transition-colors ${enabled ? 'border-border-light' : 'border-border-light opacity-80'}`}>
+      {/* 折叠头：指示灯 + 名称 + 表达式 + 类型标签 + 箭头 */}
+      <button
+        onClick={onToggleExpand}
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm bg-surface-card-alt hover:bg-surface-hover transition-colors cursor-pointer"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${enabled ? 'bg-primary' : 'bg-content-disabled/40'}`} />
+        <span className={`flex-1 text-left truncate ${enabled ? 'text-content-primary' : 'text-content-disabled'}`}>
+          {job.name}
+        </span>
+        <span className="font-mono text-[11px] text-content-secondary bg-surface-hover px-1.5 py-0.5 rounded shrink-0">{job.schedule}</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0 font-medium">
+          {job.recurring ? t(lang, 'cronRecurringTag') : t(lang, 'cronOneShotTag')}
+        </span>
+        <svg className={`w-3 h-3 shrink-0 transition-transform text-content-disabled ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
+      </button>
+
+      {/* 展开区：详情 + 操作 */}
+      {expanded && (
+        <div className="px-3 py-2.5 border-t border-border-light space-y-2.5 bg-surface-card">
+          {/* 提示词预览 */}
+          <div>
+            <div className="text-[11px] text-content-disabled mb-1">{t(lang, 'cronFieldPrompt')}</div>
+            <div className="text-xs text-content-secondary break-words leading-relaxed">{job.prompt}</div>
+          </div>
+
+          {/* 运行记录 */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-content-secondary">
+            <span>
+              <span className="text-content-disabled">{t(lang, 'cronLastRun')}:</span>{' '}
+              {lastRunText}
+              {lastStatusLabel && (
+                <span className={`ml-1.5 ${job.last_status === 'success' ? 'text-success' : 'text-danger'}`}>{lastStatusLabel}</span>
+              )}
+            </span>
+            <span>
+              <span className="text-content-disabled">{t(lang, 'cronNextRun')}:</span> {nextRunText}
+            </span>
+            {job.consecutive_errors > 0 && (
+              <span className="text-warning">{t(lang, 'cronErrors').replace('{n}', String(job.consecutive_errors))}</span>
+            )}
+          </div>
+
+          {/* 投递目标 */}
+          <div className="text-xs text-content-secondary">
+            <span className="text-content-disabled">{t(lang, 'cronFieldDeliverTo')}:</span>{' '}
+            {job.deliver_to.length > 0 ? job.deliver_to.join(', ') : t(lang, 'cronEmptyDeliverTo')}
+          </div>
+
+          {/* 操作行：启用开关 + 运行 / 编辑 / 删除 */}
+          <div className="flex items-center gap-3 pt-1 border-t border-border-light">
+            <button
+              onClick={() => onToggleEnabled(!enabled)}
+              className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${enabled ? 'bg-primary' : 'bg-surface-hover'}`}
+              title={enabled ? t(lang, 'cronFieldEnabled') : t(lang, 'cronFieldEnabled')}
+            >
+              <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: enabled ? '18px' : '2px' }} />
+            </button>
+
+            <button
+              onClick={onRun}
+              disabled={running}
+              className="px-2.5 py-1 rounded-md text-xs text-primary border border-primary/30 hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              {running && (
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
+              {running ? t(lang, 'cronJobRunning') : t(lang, 'cronJobRun')}
+            </button>
+
+            <button
+              onClick={onEdit}
+              className="px-2.5 py-1 rounded-md text-xs text-content-secondary border border-border-light hover:bg-surface-hover transition-colors cursor-pointer"
+            >
+              {t(lang, 'cronJobEdit')}
+            </button>
+
+            <button
+              onClick={onDelete}
+              className="px-2.5 py-1 rounded-md text-xs text-danger border border-danger/30 hover:bg-danger/10 transition-colors cursor-pointer"
+            >
+              {t(lang, 'cronJobDelete')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 布尔字段行（开关，样式与 SetupForm 一致） */
+function BoolFieldRow({ lang, labelKey, checked, onChange }: {
+  lang: UiLanguage; labelKey: string; checked: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-content-secondary">{t(lang, labelKey)}</span>
+      <button
+        onClick={() => onChange(!checked)}
+        className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${checked ? 'bg-primary' : 'bg-surface-hover'}`}
+      >
+        <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: checked ? '18px' : '2px' }} />
+      </button>
+    </div>
+  );
+}

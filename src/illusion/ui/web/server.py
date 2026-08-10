@@ -85,6 +85,9 @@ def create_app(
     # 注册渠道配置 REST 路由（channels.json 读写）
     from illusion.ui.web.channels_routes import register_channels_routes
     register_channels_routes(app, host_config)
+    # 注册 cron 定时任务 REST 路由（cron 注册表 CRUD + 调度器状态）
+    from illusion.ui.web.cron_routes import register_cron_routes
+    register_cron_routes(app, host_config)
 
     if not dev:
         dist_dir = _find_frontend_dist()

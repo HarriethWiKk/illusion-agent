@@ -126,6 +126,93 @@ export interface WeixinQrStatusResponse {
   };
 }
 
+/** cron 任务（GET /api/cron/jobs 返回的单个任务条目） */
+export interface CronJob {
+  /** 唯一标识符 */
+  id: string;
+  /** 人类可读的任务名称 */
+  name: string;
+  /** 5 字段 cron 表达式（本地时间） */
+  schedule: string;
+  /** 触发时执行的提示词 */
+  prompt: string;
+  /** 是否启用 */
+  enabled: boolean;
+  /** 是否重复执行（False 为一次性任务） */
+  recurring: boolean;
+  /** 一次性任务执行后是否自动删除 */
+  delete_after_run: boolean;
+  /** 工作目录 */
+  cwd: string | null;
+  /** 创建时间（本地时间 ISO） */
+  created_at: string;
+  /** 最后更新时间 */
+  updated_at: string;
+  /** 下次运行时间（无时区本地时间 ISO，无效时缺失） */
+  next_run: string | null;
+  /** 上次运行时间 */
+  last_run: string | null;
+  /** 上次执行状态：success/failed/timeout/error */
+  last_status: string | null;
+  /** 连续错误次数（成功时重置为 0） */
+  consecutive_errors: number;
+  /** 投递目标列表（channel:chat_id 格式） */
+  deliver_to: string[];
+  /** 来源渠道 */
+  origin_channel: string;
+  /** 来源会话 */
+  chat_id: string;
+}
+
+/** 创建 cron 任务请求体 */
+export interface CreateCronJobPayload {
+  /** 任务名称（可选，缺省自动生成） */
+  name?: string;
+  /** 5 字段 cron 表达式（必填） */
+  schedule: string;
+  /** 触发时执行的提示词（必填） */
+  prompt: string;
+  /** 是否重复执行（默认 True） */
+  recurring?: boolean;
+  /** 是否启用（默认 True） */
+  enabled?: boolean;
+  /** 一次性任务执行后是否自动删除 */
+  delete_after_run?: boolean;
+  /** 投递目标列表（channel:chat_id 格式，可选） */
+  deliver_to?: string[];
+}
+
+/** 更新 cron 任务请求体（仅提供需要修改的字段） */
+export type UpdateCronJobPayload = Partial<CreateCronJobPayload>;
+
+/** 调度器状态（GET /api/cron/status） */
+export interface CronSchedulerStatus {
+  /** 调度器是否运行 */
+  running: boolean;
+  /** 调度器进程 PID（未运行时为 null） */
+  pid: number | null;
+  /** 任务总数 */
+  total_jobs: number;
+  /** 启用任务数 */
+  enabled_jobs: number;
+}
+
+/** 手动运行结果（POST /api/cron/jobs/{id}/run） */
+export interface CronRunResult {
+  /** 执行状态：success/failed/timeout/error */
+  status: string;
+  /** 子进程退出码 */
+  returncode: number;
+  /** 开始时间 */
+  started_at: string;
+  /** 结束时间 */
+  ended_at: string;
+  /** 标准输出（截断） */
+  stdout: string;
+  /** 标准错误（截断） */
+  stderr: string;
+}
+
 /** 创建 env 请求体 */
 export interface CreateEnvPayload {
   api_format: string;
@@ -275,4 +362,34 @@ export const channelsApi = {
     if (baseUrl) params.set('base_url', baseUrl);
     return request<WeixinQrStatusResponse>(`/api/channels/weixin/qr/status?${params.toString()}`);
   },
+};
+
+/** cron 相关 API（定时任务注册表 CRUD + 调度器状态 + 手动触发） */
+export const cronApi = {
+  /** 查询调度器运行状态与任务统计 */
+  status: () => request<CronSchedulerStatus>('/api/cron/status'),
+  /** 列出全部任务（含禁用） */
+  list: () => request<{ jobs: CronJob[] }>('/api/cron/jobs'),
+  /** 创建任务（创建后后端自动确保调度器运行） */
+  create: (payload: CreateCronJobPayload) =>
+    request<{ id: string; job: CronJob }>('/api/cron/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** 更新任务（id 或名称定位；仅合并提供的字段） */
+  update: (identifier: string, payload: UpdateCronJobPayload) =>
+    request<{ success: boolean; job: CronJob }>(`/api/cron/jobs/${encodeURIComponent(identifier)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  /** 删除任务 */
+  remove: (identifier: string) =>
+    request<{ success: boolean }>(`/api/cron/jobs/${encodeURIComponent(identifier)}`, {
+      method: 'DELETE',
+    }),
+  /** 手动触发执行任务（请求等待执行完成，返回结果摘要） */
+  run: (identifier: string) =>
+    request<CronRunResult>(`/api/cron/jobs/${encodeURIComponent(identifier)}/run`, {
+      method: 'POST',
+    }),
 };

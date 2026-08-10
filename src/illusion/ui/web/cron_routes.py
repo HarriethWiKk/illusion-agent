@@ -1,0 +1,281 @@
+"""Web 端 Cron 定时任务 REST 路由模块
+=====================================
+
+供 web 前端通过 HTTP 管理 cron 定时任务（注册表 CRUD + 调度器状态 + 手动触发）。
+
+与 env_routes.py / channels_routes.py 职责分离：本模块只处理 cron 任务的
+创建、读取、更新、删除、手动运行，以及调度器运行状态查询。
+
+任务持久化在 cron 注册表文件（~/.illusion/cron/jobs.json），调度器守护进程
+每 30s tick 从磁盘重新加载，因此本模块直接读写注册表即可被调度器感知，
+无需额外通知守护进程；仅在创建任务时确保守护进程已拉起。
+
+路由清单：
+    - GET  /api/cron/status                 查询调度器运行状态与任务统计
+    - GET  /api/cron/jobs                   列出全部任务（含禁用）
+    - POST /api/cron/jobs                   创建任务（创建后确保调度器运行）
+    - PATCH /api/cron/jobs/{identifier}     更新任务（schedule/prompt/enabled 等）
+    - DELETE /api/cron/jobs/{identifier}    删除任务
+    - POST /api/cron/jobs/{identifier}/run  手动触发执行任务
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from typing import Any
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from illusion.services.cron import (
+    delete_cron_job,
+    get_cron_job,
+    get_cron_job_by_name,
+    load_cron_jobs,
+    upsert_cron_job,
+    validate_cron_expression,
+)
+
+logger = logging.getLogger(__name__)
+
+# 手动运行返回的 stdout/stderr 截断长度（避免大输出撑爆 HTTP 响应）
+_RUN_OUTPUT_LIMIT = 2000
+
+
+class CreateCronJobRequest(BaseModel):
+    """创建 cron 任务请求体。
+
+    Attributes:
+        name: 任务名称（可选，缺省自动生成）
+        schedule: 5 字段 cron 表达式（本地时间，必填）
+        prompt: 触发时执行的提示词（必填）
+        recurring: 是否重复执行（默认 True）
+        enabled: 是否启用（默认 True）
+        delete_after_run: 一次性任务执行后是否自动删除
+        deliver_to: 投递目标列表（channel:chat_id 格式，可选）
+    """
+
+    name: str | None = None
+    schedule: str
+    prompt: str
+    recurring: bool = True
+    enabled: bool = True
+    delete_after_run: bool = False
+    deliver_to: list[str] = []
+
+
+class UpdateCronJobRequest(BaseModel):
+    """更新 cron 任务请求体（仅提供需要修改的字段）。
+
+    Attributes:
+        name: 新任务名称（与其他任务重名时返回 400）
+        schedule: 新 cron 表达式
+        prompt: 新提示词
+        recurring: 是否重复执行
+        enabled: 是否启用
+        delete_after_run: 一次性任务执行后是否自动删除
+        deliver_to: 投递目标列表
+    """
+
+    name: str | None = None
+    schedule: str | None = None
+    prompt: str | None = None
+    recurring: bool | None = None
+    enabled: bool | None = None
+    delete_after_run: bool | None = None
+    deliver_to: list[str] | None = None
+
+
+def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
+    """注册 cron 定时任务 HTTP 路由到 FastAPI app。
+
+    Args:
+        app: FastAPI 应用实例
+        host_config: 宿主配置（保留参数以与 env_routes 签名对齐，当前未使用）
+    """
+
+    @app.get("/api/cron/status")
+    async def get_cron_status() -> dict[str, Any]:
+        """查询调度器运行状态与任务统计。
+
+        Returns:
+            dict: 包含 running/pid/total_jobs/enabled_jobs 的状态字典
+        """
+        from illusion.services.cron_scheduler import scheduler_status
+
+        status = scheduler_status()
+        return {
+            "running": bool(status.get("running", False)),
+            "pid": status.get("pid"),
+            "total_jobs": int(status.get("total_jobs", 0)),
+            "enabled_jobs": int(status.get("enabled_jobs", 0)),
+        }
+
+    @app.get("/api/cron/jobs")
+    async def list_cron_jobs() -> dict[str, Any]:
+        """列出全部 cron 任务（含禁用任务）。
+
+        Returns:
+            dict: {"jobs": [任务字典, ...]}，按名称排序
+        """
+        return {"jobs": load_cron_jobs()}
+
+    @app.post("/api/cron/jobs")
+    async def create_cron_job(req: CreateCronJobRequest) -> dict[str, Any]:
+        """创建 cron 任务并持久化。
+
+        校验 cron 表达式与提示词必填；创建成功后确保调度器守护进程已拉起
+        （spawn 失败不影响任务创建结果）。
+
+        Args:
+            req: 创建请求体
+
+        Returns:
+            dict: {"id": str, "job": 完整任务字典}
+        """
+        schedule = req.schedule.strip()
+        if not validate_cron_expression(schedule):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid cron expression: {req.schedule!r}\n"
+                    "Use 5-field format: minute hour day month weekday\n"
+                    "Examples: '*/5 * * * *' (every 5 min), '0 9 * * 1-5' (weekdays 9am)"
+                ),
+            )
+        prompt = req.prompt.strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt is required")
+
+        job_data: dict[str, Any] = {
+            "schedule": schedule,
+            "prompt": prompt,
+            "recurring": req.recurring,
+            "enabled": req.enabled,
+            "delete_after_run": req.delete_after_run,
+            "cwd": os.getcwd(),
+            "deliver_to": req.deliver_to,
+        }
+        if req.name is not None and req.name.strip():
+            job_data["name"] = req.name.strip()
+
+        job_id = upsert_cron_job(job_data)
+
+        # 确保调度器守护进程已运行（创建任务后自动拉起，与 cron_tool 行为一致）
+        # 使用 asyncio.to_thread 避免阻塞事件循环；失败仅记录日志
+        try:
+            from illusion.services.cron_spawn import maybe_spawn_cron_daemon
+
+            await asyncio.to_thread(maybe_spawn_cron_daemon)
+        except (ImportError, OSError, RuntimeError, asyncio.TimeoutError) as exc:
+            logger.warning("cron 守护进程拉起失败: %s", exc)
+
+        job = get_cron_job(job_id)
+        return {"id": job_id, "job": job if job is not None else job_data}
+
+    @app.patch("/api/cron/jobs/{identifier}")
+    async def update_cron_job(
+        identifier: str,
+        req: UpdateCronJobRequest,
+    ) -> dict[str, Any]:
+        """更新 cron 任务并持久化。
+
+        仅修改请求中提供的字段；name 与其他任务重名时返回 400；
+        schedule 更新后自动重算 next_run。
+
+        Args:
+            identifier: 任务 ID 或名称
+            req: 更新请求体
+
+        Returns:
+            dict: {"success": True, "job": 更新后的任务字典}
+        """
+        job = get_cron_job(identifier)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Cron job not found: {identifier}")
+
+        # name 重命名：检查与现有任务重名（排除自身）
+        if req.name is not None:
+            new_name = req.name.strip()
+            if not new_name:
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            existing = get_cron_job_by_name(new_name)
+            if existing is not None and existing.get("id") != job.get("id"):
+                raise HTTPException(status_code=400, detail=f"Cron job name already exists: {new_name}")
+            job["name"] = new_name
+
+        if req.schedule is not None:
+            schedule = req.schedule.strip()
+            if not validate_cron_expression(schedule):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid cron expression: {req.schedule!r}",
+                )
+            job["schedule"] = schedule
+
+        if req.prompt is not None:
+            prompt = req.prompt.strip()
+            if not prompt:
+                raise HTTPException(status_code=400, detail="prompt cannot be empty")
+            job["prompt"] = prompt
+
+        if req.recurring is not None:
+            job["recurring"] = req.recurring
+
+        if req.enabled is not None:
+            job["enabled"] = req.enabled
+
+        if req.delete_after_run is not None:
+            job["delete_after_run"] = req.delete_after_run
+
+        if req.deliver_to is not None:
+            job["deliver_to"] = req.deliver_to
+
+        upsert_cron_job(job)
+        return {"success": True, "job": get_cron_job(identifier)}
+
+    @app.delete("/api/cron/jobs/{identifier}")
+    async def remove_cron_job(identifier: str) -> dict[str, Any]:
+        """删除 cron 任务。
+
+        Args:
+            identifier: 任务 ID 或名称
+
+        Returns:
+            dict: {"success": True}
+        """
+        if not delete_cron_job(identifier):
+            raise HTTPException(status_code=404, detail=f"Cron job not found: {identifier}")
+        return {"success": True}
+
+    @app.post("/api/cron/jobs/{identifier}/run")
+    async def run_cron_job(identifier: str) -> dict[str, Any]:
+        """手动触发执行 cron 任务。
+
+        在独立子进程中执行任务提示词（`illusion -p`），请求等待执行完成，
+        返回结果摘要（stdout/stderr 截断）。
+
+        Args:
+            identifier: 任务 ID 或名称
+
+        Returns:
+            dict: 执行结果摘要 {status, returncode, started_at, ended_at, stdout, stderr}
+        """
+        from illusion.services.cron_scheduler import execute_job
+
+        job = get_cron_job(identifier)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Cron job not found: {identifier}")
+        if not job.get("prompt"):
+            raise HTTPException(status_code=400, detail=f"Job has no prompt: {identifier}")
+
+        entry = await execute_job(job)
+        return {
+            "status": entry.get("status", "unknown"),
+            "returncode": entry.get("returncode", "?"),
+            "started_at": entry.get("started_at", ""),
+            "ended_at": entry.get("ended_at", ""),
+            "stdout": str(entry.get("stdout", ""))[-_RUN_OUTPUT_LIMIT:],
+            "stderr": str(entry.get("stderr", ""))[-_RUN_OUTPUT_LIMIT:],
+        }

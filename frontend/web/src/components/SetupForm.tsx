@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import { GlassDropdown, type DropdownOption } from './GlassDropdown';
+import { CronTab } from './CronTab';
 import {
   envApi, oauthApi, settingsApi, channelsApi,
   type EnvInfo, type SettingsResponse, type CreateEnvPayload,
@@ -159,7 +160,7 @@ const labelClass = 'text-xs font-medium text-content-secondary mb-1.5';
  */
 export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose }: SetupFormProps) {
   /** 当前 Tab */
-  const [tab, setTab] = useState<'settings' | 'channels'>('settings');
+  const [tab, setTab] = useState<'settings' | 'channels' | 'cron'>('settings');
   /** 加载状态 */
   const [loading, setLoading] = useState(true);
   /** 加载错误 */
@@ -391,9 +392,11 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
 
         {/* Tab 导航栏 */}
         <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0">
-          {(['settings', 'channels'] as const).map((tabKey, idx) => {
+          {(['settings', 'channels', 'cron'] as const).map((tabKey, idx) => {
             const isActive = tab === tabKey;
-            const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle' : 'setupFormChannelsTitle';
+            const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle'
+              : tabKey === 'channels' ? 'setupFormChannelsTitle'
+              : 'setupFormCronTitle';
             return (
               <button
                 key={tabKey}
@@ -408,9 +411,11 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
           })}
         </div>
 
-        {/* 内容区 */}
+        {/* 内容区：cron Tab 独立加载数据，不依赖 settings/envs/channels 主加载流程 */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {loading ? (
+          {tab === 'cron' ? (
+            <CronTab lang={lang} />
+          ) : loading ? (
             <div className="flex items-center justify-center py-12 text-sm text-content-disabled">
               <svg className="w-4 h-4 animate-spin mr-2" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
@@ -448,7 +453,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
           )}
         </div>
 
-        {/* 底部操作栏 */}
+        {/* 底部操作栏（cron Tab 操作即时生效，非首次登录时隐藏保存按钮） */}
         <div className="px-6 py-4 border-t border-border-light flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -459,19 +464,21 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
             </button>
             {saveError && <span className="text-xs text-danger">{t(lang, 'setupFormSaveFailed')}: {saveError}</span>}
           </div>
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {saving && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
-                <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            )}
-            {saving ? t(lang, 'setupFormSaving') : t(lang, 'setupFormSave')}
-          </button>
+          {!(tab === 'cron' && !firstLogin) && (
+            <button
+              onClick={handleSave}
+              disabled={!canSave}
+              className="px-4 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {saving && (
+                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.4" />
+                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
+              {saving ? t(lang, 'setupFormSaving') : t(lang, 'setupFormSave')}
+            </button>
+          )}
         </div>
       </div>
     </div>
