@@ -23,6 +23,7 @@ import Toolbar from './components/Toolbar';
 import RightPanel from './components/RightPanel';
 import TitleBar from './components/TitleBar';
 import ConnectingOverlay from './components/ConnectingOverlay';
+import ImagePreview from './components/ImagePreview';
 import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
@@ -832,6 +833,8 @@ export default function App() {
 
       {/* 首次启动连接后端的全屏遮罩层（替代原顶部"正在连接..."横条） */}
       {!session.connected && <ConnectingOverlay lang={lang} />}
+      {/* 应用内图片预览（Lightbox）：点击 markdown 图片/图片链接时打开 */}
+      <ImagePreview lang={lang} />
     </div>
   );
 }

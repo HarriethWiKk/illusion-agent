@@ -21,6 +21,7 @@ import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
 import { renderAnsi } from '../utils/ansi';
+import { openImagePreview } from '../utils/imagePreview';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 /** 从 rehype-highlight 注入的 className 中提取语言名 */
@@ -93,7 +94,16 @@ function CodeCopyButton({ text }: { text: string }) {
   );
 }
 
-/** 自定义 <pre> —— 顶栏：语言名 + 复制按钮 */
+/** 图片文件 URL 判定（含 query/hash 后缀，如 https://x.com/a.png?raw=1） */
+const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)(\?.*)?(#.*)?$/i;
+
+/**
+ * 自定义 markdown 组件
+ *
+ * - pre：代码块顶栏（语言名 + 复制按钮）
+ * - img：点击在应用内打开图片预览（不跳转外部浏览器，避免桌面端被困）
+ * - a：图片链接（href 指向图片文件）同样在应用内预览；其余链接保持默认行为
+ */
 const mdComponents = {
   pre: ({ children, ...rest }: React.ComponentPropsWithoutRef<'pre'>) => {
     const codeChild = children as React.ReactElement<{ className?: string; children?: React.ReactNode }> | undefined;
@@ -109,6 +119,31 @@ const mdComponents = {
       </div>
     );
   },
+  img: ({ src, alt, ...rest }: React.ComponentPropsWithoutRef<'img'>) => (
+    <img
+      {...rest}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onClick={() => src && openImagePreview(src)}
+      className="cursor-zoom-in max-w-full h-auto rounded"
+    />
+  ),
+  a: ({ href, children, ...rest }: React.ComponentPropsWithoutRef<'a'>) => (
+    <a
+      {...rest}
+      href={href}
+      onClick={(e) => {
+        // 图片链接在应用内预览（桌面端不会被外链拦截器重定向到系统浏览器）
+        if (href && IMAGE_URL_RE.test(href)) {
+          e.preventDefault();
+          openImagePreview(href);
+        }
+      }}
+    >
+      {children}
+    </a>
+  ),
 };
 
 /**
