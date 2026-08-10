@@ -17,12 +17,51 @@ import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema, type Options as SanitizeOptions } from 'rehype-sanitize';
+import type { PluggableList } from 'unified';
 import 'highlight.js/styles/github.css';
 import { t, type UiLanguage } from '../i18n';
 import { toolDisplayName } from '../utils/toolDisplayName';
 import { renderAnsi } from '../utils/ansi';
 import { openImagePreview } from '../utils/imagePreview';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
+
+/**
+ * HTML 消毒 schema（防 XSS，对齐 opencode 的 DOMPurify 处理）
+ *
+ * 基于 rehype-sanitize 默认白名单：
+ * - 过滤 script/style/iframe 及全部 on* 事件属性（如 <img onerror=...>）
+ * - 额外允许 className（rehype-highlight 注入的语言类与 hljs 高亮 span 需要）
+ * - img src 额外允许 data: 协议（兼容 base64 内联图片）
+ */
+const sanitizeSchema: SanitizeOptions = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'className'],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), 'data'],
+  },
+};
+
+/** 所有 markdown 渲染共用的 rehype 插件链：代码高亮 → 原始 HTML → 消毒 */
+const rehypePlugins: PluggableList = [rehypeHighlight, rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+
+/** 行内代码内容为纯 URL 时渲染为可点击链接（对齐 opencode markCodeLinks） */
+const URL_PATTERN = /^https?:\/\/[^\s<>()`"']+$/;
+
+/** 提取 code 文本中的有效 URL（去除尾部标点），无效返回 undefined */
+function codeUrl(text: string): string | undefined {
+  const href = text.trim().replace(/[),.;!?]+$/, '');
+  if (!URL_PATTERN.test(href)) return undefined;
+  try {
+    return new URL(href).toString();
+  } catch {
+    return undefined;
+  }
+}
 
 /** 从 rehype-highlight 注入的 className 中提取语言名 */
 function extractLanguage(props: Record<string, unknown>): string | undefined {
@@ -102,7 +141,9 @@ const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)(\?.*)?(#.*)?$/i;
  *
  * - pre：代码块顶栏（语言名 + 复制按钮）
  * - img：点击在应用内打开图片预览（不跳转外部浏览器，避免桌面端被困）
- * - a：图片链接（href 指向图片文件）同样在应用内预览；其余链接保持默认行为
+ * - a：图片链接在应用内预览；外部链接新标签打开并强制 rel="noopener noreferrer"
+ *   防 tabnabbing（反向劫持），web 端不离开应用、桌面端由 setWindowOpenHandler 接管
+ * - code：行内代码内容为纯 URL 时渲染为可点击链接（对齐 opencode markCodeLinks）
  */
 const mdComponents = {
   pre: ({ children, ...rest }: React.ComponentPropsWithoutRef<'pre'>) => {
@@ -129,21 +170,45 @@ const mdComponents = {
       className="cursor-zoom-in max-w-full h-auto rounded"
     />
   ),
-  a: ({ href, children, ...rest }: React.ComponentPropsWithoutRef<'a'>) => (
-    <a
-      {...rest}
-      href={href}
-      onClick={(e) => {
-        // 图片链接在应用内预览（桌面端不会被外链拦截器重定向到系统浏览器）
-        if (href && IMAGE_URL_RE.test(href)) {
-          e.preventDefault();
-          openImagePreview(href);
-        }
-      }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children, ...rest }: React.ComponentPropsWithoutRef<'a'>) => {
+    const isExternal = !!href && /^https?:\/\//i.test(href);
+    return (
+      <a
+        {...rest}
+        href={href}
+        {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        onClick={(e) => {
+          // 图片链接在应用内预览（桌面端不会被外链拦截器重定向到系统浏览器）
+          if (href && IMAGE_URL_RE.test(href)) {
+            e.preventDefault();
+            openImagePreview(href);
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
+  code: ({ children, className, ...rest }: React.ComponentPropsWithoutRef<'code'>) => {
+    // 块级代码（rehype-highlight 注入 language-xxx）不处理；
+    // 行内代码内容为纯 URL 时渲染为可点击链接
+    const isBlock = !!className?.includes('language-');
+    if (!isBlock) {
+      const url = codeUrl(extractText(children));
+      if (url) {
+        return (
+          <a href={url} target="_blank" rel="noopener noreferrer" className="break-all">
+            {children}
+          </a>
+        );
+      }
+    }
+    return (
+      <code className={className} {...rest}>
+        {children}
+      </code>
+    );
+  },
 };
 
 /**
@@ -261,7 +326,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
       <div className="py-1.5 group">
         {reasoning}
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
             {item.text}
           </ReactMarkdown>
         </div>
@@ -491,7 +556,7 @@ export function ThinkingBlock({
         <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
           <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
             <div className="prose prose-sm max-w-full">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
                 {text}
               </ReactMarkdown>
             </div>
@@ -718,7 +783,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
       )}
       {hasText && (
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={[rehypeHighlight, rehypeRaw]} components={mdComponents}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
             {text}
           </ReactMarkdown>
           <span className="inline-block w-0.5 h-4 bg-primary animate-blink align-middle" />
