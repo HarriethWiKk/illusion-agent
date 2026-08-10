@@ -624,7 +624,11 @@ export default function App() {
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
         <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
-          hasActiveTasks={session.tasks.some((t) => t.status === 'in_progress' || t.status === 'pending')}
+          hasActiveTasks={session.tasks.some(
+            (t) =>
+              (t.status === 'in_progress' || t.status === 'pending') &&
+              t.metadata?.owner_session_id === session.activeSessionId,
+          )}
           commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
           inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
           btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />

@@ -105,13 +105,15 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   useImperativeHandle(ref, () => ({
     setDraft: (text: string) => {
       setValue(text);
-      // 聚焦输入框并移到末尾
+      // 聚焦输入框并移到末尾，同时按内容自适应高度（onInput 不会因程序化赋值触发）
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         if (ta) {
           ta.focus();
           const len = text.length;
           ta.setSelectionRange(len, len);
+          ta.style.height = 'auto';
+          ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
         }
       });
     },
