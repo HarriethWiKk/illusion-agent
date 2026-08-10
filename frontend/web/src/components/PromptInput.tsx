@@ -429,8 +429,8 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           placeholder={connected ? t(lang, 'input_placeholder') : t(lang, 'disconnected')}
           rows={1}
           disabled={!connected}
-          className="flex-1 resize-none bg-transparent text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed leading-normal py-2.5 pl-3 pr-2"
-          style={{ height: 'auto', overflow: 'hidden' }}
+          className="flex-1 resize-none bg-transparent text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed leading-normal py-2.5 pl-3 pr-2 scrollbar-hidden"
+          style={{ height: 'auto', overflowY: 'auto' }}
           onInput={(e) => {
             const el = e.currentTarget;
             el.style.height = 'auto';
