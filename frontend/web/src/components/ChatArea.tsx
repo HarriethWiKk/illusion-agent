@@ -13,17 +13,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, type UiLanguage } from '../i18n';
-import MessageBubble, { PendingToolBubble, StreamingBuffer, ThinkingBlock } from './MessageBubble';
+import MessageBubble, { PendingToolBubble, StreamingBuffer, ThinkingBlock, useContentCollapse } from './MessageBubble';
 import WelcomeScreen from './WelcomeScreen';
 import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
 
 /** 消息列表收缩阈值：超过此轮次时折叠更早的消息 */
 const COLLAPSE_TURN_THRESHOLD = 5;
-/** 判定"已在底部附近"的像素容差（自动跟随在此范围内才生效，参考 kimi-code） */
-const FOLLOW_THRESHOLD_PX = 30;
-/** 判定"用户已离开底部"的像素容差（超过此距离显示"回到底部"按钮） */
+/** 判定"已在底部附近"的像素容差（向下滚动到此范围内恢复跟随 */
 const BOTTOM_THRESHOLD_PX = 80;
+/** 平滑滚动保护窗：点击"回到底部"后此期间内跳过 instant 跟随滚动，避免打断动画 */
+const SMOOTH_SCROLL_GUARD_MS = 420;
+/** 平滑滚动事件忽略窗：平滑滚动进行中的 scroll 事件不参与跟随判定 */
+const SMOOTH_EVENT_IGNORE_MS = 100;
 
 /**
  * 将一轮对话的 items 拆分为三部分：
@@ -122,6 +124,13 @@ function TaskCompleteSection({ streaming, lang, hasContent, children }: { stream
     setOpen(!open);
   };
 
+  // 点击内容区域快速折叠（对齐思考过程的单击折叠）；跳过内层独立折叠区
+  // （思考过程块、工具行）与交互元素，点击中间 text 空白处即收起整个区
+  const { handleClick: handleContentClick, handleDoubleClick: handleContentDoubleClick } = useContentCollapse(() => {
+    interactedRef.current = true;
+    setOpen(false);
+  }, '[data-thinking-block], [data-tool-row]');
+
   return (
     <div className="my-2">
       {/* 三级标题：与最终回复 markdown 渲染的 h3（.prose h3 = 1.125em/700/主色）保持一致 */}
@@ -146,7 +155,18 @@ function TaskCompleteSection({ streaming, lang, hasContent, children }: { stream
       </h3>
       {/* 标题下方的分隔直线 */}
       <div className="border-t border-border-light" />
-      {open && hasContent && <div className="mt-1.5">{children}</div>}
+      {/* 展开/折叠微动画（与右栏 skills 折叠风格一致：grid 高度过渡 + fade-in-up） */}
+      {hasContent && (
+        <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: open ? '1fr' : '0fr' }}>
+          <div className="overflow-hidden">
+            <div className={open ? 'animate-fade-in-up' : ''} style={open ? { animationDelay: '80ms' } : undefined}>
+              <div className="mt-1.5" onClick={handleContentClick} onDoubleClick={handleContentDoubleClick}>
+                {children}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -214,10 +234,14 @@ export default function ChatArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  // 用户是否上滑过（查看历史）：true 时流式增长不打扰
-  const userScrolledUpRef = useRef(false);
-  // 程序滚动标记：auto-scroll 赋值 scrollTop 后派生的 scroll 事件用此忽略，
-  // 避免被当作"用户滚动"误判（赋值后 scrollTop 在底部，位置判定也兜底）
+  // 是否跟随底部（对齐 kimi-code 的弱跟随）：用户向上滚动即停止跟随，
+  // 恢复仅通过"向下滚动回底部附近"或点击"回到底部"按钮
+  const followingRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  // 平滑滚动保护（参考 kimi-code）：平滑滚动期间跳过 instant 跟随与滚动事件判定
+  const lastSmoothScrollAtRef = useRef(0);
+  const smoothScrollGuardUntilRef = useRef(0);
+  // 程序滚动标记：auto-scroll 赋值 scrollTop 后派生的 scroll 事件用此忽略
   const programmaticScrollRef = useRef(false);
 
   // 按用户消息分组为轮次(turn)，每轮以用户消息开头
@@ -251,41 +275,51 @@ export default function ChatArea({
   // tool_use_id → tool_input 映射，用于 tool_result 摘要显示
   const toolInputMap = useMemo(() => buildToolInputMap(staticItems), [staticItems]);
 
-  /** 检查滚动容器是否在底部附近（按钮显示用：离开底部较远时显示"回到底部"） */
-  const isNearBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return true;
-    const max = el.scrollHeight - el.clientHeight;
-    return el.scrollTop >= max - BOTTOM_THRESHOLD_PX;
-  }, []);
-
-  /** 滚动事件处理：程序滚动（auto-scroll 赋值）派生的 scroll 事件忽略；
-   *  用户滚动则更新"是否上滑"标志——滚回底部附近自动恢复跟随 */
+  /** 滚动事件处理（对齐 kimi-code 的弱跟随）：
+   *  向上滚动 → 停止跟随并立即显示"回到底部"按钮（跟随消失即显现）；
+   *  向下滚动到接近底部（≤ BOTTOM_THRESHOLD_PX）→ 恢复跟随并隐藏按钮。
+   *  程序滚动（auto-scroll 赋值）与平滑滚动（按钮触发）派生的事件忽略。 */
   const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
     if (programmaticScrollRef.current) {
       programmaticScrollRef.current = false;
+      lastScrollTopRef.current = el.scrollTop;
       return;
     }
-    const nearBottom = isNearBottom();
-    userScrolledUpRef.current = !nearBottom;
-    setShowScrollDown(!nearBottom && scrollRef.current ? scrollRef.current.scrollHeight - scrollRef.current.clientHeight > 200 : false);
-  }, [isNearBottom]);
+    // 平滑滚动动画中的事件不参与跟随判定（参考 kimi-code）
+    if (performance.now() - lastSmoothScrollAtRef.current < SMOOTH_EVENT_IGNORE_MS) return;
+    const top = el.scrollTop;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (top < lastScrollTopRef.current - 1 && dist > 1) {
+      // 用户向上滚动：停止跟随，显示回到底部按钮
+      followingRef.current = false;
+      setShowScrollDown(true);
+    } else if (dist <= BOTTOM_THRESHOLD_PX && top > lastScrollTopRef.current + 1) {
+      // 用户向下滚动回底部附近：恢复跟随
+      followingRef.current = true;
+      setShowScrollDown(false);
+    }
+    lastScrollTopRef.current = top;
+  }, []);
 
-  /** 一键回到底部 */
+  /** 一键回到底部：恢复自动跟随 + 平滑滚动（同时收起"显示更多"展开的历史轮次） */
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    userScrolledUpRef.current = false;
+    setExpanded(false);
+    followingRef.current = true;
     setShowScrollDown(false);
+    lastSmoothScrollAtRef.current = performance.now();
+    smoothScrollGuardUntilRef.current = performance.now() + SMOOTH_SCROLL_GUARD_MS;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    lastScrollTopRef.current = el.scrollHeight;
   }, []);
 
-  // 内容变化时自动滚动到底部：用户未上滑时无条件跟随（流式大段增量也能跟上）；
-  // 用户上滑过则仅在滚回底部附近（< FOLLOW_THRESHOLD_PX）时恢复跟随。
-  // 程序赋值后派生的 scroll 事件用 programmaticScrollRef 忽略；即使被误判，
-  // 位置兜底保证用户滚回底部后能恢复，不会永久卡住。
-  // 卡片弹出时强制回到底部：模态卡片是交互元素，即使此前用户上滑查看过历史，
-  // 也必须保证卡片可见，否则用户看不到问题与提交按钮
+  // 内容变化时自动滚动到底部（对齐 kimi-code 的弱跟随）：
+  // 仅当 following 时才跟随（用户向上滚过即不打扰，不会因内容更新被拉回）；
+  // 恢复跟随只能通过用户向下滚回底部附近或点击"回到底部"按钮。
+  // 卡片弹出时强制回到底部：模态卡片是交互元素，必须保证卡片可见。
   const prevModalRef = useRef<boolean | null>(null);
   useEffect(() => {
     // 先更新状态机再取容器：restore 分支（无滚动容器）下 ref 保持最新，
@@ -295,40 +329,42 @@ export default function ChatArea({
     const el = scrollRef.current;
     if (!el) return;
     if (modalAppeared) {
-      userScrolledUpRef.current = false;
+      followingRef.current = true;
       const prevTop = el.scrollTop;
       el.scrollTop = el.scrollHeight;
       if (el.scrollTop !== prevTop) programmaticScrollRef.current = true;
       setShowScrollDown(false);
       return;
     }
-    if (userScrolledUpRef.current) {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (distance > FOLLOW_THRESHOLD_PX) return; // 用户上滑中，不打扰
-      userScrolledUpRef.current = false; // 滚回底部附近，恢复跟随
-    }
+    if (!followingRef.current) return; // 用户已停止跟随：不打扰
+    // 平滑滚动动画中（刚点击回到底部按钮）跳过 instant 跟随，避免打断动画
+    if (performance.now() < smoothScrollGuardUntilRef.current) return;
     const prevTop = el.scrollTop;
     el.scrollTop = el.scrollHeight;
     if (el.scrollTop !== prevTop) programmaticScrollRef.current = true;
     setShowScrollDown(false); // 跟随到底后隐藏"回到底部"按钮
   }, [staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, modal]);
 
-  // 用户发送新消息时强制回到底部（忽略用户是否手动上滑过）
+  // 用户发送新消息时强制回到底部（忽略用户是否已停止跟随）
   const userMsgCount = useMemo(() => staticItems.filter((i) => i.role === 'user').length, [staticItems]);
   const prevUserMsgCountRef = useRef(0);
   useEffect(() => {
     if (userMsgCount > prevUserMsgCountRef.current) {
-      userScrolledUpRef.current = false;
+      followingRef.current = true;
       const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+        lastScrollTopRef.current = el.scrollHeight;
+      }
+      setShowScrollDown(false);
     }
     prevUserMsgCountRef.current = userMsgCount;
   }, [userMsgCount]);
 
-  // 新会话或恢复后重置展开状态
+  // 新会话或恢复后重置展开状态与跟随
   useEffect(() => {
     setExpanded(false);
-    userScrolledUpRef.current = false;
+    followingRef.current = true;
   }, [staticItems.length === 0]);
 
   const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0 || !!modal;

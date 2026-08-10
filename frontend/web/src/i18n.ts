@@ -342,6 +342,13 @@ const ZH: Record<string, string> = {
   cronOneShotTag: '一次性',
   cronEmptyDeliverTo: '无（仅本地执行）',
   cronLoadRetry: '重试',
+  cronFieldSession: '指定会话（可选）',
+  cronFieldSessionHint: '选择会话：留空（独立新会话）= 默认行为；选当前会话 = 在当前对话中执行；选其他会话 = 在指定会话中执行（Web/终端在线时实时同步，否则回退恢复会话）',
+  cronSessionTag: '会话',
+  cronSessionNone: '独立新会话（默认）',
+  cronChannelSessionsNone: '无可用渠道会话（需先启用渠道并产生对话）',
+  cronChannelEmpty: '渠道无会话',
+  cronDeliverToRemove: '移除投递目标',
 };
 
 const EN: Record<string, string> = {
@@ -658,6 +665,13 @@ const EN: Record<string, string> = {
   cronOneShotTag: 'one-shot',
   cronEmptyDeliverTo: 'None (local only)',
   cronLoadRetry: 'Retry',
+  cronFieldSession: 'Session (optional)',
+  cronFieldSessionHint: 'Pick a session: empty (isolated new session) = default; current session = run in the current conversation; other session = run in that session (synced live when Web/Terminal is online, otherwise falls back to resuming the session)',
+  cronSessionTag: 'session',
+  cronSessionNone: 'Isolated new session (default)',
+  cronChannelSessionsNone: 'No channel sessions available (enable a channel and have a conversation first)',
+  cronChannelEmpty: 'No sessions in this channel',
+  cronDeliverToRemove: 'Remove delivery target',
 };
 
 /**

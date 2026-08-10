@@ -411,7 +411,7 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
   const hasContent = !!text;
 
   return (
-    <div className="py-1.5">
+    <div data-tool-row className="py-1.5">
       <button
         onClick={() => hasContent && setOpen(!open)}
         className={`flex items-start text-base transition-colors cursor-pointer text-left ${hasContent ? 'text-content-secondary hover:text-content-primary' : ''}`}
@@ -467,6 +467,61 @@ function ProgressMessages({ messages, showCursor }: { messages: Array<{message: 
 }
 
 /**
+ * 点击内容区域快速折叠的公共逻辑（对齐思考过程的单击折叠）
+ *
+ * 不打断以下交互：
+ * - 文本选中/复制（selection 非空时跳过）
+ * - 链接、按钮、输入框等交互元素（closest 跳过）
+ * - 额外跳过指定区域（skipSelector，如外层折叠区忽略内层思考过程/工具行）
+ * - 双击/三击选词（延迟 300ms 折叠，onDoubleClick 取消）
+ *
+ * @param onCollapse - 折叠回调
+ * @param skipSelector - 额外跳过的选择器（命中则交给内层处理，不折叠）
+ */
+export function useContentCollapse(onCollapse: () => void, skipSelector?: string) {
+  // 待执行的折叠定时器：双击选词的第一击会触发 click（detail=1），
+  // 立即折叠会破坏双击/三击选词，故延迟折叠并允许 onDoubleClick 取消
+  const collapseTimerRef = useRef<number | undefined>(undefined);
+
+  // 组件卸载时清除待执行的折叠定时器
+  useEffect(() => {
+    return () => {
+      if (collapseTimerRef.current !== undefined) {
+        window.clearTimeout(collapseTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.detail > 1) return; // 双击第二击（此时已选中词）：不折叠
+    const target = e.target as HTMLElement;
+    // 交互元素交给默认行为：链接跳转、代码块复制按钮等
+    if (target.closest('a, button, input, textarea')) return;
+    // 内层独立折叠区（思考过程块、工具行）交给各自处理
+    if (skipSelector && target.closest(skipSelector)) return;
+    // 正在选中文本（复制场景）不折叠
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    // 延迟折叠（300ms）：双击的第一击 detail 也是 1，立即折叠会破坏
+    // 双击选词/三击选段；onDoubleClick 会在此窗口内取消定时器
+    collapseTimerRef.current = window.setTimeout(() => {
+      collapseTimerRef.current = undefined;
+      onCollapse();
+    }, 300);
+  };
+
+  /** 双击（选词）取消待执行的折叠 */
+  const handleDoubleClick = () => {
+    if (collapseTimerRef.current !== undefined) {
+      window.clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = undefined;
+    }
+  };
+
+  return { handleClick, handleDoubleClick };
+}
+
+/**
  * 思考过程块组件（独立折叠单元）
  *
  * 显示助手的思考/推理过程，支持折叠/展开。每个思考过程块独立折叠，
@@ -501,9 +556,6 @@ export function ThinkingBlock({
   const [open, setOpen] = useState(defaultOpen);
   // 用户是否手动操作过（展开/折叠）此块：手动操作后自动折叠信号不再覆盖
   const interactedRef = useRef(false);
-  // 待执行的点击折叠定时器：双击选词的第一击会触发 click（detail=1），
-  // 立即折叠会破坏双击/三击选词，故延迟折叠并允许 onDoubleClick 取消
-  const collapseTimerRef = useRef<number | undefined>(undefined);
   // React 官方 "adjusting state during render" 模式：prev 值用 state 存储，
   // 避免并发渲染（Suspense/transition 中断）下 ref 先写而 setState 未提交
   const [prevAutoCollapsed, setPrevAutoCollapsed] = useState(autoCollapsed);
@@ -514,15 +566,6 @@ export function ThinkingBlock({
     if (!interactedRef.current) setOpen(!autoCollapsed);
   }
 
-  // 组件卸载时清除待执行的折叠定时器
-  useEffect(() => {
-    return () => {
-      if (collapseTimerRef.current !== undefined) {
-        window.clearTimeout(collapseTimerRef.current);
-      }
-    };
-  }, []);
-
   if (!text?.trim()) return null;
 
   const handleToggle = () => {
@@ -530,34 +573,14 @@ export function ThinkingBlock({
     setOpen(!open);
   };
 
-  /** 点击已展开的内容区域折叠（不打断选中/复制/链接/复制按钮/双击选词） */
-  const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.detail > 1) return; // 双击第二击（此时已选中词）：不折叠
-    const target = e.target as HTMLElement;
-    // 交互元素交给默认行为：链接跳转、代码块复制按钮等
-    if (target.closest('a, button, input, textarea')) return;
-    // 正在选中文本（复制场景）不折叠
-    const sel = window.getSelection();
-    if (sel && !sel.isCollapsed) return;
-    // 延迟折叠（300ms）：双击的第一击 detail 也是 1，立即折叠会破坏
-    // 双击选词/三击选段；onDoubleClick 会在此窗口内取消定时器
-    collapseTimerRef.current = window.setTimeout(() => {
-      collapseTimerRef.current = undefined;
-      interactedRef.current = true;
-      setOpen(false);
-    }, 300);
-  };
-
-  /** 双击（选词）取消待执行的折叠 */
-  const handleContentDoubleClick = () => {
-    if (collapseTimerRef.current !== undefined) {
-      window.clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = undefined;
-    }
-  };
+  // 点击内容区域快速折叠（不打断选中/复制/链接/复制按钮/双击选词）
+  const { handleClick: handleContentClick, handleDoubleClick: handleContentDoubleClick } = useContentCollapse(() => {
+    interactedRef.current = true;
+    setOpen(false);
+  });
 
   return (
-    <div className="mb-1.5">
+    <div data-thinking-block className="mb-1.5">
       <button
         onClick={handleToggle}
         className="flex items-center gap-1.5 text-base text-content-primary leading-[1.8] transition-colors py-1.5 cursor-pointer"
@@ -581,18 +604,23 @@ export function ThinkingBlock({
           <path d="M4.5 2.5L8 6L4.5 9.5" />
         </svg>
       </button>
-      {open && (
-        <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
-          <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
-            <div className="prose prose-sm max-w-full">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
-                {text}
-              </ReactMarkdown>
+      {/* 展开/折叠微动画（与右栏 skills 折叠风格一致：grid 高度过渡 + fade-in-up） */}
+      <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: open ? '1fr' : '0fr' }}>
+        <div className="overflow-hidden">
+          <div className={open ? 'animate-fade-in-up' : ''} style={open ? { animationDelay: '80ms' } : undefined}>
+            <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
+              <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
+                <div className="prose prose-sm max-w-full">
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
+                    {text}
+                  </ReactMarkdown>
+                </div>
+                {streaming && <span className="inline-block w-0.5 h-3 bg-content-secondary animate-blink ml-0.5 align-middle" />}
+              </div>
             </div>
-            {streaming && <span className="inline-block w-0.5 h-3 bg-content-secondary animate-blink ml-0.5 align-middle" />}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -653,7 +681,7 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
     userScrolledRef.current = el.scrollTop < max - 24; // 滚到接近底部视为"跟随模式"
   }, []);
   return (
-    <div className="py-1.5">
+    <div data-tool-row className="py-1.5">
       <button
         onClick={() => progressMessages.length > 0 && setOpen(!open)}
         className={`flex items-start text-base transition-colors cursor-pointer text-left ${progressMessages.length > 0 ? 'text-content-secondary hover:text-content-primary' : ''}`}
