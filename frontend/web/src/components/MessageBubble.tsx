@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
 import rehypeHighlight from 'rehype-highlight';
@@ -108,6 +108,18 @@ function trimCodeTrailingLines(children: React.ReactNode): React.ReactNode {
   });
 }
 
+/**
+ * URL 转换（react-markdown 的 urlTransform）
+ *
+ * 默认只放行安全协议（http/https/mailto 等），data: 会被过滤成空导致
+ * base64 内联图片无法显示；这里额外放行图片 src 的 data: 协议，
+ * 其余 URL 沿用默认安全校验（javascript: 等仍被拦截）。
+ */
+const urlTransform = (url: string, key: string): string => {
+  if (key === 'src' && url.startsWith('data:')) return url;
+  return defaultUrlTransform(url);
+};
+
 /** 复制按钮 — opencode 风格 SVG */
 function CodeCopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -160,16 +172,33 @@ const mdComponents = {
       </div>
     );
   },
-  img: ({ src, alt, ...rest }: React.ComponentPropsWithoutRef<'img'>) => (
-    <img
-      {...rest}
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onClick={() => src && openImagePreview(src)}
-      className="cursor-zoom-in max-w-full h-auto rounded"
-    />
-  ),
+  img: ({ src, alt, ...rest }: React.ComponentPropsWithoutRef<'img'>) => {
+    // 加载失败（如无效 src）时显示美化占位，保留用户对损坏图片的感知
+    const [failed, setFailed] = useState(false);
+    if (failed) {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs text-content-disabled bg-surface-card-alt border border-dashed border-border-medium rounded-md px-2 py-1 my-1 select-none" title={src}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
+          </svg>
+          {alt || '图片加载失败'}
+        </span>
+      );
+    }
+    return (
+      <img
+        {...rest}
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onClick={() => src && openImagePreview(src)}
+        onError={() => setFailed(true)}
+        className="cursor-zoom-in max-w-full h-auto rounded"
+      />
+    );
+  },
   a: ({ href, children, ...rest }: React.ComponentPropsWithoutRef<'a'>) => {
     const isExternal = !!href && /^https?:\/\//i.test(href);
     return (
@@ -326,7 +355,7 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
       <div className="py-1.5 group">
         {reasoning}
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
             {item.text}
           </ReactMarkdown>
         </div>
@@ -556,7 +585,7 @@ export function ThinkingBlock({
         <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
           <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
             <div className="prose prose-sm max-w-full">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
                 {text}
               </ReactMarkdown>
             </div>
@@ -783,7 +812,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
       )}
       {hasText && (
         <div className="text-content-primary text-sm prose max-w-full select-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} components={mdComponents}>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
             {text}
           </ReactMarkdown>
           <span className="inline-block w-0.5 h-4 bg-primary animate-blink align-middle" />
