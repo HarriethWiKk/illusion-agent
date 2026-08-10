@@ -258,6 +258,7 @@ async def _execute_prompt_in_subprocess(
     cwd: Path,
     timeout: int = _JOB_TIMEOUT_SECONDS,
     extra_env: dict[str, str] | None = None,
+    extra_args: list[str] | None = None,
 ) -> dict[str, Any]:
     """在独立子进程中执行提示词。
 
@@ -269,11 +270,14 @@ async def _execute_prompt_in_subprocess(
         cwd: 工作目录
         timeout: 超时秒数
         extra_env: 额外环境变量（如 ILLUSION_CRON_TASK=1，用于子进程识别 cron 上下文）
+        extra_args: 额外命令行参数（如指定会话执行时追加 -r <session_id> --cwd）
 
     Returns:
         包含 returncode, stdout, stderr, status 的结果字典
     """
     cmd = _find_illusion_command() + ["-p", prompt]
+    if extra_args:
+        cmd.extend(extra_args)
 
     # 合并环境变量：继承父进程 + 额外变量
     env = dict(os.environ)
@@ -373,6 +377,101 @@ async def _execute_prompt_in_subprocess(
     }
 
 
+def _build_cron_context_prefix(
+    deliver_to_list: list[str],
+    chat_id: str,
+) -> str | None:
+    """构建 cron 任务上下文前缀（渠道身份提示）。
+
+    不告知 LLM「输出会被投递到某渠道」——那样 LLM 会在回复末尾画蛇添足地
+    声明「发送完成/已发送到 XX 频道」。改为直接告知当前所在渠道，让 LLM
+    以该渠道身份说话；投递由系统自动完成，无需 LLM 提及。
+
+    Args:
+        deliver_to_list: 投递目标列表（channel:chat_id 或 channel-only）
+        chat_id: 来源会话 ID（渠道-only 目标解析用）
+
+    Returns:
+        str | None: 前缀文本；无有效投递目标时返回 None
+    """
+    if not deliver_to_list:
+        return None
+    from illusion.channels.delivery import parse_deliver_targets
+
+    targets = parse_deliver_targets(deliver_to_list, chat_id)
+    if not targets:
+        return None
+    channel_names = sorted({t[0] for t in targets})
+    channel_labels = {"feishu": "Feishu", "weixin": "WeChat", "qq": "QQ"}
+    display = ", ".join(channel_labels.get(c, c) for c in channel_names)
+    return (
+        "[CRON TASK CONTEXT]\n"
+        "You are running as an automated cron task.\n"
+        f"You are currently in the {display} channel(s) — speak directly as yourself there.\n"
+        "Just output the message content; the system delivers it to the channel automatically.\n"
+        "Do NOT mention delivery in your reply (never say things like 'sent to ...' / '已发送').\n"
+        "Do NOT call send_to_channel / send_media / list_channel_sessions tools.\n\n"
+    )
+
+
+def validate_job_targets(job: dict[str, Any]) -> list[str]:
+    """校验任务引用的会话目标是否存在（session_id / deliver_to）。
+
+    任务到期执行前调用：若指定的项目会话或渠道会话已被删除（找不到对应
+    ID），返回错误列表，调用方据此拒绝执行（避免投递/执行到无效目标）。
+
+    Args:
+        job: 任务字典（含 cwd / session_id / deliver_to 字段）
+
+    Returns:
+        list[str]: 错误消息列表（空列表 = 校验通过）
+    """
+    errors: list[str] = []
+    cwd = Path(job.get("cwd") or ".").expanduser()
+
+    # 1. 指定项目会话存在性
+    session_id = str(job.get("session_id") or "").strip()
+    if session_id:
+        from illusion.services.session_storage import read_meta
+
+        meta = read_meta(cwd, session_id)
+        if not meta:
+            errors.append(f"Session not found: {session_id}")
+
+    # 2. 渠道投递目标存在性（channel:chat_id 格式，逐个解析校验）
+    deliver_to_list = job.get("deliver_to", []) or []
+    if isinstance(deliver_to_list, str):
+        # 兼容旧格式/错误数据：字符串视为单目标列表
+        deliver_to_list = [deliver_to_list]
+    if deliver_to_list:
+        from illusion.channels.delivery import parse_deliver_targets
+
+        # 传来源会话 chat_id：兼容渠道-only 格式（如 ["weixin"]，由创建时的
+        # chat_id 解析出完整目标），与 execute_job 实际投递逻辑保持一致
+        targets = parse_deliver_targets(
+            deliver_to_list,
+            chat_id=str(job.get("chat_id") or ""),
+        )
+        if not targets:
+            errors.append("deliver_to has no valid targets")
+        else:
+            from illusion.channels.config import load_channels_config
+            from illusion.prompts.channel_hints import list_active_sessions
+
+            cfg = load_channels_config()
+            for channel_name, chat_id, _chat_type in targets:
+                channel_cfg = getattr(cfg, channel_name, None)
+                if channel_cfg is None or not getattr(channel_cfg, "enabled", False):
+                    errors.append(f"Channel not enabled: {channel_name}")
+                    continue
+                # 渠道会话存在性：活跃会话列表匹配（会话文件被删除后不再出现）
+                sessions = list_active_sessions(channel_name, cfg, limit=1000)
+                if chat_id not in {s.chat_id for s in sessions}:
+                    errors.append(f"Channel session not found: {channel_name}:{chat_id}")
+
+    return errors
+
+
 async def execute_job(
     job: dict[str, Any],
     timeout: int = _JOB_TIMEOUT_SECONDS,
@@ -410,37 +509,76 @@ async def execute_job(
         append_history(entry)
         return entry
 
+    # 目标会话校验：session_id / deliver_to 引用的会话已被删除时拒绝执行
+    errors = validate_job_targets(job)
+    if errors:
+        detail = "\n".join(errors)
+        entry = {
+            "id": job.get("id", ""),
+            "name": name,
+            "prompt": prompt,
+            "started_at": started_at.isoformat(),
+            "ended_at": _now_local().isoformat(),
+            "returncode": -1,
+            "status": "error",
+            "stdout": "",
+            "stderr": f"Job targets invalid, execution rejected:\n{detail}",
+        }
+        logger.warning("Cron job %r targets invalid, rejected: %s", name, detail)
+        mark_job_run(job.get("id", name), success=False, status="error")
+        append_history(entry)
+        return entry
+
     logger.info("Executing cron job %r: %.80s", name, prompt)
 
-    # 拼接 cron 上下文前缀：告知 LLM 这是自动任务且 scheduler 会自动投递 stdout，
-    # 避免 LLM 调用 send_to_channel / send_media 等投递工具造成重复投递
+    # 拼接 cron 上下文前缀：以渠道身份提示告知 LLM 当前所在渠道
+    # （避免 LLM 在回复末尾声明"已发送到 XX 频道"），并阻止其调用投递工具
     deliver_to_list = job.get("deliver_to", []) or []
-
-    if deliver_to_list:
-        targets_display = ", ".join(deliver_to_list)
-        cron_prefix = (
-            "[CRON TASK CONTEXT]\n"
-            "You are running as an automated cron task.\n"
-            "The scheduler will automatically deliver your stdout to the target channel(s) "
-            f"({targets_display}).\n"
-            "Do NOT call send_to_channel / send_media / list_channel_sessions tools — "
-            "the scheduler handles delivery for you.\n"
-            "Just execute the task and print the final result to stdout.\n\n"
-        )
+    if isinstance(deliver_to_list, str):
+        # 兼容旧格式/错误数据：字符串视为单目标列表
+        deliver_to_list = [deliver_to_list]
+    cron_prefix = _build_cron_context_prefix(
+        deliver_to_list, str(job.get("chat_id") or ""),
+    )
+    if cron_prefix:
         actual_prompt = cron_prefix + prompt
     else:
         actual_prompt = prompt
 
+    # 指定会话执行（job.session_id 存在时）：优先委托给正在运行的 TUI/Web 主程序
+    # 在内存会话中执行（busy 转化、web 列表刷新天然正确）；领取窗口内无人接管
+    # 或总超时后回退为子进程 `illusion -p <prompt> -r <session_id>` 恢复会话执行。
+    session_id = str(job.get("session_id") or "").strip()
+    delegated_entry = None
+    if session_id:
+        # 委托执行使用带前缀的提示词：主程序在目标会话中执行时同样需要
+        # CRON 上下文提示（scheduler 负责投递），否则 LLM 可能自行调用
+        # send_to_channel 造成双重投递。复制 job 避免污染调用方字典。
+        delegated_entry = await _try_delegate_execution(
+            {**job, "prompt": actual_prompt}, timeout,
+        )
+
     # 设置环境变量标记 cron 任务上下文，子进程据此屏蔽 channel_hints 注入
     extra_env = {"ILLUSION_CRON_TASK": "1"} if deliver_to_list else None
 
-    # 在独立子进程中执行提示词
-    result = await _execute_prompt_in_subprocess(
-        actual_prompt, cwd, timeout=timeout, extra_env=extra_env
-    )
-
-    ended_at = _now_local()
-    success = result["status"] == "success"
+    # 在独立子进程中执行提示词（委托未接管时）
+    if delegated_entry is None:
+        if session_id:
+            # 指定会话执行的回退路径：恢复指定会话（-r）后执行
+            result = await _execute_prompt_in_subprocess(
+                actual_prompt, cwd, timeout=timeout, extra_env=extra_env,
+                extra_args=["-r", session_id, "--cwd", str(cwd)],
+            )
+        else:
+            result = await _execute_prompt_in_subprocess(
+                actual_prompt, cwd, timeout=timeout, extra_env=extra_env,
+            )
+        ended_at = _now_local()
+        success = result["status"] == "success"
+    else:
+        result = delegated_entry
+        ended_at = _now_local()
+        success = result["status"] == "success"
 
     # 投递到渠道：仅在 deliver_to 非空且有输出（stdout 或 stderr）时触发
     # 失败不影响任务状态，仅记录日志
@@ -524,6 +662,77 @@ async def execute_job(
     )
 
     return entry
+
+
+async def _try_delegate_execution(
+    job: dict[str, Any],
+    timeout: int = _JOB_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
+    """尝试将指定会话任务委托给正在运行的 TUI/Web 主程序执行。
+
+    流程：
+    1. 登记待委托任务到 cron_delegation 队列
+    2. 等待主程序领取并回报结果（总等待 = 领取窗口 + 执行超时）
+    3. 主程序回报 not_supported（cwd/会话不匹配）时由 IPC 侧重新入队，
+       本函数继续等待其他主程序领取
+    4. 总超时后：任务仍在队列（无人领取）→ 回收并返回 None（回退子进程）；
+       任务已被领取（在途执行）→ 返回超时 entry（与子进程超时行为一致，
+       避免子进程与主程序双执行）
+
+    Args:
+        job: 任务字典（须包含 id 与 session_id）
+        timeout: 委托执行超时秒数
+
+    Returns:
+        dict | None: 委托执行结果（与子进程结果同构）；需回退子进程时返回 None
+    """
+    from illusion.services import cron_delegation
+
+    # 非守护进程（TUI/Web 主程序、手动 run / web run 按钮）：本地注册的任务
+    # 无人领取（claim 只发生在守护进程的 IPC handler），直接回退子进程，
+    # 避免白等领取窗口 + 执行超时（330s）。
+    if not cron_delegation.is_served():
+        logger.debug("cron 委托队列未被本进程服务，跳过委托: id=%s", job.get("id", ""))
+        return None
+
+    job_id = str(job.get("id", ""))
+    future = cron_delegation.register_pending_job(job)
+    total_wait = cron_delegation.CLAIM_WINDOW_SECONDS + timeout
+    try:
+        result = await asyncio.wait_for(future, timeout=total_wait)
+    except asyncio.TimeoutError:
+        # 总超时：任务未被领取则回收并回退子进程；已被领取则视为执行超时
+        if cron_delegation.cancel_pending(job_id):
+            logger.info("cron 委托无人接管（%ds），回退子进程: id=%s", total_wait, job_id)
+            return None
+        logger.warning("cron 委托执行超时（%ds）: id=%s", total_wait, job_id)
+        return {
+            "returncode": -1,
+            "status": "timeout",
+            "stdout": "",
+            "stderr": f"Delegated cron job timed out after {total_wait}s",
+        }
+    finally:
+        # 未完成且仍在队列的 future 兜底清理（正常路径由 report/cancel/reap 处理）
+        if not future.done():
+            cron_delegation.cancel_pending(job_id)
+
+    if result.get("status") == "unclaimed":
+        # 领取窗口耗尽（无人领取），回退子进程
+        logger.info("cron 委托领取窗口耗尽，回退子进程: id=%s", job_id)
+        return None
+
+    # 主程序回报的实际执行结果（success/failed/error 等）
+    logger.info(
+        "cron 委托执行完成: id=%s status=%s",
+        job_id, result.get("status"),
+    )
+    return {
+        "returncode": int(result.get("returncode", -1)),
+        "status": str(result.get("status", "error")),
+        "stdout": str(result.get("stdout", "")),
+        "stderr": str(result.get("stderr", "")),
+    }
 
 
 def _now_local() -> datetime:
@@ -669,17 +878,46 @@ class CronScheduler:
         logger.info("Cron scheduler stopped")
 
     async def _run_loop(self) -> None:
-        """调度器主循环。"""
+        """调度器主循环。
+
+        启动两个并行循环：
+        - tick 循环：检查到期任务并执行（可能阻塞在委托等待上，最长 330s）
+        - reap 循环：每 3s 清理一次性任务与回收领取窗口耗尽的委托任务。
+          必须独立于 tick：tick 阻塞在委托等待期间，若 reap 只在 tick 之后
+          执行，30s 领取窗口耗尽的委托任务要等 tick 全部完成才被回收，
+          导致「窗口耗尽 → 回退子进程」退化为 330s 超时，且阻塞后续 tick
+          （_MAX_CONCURRENT_JOBS=1 时其他任务全部延迟）。
+        """
         # PID 由 run_cron_serve 管理，此处不再写入
 
+        async def _reap_loop() -> None:
+            """独立回收循环：与 tick 并行，保证委托任务及时回收。"""
+            while not self._shutdown.is_set():
+                try:
+                    # 清理已完成的一次性任务
+                    removed = remove_expired_jobs()
+                    if removed:
+                        logger.info("Cleaned up %d expired cron job(s)", len(removed))
+                    # 回收领取窗口耗尽的委托任务（指定会话执行无人接管时回退子进程）
+                    from illusion.services.cron_delegation import reap_expired
+
+                    reaped = reap_expired()
+                    if reaped:
+                        logger.info("Reaped %d unclaimed delegated job(s)", len(reaped))
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("委托任务回收循环异常")
+                try:
+                    await asyncio.wait_for(self._shutdown.wait(), timeout=3.0)
+                    break
+                except TimeoutError:
+                    pass
+
+        reap_task = asyncio.create_task(_reap_loop(), name="cron-reap-loop")
         try:
             while not self._shutdown.is_set():
                 await self._tick()
-
-                # 清理已完成的一次性任务
-                removed = remove_expired_jobs()
-                if removed:
-                    logger.info("Cleaned up %d expired cron job(s)", len(removed))
 
                 # 等待下一个 tick 或关闭信号
                 try:
@@ -695,6 +933,9 @@ class CronScheduler:
         except Exception:
             logger.exception("Scheduler loop crashed")
         finally:
+            reap_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reap_task
             self._running = False
 
     async def _tick(self) -> None:

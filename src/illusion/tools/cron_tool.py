@@ -126,6 +126,8 @@ class CronToolInput(BaseModel):
         default_factory=list,
         description=(
             "Delivery targets for cron job STDOUT (auto-delivered by scheduler after the job runs). "
+            "PREFER this field when the goal involves a channel conversation (e.g. 'send the report "
+            "to my WeChat') — the scheduler delivers the result to the channel chat. "
             "Empty list = local only (terminal execution, no channel delivery). "
             "Each item MUST use 'channel:chat_id' format. Multiple items = broadcast to all targets. "
             "This is a SCHEDULER-level field — the scheduler reads subprocess stdout and delivers it "
@@ -144,6 +146,23 @@ class CronToolInput(BaseModel):
             "If created from a channel session, the origin chat_id is auto-filled."
         ),
     )
+    # add/update 操作参数：指定会话执行
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Session to execute the job in (add/update). Three-state semantics:\n"
+            "- omitted (None): default behavior — isolated new session\n"
+            "- empty string '': execute in the CURRENT active session (the current conversation)\n"
+            "- specific value: execute in that session (find IDs via the list_sessions tool)\n"
+            "NOTE: session_id selects which PROJECT conversation the job RUNS in (history context). "
+            "It is NOT for channel delivery — if the goal involves a channel conversation, "
+            "PREFER the deliver_to field (delivers the job's STDOUT to channel chats). "
+            "Both can be combined (run in a project session + deliver result to a channel).\n"
+            "When a specific session is set, the running TUI/Web frontend executes the prompt in "
+            "that session (busy state and session list update automatically); if no frontend is "
+            "running, it falls back to resuming the session in a subprocess."
+        ),
+    )
 
 
 class CronTool(BaseTool[CronToolInput]):
@@ -160,10 +179,23 @@ class CronTool(BaseTool[CronToolInput]):
 ACTIONS:
 - status: Check scheduler status and job counts
 - list: List all scheduled jobs (use include_disabled:true to show disabled)
-- add: Create a new scheduled job (requires schedule, prompt; optional name)
-- update: Modify an existing job (requires name; can update schedule/prompt/recurring/delete_after_run/enabled)
+- add: Create a new scheduled job (requires schedule, prompt; optional name, session_id, deliver_to)
+- update: Modify an existing job (requires name; can update schedule/prompt/recurring/delete_after_run/enabled/deliver_to/session_id)
 - remove: Delete a job (requires name)
 - run: Manually trigger a job immediately (requires name)
+
+SESSION_ID (add/update, optional):
+- omitted: isolated new session (default)
+- empty string '': execute in the CURRENT active session (the current conversation)
+- specific value: execute in that session (find IDs via the list_sessions tool)
+
+DELIVER_TO vs SESSION_ID (important):
+- deliver_to delivers the job's STDOUT to channel conversations (channel:chat_id).
+  When the goal involves a channel conversation (e.g. "send the report to my WeChat"),
+  PREFER deliver_to — the scheduler delivers the result automatically.
+- session_id selects which PROJECT conversation the job RUNS in (history context).
+  It is NOT for channel delivery.
+- Both can be combined: run in a project session AND deliver the result to a channel.
 
 SCHEDULE (standard 5-field cron, user's local time):
 - minute hour day-of-month month day-of-week
@@ -388,6 +420,18 @@ Returns JSON result for each action."""
 
         if arguments.name:
             job_data["name"] = arguments.name.strip()
+        # 指定会话执行（三态）：
+        # - 未传（None）→ 不设置（独立新会话，默认行为）
+        # - 空串 "" → 当前活跃会话（context.metadata 注入的 session_id）
+        # - 具体值 → 指定会话
+        if arguments.session_id is not None:
+            target_sid = arguments.session_id.strip()
+            if target_sid:
+                job_data["session_id"] = target_sid
+            else:
+                current_sid = str(context.metadata.get("session_id") or "").strip()
+                if current_sid:
+                    job_data["session_id"] = current_sid
 
         # 创建任务
         job_id = upsert_cron_job(job_data)
@@ -417,8 +461,6 @@ Returns JSON result for each action."""
         context: ToolExecutionContext,
     ) -> ToolResult:
         """修改已有任务的计划、启用状态等。"""
-        del context
-
         if not arguments.name:
             return ToolResult(
                 output="Missing required parameter: name (job name or ID to update)",
@@ -471,6 +513,36 @@ Returns JSON result for each action."""
             job["delete_after_run"] = arguments.delete_after_run
             upsert_cron_job(job)
             changes.append(f"delete_after_run={arguments.delete_after_run}")
+
+        if arguments.deliver_to is not None:
+            new_deliver_to = arguments.deliver_to
+            if new_deliver_to != job.get("deliver_to", []):
+                job["deliver_to"] = new_deliver_to
+                upsert_cron_job(job)
+                changes.append(
+                    f"deliver_to={new_deliver_to or 'cleared'}"
+                )
+
+        # 指定会话执行（三态，与 add 一致）：
+        # - 未传（None）→ 不更新（保持原值）
+        # - 空串 "" → 更新为当前活跃会话（context.metadata 注入的 session_id）
+        # - 具体值 → 更新为指定会话
+        if arguments.session_id is not None:
+            target_sid = arguments.session_id.strip()
+            if target_sid:
+                new_session_id = target_sid
+            else:
+                new_session_id = str(context.metadata.get("session_id") or "").strip()
+            if new_session_id != job.get("session_id", ""):
+                if new_session_id:
+                    job["session_id"] = new_session_id
+                else:
+                    # 当前上下文无会话 ID（罕见）：视为清除
+                    job.pop("session_id", None)
+                upsert_cron_job(job)
+                changes.append(
+                    f"session_id={new_session_id}" if new_session_id else "session_id cleared"
+                )
 
         if changes:
             return ToolResult(

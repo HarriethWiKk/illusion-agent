@@ -69,9 +69,23 @@ def run_cron_serve() -> None:
 
     _setup_logging()
 
+    # 注入 cron 委托执行回调：主程序通过 IPC 领取待委托任务 / 上报执行结果。
+    # cron_delegation 与调度器同属本守护进程事件循环，队列操作无需加锁。
+    # 同时标记委托队列已由本进程服务（非 daemon 进程跳过委托直接回退子进程，
+    # 避免手动 run / web run 按钮在本地注册任务后无人领取白等 330s）。
+    from illusion.services.cron_delegation import (
+        claim_pending,
+        report_result,
+        set_served,
+    )
+
+    set_served()
+
     server = DaemonServer(
         daemon_type=DaemonType.CRON,
         daemon_pid=os.getpid(),
+        on_cron_claim=claim_pending,
+        on_cron_report=report_result,
     )
 
     # 写入 PID 文件，供 is_scheduler_running() 跨进程检测守护进程状态。

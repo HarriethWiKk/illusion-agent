@@ -14,9 +14,10 @@
  * @module CronTab
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
-import { cronApi, type CronJob, type CronSchedulerStatus } from '../api';
+import { cronApi, type CronJob, type CronSchedulerStatus, type CronSessionSummary, type CronChannelSession } from '../api';
+import { GlassDropdown } from './GlassDropdown';
 
 /** 输入框通用样式（聚焦散光，与 SetupForm 保持一致） */
 const inputClass = 'w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200';
@@ -44,7 +45,8 @@ interface JobDraft {
   recurring: boolean;
   enabled: boolean;
   delete_after_run: boolean;
-  deliver_to: string;
+  deliver_to: string[];
+  session_id: string;
 }
 
 /** 空表单草稿初始值 */
@@ -56,7 +58,8 @@ function makeEmptyDraft(): JobDraft {
     recurring: true,
     enabled: true,
     delete_after_run: false,
-    deliver_to: '',
+    deliver_to: [],
+    session_id: '',
   };
 }
 
@@ -69,7 +72,8 @@ function draftFromJob(job: CronJob): JobDraft {
     recurring: job.recurring,
     enabled: job.enabled,
     delete_after_run: job.delete_after_run,
-    deliver_to: job.deliver_to.join(', '),
+    deliver_to: [...job.deliver_to],
+    session_id: job.session_id ?? '',
   };
 }
 
@@ -100,8 +104,8 @@ export function CronTab({ lang }: CronTabProps) {
   const [opError, setOpError] = useState<string | null>(null);
   /** 展开的任务卡片 id */
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  /** 正在运行的任务 id（仅该按钮显示 spinner） */
-  const [runningId, setRunningId] = useState<string | null>(null);
+  /** 手动运行中的任务 id 集合（来自后端 running_jobs，跨弹窗重开保持） */
+  const [runningIds, setRunningIds] = useState<string[]>([]);
   /** 新建/编辑表单是否可见 */
   const [formVisible, setFormVisible] = useState(false);
   /** 编辑中的任务（null = 新建模式） */
@@ -110,6 +114,10 @@ export function CronTab({ lang }: CronTabProps) {
   const [draft, setDraft] = useState<JobDraft>(makeEmptyDraft);
   /** 表单提交错误 */
   const [formError, setFormError] = useState<string | null>(null);
+  /** 项目会话列表（session_id dropdown 数据源） */
+  const [sessions, setSessions] = useState<CronSessionSummary[]>([]);
+  /** 各渠道活跃会话（deliver_to dropdown 数据源） */
+  const [channelSessions, setChannelSessions] = useState<Record<string, CronChannelSession[]>>({});
 
   /** 加载调度器状态 + 任务列表
    *
@@ -122,6 +130,7 @@ export function CronTab({ lang }: CronTabProps) {
       const [s, j] = await Promise.all([cronApi.status(), cronApi.list()]);
       setStatus(s);
       setJobs(j.jobs);
+      setRunningIds(j.running_jobs ?? []);
       setLoadError(null);
     } catch (err) {
       if (!silent) {
@@ -138,10 +147,18 @@ export function CronTab({ lang }: CronTabProps) {
     let cancelled = false;
     (async () => {
       try {
-        const [s, j] = await Promise.all([cronApi.status(), cronApi.list()]);
+        const [s, j, sess, chSess] = await Promise.all([
+          cronApi.status(),
+          cronApi.list(),
+          cronApi.sessions().catch(() => ({ sessions: [] })),
+          cronApi.channelSessions().catch(() => ({ channels: {} })),
+        ]);
         if (cancelled) return;
         setStatus(s);
         setJobs(j.jobs);
+        setRunningIds(j.running_jobs ?? []);
+        setSessions(sess.sessions);
+        setChannelSessions(chSess.channels);
       } catch (err) {
         if (cancelled) return;
         setLoadError(err instanceof Error ? err.message : String(err));
@@ -163,10 +180,15 @@ export function CronTab({ lang }: CronTabProps) {
     }
   }, [loadAll]);
 
-  /** 手动触发运行（即时 API + 静默刷新；运行后 last_run/last_status 更新） */
+  /** 手动触发运行（即时 API + 静默刷新；运行后 last_run/last_status 更新）
+   *
+   * 运行中状态由后端 running_jobs 持久化：点击后本地立即加入（即时禁用），
+   * 请求完成后 loadAll 刷新（后端已移除该任务）；退出设置弹窗再进入时
+   * 从后端重新加载，运行中的任务按钮保持禁用，避免重复触发。
+   */
   const handleRun = useCallback(async (job: CronJob) => {
     setOpError(null);
-    setRunningId(job.id);
+    setRunningIds((prev) => (prev.includes(job.id) ? prev : [...prev, job.id]));
     try {
       const result = await cronApi.run(job.id);
       if (result.status !== 'success') {
@@ -176,8 +198,8 @@ export function CronTab({ lang }: CronTabProps) {
       await loadAll(true);
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRunningId(null);
+      // 请求失败（如连接断开）时移除本地标记，允许重试
+      setRunningIds((prev) => prev.filter((id) => id !== job.id));
     }
   }, [lang, loadAll]);
 
@@ -222,10 +244,9 @@ export function CronTab({ lang }: CronTabProps) {
       setFormError(t(lang, 'cronPromptRequired'));
       return;
     }
-    const deliverTo = draft.deliver_to
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const deliverTo = draft.deliver_to;
+    // 指定会话（可选）：编辑时清空传空串显式清除（后端据此移除 session_id）
+    const sessionId = draft.session_id.trim();
     try {
       if (editingJob) {
         await cronApi.update(editingJob.id, {
@@ -236,6 +257,7 @@ export function CronTab({ lang }: CronTabProps) {
           enabled: draft.enabled,
           delete_after_run: draft.delete_after_run,
           deliver_to: deliverTo,
+          session_id: sessionId,
         });
       } else {
         await cronApi.create({
@@ -246,6 +268,7 @@ export function CronTab({ lang }: CronTabProps) {
           enabled: draft.enabled,
           delete_after_run: draft.delete_after_run,
           deliver_to: deliverTo,
+          session_id: sessionId || undefined,
         });
       }
       setFormVisible(false);
@@ -310,7 +333,7 @@ export function CronTab({ lang }: CronTabProps) {
               job={job}
               expanded={expandedId === job.id}
               onToggleExpand={() => setExpandedId((cur) => (cur === job.id ? null : job.id))}
-              running={runningId === job.id}
+              running={runningIds.includes(job.id)}
               onToggleEnabled={(v) => handleToggleEnabled(job, v)}
               onRun={() => handleRun(job)}
               onEdit={() => openEdit(job)}
@@ -371,17 +394,33 @@ export function CronTab({ lang }: CronTabProps) {
             <BoolFieldRow lang={lang} labelKey="cronFieldDeleteAfterRun" checked={draft.delete_after_run} onChange={(v) => setDraft({ ...draft, delete_after_run: v })} />
           </div>
 
-          {/* 投递目标 */}
+          {/* 投递目标（渠道会话多选） */}
           <div>
             <div className={labelClass}>{t(lang, 'cronFieldDeliverTo')}</div>
-            <input
-              type="text"
+            <DeliverToPicker
+              lang={lang}
+              channels={channelSessions}
               value={draft.deliver_to}
-              onChange={(e) => setDraft({ ...draft, deliver_to: e.target.value })}
-              className={inputClass}
-              placeholder="weixin:xxx, feishu:ou_xxx"
+              onChange={(v) => setDraft({ ...draft, deliver_to: v })}
             />
             <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldDeliverToHint')}</div>
+          </div>
+
+          {/* 指定会话（可选）：项目会话下拉 */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldSession')}</div>
+            <GlassDropdown
+              value={draft.session_id}
+              options={[
+                { value: '', label: t(lang, 'cronSessionNone') },
+                ...sessions.map((s) => ({
+                  value: s.session_id,
+                  label: `${s.session_id} · ${(s.summary || '').slice(0, 40)}`,
+                })),
+              ]}
+              onChange={(v) => setDraft({ ...draft, session_id: v })}
+            />
+            <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldSessionHint')}</div>
           </div>
 
           {/* 表单错误 */}
@@ -466,6 +505,11 @@ function CronJobCard({ lang, job, expanded, onToggleExpand, running, onToggleEna
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0 font-medium">
           {job.recurring ? t(lang, 'cronRecurringTag') : t(lang, 'cronOneShotTag')}
         </span>
+        {job.session_id && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-content-secondary shrink-0 font-mono max-w-[120px] truncate" title={job.session_id}>
+            {t(lang, 'cronSessionTag')}: {job.session_id.slice(0, 8)}
+          </span>
+        )}
         <svg className={`w-3 h-3 shrink-0 transition-transform text-content-disabled ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
       </button>
 
@@ -558,6 +602,133 @@ function BoolFieldRow({ lang, labelKey, checked, onChange }: {
       >
         <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: checked ? '18px' : '2px' }} />
       </button>
+    </div>
+  );
+}
+
+// ===== 投递目标选择器（渠道会话多选 chips + 下拉） =====
+
+/** 投递目标选择器属性 */
+interface DeliverToPickerProps {
+  lang: UiLanguage;
+  /** 各渠道活跃会话 {channel: [会话]} */
+  channels: Record<string, CronChannelSession[]>;
+  /** 已选投递目标（channel:chat_id 格式数组） */
+  value: string[];
+  /** 变更回调 */
+  onChange: (v: string[]) => void;
+}
+
+/** 渠道会话多选选择器：下拉勾选 + 已选 chips 展示
+ *
+ * 选项值为 `channel:chat_id`（与后端 parse_deliver_targets 格式一致）。
+ * 渠道未启用或无会话时显示空态提示（不提供手动输入，保证提交的 ID 存在）。
+ */
+function DeliverToPicker({ lang, channels, value, onChange }: DeliverToPickerProps) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const channelNames = Object.keys(channels);
+  const totalCount = channelNames.reduce((n, c) => n + (channels[c]?.length ?? 0), 0);
+
+  // 点击外部关闭
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  /** 切换投递目标（勾选加入 / 取消移除） */
+  const toggleTarget = useCallback((target: string) => {
+    onChange(value.includes(target)
+      ? value.filter((v) => v !== target)
+      : [...value, target]);
+  }, [value, onChange]);
+
+  /** 移除单个投递目标 */
+  const removeTarget = useCallback((target: string) => {
+    onChange(value.filter((v) => v !== target));
+  }, [value, onChange]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* 已选 chips + 展开按钮 */}
+      <div className={`flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-md bg-surface-card-alt border border-border-light min-h-[38px] ${open ? 'border-primary shadow-glow' : ''}`}>
+        {value.length === 0 && (
+          <span className="text-sm text-content-disabled px-1">-</span>
+        )}
+        {value.map((target) => (
+          <span key={target} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-xs font-mono">
+            {target}
+            <button
+              onClick={() => removeTarget(target)}
+              title={t(lang, 'cronDeliverToRemove')}
+              className="text-primary/60 hover:text-danger transition-colors cursor-pointer"
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M2 6h8" /></svg>
+            </button>
+          </span>
+        ))}
+        <button
+          onClick={() => setOpen(!open)}
+          disabled={totalCount === 0}
+          className="ml-auto shrink-0 w-6 h-6 flex items-center justify-center rounded text-content-secondary hover:text-content-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5l3 3 3-3" /></svg>
+        </button>
+      </div>
+
+      {/* 下拉面板：渠道分组 + 会话选项 */}
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-full glass-surface rounded-xl z-20 py-1.5 max-h-56 overflow-y-auto animate-scale-in dropdown-origin-top-left dropdown-scroll shadow-card">
+            {totalCount === 0 ? (
+              <div className="px-3 py-2 text-xs text-content-disabled">{t(lang, 'cronChannelSessionsNone')}</div>
+            ) : (
+              channelNames.map((name) => {
+                const list = channels[name] ?? [];
+                if (list.length === 0) return null;
+                return (
+                  <div key={name}>
+                    <div className="px-3 py-1 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1">
+                      {t(lang, name === 'feishu' ? 'setupChannelFeishu' : name === 'weixin' ? 'setupChannelWeixin' : 'setupChannelQQ')}
+                    </div>
+                    {list.map((s) => {
+                      const target = `${name}:${s.chat_id}`;
+                      const checked = value.includes(target);
+                      return (
+                        <button
+                          key={target}
+                          onClick={() => toggleTarget(target)}
+                          className={`w-full text-left px-3 py-1.5 text-xs transition-colors cursor-pointer flex items-center gap-2 ${checked ? 'text-primary font-medium' : 'text-content-secondary glass-option-hover'}`}
+                        >
+                          <span className={`w-3 h-3 rounded border shrink-0 flex items-center justify-center ${checked ? 'bg-primary border-primary' : 'border-border-light'}`}>
+                            {checked && (
+                              <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5" /></svg>
+                            )}
+                          </span>
+                          <span className="flex-1 truncate">
+                            <span className="font-mono">{s.chat_id}</span>
+                            {s.user_name && s.user_name !== s.chat_id && (
+                              <span className="text-content-disabled"> · {s.user_name}</span>
+                            )}
+                            <span className="text-content-disabled"> · {s.chat_type === 'group' ? '群' : '私聊'}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import asyncio
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -116,6 +117,52 @@ async def test_ping_pong(_pipe_name: str):
         assert pong is not None
         assert pong["type"] == "pong"
         assert pong["daemon_pid"] == 12345
+
+        await client.close()
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_cron_claim_and_report(_pipe_name: str):
+    """cron_claim_pending 领取委托任务，cron_report_result 上报结果"""
+    pending: dict[str, Any] = {}
+    reported: list[dict[str, Any]] = []
+
+    def on_claim() -> dict[str, Any] | None:
+        for job_id, job in list(pending.items()):
+            pending.pop(job_id, None)
+            return job
+        return None
+
+    def on_report(job_id: str, result: dict[str, Any]) -> None:
+        reported.append({"job_id": job_id, "result": result})
+
+    server = DaemonServer(
+        daemon_type=DaemonType.CRON,
+        daemon_pid=12345,
+        pipe_name=_pipe_name,
+        on_cron_claim=on_claim,
+        on_cron_report=on_report,
+    )
+    await server.start()
+    try:
+        client = DaemonClient(daemon_type=DaemonType.CRON, pid=os.getpid(), pipe_name=_pipe_name)
+        await client.connect()
+
+        # 无任务时领取返回 None
+        assert await client.cron_claim_pending(timeout=2.0) is None
+
+        # 有任务时领取返回任务
+        pending["job1"] = {"id": "job1", "session_id": "s1", "prompt": "p"}
+        job = await client.cron_claim_pending(timeout=2.0)
+        assert job is not None
+        assert job["id"] == "job1"
+
+        # 上报结果，server 回调收到
+        ok = await client.cron_report_result("job1", {"status": "success", "stdout": "ok"}, timeout=2.0)
+        assert ok is True
+        assert reported == [{"job_id": "job1", "result": {"status": "success", "stdout": "ok"}}]
 
         await client.close()
     finally:

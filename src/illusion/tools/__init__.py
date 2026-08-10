@@ -34,6 +34,7 @@ from illusion.tools.file_write_tool import FileWriteTool
 from illusion.tools.glob_tool import GlobTool
 from illusion.tools.grep_tool import GrepTool
 from illusion.tools.list_mcp_resources_tool import ListMcpResourcesTool
+from illusion.tools.list_sessions_tool import ListSessionsTool
 from illusion.tools.lsp_tool import LspTool
 from illusion.tools.mcp_auth_tool import McpAuthTool
 from illusion.tools.mcp_tool import McpToolAdapter
@@ -90,6 +91,7 @@ def create_default_tool_registry(
         TodoWriteTool(),
         EnterPlanModeTool(),
         ExitPlanModeTool(),
+        ListSessionsTool(),
         CronTool(),
         TaskStopTool(),
         TaskOutputTool(),

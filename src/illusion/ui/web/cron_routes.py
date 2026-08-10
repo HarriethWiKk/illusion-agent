@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 # 手动运行返回的 stdout/stderr 截断长度（避免大输出撑爆 HTTP 响应）
 _RUN_OUTPUT_LIMIT = 2000
 
+# 手动运行中的任务 ID 集合（web server 进程内）。
+# run 端点执行期间标记，完成后移除；GET /api/cron/jobs 附带该集合，
+# 前端据此禁用运行中任务的 run 按钮（退出设置弹窗再进入仍保持禁用，
+# 避免同一任务被重复手动触发）。
+_running_jobs: set[str] = set()
+
 
 class CreateCronJobRequest(BaseModel):
     """创建 cron 任务请求体。
@@ -54,6 +60,7 @@ class CreateCronJobRequest(BaseModel):
         enabled: 是否启用（默认 True）
         delete_after_run: 一次性任务执行后是否自动删除
         deliver_to: 投递目标列表（channel:chat_id 格式，可选）
+        session_id: 指定会话执行（可选；缺省 = 独立新会话）
     """
 
     name: str | None = None
@@ -63,6 +70,7 @@ class CreateCronJobRequest(BaseModel):
     enabled: bool = True
     delete_after_run: bool = False
     deliver_to: list[str] = []
+    session_id: str | None = None
 
 
 class UpdateCronJobRequest(BaseModel):
@@ -76,6 +84,7 @@ class UpdateCronJobRequest(BaseModel):
         enabled: 是否启用
         delete_after_run: 一次性任务执行后是否自动删除
         deliver_to: 投递目标列表
+        session_id: 指定会话执行（None 显式清除）
     """
 
     name: str | None = None
@@ -85,6 +94,7 @@ class UpdateCronJobRequest(BaseModel):
     enabled: bool | None = None
     delete_after_run: bool | None = None
     deliver_to: list[str] | None = None
+    session_id: str | None = None
 
 
 def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
@@ -114,12 +124,56 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
 
     @app.get("/api/cron/jobs")
     async def list_cron_jobs() -> dict[str, Any]:
-        """列出全部 cron 任务（含禁用任务）。
+        """列出全部 cron 任务（含禁用任务）及手动运行中的任务 ID。
 
         Returns:
-            dict: {"jobs": [任务字典, ...]}，按名称排序
+            dict: {"jobs": [任务字典, ...], "running_jobs": [任务 ID, ...]}
         """
-        return {"jobs": load_cron_jobs()}
+        return {
+            "jobs": load_cron_jobs(),
+            "running_jobs": sorted(_running_jobs),
+        }
+
+    @app.get("/api/cron/sessions")
+    async def list_cron_sessions() -> dict[str, Any]:
+        """列出当前工作目录下的项目会话（前端 dropdown 数据源）。
+
+        Returns:
+            dict: {"sessions": [{session_id, summary, message_count, updated_at}, ...]}
+        """
+        from illusion.services.session_storage import list_session_snapshots
+
+        return {"sessions": list_session_snapshots(os.getcwd(), limit=100)}
+
+    @app.get("/api/cron/channel_sessions")
+    async def list_cron_channel_sessions() -> dict[str, Any]:
+        """列出各渠道的活跃会话（deliver_to dropdown 数据源）。
+
+        仅返回 enabled 渠道的活跃会话；渠道未启用或无会话时为空列表。
+
+        Returns:
+            dict: {"channels": {渠道名: [{chat_id, user_name, chat_type, last_active}, ...]}}
+        """
+        from illusion.channels.config import load_channels_config
+        from illusion.prompts.channel_hints import list_active_sessions
+
+        cfg = load_channels_config()
+        channels: dict[str, Any] = {}
+        for name in ("feishu", "weixin", "qq"):
+            channel_cfg = getattr(cfg, name, None)
+            if channel_cfg is None or not getattr(channel_cfg, "enabled", False):
+                continue
+            sessions = list_active_sessions(name, cfg, limit=20)
+            channels[name] = [
+                {
+                    "chat_id": s.chat_id,
+                    "user_name": s.user_name,
+                    "chat_type": s.chat_type,
+                    "last_active": s.last_active,
+                }
+                for s in sessions
+            ]
+        return {"channels": channels}
 
     @app.post("/api/cron/jobs")
     async def create_cron_job(req: CreateCronJobRequest) -> dict[str, Any]:
@@ -159,6 +213,9 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
         }
         if req.name is not None and req.name.strip():
             job_data["name"] = req.name.strip()
+        # 指定会话执行（可选）：留空 = 独立新会话（默认行为）
+        if req.session_id:
+            job_data["session_id"] = req.session_id.strip()
 
         job_id = upsert_cron_job(job_data)
 
@@ -232,6 +289,14 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
         if req.deliver_to is not None:
             job["deliver_to"] = req.deliver_to
 
+        # 指定会话执行：仅当请求显式提供该字段时才更新（None 显式清除）
+        if "session_id" in req.model_fields_set:
+            new_session_id = (req.session_id or "").strip()
+            if new_session_id:
+                job["session_id"] = new_session_id
+            else:
+                job.pop("session_id", None)
+
         upsert_cron_job(job)
         return {"success": True, "job": get_cron_job(identifier)}
 
@@ -270,7 +335,13 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
         if not job.get("prompt"):
             raise HTTPException(status_code=400, detail=f"Job has no prompt: {identifier}")
 
-        entry = await execute_job(job)
+        # 标记运行中：执行期间 GET /api/cron/jobs 返回的 running_jobs 包含
+        # 该任务，前端 run 按钮保持禁用（退出设置弹窗再进入也不可重复触发）
+        _running_jobs.add(job_id := str(job.get("id", identifier)))
+        try:
+            entry = await execute_job(job)
+        finally:
+            _running_jobs.discard(job_id)
         return {
             "status": entry.get("status", "unknown"),
             "returncode": entry.get("returncode", "?"),

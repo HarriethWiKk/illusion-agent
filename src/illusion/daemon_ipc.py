@@ -443,6 +443,8 @@ class DaemonServer:
         on_reload: Callable[[], None] | None = None,
         on_start_channel: Callable[[str], None] | None = None,
         on_stop_channel: Callable[[str], None] | None = None,
+        on_cron_claim: Callable[[], Any] | None = None,
+        on_cron_report: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         self._daemon_type = daemon_type
         self._daemon_pid = daemon_pid
@@ -453,6 +455,11 @@ class DaemonServer:
         # 回调内部用 loop.call_soon_threadsafe 调度到守护进程事件循环）
         self._on_start_channel = on_start_channel
         self._on_stop_channel = on_stop_channel
+        # cron 委托执行回调（由 cron_serve.py 注入）：主程序领取待委托任务 /
+        # 上报执行结果。与渠道回调一样在 IPC 协程内调用（同事件循环单线程，
+        # cron_delegation 的队列操作无需加锁）。
+        self._on_cron_claim = on_cron_claim
+        self._on_cron_report = on_cron_report
         self._connections: set[_BaseConnection] = set()
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._stop = False
@@ -659,6 +666,27 @@ class DaemonServer:
                     self._on_stop_channel(name)
                 except (AttributeError, TypeError, RuntimeError) as exc:
                     logger.warning("stop_channel 回调异常: %s", exc)
+                    return {"type": "error", "message": str(exc)}
+            return {"type": "ok"}
+        elif msg_type == "cron_claim_pending":
+            # 主程序领取待委托的 cron 任务（指定会话执行）
+            job: Any = None
+            if self._on_cron_claim is not None:
+                try:
+                    job = self._on_cron_claim()
+                except (AttributeError, TypeError, RuntimeError) as exc:
+                    logger.warning("cron_claim_pending 回调异常: %s", exc)
+                    return {"type": "error", "message": str(exc)}
+            return {"type": "ok", "job": job}
+        elif msg_type == "cron_report_result":
+            # 主程序上报 cron 委托任务执行结果
+            job_id = str(msg.get("job_id", ""))
+            result = msg.get("result")
+            if self._on_cron_report is not None and isinstance(result, dict):
+                try:
+                    self._on_cron_report(job_id, result)
+                except (AttributeError, TypeError, RuntimeError) as exc:
+                    logger.warning("cron_report_result 回调异常: %s", exc)
                     return {"type": "error", "message": str(exc)}
             return {"type": "ok"}
         return None
@@ -901,6 +929,69 @@ class DaemonClient:
             return cast(dict[str, Any], json.loads(line))
         except json.JSONDecodeError:
             return None
+
+    async def cron_claim_pending(self, timeout: float = 10.0) -> dict[str, Any] | None:
+        """领取一个待委托的 cron 任务（指定会话执行）。
+
+        轮询拉取模式：主程序（TUI/Web）周期性调用，领取 cron 守护进程
+        队列中待执行的指定会话任务。无任务时返回 None。
+
+        Args:
+            timeout: 超时秒数
+
+        Returns:
+            dict | None: 任务字典（含 id/session_id/prompt 等），无任务或失败返回 None
+        """
+        if self._conn is None:
+            return None
+        try:
+            await self._conn.write_line(json.dumps({"type": "cron_claim_pending"}))
+            line = await self._conn.read_line(timeout=timeout)
+        except (TimeoutError, OSError):
+            return None
+        if line is None:
+            return None
+        try:
+            resp = cast(dict[str, Any], json.loads(line))
+        except json.JSONDecodeError:
+            return None
+        job = resp.get("job")
+        return job if isinstance(job, dict) else None
+
+    async def cron_report_result(
+        self,
+        job_id: str,
+        result: dict[str, Any],
+        timeout: float = 10.0,
+    ) -> bool:
+        """上报 cron 委托任务执行结果。
+
+        Args:
+            job_id: 任务 ID
+            result: 执行结果字典（status/returncode/stdout/stderr 等）
+            timeout: 超时秒数
+
+        Returns:
+            bool: 上报成功返回 True
+        """
+        if self._conn is None:
+            return False
+        try:
+            await self._conn.write_line(json.dumps({
+                "type": "cron_report_result",
+                "job_id": job_id,
+                "result": result,
+            }))
+            line = await self._conn.read_line(timeout=timeout)
+        except (TimeoutError, OSError):
+            return False
+        if line is None:
+            return False
+        try:
+            resp = cast(dict[str, Any], json.loads(line))
+            return resp.get("type") == "ok"
+        except json.JSONDecodeError:
+            return False
 
     async def close(self) -> None:
         """关闭连接"""

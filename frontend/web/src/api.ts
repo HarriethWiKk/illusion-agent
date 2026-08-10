@@ -162,6 +162,8 @@ export interface CronJob {
   origin_channel: string;
   /** 来源会话 */
   chat_id: string;
+  /** 指定会话执行：目标会话 ID（null/缺失 = 独立新会话执行，旧任务无该字段） */
+  session_id: string | null | undefined;
 }
 
 /** 创建 cron 任务请求体 */
@@ -180,6 +182,8 @@ export interface CreateCronJobPayload {
   delete_after_run?: boolean;
   /** 投递目标列表（channel:chat_id 格式，可选） */
   deliver_to?: string[];
+  /** 指定会话执行：目标会话 ID（可选；缺省 = 独立新会话） */
+  session_id?: string;
 }
 
 /** 更新 cron 任务请求体（仅提供需要修改的字段） */
@@ -211,6 +215,38 @@ export interface CronRunResult {
   stdout: string;
   /** 标准错误（截断） */
   stderr: string;
+}
+
+/** cron 任务列表响应（GET /api/cron/jobs） */
+export interface CronJobsResponse {
+  /** 全部任务（含禁用） */
+  jobs: CronJob[];
+  /** 手动运行中的任务 ID（前端据此禁用 run 按钮） */
+  running_jobs?: string[];
+}
+
+/** 项目会话摘要（GET /api/cron/sessions，dropdown 数据源） */
+export interface CronSessionSummary {
+  /** 会话 ID */
+  session_id: string;
+  /** 会话摘要 */
+  summary: string;
+  /** 消息数 */
+  message_count: number;
+  /** 最后更新时间戳 */
+  updated_at: number;
+}
+
+/** 渠道会话条目（GET /api/cron/channel_sessions） */
+export interface CronChannelSession {
+  /** 渠道内会话标识（如 ou_xxx / oc_xxx / wxid_xxx / openid_xxx） */
+  chat_id: string;
+  /** 用户显示名（如有） */
+  user_name: string;
+  /** 会话类型：dm / group */
+  chat_type: string;
+  /** 最后活跃时间（如 "2026-06-28 10:30"） */
+  last_active: string;
 }
 
 /** 创建 env 请求体 */
@@ -368,8 +404,8 @@ export const channelsApi = {
 export const cronApi = {
   /** 查询调度器运行状态与任务统计 */
   status: () => request<CronSchedulerStatus>('/api/cron/status'),
-  /** 列出全部任务（含禁用） */
-  list: () => request<{ jobs: CronJob[] }>('/api/cron/jobs'),
+  /** 列出全部任务（含禁用）及手动运行中的任务 ID */
+  list: () => request<CronJobsResponse>('/api/cron/jobs'),
   /** 创建任务（创建后后端自动确保调度器运行） */
   create: (payload: CreateCronJobPayload) =>
     request<{ id: string; job: CronJob }>('/api/cron/jobs', {
@@ -392,4 +428,8 @@ export const cronApi = {
     request<CronRunResult>(`/api/cron/jobs/${encodeURIComponent(identifier)}/run`, {
       method: 'POST',
     }),
+  /** 列出项目会话（session_id dropdown 数据源） */
+  sessions: () => request<{ sessions: CronSessionSummary[] }>('/api/cron/sessions'),
+  /** 列出各渠道活跃会话（deliver_to dropdown 数据源） */
+  channelSessions: () => request<{ channels: Record<string, CronChannelSession[]> }>('/api/cron/channel_sessions'),
 };

@@ -29,10 +29,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -91,6 +93,11 @@ from illusion.utils.aioqueue import Queue, QueueShutDown
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
+
+
+def _now_local() -> datetime:
+    """返回本地时间（无时区信息）。"""
+    return datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
 
 # 版本检查进程级缓存：{"latest": 最新版本号或 None, "at": 检查时间戳}，1 小时内不重复查询
 _update_check: dict[str, Any] | None = None
@@ -209,6 +216,8 @@ class WebBackendHost:
         self._running = True  # 运行状态
         self._ws_closed = False  # WebSocket 是否已关闭
         self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
+        # cron 委托拉取循环（周期领取指定会话执行任务，在本地会话中执行）
+        self._cron_poll_task: asyncio.Task[None] | None = None
         # modal 串行化锁：前端 modal 是单例，并发 modal_request 会互相覆盖导致
         # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
         # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
@@ -340,6 +349,13 @@ class WebBackendHost:
                     await self._emit(self._status_snapshot())
 
         self._periodic_task = asyncio.create_task(_periodic_status_update())
+
+        # 创建 cron 委托拉取循环：周期领取指定会话执行的 cron 任务并在
+        # 本地会话中执行（busy 转化、会话列表刷新天然同步）。守护进程
+        # 未运行时循环静默跳过（任务由守护进程回退为子进程执行）。
+        self._cron_poll_task = asyncio.create_task(
+            self._cron_delegation_poll(), name="cron-delegation-poll"
+        )
 
         try:
             # 主循环：处理请求
@@ -887,13 +903,21 @@ class WebBackendHost:
             session.label = f"{ts}  1轮  {session.summary}"
         self._create_background_task(self._push_sessions())
 
-    async def _process_line(self, session: SessionRuntime, line: str, *, transcript_line: str | None = None) -> bool:
+    async def _process_line(
+        self,
+        session: SessionRuntime,
+        line: str,
+        *,
+        transcript_line: str | None = None,
+        collect_output: list[str] | None = None,
+    ) -> bool:
         """处理用户输入的行内容（会话隔离）。
 
         Args:
             session: 目标会话运行时
             line: 用户输入的行
             transcript_line: 非 None 时发送该文本为用户消息转录（静默场景传 None）
+            collect_output: 非 None 时收集最终助手文本（cron 委托执行回传用）
 
         Returns:
             bool: 是否继续会话（始终 True，web 端退出由 shutdown 请求控制）
@@ -927,6 +951,16 @@ class WebBackendHost:
 
         # 复用会话级的事件渲染器（含 TodoWrite/plan_mode_change 处理）
         _render_event = await self._make_render_event(session)
+        # cron 委托执行时收集最终助手文本作为回传的 stdout
+        if collect_output is not None:
+            _inner_render = _render_event
+
+            async def _render_with_collect(ev: Any) -> None:
+                if isinstance(ev, AssistantTextDelta):
+                    collect_output.append(ev.text or "")
+                await _inner_render(ev)
+
+            _render_event = _render_with_collect
 
         async def _replay_transcript_item(item: dict[str, Any]) -> None:
             """重播 transcript_item。"""
@@ -987,6 +1021,163 @@ class WebBackendHost:
 
         await self._finish_session_line(session)
         return True
+
+    # === cron 委托执行（指定会话执行的 cron 任务由本地会话接管） ===
+
+    async def _cron_delegation_poll(self) -> None:
+        """周期领取 cron 委托任务并在本地会话中执行。
+
+        与 cron 守护进程的轮询拉取协议：每 3s 领取一次，领取到任务后在
+        目标会话中执行（busy 转化、会话列表刷新天然同步），执行完上报结果。
+        守护进程未运行时静默跳过（任务由守护进程回退为子进程执行）。
+        """
+        from illusion.services.cron_delegation import claim_delegated_job
+
+        while self._running and not self._ws_closed:
+            try:
+                job = await claim_delegated_job()
+                if job is not None:
+                    await self._run_delegated_cron_job(job)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("cron 委托拉取/执行异常")
+            await asyncio.sleep(3.0)
+
+    async def _materialize_session(self, session_id: str) -> SessionRuntime | None:
+        """从磁盘惰性恢复会话运行时（web_restore_session 同一创建路径）。
+
+        会话在内存中则直接返回；磁盘上不存在（meta 缺失）返回 None。
+
+        Args:
+            session_id: 目标会话 ID
+
+        Returns:
+            SessionRuntime | None: 会话运行时；不存在时返回 None
+        """
+        bundle = self._bundle
+        if bundle is None:
+            return None
+        cached = self._sessions.get(session_id)
+        if cached is not None:
+            return cached
+        from illusion.services.session_storage import read_meta
+
+        meta = read_meta(bundle.cwd, session_id)
+        if not meta:
+            return None
+        engine = build_session_engine(
+            bundle,
+            session_id,
+            permission_prompt=self._make_permission_prompt(session_id),
+            ask_user_prompt=self._make_ask_user_prompt(session_id),
+            plan_approval_prompt=self._make_plan_approval_prompt(session_id),
+        )
+        from illusion.ui.runtime import build_session_bundle
+
+        session = SessionRuntime(
+            session_id=session_id,
+            bundle=build_session_bundle(bundle, session_id, engine),
+        )
+        self._sessions[session_id] = session
+        self._maybe_evict_sessions()
+        return session
+
+    async def _run_delegated_cron_job(self, job: dict[str, Any]) -> None:
+        """在目标会话中执行委托的 cron 任务。
+
+        - cwd 与当前 Web 工作目录不一致时回报 not_supported（守护进程重新
+          入队或回退子进程）
+        - 目标会话不在内存时从磁盘惰性恢复；磁盘不存在回报 error
+        - 会话 busy（用户正在使用）时等待空闲（上限 60s）
+        - 执行走 _run_session_line（busy 转化 + 完成清理 + _push_sessions
+          列表刷新），执行完上报结果
+
+        Args:
+            job: 委托任务字典（含 id/session_id/prompt/cwd）
+        """
+        from illusion.services.cron_delegation import report_delegated_result
+
+        bundle = self._bundle
+        job_id = str(job.get("id", ""))
+        if bundle is None:
+            return
+        job_cwd = os.path.normcase(os.path.normpath(str(job.get("cwd") or "")))
+        local_cwd = os.path.normcase(os.path.normpath(bundle.cwd))
+        target_sid = str(job.get("session_id") or "").strip()
+        prompt = str(job.get("prompt") or "").strip()
+        started_at = _now_local()
+        if job_cwd != local_cwd:
+            log.info(
+                "cron 委托任务与 Web 工作目录不匹配，回报 not_supported: id=%s target=%s local=%s",
+                job_id, job_cwd, local_cwd,
+            )
+            await report_delegated_result(job_id, {"status": "not_supported"})
+            return
+
+        session = await self._materialize_session(target_sid)
+        if session is None:
+            log.warning("cron 委托目标会话不存在: id=%s session=%s", job_id, target_sid)
+            await report_delegated_result(job_id, {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": f"Session not found: {target_sid}",
+            })
+            return
+
+        # 等待会话空闲（用户正在使用时排队，上限 60s）
+        waited = 0
+        while session.busy and waited < 60:
+            await asyncio.sleep(1.0)
+            waited += 1
+        if session.busy:
+            log.warning("cron 委托任务等待会话空闲超时: id=%s", job_id)
+            await report_delegated_result(job_id, {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": "Session busy timeout",
+            })
+            return
+
+        # 执行：走 _run_session_line（busy 转化 + 异常兜底 + 完成清理 +
+        # _push_sessions 列表刷新），收集助手文本作为回传的 stdout
+        session.busy = True
+        collected: list[str] = []
+        try:
+            display = f"[cron] {prompt[:60]}"
+            await self._run_session_line(
+                session,
+                self._process_line(
+                    session,
+                    prompt,
+                    transcript_line=display,
+                    collect_output=collected,
+                ),
+            )
+            result: dict[str, Any] = {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "".join(collected),
+                "stderr": "",
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("cron 委托任务执行异常: id=%s", job_id)
+            result = {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "".join(collected),
+                "stderr": "Internal error while executing delegated cron job",
+            }
+        finally:
+            session.busy = False
+            self._create_background_task(self._push_sessions())
+        result["started_at"] = started_at.isoformat()
+        result["ended_at"] = _now_local().isoformat()
+        await report_delegated_result(job_id, result)
 
     async def _submit_line_as_text(self, session: SessionRuntime, line: str) -> bool:
         """直接将用户输入当文本提交给 LLM，跳过命令注册表。
@@ -2824,6 +3015,16 @@ class WebBackendHost:
                 pass
             except Exception:
                 log.exception("周期状态更新 task 关闭异常")
+
+        # 2'. 取消 cron 委托拉取循环
+        if self._cron_poll_task is not None and not self._cron_poll_task.done():
+            self._cron_poll_task.cancel()
+            try:
+                await self._cron_poll_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("cron 委托拉取循环关闭异常")
 
         # 3. 取消所有会话行任务并关闭会话引擎（初始引擎由 run() finally 的
         #    close_runtime 负责，此处跳过避免双重关闭）

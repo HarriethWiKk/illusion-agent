@@ -52,6 +52,7 @@ def _make_host(**fields: Any) -> ReactBackendHost:
         "_read_thread": None,
         "_read_thread_cancel": threading.Event(),
         "_periodic_task": None,
+        "_cron_poll_task": None,
         "_sigint_remove": None,
         "_stderr_redirector": None,
         "_modal_lock": asyncio.Lock(),

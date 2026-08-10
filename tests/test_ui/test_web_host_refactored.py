@@ -58,6 +58,7 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_running": True,
         "_ws_closed": False,
         "_periodic_task": None,
+        "_cron_poll_task": None,
     }
     defaults.update(fields)
     for key, value in defaults.items():

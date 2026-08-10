@@ -33,6 +33,7 @@ import sys
 import threading
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -83,6 +84,11 @@ from illusion.utils.stderr_redirect import StderrRedirector
 
 # 配置模块级日志记录器
 log = logging.getLogger(__name__)
+
+
+def _now_local() -> datetime:
+    """返回本地时间（无时区信息）。"""
+    return datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
 
 # 协议前缀 - 用于标识 JSON-lines 协议
 _PROTOCOL_PREFIX = "OHJSON:"
@@ -182,6 +188,8 @@ class ReactBackendHost:
         self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
         self._sigint_remove: Callable[[], None] | None = None   # SIGINT handler 卸载函数
         self._stderr_redirector: StderrRedirector | None = None  # stderr 重定向器
+        # cron 委托拉取循环（周期领取指定会话执行任务，在本地会话中执行）
+        self._cron_poll_task: asyncio.Task[None] | None = None
         # modal 串行化锁：前端 modal 是单例，并发 modal_request 会互相覆盖导致
         # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
         # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
@@ -271,6 +279,12 @@ class ReactBackendHost:
                 self._periodic_status_update(), name="backend-periodic-status"
             )
 
+            # 5'. 启动 cron 委托拉取循环（指定会话执行的 cron 任务由本地会话执行，
+            #     busy 转化与会话状态天然同步；守护进程未运行时循环静默跳过）
+            self._cron_poll_task = asyncio.create_task(
+                self._cron_delegation_poll(), name="cron-delegation-poll"
+            )
+
             # 6. 安装 SIGINT 处理（收到 Ctrl+C 时入队 shutdown 请求）
             self._sigint_remove = install_sigint_handler(loop, self._enqueue_shutdown)
 
@@ -348,6 +362,16 @@ class ReactBackendHost:
                 pass
             except Exception:
                 log.exception("周期状态更新 task 关闭异常")
+
+        # 3'. 取消 cron 委托拉取循环
+        if self._cron_poll_task is not None and not self._cron_poll_task.done():
+            self._cron_poll_task.cancel()
+            try:
+                await self._cron_poll_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("cron 委托拉取循环关闭异常")
 
         # 4. 取消活跃行处理 task
         if self._active_line_task is not None and not self._active_line_task.done():
@@ -864,8 +888,20 @@ class ReactBackendHost:
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
 
-    async def _process_line(self, line: str, *, transcript_line: str | None = None) -> bool:
-        """处理用户输入的行内容。"""
+    async def _process_line(
+        self,
+        line: str,
+        *,
+        transcript_line: str | None = None,
+        collect_output: list[str] | None = None,
+    ) -> bool:
+        """处理用户输入的行内容。
+
+        Args:
+            line: 用户输入的行
+            transcript_line: 非 None 时发送该文本为用户消息转录（静默场景传 None）
+            collect_output: 非 None 时收集最终助手文本（cron 委托执行回传用）
+        """
         assert self._bundle is not None
         # 清除上一轮的工具调用去重记录
         self._emitted_tool_started_ids.clear()
@@ -884,6 +920,16 @@ class ReactBackendHost:
 
         # 复用共享的事件渲染器（含 TodoWrite/plan_mode_change 处理）
         _render_event = await self._make_render_event()
+        # cron 委托执行时收集最终助手文本作为回传的 stdout
+        if collect_output is not None:
+            _inner_render = _render_event
+
+            async def _render_with_collect(ev: Any) -> None:
+                if isinstance(ev, AssistantTextDelta):
+                    collect_output.append(ev.text or "")
+                await _inner_render(ev)
+
+            _render_event = _render_with_collect
 
         async def _replay_transcript_item(item: dict[str, Any]) -> None:
             """重播 transcript_item。"""
@@ -930,6 +976,104 @@ class ReactBackendHost:
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
+
+    # === cron 委托执行（指定会话执行的 cron 任务由本地会话接管） ===
+
+    async def _cron_delegation_poll(self) -> None:
+        """周期领取 cron 委托任务并在本地会话中执行。
+
+        与 cron 守护进程的轮询拉取协议：每 3s 领取一次，领取到任务后
+        在本地会话中执行（busy 转化、会话状态天然同步），执行完上报结果。
+        守护进程未运行时静默跳过（任务由守护进程回退为子进程执行）。
+        """
+        from illusion.services.cron_delegation import claim_delegated_job
+
+        while self._running:
+            try:
+                job = await claim_delegated_job()
+                if job is not None:
+                    await self._run_delegated_cron_job(job)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("cron 委托拉取/执行异常")
+            await asyncio.sleep(3.0)
+
+    async def _run_delegated_cron_job(self, job: dict[str, Any]) -> None:
+        """在本地会话中执行委托的 cron 任务。
+
+        TUI 为单会话：仅当任务 cwd 与当前工作目录一致、目标会话 ID 与
+        当前会话一致时才接管执行；否则回报 not_supported，让守护进程
+        重新入队（由 Web 端或其他主程序接管）或回退子进程。
+
+        Args:
+            job: 委托任务字典（含 id/session_id/prompt/cwd）
+        """
+        from illusion.services.cron_delegation import report_delegated_result
+
+        bundle = self._bundle
+        job_id = str(job.get("id", ""))
+        if bundle is None:
+            return
+        job_cwd = os.path.normcase(os.path.normpath(str(job.get("cwd") or "")))
+        local_cwd = os.path.normcase(os.path.normpath(bundle.cwd))
+        target_sid = str(job.get("session_id") or "").strip()
+        prompt = str(job.get("prompt") or "").strip()
+        started_at = _now_local()
+        if job_cwd != local_cwd or target_sid != bundle.session_id:
+            log.info(
+                "cron 委托任务与 TUI 会话不匹配，回报 not_supported: id=%s target=%s/%s local=%s/%s",
+                job_id, target_sid, job_cwd, bundle.session_id, local_cwd,
+            )
+            await report_delegated_result(job_id, {"status": "not_supported"})
+            return
+
+        # 等待会话空闲（用户正在使用当前会话时排队，上限 60s）
+        waited = 0
+        while self._busy and waited < 60:
+            await asyncio.sleep(1.0)
+            waited += 1
+        if self._busy:
+            log.warning("cron 委托任务等待会话空闲超时: id=%s", job_id)
+            await report_delegated_result(job_id, {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": "Session busy timeout",
+            })
+            return
+
+        # 执行：进入 busy（用户输入被拒），执行完释放（异常路径兜底发 line_complete）
+        self._busy = True
+        collected: list[str] = []
+        try:
+            display = f"[cron] {prompt[:60]}"
+            await self._process_line(prompt, transcript_line=display, collect_output=collected)
+            result: dict[str, Any] = {
+                "status": "success",
+                "returncode": 0,
+                "stdout": "".join(collected),
+                "stderr": "",
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("cron 委托任务执行异常: id=%s", job_id)
+            result = {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "".join(collected),
+                "stderr": "Internal error while executing delegated cron job",
+            }
+            await self._emit(BackendEvent(type="line_complete"))
+        finally:
+            self._busy = False
+        result["started_at"] = started_at.isoformat()
+        result["ended_at"] = _now_local().isoformat()
+        await report_delegated_result(job_id, result)
+        # 委托执行期间到达的后台完成通知此时无人消费（用户输入路径在行任务
+        # 结束后调用 _check_post_idle_bg），补一次检查避免通知滞留到下次输入
+        await self._check_post_idle_bg()
 
     # rewind 两步选择的中间状态
     _rewind_target_idx: int | None = None

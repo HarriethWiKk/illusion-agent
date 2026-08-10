@@ -57,7 +57,60 @@ def test_get_jobs_returns_empty_list(client):
     """无任务时 GET /api/cron/jobs 返回空列表。"""
     resp = client.get("/api/cron/jobs")
     assert resp.status_code == 200
-    assert resp.json()["jobs"] == []
+    data = resp.json()
+    assert data["jobs"] == []
+    assert data["running_jobs"] == []
+
+
+def test_run_job_marks_running_and_clears(client, monkeypatch):
+    """run 执行期间 running_jobs 标记，完成后清除（异常路径也清除）。"""
+    async def fake_execute_job(job, timeout=300):
+        # 执行期间：另一个请求应能看到该任务在运行
+        mid = client.get("/api/cron/jobs").json()
+        assert job["id"] in mid["running_jobs"]
+        return {
+            "id": job["id"], "name": job["name"], "prompt": job["prompt"],
+            "started_at": "2026-01-01T09:00:00", "ended_at": "2026-01-01T09:00:05",
+            "returncode": 0, "status": "success", "stdout": "ok", "stderr": "",
+        }
+
+    monkeypatch.setattr("illusion.services.cron_scheduler.execute_job", fake_execute_job)
+    job_id = _create_job(client).json()["id"]
+    resp = client.post(f"/api/cron/jobs/{job_id}/run")
+    assert resp.status_code == 200
+    # 完成后 running_jobs 已清除
+    assert client.get("/api/cron/jobs").json()["running_jobs"] == []
+
+
+def test_run_job_clears_running_on_error(client, monkeypatch):
+    """run 执行异常时 running_jobs 也清除（finally 语义）。"""
+
+    async def boom(job, timeout=300):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("illusion.services.cron_scheduler.execute_job", boom)
+    job_id = _create_job(client).json()["id"]
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/cron/jobs/{job_id}/run")
+    assert client.get("/api/cron/jobs").json()["running_jobs"] == []
+
+
+def test_get_sessions_returns_list(client):
+    """GET /api/cron/sessions 返回项目会话列表。"""
+    resp = client.get("/api/cron/sessions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "sessions" in data
+    assert isinstance(data["sessions"], list)
+
+
+def test_get_channel_sessions_no_channels(client):
+    """无启用渠道时 GET /api/cron/channel_sessions 返回空 channels 字典。"""
+    resp = client.get("/api/cron/channel_sessions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "channels" in data
+    assert data["channels"] == {}
 
 
 def test_create_job_success(client, monkeypatch):
@@ -120,6 +173,44 @@ def test_create_job_with_deliver_to(client):
     resp = _create_job(client, deliver_to=["weixin:abc", "feishu:ou_123"])
     assert resp.status_code == 200
     assert resp.json()["job"]["deliver_to"] == ["weixin:abc", "feishu:ou_123"]
+
+
+def test_create_job_with_session_id(client):
+    """创建任务支持指定会话执行（session_id 透传）。"""
+    resp = _create_job(client, session_id="sess_abc123")
+    assert resp.status_code == 200
+    assert resp.json()["job"]["session_id"] == "sess_abc123"
+
+
+def test_create_job_without_session_id(client):
+    """创建任务缺省 session_id 时不写入该字段。"""
+    resp = _create_job(client)
+    assert resp.status_code == 200
+    assert "session_id" not in resp.json()["job"]
+
+
+def test_update_job_session_id(client):
+    """PATCH 更新 session_id。"""
+    job_id = _create_job(client).json()["id"]
+    resp = client.patch(f"/api/cron/jobs/{job_id}", json={"session_id": "sess_xyz"})
+    assert resp.status_code == 200
+    assert resp.json()["job"]["session_id"] == "sess_xyz"
+
+
+def test_update_job_session_id_cleared(client):
+    """PATCH 传 session_id=null 显式清除。"""
+    job_id = _create_job(client, session_id="sess_abc").json()["id"]
+    resp = client.patch(f"/api/cron/jobs/{job_id}", json={"session_id": None})
+    assert resp.status_code == 200
+    assert "session_id" not in resp.json()["job"]
+
+
+def test_update_job_without_session_id_keeps_existing(client):
+    """PATCH 不提供 session_id 时保留原值（model_fields_set 语义）。"""
+    job_id = _create_job(client, session_id="sess_abc").json()["id"]
+    resp = client.patch(f"/api/cron/jobs/{job_id}", json={"enabled": False})
+    assert resp.status_code == 200
+    assert resp.json()["job"]["session_id"] == "sess_abc"
 
 
 def test_update_job_fields(client):
