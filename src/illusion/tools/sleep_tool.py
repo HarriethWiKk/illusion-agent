@@ -28,7 +28,7 @@ class SleepToolInput(BaseModel):
         seconds: 休眠秒数
     """
 
-    seconds: float = Field(default=1.0, ge=0.0, le=30.0)
+    seconds: float = Field(default=1.0, ge=0.0, le=600.0)
 
 
 class SleepTool(BaseTool[SleepToolInput]):
