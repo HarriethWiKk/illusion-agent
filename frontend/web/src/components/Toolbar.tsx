@@ -112,6 +112,10 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
   const currentModel = String(status?.model ?? '');
   // model 显示名：优先从 modelOptions 的 active 选项取 label，回退到 status.model
   const currentModelLabel = modelOptions.find((o) => o.active)?.label || currentModel;
+  // effort 显示名：仅首字母大写原始值（不使用 i18n，i18n 仅用于下拉选项）
+  const currentEffortLabel = currentEffort
+    ? currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1)
+    : '';
   // 模型选项来自后端 web_models 推送，空时仅显示当前值
   const modelOpts = modelOptions.length > 0 ? modelOptions : [{ value: currentModel, label: currentModel, active: true }];
 
@@ -119,7 +123,7 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
     <div className="flex items-center gap-2 px-6 py-3 border-t border-white/30 glass-panel select-none">
       <Dropdown value={currentMode} title="Mode" options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
       <Dropdown value={currentModelLabel} title="Model" placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
-      <Dropdown value={currentEffort} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
+      <Dropdown value={currentEffortLabel} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
     </div>
   );
 }

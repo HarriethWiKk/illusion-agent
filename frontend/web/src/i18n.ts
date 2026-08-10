@@ -629,7 +629,7 @@ const EN: Record<string, string> = {
   setupFormCronTitle: 'Cron Jobs',
   cronSchedulerRunning: 'Scheduler running',
   cronSchedulerStopped: 'Scheduler stopped',
-  cronJobsCount: '{enabled} enabled / {total} total',
+  cronJobsCount: '{enabled}/{total}',
   cronJobsNone: 'No cron jobs yet, create one below',
   cronJobAdd: 'New Job',
   cronJobEdit: 'Edit Job',

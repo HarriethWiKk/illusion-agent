@@ -386,7 +386,7 @@ export default function ChatArea({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef} onScroll={handleScroll}>
+    <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef} onScroll={handleScroll} style={{ scrollbarGutter: 'stable' }}>
       {!connected && !hasContent && (
         <div className="flex items-center justify-center h-full text-content-disabled text-sm font-medium">
           {t(lang, 'connecting')}
