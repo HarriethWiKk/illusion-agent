@@ -124,6 +124,9 @@ const ZH: Record<string, string> = {
   regenerate: '重新生成',
   collapse_session_list: '收起会话列表',
   expand_session_list: '展开会话列表',
+  // rename 相关
+  rename_select_session: '选择要重命名的会话',
+  rename_enter_name: '输入新的会话名称',
   // max-tokens 自定义输入相关
   maxTokensTitle: '最大令牌数',
   maxTokensCustomPrompt: '输入自定义最大令牌数:',
@@ -447,6 +450,9 @@ const EN: Record<string, string> = {
   regenerate: 'Regenerate',
   collapse_session_list: 'Collapse session list',
   expand_session_list: 'Expand session list',
+  // rename
+  rename_select_session: 'Select a session to rename',
+  rename_enter_name: 'Enter new session name',
   // max-tokens custom input
   maxTokensTitle: 'Max Tokens',
   maxTokensCustomPrompt: 'Enter custom max tokens:',

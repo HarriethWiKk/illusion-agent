@@ -397,6 +397,8 @@ export interface WebSessionItem {
   turn_count?: number;
   /** 会话摘要（可选） */
   summary?: string;
+  /** 自定义会话名称（可选，存在时列表显示用 title） */
+  title?: string;
   /** 会话是否正在运行任务（可选） */
   busy?: boolean;
   /** 会话阶段：idle/thinking/tool_executing/awaiting_input（可选） */

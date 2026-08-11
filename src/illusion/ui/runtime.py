@@ -1002,6 +1002,7 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
         "summary": summary,
         "message_count": len(bundle.engine.messages),
         "turn_count": turn_count,
+        "title": existing.get("title"),
     })
 
 

@@ -257,6 +257,7 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
             "model": data.get("model", ""),
             "created_at": data.get("created_at", 0),
             "updated_at": data.get("updated_at", 0),
+            "title": data.get("title"),
         })
     sessions.sort(key=lambda s: s.get("updated_at", 0), reverse=True)
     return sessions[:limit]

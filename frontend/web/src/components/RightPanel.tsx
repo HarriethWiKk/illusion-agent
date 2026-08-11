@@ -46,6 +46,8 @@ interface RightPanelProps {
   mcpServers: McpServerSnapshot[];
   /** 面板宽度（可选，默认 260） */
   width?: number;
+  /** 展开时刷新资源回调（区块展开或面板展开时触发） */
+  onRefreshResources?: () => void;
 }
 
 /**
@@ -58,7 +60,7 @@ interface RightPanelProps {
  */
 export default function RightPanel({
   lang, status, connected, busy, collapsed, onToggle, todoItems,
-  skills, plugins, rules, mcpServers, width = 260,
+  skills, plugins, rules, mcpServers, width = 260, onRefreshResources,
 }: RightPanelProps) {
   // 主题（浅色/深色/跟随系统）— 在折叠判断前调用以保证 hook 始终执行
   const { theme, toggleTheme } = useTheme();
@@ -161,6 +163,7 @@ export default function RightPanel({
           count={skills.length}
           subtitle={projectSkills.length > 0 ? `${projectSkills.length} ${t(lang, 'project_label')}` : undefined}
           defaultCollapsed={true}
+          onExpand={onRefreshResources}
         >
           {skills.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.description} tag={s.source === 'project' ? 'P' : undefined} />
@@ -174,6 +177,7 @@ export default function RightPanel({
           title="MCP"
           count={mcpServers.length}
           subtitle={mcpServers.some((s) => s.state === 'connected') ? `${mcpServers.filter((s) => s.state === 'connected').length} ${t(lang, 'connected_label')}` : undefined}
+          onExpand={onRefreshResources}
         >
           {mcpServers.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.state} tag={s.tool_count != null ? `${s.tool_count}t` : undefined} />
@@ -187,6 +191,7 @@ export default function RightPanel({
           title="Plugins"
           count={plugins.length}
           subtitle={enabledPlugins.length > 0 ? `${enabledPlugins.length} ${t(lang, 'enabled_label')}` : undefined}
+          onExpand={onRefreshResources}
         >
           {plugins.map((p) => (
             <ItemRow key={p.name} name={p.name} description={p.description} tag={p.enabled ? undefined : t(lang, 'off_label')} />
@@ -200,6 +205,7 @@ export default function RightPanel({
           title="Rules"
           count={rules.length}
           subtitle={projectRules.length > 0 ? `${projectRules.length} ${t(lang, 'project_label')}` : undefined}
+          onExpand={onRefreshResources}
         >
           {rules.map((r) => (
             <ItemRow key={`${r.source}-${r.name}`} name={r.name} description="" tag={r.source === 'project' ? 'P' : undefined} />
@@ -280,20 +286,28 @@ export default function RightPanel({
 // ---- 可折叠区域 ----
 
 function CollapsibleSection({
-  title, count, subtitle, children, defaultCollapsed = true,
+  title, count, subtitle, children, defaultCollapsed = true, onExpand,
 }: {
   title: string;
   count: number;
   subtitle?: string;
   children: React.ReactNode;
   defaultCollapsed?: boolean;
+  /** 折叠→展开时触发（用于刷新数据） */
+  onExpand?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+  const handleToggle = () => {
+    const willExpand = collapsed;
+    setCollapsed(!collapsed);
+    if (willExpand && onExpand) onExpand();
+  };
 
   return (
     <div className="border-t border-border-light">
       <button
-        onClick={() => setCollapsed((c) => !c)}
+        onClick={handleToggle}
         className="w-full px-5 py-2.5 flex items-center gap-2 glass-option-hover transition-colors cursor-pointer"
       >
         <svg

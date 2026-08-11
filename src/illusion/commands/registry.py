@@ -219,6 +219,7 @@ def create_default_command_registry() -> CommandRegistry:
         context_handler,
         delete_handler,
         new_handler,
+        rename_handler,
         resume_handler,
         rewind_handler,
     )
@@ -279,6 +280,7 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("doctor", "Show environment diagnostics", doctor_handler))
     registry.register(SlashCommand("privacy-settings", "Show local privacy and storage settings", privacy_settings_handler))
     registry.register(SlashCommand("delete", "Delete saved sessions", delete_handler, usage="/delete [session_id|#N|all]"))
+    registry.register(SlashCommand("rename", "Rename a session", rename_handler, usage="/rename [name|#N name|session_id name|--clear]"))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
     registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
 

@@ -36,7 +36,7 @@ const WS_URL = `ws://${window.location.host}/ws`;
 const TOAST_DURATION = 5000;
 
 /** B 通道允许的指令集合（前端识别并走 web_query） */
-const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'turns', 'output-style', 'language', 'max-tokens'];
+const B_COMMANDS = ['rewind', 'compact', 'context', 'export', 'init', 'turns', 'output-style', 'language', 'max-tokens', 'rename'];
 
 /**
  * 应用主组件
@@ -73,8 +73,9 @@ export default function App() {
   // 自定义数字输入模态框状态（/max-tokens 与 /context-window 的 custom 分支触发）
   const [customInputModal, setCustomInputModal] = useState<{
     prompt: string;
-    command: 'max-tokens' | 'context-window';
+    command: 'max-tokens' | 'context-window' | 'rename';
     invalidMessage?: string;
+    targetSessionId?: string;
   } | null>(null);
 
   // Agent 摘要浮动卡片：查看已完成 agent 时以卡片形式展示（与 BtwCard 同尺寸）
@@ -206,6 +207,19 @@ export default function App() {
       const cmdName = trimmed.slice(1).split(/\s+/)[0] ?? '';
       const args = trimmed.slice(1 + cmdName.length).trim();
 
+      // /rename（无参数）→ 弹出会话选择器
+      if (cmdName === 'rename' && !args) {
+        session.setInlineOptions({
+          command: 'rename_select',
+          title: t(lang, 'rename_select_session'),
+          options: session.sessions.map(s => ({
+            value: s.value,
+            label: s.label,
+            active: s.active,
+          })),
+        });
+        return;
+      }
       // /language（无参数）→ 弹出语言选择框，不走 web_query
       if (cmdName === 'language' && !args) {
         const current = String(session.status?.ui_language ?? 'zh-CN');
@@ -280,6 +294,16 @@ export default function App() {
    * @param value - 选中的值
    */
   const handleInlineSelect = useCallback((command: string, value: string) => {
+    // /rename 会话选择器 → 弹出文本输入模态框
+    if (command === 'rename_select') {
+      session.setInlineOptions(null);
+      setCustomInputModal({
+        prompt: t(lang, 'rename_enter_name'),
+        command: 'rename',
+        targetSessionId: value,
+      });
+      return;
+    }
     // /agent 分支选择器
     if (command === 'agent_branch') {
       session.setInlineOptions(null);
@@ -350,6 +374,19 @@ export default function App() {
    */
   const handleCustomSubmit = useCallback((value: string) => {
     if (customInputModal) {
+      // rename 走 web_query 通道（携带目标 session_id）
+      if (customInputModal.command === 'rename') {
+        const sid = customInputModal.targetSessionId;
+        session.setBusyTrue();
+        session.sendRequest({
+          type: 'web_query',
+          command: 'rename',
+          args: sid ? `${sid} ${value}` : value,
+          request_id: `q-${Date.now()}`,
+        });
+        setCustomInputModal(null);
+        return;
+      }
       session.sendRequest({
         type: 'apply_select_command',
         command: customInputModal.command,
@@ -648,7 +685,11 @@ export default function App() {
       )}
       <RightPanel lang={lang} status={session.status}
         connected={session.connected} busy={session.busy}
-        collapsed={rightPanelCollapsed} onToggle={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+        collapsed={rightPanelCollapsed} onToggle={() => {
+          if (rightPanelCollapsed) session.sendRequest({ type: 'web_request_resources' });
+          setRightPanelCollapsed(!rightPanelCollapsed);
+        }}
+        onRefreshResources={() => session.sendRequest({ type: 'web_request_resources' })}
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
@@ -729,12 +770,13 @@ export default function App() {
         </div>
       )}
 
-      {/* 自定义数字输入模态框（/max-tokens custom 与 /context-window __custom__ 分支） */}
+      {/* 自定义输入模态框（/max-tokens custom、/context-window __custom__、/rename 分支） */}
       {customInputModal && (
         <CustomInputModal
           lang={lang}
           prompt={customInputModal.prompt}
           invalidMessage={customInputModal.invalidMessage}
+          mode={customInputModal.command === 'rename' ? 'text' : 'numeric'}
           onSubmit={handleCustomSubmit}
           onCancel={handleCustomCancel}
         />

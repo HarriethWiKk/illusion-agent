@@ -2,7 +2,7 @@
 会话管理斜杠命令
 ================
 
-/new, /compact, /rewind, /context, /resume, /delete
+/new, /compact, /rewind, /context, /resume, /delete, /rename
 """
 
 from __future__ import annotations
@@ -257,9 +257,9 @@ async def resume_handler(args: str, context: CommandContext) -> CommandResult:
         lines = ["Saved sessions:"]
         for i, s in enumerate(sessions, 1):
             ts = time.strftime("%m/%d %H:%M", time.localtime(s.get("updated_at", s.get("created_at", 0))))
-            summary = s["summary"][:50] or "(no summary)"
+            display = s.get("title") or s.get("summary", "")[:50] or "(no summary)"
             turn_count = s.get("turn_count", 0)
-            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
+            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {display}")
         lines.append("")
         lines.append("Usage: /resume #1 or /resume <session_id>")
         return CommandResult(message="\n".join(lines))
@@ -404,9 +404,9 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
         lines = ["Saved sessions:"]
         for i, s in enumerate(sessions, 1):
             ts = time.strftime("%m/%d %H:%M", time.localtime(s.get("updated_at", s.get("created_at", 0))))
-            summary = s["summary"][:50] or "(no summary)"
+            display = s.get("title") or s.get("summary", "")[:50] or "(no summary)"
             turn_count = s.get("turn_count", 0)
-            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {summary}")
+            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {display}")
         lines.append("")
         lines.append("Usage: /delete #1 or /delete <session_id>  — delete a specific session")
         lines.append("       /delete all                        — delete all sessions")
@@ -451,3 +451,99 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
             )
         return CommandResult(message=f"Deleted session: {sid}")
     return CommandResult(message=f"Session not found: {sid}")
+
+
+async def rename_handler(args: str, context: CommandContext) -> CommandResult:
+    """重命名会话。
+
+    用法：
+        /rename <名称>              — 重命名当前会话
+        /rename #N <名称>           — 重命名第 N 个会话
+        /rename <session_id> <名称> — 重命名指定会话
+        /rename --clear             — 清除当前会话的自定义名称
+        /rename                     — 列出会话供选择（Terminal）
+
+    直接操作 meta.json，不依赖 engine.checkpoint_store，
+    使非活动会话（仅磁盘）也能被重命名。
+    """
+    import time
+
+    from illusion.services.session_storage import (
+        list_session_snapshots,
+        read_meta,
+        write_meta,
+    )
+
+    args = args.strip()
+
+    # 无参数：列出会话供选择
+    if not args:
+        sessions = list_session_snapshots(context.cwd, limit=20)
+        if not sessions:
+            return CommandResult(message=t("rename_no_sessions"))
+        lines = [t("rename_prompt_select")]
+        for i, s in enumerate(sessions, 1):
+            ts = time.strftime("%m/%d %H:%M", time.localtime(s.get("updated_at", s.get("created_at", 0))))
+            display = s.get("title") or s.get("summary", "")[:50] or "(no summary)"
+            turn_count = s.get("turn_count", 0)
+            lines.append(f"  #{i}  {s['session_id']}  {ts}  {turn_count}轮  {display}")
+        lines.append("")
+        lines.append(t("rename_no_args"))
+        return CommandResult(message="\n".join(lines))
+
+    # --clear：清除当前会话的自定义名称
+    if args == "--clear":
+        meta = read_meta(context.cwd, context.session_id)
+        if meta is None:
+            return CommandResult(message=t("rename_not_found", sid=context.session_id))
+        meta.pop("title", None)
+        write_meta(context.cwd, context.session_id, meta)
+        return CommandResult(message=t("rename_cleared"), refresh_state=True)
+
+    # 解析目标会话和名称
+    tokens = args.split(None, 1)
+    target_sid = context.session_id
+    name = ""
+
+    first = tokens[0]
+    rest = tokens[1].strip() if len(tokens) > 1 else ""
+
+    # #N 引用
+    if first.startswith("#") and first[1:].isdigit():
+        n = int(first[1:])
+        sessions = list_session_snapshots(context.cwd, limit=20)
+        if 1 <= n <= len(sessions):
+            target_sid = sessions[n - 1]["session_id"]
+            name = rest
+        else:
+            return CommandResult(message=f"Invalid session number: {first}")
+    # session_id 引用（12 位 hex）
+    elif len(first) == 12 and all(c in "0123456789abcdef" for c in first.lower()):
+        target_sid = first
+        name = rest
+    else:
+        # 整个 args 是当前会话的新名称
+        name = args
+
+    # 清理并校验名称
+    name = name.strip()
+    if not name:
+        return CommandResult(message=t("rename_empty_name"))
+    # 限制长度（与 summary 80 字符一致），防止终端列表/侧边栏溢出
+    name = name[:80]
+
+    # 读取 meta，设置 title，写回
+    from illusion.services.session_storage import InvalidSessionIdError
+    try:
+        meta = read_meta(context.cwd, target_sid)
+    except InvalidSessionIdError:
+        return CommandResult(message=t("rename_not_found", sid=target_sid))
+    if meta is None:
+        return CommandResult(message=t("rename_not_found", sid=target_sid))
+    meta["title"] = name
+    write_meta(context.cwd, target_sid, meta)
+
+    return CommandResult(
+        message=t("rename_set", title=name),
+        refresh_state=True,
+    )

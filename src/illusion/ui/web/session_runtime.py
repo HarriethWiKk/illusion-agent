@@ -64,6 +64,7 @@ class SessionRuntime:
     created_at: float = field(default_factory=time.time)
     label: str = ""
     summary: str = ""
+    title: str = ""
     message_count: int = 0
     turn_count: int = 0
     context_tokens: int = 0

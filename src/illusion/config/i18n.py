@@ -209,6 +209,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "update_deps_available": {"zh-CN": "以下依赖可升级:", "en-US": "The following dependencies can be upgraded:"},
     "update_deps_confirm": {"zh-CN": "按回车更新依赖，Ctrl+C 取消", "en-US": "Press Enter to update dependencies, Ctrl+C to cancel"},
     "update_deps_success": {"zh-CN": "依赖更新完成", "en-US": "Dependencies updated successfully"},
+    # ---- rename 命令反馈 ----
+    "rename_set": {"zh-CN": "会话已重命名为「{title}」", "en-US": "Session renamed to \"{title}\""},
+    "rename_cleared": {"zh-CN": "会话名称已清除", "en-US": "Session name cleared"},
+    "rename_not_found": {"zh-CN": "未找到会话：{sid}", "en-US": "Session not found: {sid}"},
+    "rename_no_args": {"zh-CN": "用法：/rename <名称> 重命名当前会话，或 /rename #N <名称> 重命名指定会话", "en-US": "Usage: /rename <name> to rename current session, or /rename #N <name> for a specific session"},
+    "rename_prompt_select": {"zh-CN": "选择要重命名的会话：", "en-US": "Select a session to rename:"},
+    "rename_empty_name": {"zh-CN": "名称不能为空", "en-US": "Name cannot be empty"},
+    "rename_no_sessions": {"zh-CN": "没有已保存的会话。", "en-US": "No saved sessions found."},
     # 计划审批
     "plan_approval": {"zh-CN": "计划审批", "en-US": "Plan approval"},
     "plan_approve_question": {"zh-CN": "是否批准此计划？", "en-US": "Do you approve this plan?"},

@@ -25,7 +25,7 @@ import { t, type UiLanguage } from '../i18n';
 // 因此 '/agent' 不在 B_COMMANDS 中，不会走 web_query 通道
 const WEB_COMMANDS = [
   '/rewind', '/compact', '/context', '/export', '/init',
-  '/agent', '/turns', '/output-style', '/language', '/max-tokens',
+  '/agent', '/turns', '/output-style', '/language', '/max-tokens', '/rename',
 ];
 
 /**

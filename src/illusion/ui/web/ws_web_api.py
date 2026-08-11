@@ -696,6 +696,11 @@ class WebApiDispatcher:
             type="web_query_result", web_request_id=request_id, web_command=command,
             web_query_kind="text", web_query_payload=payload,
         ), session_id=session_id)
+        # rename 后刷新会话列表（title 变化需更新侧边栏）
+        if command == "rename":
+            for sr in host._sessions.values():
+                host._refresh_session_display(sr)
+            await host._push_sessions()
 
 
 async def _run_command_via_registry(line: str, bundle: RuntimeBundle) -> CommandResult | None:

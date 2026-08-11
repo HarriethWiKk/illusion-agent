@@ -1478,16 +1478,18 @@ class WebBackendHost:
         return payload
 
     def _refresh_session_display(self, session: SessionRuntime) -> None:
-        """刷新会话列表展示字段（label/summary/turn_count/message_count）。
+        """刷新会话列表展示字段（label/summary/title/turn_count/message_count）。
 
         以会话引擎实时数据为准（对话进行中摘要/轮数即时可见），
         引擎无消息时回退到磁盘 meta。
+        title（自定义名称）优先于 summary 用于 label 显示。
 
         Args:
             session: 目标会话运行时
         """
         assert self._bundle is not None
         from illusion.engine.messages import ToolResultBlock
+        from illusion.services.session_storage import read_meta
 
         zh = str(
             self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language
@@ -1513,26 +1515,28 @@ class WebBackendHost:
             and not is_task_notification(m.text)
         )
         message_count = len(messages)
+        # 读取磁盘 meta 获取自定义 title（rename 写入的名称）
+        meta = None
+        try:
+            meta = read_meta(self._bundle.cwd, session.session_id)
+        except (OSError, ValueError):
+            meta = None
+        title = (meta or {}).get("title") or ""
         session.summary = summary
+        session.title = title
         session.turn_count = turn_count
         session.message_count = message_count
         session.context_tokens = engine.current_context_tokens()
-        if summary:
+        # label：title 优先于 summary
+        display = title or summary
+        if display:
             ts = time.strftime("%m/%d %H:%M", time.localtime(session.created_at))
-            session.label = f"{ts}  {turn_count}轮  {summary}"
+            session.label = f"{ts}  {turn_count}轮  {display}"
+        elif meta and meta.get("summary"):
+            ts = time.strftime("%m/%d %H:%M", time.localtime(meta.get("created_at") or session.created_at))
+            session.label = f"{ts}  {meta.get('turn_count', 0)}轮  {meta.get('summary', '')}"
         else:
-            # 空会话：优先取磁盘 meta 摘要（restore 后引擎可能为空但 meta 有历史）
-            from illusion.services.session_storage import read_meta
-            meta = None
-            try:
-                meta = read_meta(self._bundle.cwd, session.session_id)
-            except (OSError, ValueError):
-                meta = None
-            if meta and meta.get("summary"):
-                ts = time.strftime("%m/%d %H:%M", time.localtime(meta.get("created_at") or session.created_at))
-                session.label = f"{ts}  {meta.get('turn_count', 0)}轮  {meta.get('summary', '')}"
-            else:
-                session.label = "新会话" if zh else "New session"
+            session.label = "新会话" if zh else "New session"
 
     async def _push_sessions(self) -> None:
         """推送会话列表（磁盘快照 + 内存运行时合并）。
@@ -1571,6 +1575,7 @@ class WebBackendHost:
                 "message_count": sr.message_count,
                 "turn_count": sr.turn_count,
                 "summary": sr.summary,
+                "title": sr.title,
                 "busy": sr.busy,
                 "phase": sr.phase,
                 "active": sr.session_id == self._active_session_id,
@@ -1590,14 +1595,17 @@ class WebBackendHost:
             if sid in seen:
                 continue
             ts = time.strftime("%m/%d %H:%M", time.localtime(meta.get("created_at", 0)))
+            title = meta.get("title") or ""
             summary = (meta.get("summary", "") or ("（无摘要）" if zh else "(no summary)"))[:50]
+            display = title or summary
             options.append({
                 "id": sid,
-                "label": f"{ts}  {meta.get('turn_count', 0)}轮  {summary}",
+                "label": f"{ts}  {meta.get('turn_count', 0)}轮  {display}",
                 "created_at": meta.get("created_at", 0),
                 "message_count": meta.get("message_count", 0),
                 "turn_count": meta.get("turn_count", 0),
                 "summary": meta.get("summary", ""),
+                "title": title,
                 "busy": False,
                 "phase": "idle",
                 "active": False,

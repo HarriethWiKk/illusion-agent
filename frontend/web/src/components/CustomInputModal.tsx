@@ -24,12 +24,14 @@ interface CustomInputModalProps {
   lang: UiLanguage;
   /** 提示文案 */
   prompt: string;
-  /** 提交回调（value 为数字字符串） */
+  /** 提交回调（value 为数字字符串或文本） */
   onSubmit: (value: string) => void;
   /** 取消回调 */
   onCancel: () => void;
   /** 校验失败时的错误文案（可选，默认使用通用文案） */
   invalidMessage?: string;
+  /** 输入模式：numeric（正整数校验）或 text（非空校验） */
+  mode?: 'numeric' | 'text';
 }
 
 /**
@@ -44,7 +46,7 @@ interface CustomInputModalProps {
  * @param props - 组件属性
  * @returns 返回模态对话框的 JSX 元素
  */
-export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMessage }: CustomInputModalProps) {
+export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMessage, mode = 'numeric' }: CustomInputModalProps) {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,10 +57,18 @@ export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMess
   }, []);
 
   const handleSubmit = () => {
-    if (/^\d+$/.test(value) && parseInt(value, 10) > 0) {
-      onSubmit(value);
+    if (mode === 'text') {
+      if (value.trim()) {
+        onSubmit(value.trim());
+      } else {
+        setError(true);
+      }
     } else {
-      setError(true);
+      if (/^\d+$/.test(value) && parseInt(value, 10) > 0) {
+        onSubmit(value);
+      } else {
+        setError(true);
+      }
     }
   };
 
@@ -86,7 +96,7 @@ export function CustomInputModal({ lang, prompt, onSubmit, onCancel, invalidMess
         <input
           ref={inputRef}
           type="text"
-          inputMode="numeric"
+          inputMode={mode === 'numeric' ? 'numeric' : 'text'}
           className="w-full px-3 py-2 rounded-md bg-white/40 border border-white/40 text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200"
           value={value}
           onChange={(e) => {
