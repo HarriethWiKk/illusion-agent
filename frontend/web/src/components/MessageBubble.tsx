@@ -11,7 +11,7 @@
  * @module MessageBubble
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSuperscript from '../remarkSuperscript';
@@ -265,12 +265,15 @@ interface MessageBubbleProps {
 /**
  * 消息操作按钮组 —— 复制 + 撤销 + 重新生成（hover 时显示）
  *
+ * memo 化：text/onRewind/onRegenerate 引用稳定时跳过重渲染
+ * （流式 token 更新不会让历史消息的复制/撤销按钮重建）。
+ *
  * @param props.text - 待复制文本
  * @param props.lang - UI 语言
  * @param props.onRewind - 撤销回调（可选，user 消息显示）
  * @param props.onRegenerate - 重新生成回调（可选，assistant 消息显示）
  */
-function MessageActions({ text, lang, onRewind, onRegenerate, disabled }: { text: string; lang: UiLanguage; onRewind?: () => void; onRegenerate?: () => void; disabled?: boolean }) {
+const MessageActions = memo(function MessageActions({ text, lang, onRewind, onRegenerate, disabled }: { text: string; lang: UiLanguage; onRewind?: () => void; onRegenerate?: () => void; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -325,17 +328,20 @@ function MessageActions({ text, lang, onRewind, onRegenerate, disabled }: { text
       )}
     </div>
   );
-}
+});
 
 /**
  * 消息气泡组件
  *
  * 根据消息角色类型渲染不同的消息样式。
  *
+ * memo 化：流式输出期间 staticItems 中未变化的 item 引用保持稳定，
+ * 已渲染过的历史消息不会因每次 token 更新而重新解析 markdown。
+ *
  * @param props - 组件属性
  * @returns 返回消息气泡的 JSX 元素
  */
-export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRewind, onRegenerate, hideReasoning, showActions = true, actionsDisabled }: MessageBubbleProps) {
+function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRewind, onRegenerate, hideReasoning, showActions = true, actionsDisabled }: MessageBubbleProps) {
   if (item.role === 'user') {
     return (
       <div className="flex justify-end py-1.5 group">
@@ -386,6 +392,12 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
 }
 
 /**
+ * memo 化导出：item 引用稳定时（流式期间历史消息）跳过重渲染，
+ * 避免每次 token 更新都重新执行 ReactMarkdown 解析与代码高亮。
+ */
+export default memo(MessageBubble);
+
+/**
  * 工具结果气泡组件
  *
  * 显示工具执行结果，支持展开/折叠查看详情。
@@ -394,13 +406,15 @@ export default function MessageBubble({ item, toolInputMap, lang = 'zh-CN', onRe
  * （agent 子任务的思考过程——仅供人查看，不进入 LLM 上下文），再显示
  * 工具结果正文。流式阶段由 PendingToolBubble 展示同一份进度，完成后无缝衔接。
  *
+ * memo 化：历史工具结果的 text/name/toolInput 引用稳定时跳过重渲染。
+ *
  * @param props - 组件属性
  * @param props.name - 工具名称
  * @param props.text - 结果文本
  * @param props.isError - 是否为错误结果
  * @param props.toolInput - 工具输入参数
  */
-function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
+const ToolResultBubble = memo(function ToolResultBubble({ name, text, isError, toolInput }: { name: string; text: string; isError?: boolean; toolInput?: Record<string, unknown> }) {
   const [open, setOpen] = useState(false);
   // summarizeInput 用原名做大小写不敏感匹配，显示名用映射后的友好名
   const summary = summarizeInput(name, toolInput, name);
@@ -435,7 +449,7 @@ function ToolResultBubble({ name, text, isError, toolInput }: { name: string; te
       )}
     </div>
   );
-}
+});
 
 /**
  * 流式进度消息渲染（供 PendingToolBubble 使用）
@@ -540,7 +554,7 @@ export function useContentCollapse(onCollapse: () => void, skipSelector?: string
  * @param props.autoCollapsed - 自动折叠信号：true 折叠、false 展开，仅对用户未手动操作过的块生效
  * @param props.streaming - 是否正在流式输出（大脑图标切换为与工具行圆点一致的脉冲动画，展开内容底部显示流式光标）
  */
-export function ThinkingBlock({
+export const ThinkingBlock = memo(function ThinkingBlock({
   text,
   lang,
   defaultOpen = false,
@@ -623,7 +637,7 @@ export function ThinkingBlock({
       </div>
     </div>
   );
-}
+});
 
 /**
  * 待处理工具调用气泡组件
@@ -634,10 +648,13 @@ export function ThinkingBlock({
  * 用户可点击标题行展开查看全部进度消息（web 端不受 terminal 行数限制）。
  * 工具完成（completed）后由 ToolResultBubble（同样默认折叠）替代。
  *
+ * memo 化：call 引用仅在进度更新时变化（流式进度消息累积），
+ * 无更新的工具调用不会因其他消息的 token 刷新而重渲染。
+ *
  * @param props - 组件属性
  * @param props.call - 待处理的工具调用信息
  */
-export function PendingToolBubble({ call }: { call: PendingToolCall }) {
+export const PendingToolBubble = memo(function PendingToolBubble({ call }: { call: PendingToolCall }) {
   // 工具执行中默认展开（可实时查看执行过程；仅 agent 工具会上报进度消息，
   // 普通工具无进度时展开态只显示标题行）；完成后由 ToolResultBubble 折叠展示
   const [open, setOpen] = useState(true);
@@ -704,7 +721,7 @@ export function PendingToolBubble({ call }: { call: PendingToolCall }) {
       )}
     </div>
   );
-}
+});
 
 // ---- Agent 工具显示名辅助函数 ----
 

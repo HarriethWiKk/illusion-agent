@@ -11,9 +11,10 @@
  * @module ChatArea
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import MessageBubble, { PendingToolBubble, StreamingBuffer, ThinkingBlock, useContentCollapse } from './MessageBubble';
+import { useStableTurns, useStableToolInputMap } from '../utils/turnGrouping';
 import WelcomeScreen from './WelcomeScreen';
 import { PermissionCard, QuestionCard } from './ModalCard';
 import type { TranscriptItem, PendingToolCall } from '../types/protocol';
@@ -101,12 +102,15 @@ function splitTurnItems(items: TranscriptItem[], streaming: boolean = false) {
  * 流式阶段自动展开（内容可见）；轮次完成（streaming=false）时自动折叠。
  * 用户手动操作过的折叠区不被自动状态覆盖（尊重用户选择）。
  *
+ * memo 化：children 由 TurnView useMemo 提供（引用稳定），
+ * 历史轮次的折叠区不会因其他消息的 token 更新而重渲染。
+ *
  * @param props.streaming - 轮次是否仍在流式（流式展开、完成折叠）
  * @param props.lang - UI 语言
  * @param props.hasContent - 折叠内容是否非空（空内容时展开态不渲染内容区）
  * @param props.children - 折叠内容（中间 text、工具行、思考过程）
  */
-function TaskCompleteSection({ streaming, lang, hasContent, children }: { streaming: boolean; lang: UiLanguage; hasContent: boolean; children: ReactNode }) {
+const TaskCompleteSection = memo(function TaskCompleteSection({ streaming, lang, hasContent, children }: { streaming: boolean; lang: UiLanguage; hasContent: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(streaming);
   // 用户是否手动操作过（展开/折叠）：手动操作后自动状态变化不再覆盖
   const interactedRef = useRef(false);
@@ -169,23 +173,137 @@ function TaskCompleteSection({ streaming, lang, hasContent, children }: { stream
       )}
     </div>
   );
+});
+
+/**
+ * TurnView 组件属性接口
+ */
+interface TurnViewProps {
+  /** 单轮转录项列表（引用稳定：useStableTurns 结构化共享） */
+  turn: TranscriptItem[];
+  /** 是否为最后一轮 */
+  isLastTurn: boolean;
+  /** 回退到该轮需回退的轮次数（= 轮数 - 轮序号） */
+  turnsToRewind: number;
+  /** 是否忙碌（决定 turnStreaming 判定） */
+  busy: boolean;
+  /** 是否存在待处理工具调用（引用稳定，避免 pendingToolCalls 数组变化导致全量重渲染） */
+  hasPendingTools: boolean;
+  /** 当前 UI 语言 */
+  lang: UiLanguage;
+  /** 工具输入映射（引用稳定） */
+  toolInputMap: Map<string, Record<string, unknown>>;
+  /** 撤销到指定轮次回调（App 传入，ChatArea 稳定包装） */
+  onRewindToTurn?: (turnsToRewind: number) => void;
+  /** 重新生成回调（App 传入，ChatArea 经 ref 稳定包装） */
+  onRegenerate?: () => void;
+  /** 是否为列表首轮（控制轮间间距） */
+  hasTopGap: boolean;
 }
 
 /**
- * 从 staticItems 中提取 tool_use_id → tool_input 映射
+ * 单轮渲染单元（memo 化）
  *
- * @param items - 转录项列表
- * @returns tool_use_id 到 tool_input 的映射
+ * 流式 token 更新时，历史轮的 turn / isLastTurn / turnsToRewind / busy /
+ * hasPendingTools / toolInputMap / 回调引用全部稳定 → memo 直接短路，
+ * 本轮内所有子组件（MessageBubble / TaskCompleteSection）也因引用稳定
+ * 跳过 reconcile，最终只有流式缓冲区真正重渲染。
+ *
+ * @param props - 组件属性
+ * @returns 单轮对话的 JSX
  */
-function buildToolInputMap(items: TranscriptItem[]): Map<string, Record<string, unknown>> {
-  const map = new Map<string, Record<string, unknown>>();
-  for (const item of items) {
-    if (item.role === 'tool' && item.tool_use_id && item.tool_input) {
-      map.set(item.tool_use_id, item.tool_input);
-    }
-  }
-  return map;
-}
+const TurnView = memo(function TurnView({
+  turn, isLastTurn, turnsToRewind, busy, hasPendingTools, lang, toolInputMap,
+  onRewindToTurn, onRegenerate, hasTopGap,
+}: TurnViewProps) {
+  // 轮是否仍在流式：busy=true 与 user 消息（transcript_item）存在网络往返
+  // 窗口期——若仅按 busy && isLastTurn 判定，窗口期内旧轮会被误判为流式轮，
+  // 上一条回复的思考过程闪开又折叠。"轮已完成"判定：最后一条是 assistant
+  // 完成消息（tool_started 时 pushStatic 的中间 assistant 消息伴随
+  // pendingToolCalls 非空，排除）。
+  const turnFinished =
+    turn.length > 0 &&
+    turn[turn.length - 1]!.role === 'assistant' &&
+    !hasPendingTools;
+  const turnStreaming = busy && isLastTurn && !turnFinished;
+
+  // splitTurnItems 结果仅随 turn / turnStreaming 变化重建
+  const { userItems, thinkingItems, finalAssistant } = useMemo(
+    () => splitTurnItems(turn, turnStreaming),
+    [turn, turnStreaming],
+  );
+
+  // 回调引用稳定：turnsToRewind / onRewindToTurn 变化时才重建
+  const handleRewind = useCallback(() => {
+    onRewindToTurn?.(turnsToRewind);
+  }, [onRewindToTurn, turnsToRewind]);
+
+  // 折叠区 children 引用稳定：thinkingItems / toolInputMap 不变则复用，
+  // 保证 memo(TaskCompleteSection) 生效
+  const thinkingChildren = useMemo(
+    () => thinkingItems.map((item, msgIdx) => (
+      <MessageBubble
+        key={`t-${msgIdx}`}
+        item={item}
+        toolInputMap={toolInputMap}
+        lang={lang}
+        showActions={false}
+      />
+    )),
+    [thinkingItems, toolInputMap, lang],
+  );
+
+  // TaskCompleteSection 的整个 children（含 thinking 列表与最终回复思考块）
+  // 整体 memo，避免 fragment 每次重建导致折叠区 memo 失效
+  const sectionChildren = useMemo(
+    () => (
+      <>
+        {thinkingChildren}
+        {finalAssistant?.reasoning?.trim() && <ThinkingBlock text={finalAssistant.reasoning} lang={lang} />}
+      </>
+    ),
+    [thinkingChildren, finalAssistant, lang],
+  );
+
+  return (
+    <div className={hasTopGap ? 'pt-12' : ''}>
+      {userItems.map((item, msgIdx) => (
+        <MessageBubble
+          key={`u-${msgIdx}`}
+          item={item}
+          lang={lang}
+          onRewind={onRewindToTurn ? handleRewind : undefined}
+          actionsDisabled={busy}
+        />
+      ))}
+      {/* 二级折叠："任务完成"大标题区——折叠最终回复之前的所有内容
+          （中间 text、工具行、思考过程、最终回复的思考过程）；
+          流式阶段（turnStreaming）强制渲染显示"任务进行中"标题
+          （即使中间内容尚未推入），完成后自动折叠 */}
+      {(turnStreaming || thinkingItems.length > 0 || finalAssistant?.reasoning?.trim()) && (
+        <TaskCompleteSection
+          streaming={turnStreaming}
+          lang={lang}
+          hasContent={thinkingItems.length > 0 || !!finalAssistant?.reasoning?.trim()}
+        >
+          {sectionChildren}
+        </TaskCompleteSection>
+      )}
+      {finalAssistant && (
+        <MessageBubble
+          key="final"
+          item={finalAssistant}
+          toolInputMap={toolInputMap}
+          lang={lang}
+          hideReasoning
+          onRegenerate={isLastTurn ? onRegenerate : undefined}
+          actionsDisabled={busy}
+        />
+      )}
+    </div>
+  );
+});
+
 
 /**
  * ChatArea 组件属性接口
@@ -244,19 +362,10 @@ export default function ChatArea({
   // 程序滚动标记：auto-scroll 赋值 scrollTop 后派生的 scroll 事件用此忽略
   const programmaticScrollRef = useRef(false);
 
-  // 按用户消息分组为轮次(turn)，每轮以用户消息开头
+  // 按用户消息分组为轮次(turn)，每轮以用户消息开头。
+  // 结构化共享：流式追加期间历史轮的数组引用稳定（memo(TurnView) 生效前提）。
   // 注意：hooks 必须在任何条件返回之前调用（React Rules of Hooks）
-  const turns = useMemo(() => {
-    const result: TranscriptItem[][] = [];
-    for (const item of staticItems) {
-      if (item.role === 'user' || result.length === 0) {
-        result.push([item]);
-      } else {
-        result[result.length - 1]!.push(item);
-      }
-    }
-    return result;
-  }, [staticItems]);
+  const turns = useStableTurns(staticItems);
 
   // 消息列表收缩：超过阈值时仅展示最新 N 轮，其余折叠
   const { visibleTurns, hiddenCount } = useMemo(() => {
@@ -272,8 +381,22 @@ export default function ChatArea({
   // 计算可见轮次在原 turns 中的起始偏移
   const turnOffset = turns.length - visibleTurns.length;
 
-  // tool_use_id → tool_input 映射，用于 tool_result 摘要显示
-  const toolInputMap = useMemo(() => buildToolInputMap(staticItems), [staticItems]);
+  // tool_use_id → tool_input 映射（增量缓存：追加期间 Map 引用稳定）
+  const toolInputMap = useStableToolInputMap(staticItems);
+
+  // onRegenerate / onRewindToTurn 经 ref 稳定包装：App 传入的 onRegenerate
+  // 依赖 session 对象（每次 patchView 重建），直接透传会导致所有 TurnView
+  // 的 memo 失效；经 ref 转发后回调引用恒定，始终调用最新实现。
+  const onRegenerateRef = useRef(onRegenerate);
+  onRegenerateRef.current = onRegenerate;
+  const stableOnRegenerate = useCallback(() => {
+    onRegenerateRef.current?.();
+  }, []);
+  const onRewindToTurnRef = useRef(onRewindToTurn);
+  onRewindToTurnRef.current = onRewindToTurn;
+  const stableOnRewindToTurn = useCallback((turnsToRewind: number) => {
+    onRewindToTurnRef.current?.(turnsToRewind);
+  }, []);
 
   /** 滚动事件处理（对齐 kimi-code 的弱跟随）：
    *  向上滚动 → 停止跟随并立即显示"回到底部"按钮（跟随消失即显现）；
@@ -412,64 +535,20 @@ export default function ChatArea({
 
         {visibleTurns.map((turn, visIdx) => {
           const turnIdx = turnOffset + visIdx;
-          const isLastTurn = turnIdx === turns.length - 1;
-          // 轮是否仍在流式：busy=true 与 user 消息（transcript_item）存在网络往返
-          // 窗口期——若仅按 busy && isLastTurn 判定，窗口期内旧轮会被误判为流式轮，
-          // 上一条回复的思考过程闪开又折叠。"轮已完成"判定：最后一条是 assistant
-          // 完成消息（tool_started 时 pushStatic 的中间 assistant 消息伴随
-          // pendingToolCalls 非空，排除）。
-          const turnFinished =
-            turn.length > 0 &&
-            turn[turn.length - 1]!.role === 'assistant' &&
-            pendingToolCalls.length === 0;
-          const turnStreaming = busy && isLastTurn && !turnFinished;
-          const { userItems, thinkingItems, finalAssistant } = splitTurnItems(turn, turnStreaming);
-          const turnsToRewind = turns.length - turnIdx;
           return (
-            <div key={turnIdx} className={visIdx > 0 ? 'mt-12' : ''}>
-              {userItems.map((item, msgIdx) => (
-                <MessageBubble
-                  key={`u-${turnIdx}-${msgIdx}`}
-                  item={item}
-                  lang={lang}
-                  onRewind={onRewindToTurn ? () => onRewindToTurn(turnsToRewind) : undefined}
-                  actionsDisabled={busy}
-                />
-              ))}
-              {/* 二级折叠："任务完成"大标题区——折叠最终回复之前的所有内容
-                  （中间 text、工具行、思考过程、最终回复的思考过程）；
-                  流式阶段（turnStreaming）强制渲染显示"任务进行中"标题
-                  （即使中间内容尚未推入），完成后自动折叠 */}
-              {(turnStreaming || thinkingItems.length > 0 || finalAssistant?.reasoning?.trim()) && (
-                <TaskCompleteSection
-                  streaming={turnStreaming}
-                  lang={lang}
-                  hasContent={thinkingItems.length > 0 || !!finalAssistant?.reasoning?.trim()}
-                >
-                  {thinkingItems.map((item, msgIdx) => (
-                    <MessageBubble
-                      key={`t-${turnIdx}-${msgIdx}`}
-                      item={item}
-                      toolInputMap={toolInputMap}
-                      lang={lang}
-                      showActions={false}
-                    />
-                  ))}
-                  {finalAssistant?.reasoning?.trim() && <ThinkingBlock text={finalAssistant.reasoning} lang={lang} />}
-                </TaskCompleteSection>
-              )}
-              {finalAssistant && (
-                <MessageBubble
-                  key={`f-${turnIdx}`}
-                  item={finalAssistant}
-                  toolInputMap={toolInputMap}
-                  lang={lang}
-                  hideReasoning
-                  onRegenerate={isLastTurn ? onRegenerate : undefined}
-                  actionsDisabled={busy}
-                />
-              )}
-            </div>
+            <TurnView
+              key={turnIdx}
+              turn={turn}
+              isLastTurn={turnIdx === turns.length - 1}
+              turnsToRewind={turns.length - turnIdx}
+              busy={busy}
+              hasPendingTools={pendingToolCalls.length > 0}
+              lang={lang}
+              toolInputMap={toolInputMap}
+              onRewindToTurn={stableOnRewindToTurn}
+              onRegenerate={stableOnRegenerate}
+              hasTopGap={visIdx > 0}
+            />
           );
         })}
         {pendingToolCalls.length > 0 && (
