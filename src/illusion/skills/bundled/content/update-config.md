@@ -29,7 +29,6 @@ When the user's request is ambiguous, use `ask_user_question` to clarify:
 | **Project skills** | `<project>/.illusion/skills/` | Current project | Project-specific skills (override global) |
 | **Project plugins** | `<project>/.illusion/plugins/` | Current project | Project-specific plugins |
 | **Project rules** | `<project>/.illusion/rules/*.md` | Current project | Project-specific AI rules |
-| **Project memory** | `<project>/.illusion/memory/` | Current project | Project memory files (override global fallback) |
 | **Instruction files** | `<project>/CLAUDE.md` / `ILLUSION.md` / `AGENTS.md` | Current project | AI instructions (merged into system prompt) |
 | **Instruction files** | `<project>/.claude/CLAUDE.md` | Current project | AI instructions (alternate location) |
 | **Instruction files** | `<project>/.illusion/CLAUDE.md` / `ILLUSION.md` / `AGENTS.md` | Current project | AI instructions (alternate location) |
@@ -100,8 +99,14 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
   "hooks": {},
   "memory": {
     "enabled": true,
+    "auto_extract": false,
+    "directory": null,
     "max_files": 5,
-    "max_entrypoint_lines": 200
+    "max_entrypoint_lines": 200,
+    "max_entrypoint_bytes": 25000,
+    "extract_interval": 1,
+    "dream_min_hours": 24,
+    "dream_min_sessions": 5
   },
   "sandbox": {
     "enabled": false,
@@ -157,6 +162,22 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
 | `working_directory` | string\|null | null | Fixed working directory (auto-switch on startup, auto-create if missing) |
 | `enabled_plugins` | object | {} | Plugin enable/disable map |
 | `mcp_servers` | object | {} | MCP server configurations |
+
+### Memory Configuration (`memory`)
+
+File-based memory system (aligned with Claude Code Auto Memory), stored at `~/.illusion/memory/<project-name>-<hash>/`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | true | Enable the memory system (prompt injection, search, background extraction, auto dream) |
+| `auto_extract` | bool | false | Allow background LLM extraction/consolidation. false (default) = manual-only mode: memory is written directly in conversation when requested, no background sub-agents |
+| `directory` | string\|null | null | Custom memory directory (absolute path or `~/` prefix). null uses the default per-project directory |
+| `max_files` | int | 5 | Max relevant memory files injected into context |
+| `max_entrypoint_lines` | int | 200 | Max MEMORY.md lines loaded (truncation warning beyond) |
+| `max_entrypoint_bytes` | int | 25000 | Max MEMORY.md bytes loaded (truncation warning beyond) |
+| `extract_interval` | int | 1 | Background memory extraction interval (turns) |
+| `dream_min_hours` | int | 24 | Auto Dream min interval (hours) |
+| `dream_min_sessions` | int | 5 | Auto Dream min sessions since last consolidation |
 
 ### Environment Configuration (env_N)
 
@@ -552,9 +573,9 @@ Each `.md` file is an independent rule, sorted by filename. Also scanned: `.clau
 
 Each subdirectory must contain `plugin.json` or `.claude-plugin/plugin.json`.
 
-### Project Memory (`.illusion/memory/`)
+### Memory (user-level, no project-level)
 
-Project-level memory files. Takes priority over global fallback (`~/.illusion/memory/{project-hash}/`).
+Memory is stored at `~/.illusion/memory/{project-name}-{hash}/` (or the custom directory from `settings.json` → `memory.directory`). There is NO project-level memory directory — see the `memory` section in Layer 1 for configuration.
 
 ---
 

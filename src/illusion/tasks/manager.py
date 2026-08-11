@@ -44,6 +44,7 @@ from uuid import uuid4
 
 from illusion.config.paths import get_tasks_dir
 from illusion.tasks.types import TaskRecord, TaskStatus, TaskType, to_task_internal_status
+from illusion.utils.log_cleanup import cleanup_old_files
 from illusion.utils.shell import create_shell_subprocess, terminate_process_tree
 
 logger = logging.getLogger(__name__)
@@ -89,19 +90,8 @@ class BackgroundTaskManager:
         self._cleanup_old_task_logs()
 
     def _cleanup_old_task_logs(self) -> None:
-        """清理超过 TTL 的 task log 文件。"""
-        try:
-            tasks_dir = get_tasks_dir()
-            cutoff = time.time() - _TASK_LOG_TTL_DAYS * 24 * 3600
-            for log_file in tasks_dir.glob("*.log"):
-                try:
-                    if log_file.stat().st_mtime < cutoff:
-                        log_file.unlink(missing_ok=True)
-                except OSError:
-                    continue
-        except OSError:
-            # 目录不可访问时静默跳过
-            return
+        """清理超过 TTL 的 task log 文件（统一走 log_cleanup 工具）。"""
+        cleanup_old_files(get_tasks_dir(), "*.log", max_age_days=_TASK_LOG_TTL_DAYS)
 
     def create_pending_task(
         self,

@@ -43,6 +43,25 @@ export interface SettingsResponse {
   model: string;
   /** Web 端主题：light（浅色）/ dark（深色）/ system（跟随系统） */
   theme: 'light' | 'dark' | 'system';
+  /** 记忆系统配置 */
+  memory: {
+    /** 是否启用记忆功能 */
+    enabled: boolean;
+    /** 是否允许后台 LLM 自动提取/整合（false = 仅手动记录） */
+    auto_extract: boolean;
+    /** 自定义记忆目录（绝对路径或 ~/ 开头），未设置时为 null */
+    directory: string | null;
+  };
+}
+
+/** PATCH /api/settings/memory 请求体（字段可选，只更新提供的字段） */
+export interface UpdateMemoryPayload {
+  /** 是否启用记忆功能 */
+  enabled?: boolean;
+  /** 是否允许后台 LLM 自动提取/整合 */
+  auto_extract?: boolean;
+  /** 自定义记忆目录（空字符串清除） */
+  directory?: string;
 }
 
 /** OAuth device flow 启动响应 */
@@ -352,6 +371,12 @@ export const settingsApi = {
     request<{ success: boolean; working_directory: string | null }>('/api/settings/working_directory', {
       method: 'PATCH',
       body: JSON.stringify({ working_directory: workingDirectory }),
+    }),
+  /** 修改记忆配置（enabled / directory，只更新提供的字段） */
+  updateMemory: (payload: UpdateMemoryPayload) =>
+    request<{ success: boolean }>('/api/settings/memory', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     }),
   /** 修改 Web 端主题（light / dark / system），同步写入 settings.json */
   updateTheme: (theme: 'light' | 'dark' | 'system') =>

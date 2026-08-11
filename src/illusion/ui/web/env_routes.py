@@ -3,6 +3,7 @@
 供 web 前端和未来 Electron 客户端通过 HTTP REST 管理 API 环境配置。
 WebSocket 继续承载实时聊天流，与此处 HTTP 端点职责分离。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,7 @@ from illusion.config.settings import Settings, load_settings, save_settings
 
 class CreateEnvRequest(BaseModel):
     """新增 env 请求体。"""
+
     api_format: str = Field(..., description="API 格式：anthropic/openai/copilot/codex")
     base_url: str | None = None
     api_key: str = ""
@@ -28,12 +30,14 @@ class CreateEnvRequest(BaseModel):
 
 class ModelEntry(BaseModel):
     """模型条目。"""
+
     key: str = Field(..., pattern=r"^model_\d+$", description="模型键名（如 model_1）")
     value: str = Field(..., min_length=1, description="模型名称")
 
 
 class UpdateEnvRequest(BaseModel):
     """修改 env 请求体。"""
+
     api_format: str | None = None
     base_url: str | None = None
     api_key: str | None = None
@@ -44,11 +48,13 @@ class UpdateEnvRequest(BaseModel):
 
 class OauthPollRequest(BaseModel):
     """OAuth 轮询请求体。"""
+
     device_code: str = Field(..., min_length=1, description="设备码")
 
 
 class UpdateUiLanguageRequest(BaseModel):
     """修改界面语言请求体。"""
+
     ui_language: str = Field(..., pattern="^(zh-CN|en-US)$")
 
 
@@ -57,7 +63,22 @@ class UpdateWorkingDirectoryRequest(BaseModel):
 
     空字符串表示清除工作目录设置（置为 None）。
     """
+
     working_directory: str = ""
+
+
+class UpdateMemoryRequest(BaseModel):
+    """修改记忆配置请求体。
+
+    字段均可选，只更新提供的字段：
+        - enabled: 是否启用记忆功能
+        - auto_extract: 是否允许后台 LLM 自动提取/整合（关闭后仅手动记录）
+        - directory: 自定义记忆目录（绝对路径或 ~/ 开头），空串清除
+    """
+
+    enabled: bool | None = None
+    auto_extract: bool | None = None
+    directory: str | None = None
 
 
 class UpdateThemeRequest(BaseModel):
@@ -66,6 +87,7 @@ class UpdateThemeRequest(BaseModel):
     取值：light（浅色）/ dark（深色）/ system（跟随系统）。
     该字段仅用于 web 前端，不传递到 terminal 端。
     """
+
     theme: str = Field(..., pattern="^(light|dark|system)$")
 
 
@@ -79,14 +101,16 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         statuses = manager.get_env_credential_statuses()
         envs = []
         for env_key, info in statuses.items():
-            envs.append({
-                "env_key": env_key,
-                "api_format": info.get("api_format", ""),
-                "base_url": info.get("base_url", ""),
-                "has_credential": info.get("has_credential", False),
-                "active": info.get("active", False),
-                "models": [],
-            })
+            envs.append(
+                {
+                    "env_key": env_key,
+                    "api_format": info.get("api_format", ""),
+                    "base_url": info.get("base_url", ""),
+                    "has_credential": info.get("has_credential", False),
+                    "active": info.get("active", False),
+                    "models": [],
+                }
+            )
         # 从 settings 读取 models
         settings = load_settings()
         for env in envs:
@@ -141,8 +165,12 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             raise HTTPException(status_code=404, detail=_t("unknown_env", env_key=env_key))
         # 使用 AuthManager.update_env 处理 api_format/base_url/api_key/auth_token
         manager = AuthManager()
-        if (req.api_format is not None or req.base_url is not None
-                or req.api_key is not None or req.auth_token is not None):
+        if (
+            req.api_format is not None
+            or req.base_url is not None
+            or req.api_key is not None
+            or req.auth_token is not None
+        ):
             manager.update_env(
                 env_key,
                 api_format=req.api_format,
@@ -198,20 +226,25 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         """启动 OAuth device flow。"""
         if provider == "copilot":
             from illusion.auth.copilot import CopilotAuth
+
             auth = CopilotAuth()
             return await asyncio.to_thread(auth.start_device_flow)
         elif provider == "codex":
             from illusion.auth.codex_oauth import CodexOAuth
+
             auth = CodexOAuth()  # type: ignore[assignment]
             return await asyncio.to_thread(auth.start_device_flow)
         else:
-            raise HTTPException(status_code=400, detail=_t("unknown_oauth_provider", provider=provider))
+            raise HTTPException(
+                status_code=400, detail=_t("unknown_oauth_provider", provider=provider)
+            )
 
     @app.post("/api/oauth/{provider}/poll")
     async def oauth_poll(provider: str, req: OauthPollRequest) -> dict[str, Any]:
         """轮询 OAuth 完成状态。"""
         if provider == "copilot":
             from illusion.auth.copilot import CopilotAuth
+
             auth = CopilotAuth()
             try:
                 success = await asyncio.to_thread(auth.poll_for_token, req.device_code)
@@ -220,6 +253,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
                 return {"success": False, "error": str(e)}
         elif provider == "codex":
             from illusion.auth.codex_oauth import CodexOAuth
+
             auth = CodexOAuth()  # type: ignore[assignment]
             try:
                 success = await asyncio.to_thread(auth.poll_for_token, req.device_code)
@@ -227,7 +261,9 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             except RuntimeError as e:
                 return {"success": False, "error": str(e)}
         else:
-            raise HTTPException(status_code=400, detail=_t("unknown_oauth_provider", provider=provider))
+            raise HTTPException(
+                status_code=400, detail=_t("unknown_oauth_provider", provider=provider)
+            )
 
     @app.patch("/api/settings/ui_language")
     async def update_ui_language(req: UpdateUiLanguageRequest) -> dict[str, Any]:
@@ -250,7 +286,54 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             "working_directory": settings.working_directory,
             "model": settings.model,
             "theme": settings.theme,
+            "memory": {
+                "enabled": settings.memory.enabled,
+                "auto_extract": settings.memory.auto_extract,
+                "directory": settings.memory.directory,
+            },
         }
+
+    @app.patch("/api/settings/memory")
+    async def update_memory(req: UpdateMemoryRequest) -> dict[str, Any]:
+        """修改记忆配置。
+
+        - enabled: 启用/禁用记忆功能
+        - auto_extract: 允许/禁止后台 LLM 自动提取与整合（关闭后仅手动记录）
+        - directory: 自定义记忆目录；空字符串清除（置为 None）；
+          非空值经 resolve_custom_memory_dir 校验（绝对路径或 ~/ 开头），
+          校验失败返回 400。
+        """
+        from illusion.memory.paths import resolve_custom_memory_dir
+
+        settings = load_settings()
+        updates: dict[str, Any] = {}
+
+        if req.enabled is not None:
+            updates["enabled"] = req.enabled
+
+        if req.auto_extract is not None:
+            updates["auto_extract"] = req.auto_extract
+
+        if req.directory is not None:
+            raw = (req.directory or "").strip()
+            if not raw:
+                updates["directory"] = None
+            else:
+                resolved = resolve_custom_memory_dir(raw)
+                if resolved is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=_t("set_invalid_path", path=raw)
+                        or "Invalid memory directory (must be an absolute path)",
+                    )
+                updates["directory"] = str(resolved)
+
+        if updates:
+            new_settings = settings.model_copy(
+                update={"memory": settings.memory.model_copy(update=updates)}
+            )
+            save_settings(new_settings)
+        return {"success": True, "memory": {**updates}}
 
     @app.patch("/api/settings/theme")
     async def update_theme(req: UpdateThemeRequest) -> dict[str, Any]:

@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from illusion.config.settings import PermissionSettings
+from illusion.memory.paths import is_in_memory_dir
 from illusion.permissions.modes import PermissionMode
 
 log = logging.getLogger(__name__)
@@ -222,6 +223,21 @@ class PermissionChecker:
                         allowed=False,
                         reason=f"Path {file_path} matches deny rule: {rule.pattern}",
                     )
+
+        # 主对话 LLM 在手动模式下直接 Write/Edit 记忆文件（~/.illusion/memory/
+        # 或自定义 memory.directory）时无需用户确认。放在 path_rules 之后
+        # （用户显式 deny 规则优先）与沙箱检查之前（记忆目录是 agent 自身
+        # 存储区域，豁免沙箱限制）。plan 模式显式排除：变更类操作仍被拦截。
+        if (
+            not is_read_only
+            and file_path
+            and tool_name in ("write_file", "edit_file")
+            and self._settings.mode != PermissionMode.PLAN
+            and is_in_memory_dir(file_path)
+        ):
+            return PermissionDecision(
+                allowed=True, reason="memory directory carve-out"
+            )
 
         # 检查沙箱文件系统限制
         if file_path and self._sandbox_path_rules and file_path not in self._session_allowed_paths:

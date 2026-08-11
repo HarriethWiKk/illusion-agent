@@ -10,10 +10,10 @@ Review the user's memory landscape and produce a clear report of proposed change
 
 ## Memory System Overview
 
-Illusion Agent uses a file-based memory system:
-- **Memory directory**: `~/.illusion/memory/<project-name>-<hash>/`
-- **Entry point**: `MEMORY.md` (index file with links to memory files)
-- **Memory files**: Individual `.md` files with optional YAML frontmatter
+Illusion Agent uses a file-based memory system (aligned with Claude Code Auto Memory):
+- **Memory directory**: `~/.illusion/memory/<project-name>-<hash>/` (or the custom directory configured via `settings.json` → `memory.directory`)
+- **Entry point**: `MEMORY.md` (index file with one-line pointers to memory files, format `- [Title](user/user_role.md) — one-line hook`, paths relative to the memory directory)
+- **Type subdirectories**: memory files are stored in `user/`, `feedback/`, `project/`, `reference/` subdirectories matching their `type` field (root-layout legacy files are also scanned)
 
 ### Memory File Format
 ```markdown
@@ -30,17 +30,17 @@ Memory content here. For feedback/project types, structure as:
 ```
 
 ### Memory Types
-- **user**: User role, goals, preferences, knowledge
-- **feedback**: Guidance on how to approach work (corrections and confirmations)
-- **project**: Ongoing work, goals, initiatives, bugs
-- **reference**: Pointers to external resources
+- **user**: User role, goals, preferences, knowledge → `user/`
+- **feedback**: Guidance on how to approach work (corrections and confirmations) → `feedback/`
+- **project**: Ongoing work, goals, initiatives, bugs → `project/`
+- **reference**: Pointers to external resources → `reference/`
 
 ## Steps
 
 ### 1. Gather all memory layers
-- Read the `MEMORY.md` entry point from the project memory directory
-- Read all `.md` files in the memory directory (excluding MEMORY.md itself)
-- Check for any project-level configuration in `.illusion/` directory
+- Read the `MEMORY.md` entry point from the memory directory
+- Read all `.md` files in the memory directory and its type subdirectories (user/feedback/project/reference, excluding MEMORY.md itself)
+- Check the `settings.json` `memory` section for custom directory / enabled / auto_extract flags
 
 **Success criteria**: You have the contents of all memory files and can compare them.
 

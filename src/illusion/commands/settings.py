@@ -117,9 +117,9 @@ async def privacy_settings_handler(_: str, context: CommandContext) -> CommandRe
 
 async def doctor_handler(_: str, context: CommandContext) -> CommandResult:
     """显示环境诊断信息"""
-    from illusion.memory import get_project_memory_dir
+    from illusion.memory import get_memory_dir_for_cwd
     settings = load_settings()
-    memory_dir = get_project_memory_dir(context.cwd)
+    memory_dir = get_memory_dir_for_cwd(context.cwd)
     state = context.app_state.get() if context.app_state is not None else None
     lines = [
         "Doctor summary:",

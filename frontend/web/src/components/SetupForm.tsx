@@ -175,6 +175,12 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
   const [channels, setChannels] = useState<ChannelsCfg>(makeEmptyChannels);
   /** 工作目录输入值 */
   const [workDir, setWorkDir] = useState('');
+  /** 记忆功能启用开关 */
+  const [memEnabled, setMemEnabled] = useState(true);
+  /** 后台 LLM 自动提取/整合开关（false = 仅手动记录） */
+  const [memAutoExtract, setMemAutoExtract] = useState(true);
+  /** 自定义记忆目录输入值（空 = 使用默认目录） */
+  const [memDir, setMemDir] = useState('');
   /** 界面语言选择值（后端格式 zh-CN / en-US） */
   const [uiLang, setUiLang] = useState<'zh-CN' | 'en-US'>('zh-CN');
   /** 新增环境草稿（首次模式 + 修改模式的新增分支共用） */
@@ -197,6 +203,9 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
         if (cancelled) return;
         setSettings(s);
         setWorkDir(s.working_directory ?? '');
+        setMemEnabled(s.memory?.enabled ?? true);
+        setMemAutoExtract(s.memory?.auto_extract ?? true);
+        setMemDir(s.memory?.directory ?? '');
         // 后端 ui_language 为 en-US / zh-CN / 空串；空串默认 zh-CN
         setUiLang(s.ui_language === 'en-US' ? 'en-US' : 'zh-CN');
         setEnvs(e.envs);
@@ -302,6 +311,18 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       if (settings && (workDir.trim() || '') !== (settings.working_directory ?? '')) {
         await settingsApi.updateWorkingDirectory(workDir.trim());
       }
+      // 3.5 记忆配置改动（enabled / auto_extract / directory 任一变化即提交）
+      if (settings && (
+        memEnabled !== settings.memory?.enabled ||
+        memAutoExtract !== settings.memory?.auto_extract ||
+        (memDir.trim() || '') !== (settings.memory?.directory ?? '')
+      )) {
+        await settingsApi.updateMemory({
+          enabled: memEnabled,
+          auto_extract: memAutoExtract,
+          directory: memDir.trim(),
+        });
+      }
       // 4. 渠道配置
       await channelsApi.update(channels as unknown as Parameters<typeof channelsApi.update>[0]);
       setSaving(false);
@@ -310,7 +331,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       setSaving(false);
       setSaveError(err instanceof Error ? err.message : String(err));
     }
-  }, [settings, uiLang, workDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
+  }, [settings, uiLang, workDir, memEnabled, memAutoExtract, memDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
 
   /** 删除环境（即时 API） */
   const handleDeleteEnv = useCallback(async (envKey: string) => {
@@ -433,6 +454,12 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
               onPickUiLang={handlePickUiLang}
               workDir={workDir}
               onWorkDirChange={setWorkDir}
+              memEnabled={memEnabled}
+              onMemEnabledChange={setMemEnabled}
+              memAutoExtract={memAutoExtract}
+              onMemAutoExtractChange={setMemAutoExtract}
+              memDir={memDir}
+              onMemDirChange={setMemDir}
               envs={envs}
               activeEnvKey={activeEnvKey}
               onDeleteEnv={handleDeleteEnv}
@@ -636,6 +663,15 @@ interface SettingsTabProps {
   onPickUiLang: (v: 'zh-CN' | 'en-US') => void;
   workDir: string;
   onWorkDirChange: (v: string) => void;
+  /** 记忆功能启用开关 */
+  memEnabled: boolean;
+  onMemEnabledChange: (v: boolean) => void;
+  /** 后台 LLM 自动提取/整合开关（false = 仅手动记录） */
+  memAutoExtract: boolean;
+  onMemAutoExtractChange: (v: boolean) => void;
+  /** 自定义记忆目录输入值（空 = 使用默认目录） */
+  memDir: string;
+  onMemDirChange: (v: string) => void;
   envs: EnvInfo[];
   activeEnvKey: string | null;
   onDeleteEnv: (k: string) => void;
@@ -737,6 +773,66 @@ function SettingsTab(p: SettingsTabProps) {
           placeholder={t(lang, 'setupFieldWorkingDirectoryHint')}
         />
         <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldWorkingDirectoryHint')}</div>
+      </div>
+
+      {/* 记忆配置 */}
+      <div className="space-y-3 rounded-lg border border-border-light p-4 bg-surface-card-alt/50">
+        <div className={labelClass}>{t(lang, 'setupFieldMemory')}</div>
+        {/* 启用开关 */}
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-content-primary">{t(lang, 'setupFieldMemoryEnabled')}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={p.memEnabled}
+            onClick={() => p.onMemEnabledChange(!p.memEnabled)}
+            className={`relative w-10 h-5.5 rounded-full transition-colors cursor-pointer ${
+              p.memEnabled ? 'bg-primary' : 'bg-border-light'
+            }`}
+            style={{ height: 22 }}
+          >
+            <span
+              className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all ${
+                p.memEnabled ? 'left-[22px]' : 'left-0.5'
+              }`}
+              style={{ width: 18, height: 18, top: 2 }}
+            />
+          </button>
+        </div>
+        {/* 后台自动提取开关 */}
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-content-primary">{t(lang, 'setupFieldMemoryAutoExtract')}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={p.memAutoExtract}
+            onClick={() => p.onMemAutoExtractChange(!p.memAutoExtract)}
+            className={`relative w-10 h-5.5 rounded-full transition-colors cursor-pointer ${
+              p.memAutoExtract ? 'bg-primary' : 'bg-border-light'
+            }`}
+            style={{ height: 22 }}
+          >
+            <span
+              className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all ${
+                p.memAutoExtract ? 'left-[22px]' : 'left-0.5'
+              }`}
+              style={{ width: 18, height: 18, top: 2 }}
+            />
+          </button>
+        </div>
+        <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldMemoryAutoExtractHint')}</div>
+        {/* 记忆目录输入 */}
+        <div>
+          <div className={labelClass}>{t(lang, 'setupFieldMemoryDirectory')}</div>
+          <input
+            type="text"
+            value={p.memDir}
+            onChange={(e) => p.onMemDirChange(e.target.value)}
+            className={inputClass}
+            placeholder={t(lang, 'setupFieldMemoryDirectoryHint')}
+          />
+          <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldMemoryDirectoryHint')}</div>
+        </div>
       </div>
     </div>
   );

@@ -22,23 +22,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from illusion.memory.paths import get_project_memory_dir
+from illusion.memory.paths import get_memory_dir_for_cwd
 from illusion.memory.types import MemoryHeader
 
 
 def scan_memory_files(cwd: str | Path, *, max_files: int = 50) -> list[MemoryHeader]:
     """扫描并返回记忆文件头，按最新修改时间排序
-    
+
+    扫描根目录下的 *.md（兼容旧布局）以及
+    user/feedback/project/reference 类型子目录下的 *.md。
+
     Args:
         cwd: 当前工作目录
         max_files: 最大返回文件数量
-    
+
     Returns:
         list[MemoryHeader]: 按修改时间倒序排列的记忆头列表
     """
-    memory_dir = get_project_memory_dir(cwd)  # 获取记忆目录
+    from illusion.memory.paths import MEMORY_TYPE_DIRS
+
+    memory_dir = get_memory_dir_for_cwd(cwd)  # 获取记忆目录
     headers: list[MemoryHeader] = []  # 初始化头列表
-    for path in memory_dir.glob("*.md"):  # 遍历所有md文件
+    for path in memory_dir.glob("*.md"):  # 遍历根目录所有md文件
         if path.name == "MEMORY.md":  # 跳过索引文件
             continue
         try:
@@ -47,6 +52,15 @@ def scan_memory_files(cwd: str | Path, *, max_files: int = 50) -> list[MemoryHea
             continue
         header = _parse_memory_file(path, text)  # 解析文件
         headers.append(header)  # 添加到列表
+    # 类型子目录（user/feedback/project/reference）
+    for sub in MEMORY_TYPE_DIRS:
+        for path in (memory_dir / sub).glob("*.md"):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            header = _parse_memory_file(path, text)
+            headers.append(header)
     headers.sort(key=lambda item: item.modified_at, reverse=True)  # 按时间倒序排序
     return headers[:max_files]  # 返回Top N结果
 
@@ -92,7 +106,7 @@ def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
     # 后备方案：第一行非空非frontmatter非标题行作为描述
     desc_line_idx: int | None = None  # 描述行索引
     if not description:  # 如果没有描述
-        for idx, line in enumerate(lines[body_start:body_start + 10], body_start):  # 遍历前10���
+        for idx, line in enumerate(lines[body_start:body_start + 10], body_start):
             stripped = line.strip()  # 去除空白
             if stripped and stripped != "---" and not stripped.startswith("#"):  # 非空非标记非标题
                 description = stripped[:200]  # 截取前200字符

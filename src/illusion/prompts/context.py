@@ -43,6 +43,7 @@ def _build_rules_section(cwd: str | Path) -> str | None:
         is_rules_disabled,
         load_project_permissions,
     )
+
     project_permissions = load_project_permissions(cwd)
 
     # 检查是否禁用所有 rules
@@ -71,12 +72,12 @@ def _build_rules_section(cwd: str | Path) -> str | None:
 
 def _build_skills_section(cwd: str | Path) -> str | None:
     """构建技能章节
-    
+
     生成列出可用技能的系统提示词章节。
-    
+
     Args:
         cwd: 工作目录
-    
+
     Returns:
         str | None: 技能章节字符串，如果没有技能则返回 None
     """
@@ -89,7 +90,7 @@ def _build_skills_section(cwd: str | Path) -> str | None:
         "",
         (
             "The following skills are available via the `skill` tool. "
-            "When a user's request matches a skill, invoke it with `skill(name=\"<skill_name>\")` "
+            'When a user\'s request matches a skill, invoke it with `skill(name="<skill_name>")` '
             "to load detailed instructions before proceeding."
         ),
         "",
@@ -125,8 +126,10 @@ def build_runtime_system_prompt(
 
     # 计划模式
     from illusion.permissions.modes import PermissionMode
+
     if settings.permission.mode == PermissionMode.PLAN:
         from illusion.config.plan_file import DEFAULT_SESSION_ID, get_plan_file_path
+
         plan_path = str(get_plan_file_path(DEFAULT_SESSION_ID))
         sections.append(
             "# Plan Mode\n"
@@ -189,11 +192,13 @@ def build_runtime_system_prompt(
     if settings.memory.enabled:
         # 检查项目级权限配置
         from illusion.permissions.loader import load_project_permissions
+
         project_perms = load_project_permissions(cwd)
         if not project_perms.denied_memory:
             memory_section = load_memory_prompt(
                 cwd,
                 max_entrypoint_lines=settings.memory.max_entrypoint_lines,
+                max_entrypoint_bytes=settings.memory.max_entrypoint_bytes,
             )
             if memory_section:
                 sections.append(memory_section)

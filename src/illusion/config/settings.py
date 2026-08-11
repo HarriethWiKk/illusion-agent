@@ -75,18 +75,33 @@ class PermissionSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     """记忆系统配置
-    
+
     配置 AI 记忆系统的行为和限制。
-    
+
     Attributes:
         enabled: 是否启用记忆功能
-        max_files: 最大记忆文件数
-        max_entrypoint_lines: 最大入口文件行数
+        auto_extract: 是否允许后台 LLM 自动提取/整合记忆（默认关闭，仅手动记录；
+            开启后每轮结束后台子代理自动分析对话并保存记忆）
+        directory: 自定义记忆目录（绝对路径或 ~/ 开头），None 使用默认目录
+        max_files: 最大注入的相关记忆文件数
+        max_entrypoint_lines: 入口文件 MEMORY.md 最大行数
+        max_entrypoint_bytes: 入口文件 MEMORY.md 最大字节数
+        extract_interval: 后台提取触发间隔（轮数）
+        dream_min_hours: Auto Dream 整合最小间隔（小时）
+        dream_min_sessions: Auto Dream 整合最小会话数
     """
 
     enabled: bool = True  # 默认启用记忆功能
-    max_files: int = 5  # 默认最多记忆 5 个文件
+    # 默认关闭后台自动提取/整合：自动提取开销不小（每轮一次子代理 LLM 调用），
+    # 用户未显式开启时仅手动记录（用户要求时才由主对话 LLM 直接写记忆文件）
+    auto_extract: bool = False
+    directory: str | None = None  # 自定义记忆目录（None 使用默认）
+    max_files: int = 5  # 默认最多注入 5 个相关记忆文件
     max_entrypoint_lines: int = 200  # 默认入口文件最多 200 行
+    max_entrypoint_bytes: int = 25_000  # 默认入口文件最多 25000 字节
+    extract_interval: int = 1  # 默认每 1 轮触发后台提取
+    dream_min_hours: int = 24  # Auto Dream 最小间隔 24 小时
+    dream_min_sessions: int = 5  # Auto Dream 最小会话数 5
 
 
 class SandboxNetworkSettings(BaseModel):

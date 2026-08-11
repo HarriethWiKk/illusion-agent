@@ -2,7 +2,7 @@
 MEMORY.md 模板生成器
 ====================
 
-生成有意义的 .illusion/memory/MEMORY.md 初始模板，
+生成有意义的 user 级记忆目录 MEMORY.md 初始模板（~/.illusion/memory/{项目}-{hash}/），
 包含项目概述、架构决策、常用命令等。
 """
 

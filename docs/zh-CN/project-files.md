@@ -59,66 +59,104 @@
 
 ### 存储位置
 
-记忆文件存储在两个位置，项目级位置优先：
+记忆采用**单层 user 级存储**：
 
-1. **项目级**（优先）：`{cwd}/.illusion/memory/`
-2. **全局回退**：`~/.illusion/memory/{项目名}-{sha1哈希前12位}/`
+1. **默认**：`~/.illusion/memory/{项目名}-{sha1哈希前12位}/`
+2. **自定义**：`settings.json` → `memory.directory` 设置后使用该目录（绝对路径或 `~/` 开头）
 
-全局回退的目录名格式为 `{path.name}-{sha1(path)[:12]}`，位于 `~/.illusion/memory/`（与项目级 `{cwd}/.illusion/memory/` 对称）。
+### 目录结构（按类型分目录）
+
+记忆文件按 `type` 字段存储于 MEMORY.md 同级的类型子目录中，避免根目录杂乱：
+
+```
+~/.illusion/memory/{项目}-{hash}/
+├── MEMORY.md                  ← 入口索引
+├── user/                      ← user 类型记忆
+│   └── user_role.md
+├── feedback/                  ← feedback 类型记忆
+│   └── feedback_testing.md
+├── project/                   ← project 类型记忆
+│   └── project_plan.md
+└── reference/                 ← reference 类型记忆
+    └── reference_linear.md
+```
+
+根目录下的旧布局文件（迁移前）仍会被扫描兼容；MEMORY.md 索引使用相对路径（含类型子目录前缀，如 `- [Title](user/user_role.md) — hook`）。
 
 ### MEMORY.md 入口文件
 
 `MEMORY.md` 是入口索引文件，每条记录是一行指针：
 
 ```markdown
-- [标题](文件名.md) — 一行描述
-- [另一个主题](另一个文件.md) — 另一行描述
+- [标题](user/user_role.md) — 一行描述
+- [另一个主题](project/roadmap.md) — 另一行描述
 ```
 
 **限制：**
-- 最大 200 行（由 `memory.max_entrypoint_lines` 控制）
-- 最大 5 个记忆文件（由 `memory.max_files` 控制）
+- 最大 200 行 / 25000 字节（由 `memory.max_entrypoint_lines` / `memory.max_entrypoint_bytes` 控制），超出部分截断并附警告
+- 最多 5 个相关记忆文件注入上下文（由 `memory.max_files` 控制）
 
 ### 记忆文件格式
 
-每个记忆文件使用 frontmatter 格式：
+每个记忆文件使用 frontmatter 格式，存放在与 `type` 对应的子目录：
 
 ```markdown
 ---
 name: short-kebab-case-slug
 description: 一行摘要，用于相关性匹配
-metadata:
-  type: user|feedback|project|reference
+type: user|feedback|project|reference
 ---
 
-记忆条目的内容。
+记忆条目的内容。feedback/project 类型建议结构化为：
+- 规则/事实
+- **Why:** 原因
+- **How to apply:** 何时/何处适用
 ```
 
 ### 记忆类型
 
-| 类型 | 用途 |
-|------|------|
-| `user` | 用户角色、目标、偏好、知识水平 |
-| `feedback` | 工作方式指导（纠正和确认） |
-| `project` | 进行中的工作、目标、计划、Bug、事件 |
-| `reference` | 外部系统指针（Linear、Slack、Grafana 等） |
+| 类型 | 用途 | 子目录 |
+|------|------|--------|
+| `user` | 用户角色、目标、偏好、知识水平 | `user/` |
+| `feedback` | 工作方式指导（纠正和确认） | `feedback/` |
+| `project` | 进行中的工作、目标、计划、Bug、事件 | `project/` |
+| `reference` | 外部系统指针（Linear、Slack、Grafana 等） | `reference/` |
+
+### 记忆强化（后台自动提取 + Auto Dream）
+
+系统自动维护记忆质量，无需手动干预：
+
+- **后台提取**：每 `memory.extract_interval` 轮对话结束后，后台运行受限子代理分析新消息，主动保存值得记住的内容（用户偏好、纠正、项目上下文）。子代理只能读取和写入记忆目录（含类型子目录）。
+- **Auto Dream 整合**：距上次整合超过 `memory.dream_min_hours`（默认 24h）且会话数达到 `memory.dream_min_sessions`（默认 5）时，后台运行整合子代理：合并重复条目、更新过时内容、解决冲突、修剪无价值条目。
+
+### 手动模式（默认，关闭后台 LLM 调用）
+
+`memory.auto_extract` **默认关闭**（false）：记忆功能默认启用，但后台 LLM 总结调用（后台提取 + Auto Dream）默认不运行。设置为 `true` 可开启自动提取/整合。此时记忆完全手动记录：用户明确要求记住某事时，主对话 LLM 直接使用 Write/Edit 工具写入记忆文件（按类型放入对应子目录并更新 MEMORY.md 索引），零额外 LLM 消耗。
 
 ### 记忆管理
 
 记忆条目可通过以下方式管理：
 - 交互式会话中的 `/memory` 斜杠命令
-- `remember` 技能
+- `remember` 技能（审查并提议重组）
 - 直接编辑记忆目录中的文件
+
+### 启用/禁用与自定义目录
+
+- `settings.json` → `memory.enabled: false` 可完全禁用记忆功能（不注入提示词、不搜索、不后台提取）
+- 项目级 `permissions.json` → `denied_memory: true` 可在单个项目禁用记忆
+- `settings.json` → `memory.directory: "~/my-memory"` 可自定义记忆目录（web 端设置弹窗中亦可配置）
 
 ### 初始化
 
-`/init` 命令在 `{cwd}/.illusion/memory/MEMORY.md` 创建初始模板。
+`/init` 命令在记忆目录创建初始 `MEMORY.md` 模板。
 
 ### 源码参考
 
 - 路径解析：`src/illusion/memory/paths.py`
-- 加载逻辑：`src/illusion/memory/memdir.py`
+- 提示词构建：`src/illusion/memory/memdir.py`
 - 管理功能：`src/illusion/memory/manager.py`
+- 后台提取：`src/illusion/memory/extract.py`
+- 记忆整合：`src/illusion/memory/auto_dream.py`
 
 ---
 

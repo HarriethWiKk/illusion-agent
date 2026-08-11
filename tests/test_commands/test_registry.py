@@ -390,7 +390,10 @@ async def test_init_command(tmp_path: Path, monkeypatch):
     assert "initialization complete" in init_result.message or "already initialized" in init_result.message or "初始化完成" in init_result.message or "已初始化" in init_result.message
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / "ILLUSION.md").exists()
-    assert (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
+    # 记忆入口位于 user 级记忆目录（仅保留 user 级记忆入口，无项目级 .illusion/memory/）
+    from illusion.memory.paths import get_memory_entrypoint
+    assert get_memory_entrypoint(tmp_path).exists()
+    assert not (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
     assert (tmp_path / ".illusion" / "rules" / "project-structure.md").exists()
 
 

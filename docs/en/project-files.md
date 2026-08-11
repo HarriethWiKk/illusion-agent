@@ -59,63 +59,101 @@ The memory system provides project knowledge persistence through `MEMORY.md` and
 
 ### Storage Locations
 
-Memory files are stored in two locations, with the project-level location taking priority:
+Memory uses a **single user-level storage**:
 
-1. **Project-level** (priority): `{cwd}/.illusion/memory/`
-2. **Global fallback**: `~/.illusion/memory/{project_name}-{sha1_hash_prefix}/`
+1. **Default**: `~/.illusion/memory/{project_name}-{sha1_hash_prefix}/`
+2. **Custom**: when `settings.json` → `memory.directory` is set, that directory is used (absolute path or `~/` prefix)
 
-The directory name format for global fallback is `{path.name}-{sha1(path)[:12]}`, located under `~/.illusion/memory/` (symmetric with the project-level `{cwd}/.illusion/memory/`).
+### Directory Layout (type-based subdirectories)
+
+Memory files are stored in type-specific subdirectories next to MEMORY.md, keeping the root clean:
+
+```
+~/.illusion/memory/{project}-{hash}/
+├── MEMORY.md                  ← entry index
+├── user/                      ← user-type memories
+│   └── user_role.md
+├── feedback/                  ← feedback-type memories
+│   └── feedback_testing.md
+├── project/                   ← project-type memories
+│   └── project_plan.md
+└── reference/                 ← reference-type memories
+    └── reference_linear.md
+```
+
+Legacy root-layout files (pre-migration) are still scanned for compatibility. MEMORY.md index entries use paths relative to the memory directory (with the type subdirectory prefix, e.g. `- [Title](user/user_role.md) — hook`).
 
 ### MEMORY.md Entry File
 
 `MEMORY.md` is the entry point file that serves as an index. Each entry is a one-line pointer:
 
 ```markdown
-- [Title](filename.md) — one-line description
-- [Another Topic](another-file.md) — another description
+- [Title](user/user_role.md) — one-line description
+- [Another Topic](project/roadmap.md) — another description
 ```
 
 **Limits:**
-- Maximum 200 lines (controlled by `memory.max_entrypoint_lines` in settings.json)
-- Maximum 5 memory files (controlled by `memory.max_files` in settings.json)
+- Maximum 200 lines / 25000 bytes (controlled by `memory.max_entrypoint_lines` / `memory.max_entrypoint_bytes` in settings.json), truncated with a warning beyond
+- Maximum 5 relevant memory files injected into context (controlled by `memory.max_files` in settings.json)
 
 ### Memory File Format
 
-Each memory file uses frontmatter format:
+Each memory file uses frontmatter format, stored in the subdirectory matching its `type`:
 
 ```markdown
 ---
 name: short-kebab-case-slug
 description: One-line summary for relevance matching
-metadata:
-  type: user|feedback|project|reference
+type: user|feedback|project|reference
 ---
 
-Content of the memory entry.
+Content of the memory entry. For feedback/project types, structure as:
+- Rule/fact
+- **Why:** reason
+- **How to apply:** when/where this guidance applies
 ```
 
 ### Memory Types
 
-| Type | Purpose |
-|------|---------|
-| `user` | User role, goals, preferences, knowledge level |
-| `feedback` | Guidance on how to approach work (corrections and confirmations) |
-| `project` | Ongoing work, goals, initiatives, bugs, incidents |
-| `reference` | Pointers to external systems (Linear, Slack, Grafana, etc.) |
+| Type | Purpose | Subdirectory |
+|------|---------|--------------|
+| `user` | User role, goals, preferences, knowledge level | `user/` |
+| `feedback` | Guidance on how to approach work (corrections and confirmations) | `feedback/` |
+| `project` | Ongoing work, goals, initiatives, bugs, incidents | `project/` |
+| `reference` | Pointers to external systems (Linear, Slack, Grafana, etc.) | `reference/` |
+
+### Memory Reinforcement (Background Extraction + Auto Dream)
+
+The system maintains memory quality automatically:
+
+- **Background extraction** : after every `memory.extract_interval` conversation turns, a background sub-agent analyzes new messages and proactively saves durable facts (user preferences, corrections, project context). The sub-agent can only read and write inside the memory directory (including type subdirectories).
+- **Auto Dream consolidation** : when more than `memory.dream_min_hours` (default 24h) have passed since the last consolidation and `memory.dream_min_sessions` (default 5) sessions have elapsed, a background sub-agent merges duplicates, updates stale content, resolves conflicts, and prunes low-value entries.
+
+### Manual Mode (default, background LLM calls off)
+
+`memory.auto_extract` is **disabled by default** (false): memory is enabled by default, but background LLM summarization (background extraction + Auto Dream) does not run. Set it to `true` to enable automatic extraction/consolidation. Memory is then recorded manually: when the user explicitly asks to remember something, the main-conversation LLM writes the memory file directly via Write/Edit tools (into the type subdirectory, updating the MEMORY.md index) — zero extra LLM consumption.
 
 ### Memory Management
 
 Memory entries can be managed through:
 - The `/memory` slash command in interactive sessions
-- The `remember` skill
+- The `remember` skill (review and propose reorganization)
 - Direct file editing in the memory directory
+
+### Enable/Disable & Custom Directory
+
+- `settings.json` → `memory.enabled: false` fully disables the memory system (no prompt injection, no search, no background extraction)
+- Project `permissions.json` → `denied_memory: true` disables memory for a single project
+- `settings.json` → `memory.directory: "~/my-memory"` sets a custom memory directory (also configurable in the web settings dialog)
 
 ### Initialization
 
-The `/init` command creates an initial `MEMORY.md` template at `{cwd}/.illusion/memory/MEMORY.md`.
+The `/init` command creates an initial `MEMORY.md` template in the memory directory.
 
 ### Source Reference
 
 - Path resolution: `src/illusion/memory/paths.py`
-- Loading logic: `src/illusion/memory/memdir.py`
+- Prompt building: `src/illusion/memory/memdir.py`
 - Management: `src/illusion/memory/manager.py`
+- Background extraction: `src/illusion/memory/extract.py`
+- Auto Dream consolidation: `src/illusion/memory/auto_dream.py`

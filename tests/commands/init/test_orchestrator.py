@@ -41,7 +41,11 @@ async def test_run_init_creates_all_files(tmp_path: Path, monkeypatch):
     # 检查文件创建
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / "ILLUSION.md").exists()
-    assert (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
+    # 记忆入口位于 user 级记忆目录（仅保留 user 级记忆入口，无项目级 .illusion/memory/）
+    from illusion.memory.paths import get_memory_entrypoint
+
+    assert get_memory_entrypoint(tmp_path).exists()
+    assert not (tmp_path / ".illusion" / "memory" / "MEMORY.md").exists()
     assert (tmp_path / ".illusion" / "rules" / "project-structure.md").exists()
     assert (tmp_path / ".illusion" / "plugins" / ".gitkeep").exists()
     assert (tmp_path / ".illusion" / "skills" / ".gitkeep").exists()

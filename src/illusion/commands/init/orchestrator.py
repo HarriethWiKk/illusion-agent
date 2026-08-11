@@ -151,7 +151,9 @@ def _run_generation(
             result.append((rule_path, content, "create"))
 
     # Memory template
-    memory_path = project_dir / "memory" / "MEMORY.md"
+    from illusion.memory.paths import get_memory_entrypoint
+
+    memory_path = get_memory_entrypoint(root)
     if memory_path.exists():
         result.append((memory_path, "", "skip"))
     else:
@@ -184,6 +186,7 @@ def _atomic_write(path: Path, content: str) -> None:
     )
     try:
         import os
+
         os.write(tmp_fd, content.encode("utf-8"))
         os.close(tmp_fd)
         Path(tmp_path).replace(path)
@@ -191,6 +194,7 @@ def _atomic_write(path: Path, content: str) -> None:
         # 清理临时文件
         try:
             import os
+
             os.close(tmp_fd)
         except OSError:
             pass

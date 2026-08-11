@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,6 +36,8 @@ from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from illusion.services.checkpoint_store import CheckpointStore, RestoreResult
+
+logger = logging.getLogger(__name__)
 
 from illusion.api.client import SupportsStreamingMessages
 from illusion.api.effort import EffortLevel
@@ -375,6 +378,8 @@ class QueryEngine:
 
         清空消息历史、cost_tracker、last_api_usage、file_history、
         file_state_cache、session_id 和 checkpoint_store。
+        同时重置记忆强化状态（_dream_checked 等），使新会话
+        重新参与 Auto Dream 会话计数。
         """
         self._messages.clear()
         self._cost_tracker = CostTracker()
@@ -384,6 +389,8 @@ class QueryEngine:
         self._file_state_cache.clear()
         self._session_id = ""
         self._checkpoint_store = None
+        self._dream_checked = False
+        self._memory_extract_state = None
 
     def apply_restore(self, result: RestoreResult) -> None:
         """从 CheckpointStore.restore() 结果恢复所有状态。
@@ -685,6 +692,20 @@ class QueryEngine:
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
+
+        # 记忆强化
+        # 1. 首次回合触发 Auto Dream 会话计数/整合检查
+        # 2. 每轮回合结束后调度后台记忆提取（不阻塞主循环）
+        try:
+            from illusion.memory.auto_dream import record_session_start
+            from illusion.memory.extract import maybe_schedule_extract
+
+            if not getattr(self, "_dream_checked", False):
+                self._dream_checked = True
+                record_session_start(self)
+            maybe_schedule_extract(self)
+        except Exception:
+            logger.exception("Memory reinforcement scheduling failed")
 
     async def _persist_checkpoint_after_run(
         self, context: QueryContext, messages_before: int
