@@ -126,8 +126,8 @@ Content of the memory entry. For feedback/project types, structure as:
 
 The system maintains memory quality automatically:
 
-- **Background extraction** : after every `memory.extract_interval` conversation turns, a background sub-agent analyzes new messages and proactively saves durable facts (user preferences, corrections, project context). The sub-agent can only read and write inside the memory directory (including type subdirectories).
-- **Auto Dream consolidation** : when more than `memory.dream_min_hours` (default 24h) have passed since the last consolidation and `memory.dream_min_sessions` (default 5) sessions have elapsed, a background sub-agent merges duplicates, updates stale content, resolves conflicts, and prunes low-value entries.
+- **Background extraction** : after every `memory.extract_interval` conversation turns, a background sub-agent analyzes new messages and proactively saves durable facts (user preferences, corrections, project context). The sub-agent can only read and write inside the memory directory (including type subdirectories). The model can be configured via `memory.extract_model` (`env_N.model_M` format; unset inherits the current model).
+- **Auto Dream consolidation** : when more than `memory.dream_min_hours` (default 24h) have passed since the last consolidation and `memory.dream_min_sessions` (default 5) sessions have elapsed, a background sub-agent merges duplicates, updates stale content, resolves conflicts, and prunes low-value entries. The model can be configured via `memory.dream_model` (`env_N.model_M` format; unset inherits the current model).
 
 ### Manual Mode (default, background LLM calls off)
 
@@ -145,6 +145,7 @@ Memory entries can be managed through:
 - `settings.json` → `memory.enabled: false` fully disables the memory system (no prompt injection, no search, no background extraction)
 - Project `permissions.json` → `denied_memory: true` disables memory for a single project
 - `settings.json` → `memory.directory: "~/my-memory"` sets a custom memory directory (also configurable in the web settings dialog)
+- `memory.extract_model` / `memory.dream_model`: model references (`env_N.model_M` format) for the extraction / consolidation sub-agents; unset inherits the current model
 
 ### Initialization
 

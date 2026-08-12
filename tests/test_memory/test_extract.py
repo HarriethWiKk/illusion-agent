@@ -52,6 +52,276 @@ def test_extract_state_initial():
     assert state.running is False
 
 
+@pytest.mark.asyncio
+async def test_extract_subagent_uses_configured_model(tmp_path: Path, monkeypatch):
+    """提取子代理应使用配置的 extract_model（env_N.model_M 解析）。"""
+    import json
+
+    from illusion.memory.extract import _run_extract_task
+
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+
+    # settings.json：配置 extract_model 指向 env_1.model_2
+    from illusion.config.paths import get_config_file_path
+
+    settings_path = get_config_file_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "env_1": {
+                    "api_format": "openai",
+                    "base_url": "https://api.example.com",
+                    "model_1": "gpt-5.4",
+                    "model_2": "deepseek-v4-flash",
+                },
+                "memory": {
+                    "enabled": True,
+                    "auto_extract": True,
+                    "extract_model": "env_1.model_2",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    class CaptureEngine(FakeEngine2):
+        """捕获 QueryEngine 构造参数的引擎桩。"""
+
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            # 只读/写工具不真正执行，minimal 桩即可
+            self._messages = kwargs.get("_messages", [])
+
+        async def submit_message(self, prompt):
+            if False:
+                yield None  # pragma: no cover
+
+        def load_messages(self, msgs) -> None:
+            pass
+
+    engine = CaptureEngine()
+    engine.cwd = str(tmp_path / "repo")
+    engine.api_client = object()
+    engine.model = "default-model"
+
+    from illusion.engine.messages import ConversationMessage
+
+    state = MemoryExtractState(engine.cwd)
+    messages = [ConversationMessage.from_user_text("hi")]
+    memory_dir = tmp_path / "mem"
+    memory_dir.mkdir()
+
+    await _run_extract_task(engine, messages, memory_dir, state)
+
+    assert captured.get("model") == "deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_extract_subagent_inherits_model_when_unset(tmp_path: Path, monkeypatch):
+    """未配置 extract_model 时继承当前引擎模型。"""
+    from illusion.memory.extract import _run_extract_task
+
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+
+    captured: dict = {}
+
+    class CaptureEngine(FakeEngine2):
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self._messages = kwargs.get("_messages", [])
+
+        async def submit_message(self, prompt):
+            if False:
+                yield None  # pragma: no cover
+
+        def load_messages(self, msgs) -> None:
+            pass
+
+    engine = CaptureEngine()
+    engine.cwd = str(tmp_path / "repo")
+    engine.api_client = object()
+    engine.model = "current-model"
+
+    from illusion.engine.messages import ConversationMessage
+
+    state = MemoryExtractState(engine.cwd)
+    memory_dir = tmp_path / "mem"
+    memory_dir.mkdir()
+
+    await _run_extract_task(
+        engine, [ConversationMessage.from_user_text("hi")], memory_dir, state
+    )
+
+    assert captured.get("model") == "current-model"
+
+
+@pytest.mark.asyncio
+async def test_extract_subagent_cross_env_builds_client(tmp_path: Path, monkeypatch):
+    """跨 env 模型应独立构建 client（client 与 model 均用配置值）。"""
+    import json
+
+    from illusion.memory.extract import _run_extract_task
+
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+
+    # active env = env_2（model 字段指向），extract_model 指向 env_1 → 跨环境
+    from illusion.config.paths import get_config_file_path
+
+    settings_path = get_config_file_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "env_1": {
+                    "api_format": "openai",
+                    "base_url": "https://api.a.com",
+                    "api_key": "key-a",
+                    "model_1": "gpt-5.4",
+                    "model_2": "deepseek-v4-flash",
+                },
+                "env_2": {
+                    "api_format": "anthropic",
+                    "base_url": "https://api.b.com",
+                    "api_key": "key-b",
+                    "model_1": "claude-x",
+                },
+                "model": "env_2.model_1",
+                "memory": {
+                    "enabled": True,
+                    "auto_extract": True,
+                    "extract_model": "env_1.model_2",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+    built_client = object()
+
+    class CaptureEngine(FakeEngine2):
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self._messages = kwargs.get("_messages", [])
+
+        async def submit_message(self, prompt):
+            if False:
+                yield None  # pragma: no cover
+
+        def load_messages(self, msgs) -> None:
+            pass
+
+    engine = CaptureEngine()
+    engine.cwd = str(tmp_path / "repo")
+    engine.api_client = object()
+    engine.model = "default-model"
+
+    import illusion.api.factory as factory_mod
+    from illusion.engine.messages import ConversationMessage
+
+    monkeypatch.setattr(factory_mod, "build_api_client_for_env", lambda s, k: built_client)
+
+    state = MemoryExtractState(engine.cwd)
+    memory_dir = tmp_path / "mem"
+    memory_dir.mkdir()
+
+    await _run_extract_task(
+        engine, [ConversationMessage.from_user_text("hi")], memory_dir, state
+    )
+
+    # 跨 env：client 是独立构建的（非主 client），model 为配置值
+    assert captured.get("api_client") is built_client
+    assert captured.get("api_client") is not engine.api_client
+    assert captured.get("model") == "deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_extract_subagent_cross_env_build_failure_falls_back(tmp_path: Path, monkeypatch):
+    """跨 env client 构建失败时 client 与 model 均回退当前（原子回退）。"""
+    import json
+
+    from illusion.memory.extract import _run_extract_task
+
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+
+    from illusion.config.paths import get_config_file_path
+
+    settings_path = get_config_file_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "env_1": {
+                    "api_format": "openai",
+                    "base_url": "https://api.a.com",
+                    "api_key": "key-a",
+                    "model_1": "gpt-5.4",
+                    "model_2": "deepseek-v4-flash",
+                },
+                "env_2": {
+                    "api_format": "anthropic",
+                    "base_url": "https://api.b.com",
+                    "api_key": "key-b",
+                    "model_1": "claude-x",
+                },
+                "model": "env_2.model_1",
+                "memory": {
+                    "enabled": True,
+                    "auto_extract": True,
+                    "extract_model": "env_1.model_2",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    class CaptureEngine(FakeEngine2):
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self._messages = kwargs.get("_messages", [])
+
+        async def submit_message(self, prompt):
+            if False:
+                yield None  # pragma: no cover
+
+        def load_messages(self, msgs) -> None:
+            pass
+
+    engine = CaptureEngine()
+    engine.cwd = str(tmp_path / "repo")
+    engine.api_client = object()
+    engine.model = "default-model"
+
+    import illusion.api.factory as factory_mod
+    from illusion.engine.messages import ConversationMessage
+
+    def _fail_build(settings, env_key):
+        raise ValueError("no credentials")
+
+    monkeypatch.setattr(factory_mod, "build_api_client_for_env", _fail_build)
+
+    state = MemoryExtractState(engine.cwd)
+    memory_dir = tmp_path / "mem"
+    memory_dir.mkdir()
+
+    await _run_extract_task(
+        engine, [ConversationMessage.from_user_text("hi")], memory_dir, state
+    )
+
+    # 构建失败：client 与 model 均回退当前（避免用主 client 调跨 provider 模型导致 400）
+    assert captured.get("api_client") is engine.api_client
+    assert captured.get("model") == "default-model"
+
+
 def test_snapshot_memory_dir(tmp_path: Path):
     memory_dir = tmp_path / "mem"
     memory_dir.mkdir()

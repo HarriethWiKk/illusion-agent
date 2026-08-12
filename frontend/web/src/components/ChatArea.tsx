@@ -319,6 +319,8 @@ interface ChatAreaProps {
   streamingReasoning: string;
   /** 待处理的工具调用列表 */
   pendingToolCalls: PendingToolCall[];
+  /** reasoning 是否正在流式（大脑脉冲动画跟随） */
+  reasoningStreaming: boolean;
   /** 是否忙碌 */
   busy: boolean;
   /** 是否已连接 */
@@ -346,7 +348,7 @@ interface ChatAreaProps {
  * @returns 返回聊天区域的 JSX 元素
  */
 export default function ChatArea({
-  lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, busy, connected,
+  lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, reasoningStreaming, busy, connected,
   modal, onPermissionResponse, onQuestionResponse, restoringSessionId, onRewindToTurn, onRegenerate,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -565,7 +567,7 @@ export default function ChatArea({
         )}
         {busy && (assistantBuffer || streamingReasoning) && (
           <div className={turns.length > 0 ? 'mt-4' : ''}>
-            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} lang={lang} />
+            <StreamingBuffer text={assistantBuffer} reasoning={streamingReasoning} reasoningStreaming={reasoningStreaming} lang={lang} />
           </div>
         )}
         {modal?.kind === 'permission' && (

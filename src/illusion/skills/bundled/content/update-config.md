@@ -100,6 +100,8 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
   "memory": {
     "enabled": true,
     "auto_extract": false,
+    "extract_model": null,
+    "dream_model": null,
     "directory": null,
     "max_files": 5,
     "max_entrypoint_lines": 200,
@@ -171,6 +173,8 @@ File-based memory system (aligned with Claude Code Auto Memory), stored at `~/.i
 |-------|------|---------|-------------|
 | `enabled` | bool | true | Enable the memory system (prompt injection, search, background extraction, auto dream) |
 | `auto_extract` | bool | false | Allow background LLM extraction/consolidation. false (default) = manual-only mode: memory is written directly in conversation when requested, no background sub-agents |
+| `extract_model` | string\|null | null | Model reference (`env_N.model_M`) for the extraction sub-agent. null inherits the current model |
+| `dream_model` | string\|null | null | Model reference (`env_N.model_M`) for the Auto Dream consolidation sub-agent. null inherits the current model |
 | `directory` | string\|null | null | Custom memory directory (absolute path or `~/` prefix). null uses the default per-project directory |
 | `max_files` | int | 5 | Max relevant memory files injected into context |
 | `max_entrypoint_lines` | int | 200 | Max MEMORY.md lines loaded (truncation warning beyond) |

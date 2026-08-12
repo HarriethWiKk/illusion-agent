@@ -657,6 +657,7 @@ export default function App() {
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <ChatArea lang={lang} staticItems={session.staticItems} assistantBuffer={session.assistantBuffer}
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
+          reasoningStreaming={session.reasoningStreaming}
           busy={session.busy} connected={session.connected}
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}

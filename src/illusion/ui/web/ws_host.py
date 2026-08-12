@@ -871,16 +871,23 @@ class WebBackendHost:
             self._create_background_task(self._auto_resume_bg(session))
 
     async def _finish_session_line(self, session: SessionRuntime) -> None:
-        """收尾一轮会话行处理（状态快照 + 列表刷新 + line_complete）。"""
+        """收尾一轮会话行处理（状态快照 + 列表刷新 + line_complete）。
+
+        先发 line_complete 立即释放前端 busy——思考指标闪烁的根源是
+        assistant_complete 清空流式 buffer 后、line_complete 到达前，
+        busy && !buffer 条件短暂成立显示 ThinkingIndicator。
+        line_complete 提前后 busy 在回合结束瞬间释放，其余收尾事件
+        （列表刷新/状态快照）随后发送，顺序无副作用。
+        """
+        await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
         await self._update_phase(session, "idle")
-        # 先清 busy 再推送列表：避免列表推送携带过期的 busy=true
+        # 清 busy 再推送列表：避免列表推送携带过期的 busy=true
         # （前端以本地事件为准实时更新运行态，此处推送仅作兜底同步）
         session.busy = False
         self._refresh_session_display(session)
         await self._push_sessions()
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
-        await self._emit(BackendEvent(type="line_complete"), session_id=session.session_id)
 
     def _refresh_session_after_submit(self, session: SessionRuntime, line: str) -> None:
         """提交消息后立即刷新会话列表显示字段并推送。

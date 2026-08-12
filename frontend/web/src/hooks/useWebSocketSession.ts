@@ -170,6 +170,8 @@ interface SessionViewState {
   todoItems: TodoItemSnapshot[];
   /** 会话级内联选项（B 通道多步选择） */
   inlineOptions: SelectRequestPayload | null;
+  /** reasoning 是否正在流式（大脑脉冲动画跟随：流完即停，text 继续流不影响） */
+  reasoningStreaming: boolean;
   /** 会话级侧问状态 */
   btwLoading: boolean;
   btwReply: string | null;
@@ -210,6 +212,8 @@ export interface WebSocketSessionState {
   modal: Record<string, unknown> | null;
   todoItems: TodoItemSnapshot[];
   pendingToolCalls: PendingToolCall[];
+  /** reasoning 是否正在流式（大脑脉冲动画跟随） */
+  reasoningStreaming: boolean;
   /** 正在恢复的会话 ID（null 表示无恢复进行中，活跃视图） */
   restoringSessionId: string | null;
   /** 设置正在恢复的会话 ID */
@@ -329,6 +333,7 @@ function createSessionView(id: string): SessionViewState {
     modal: null,
     todoItems: [],
     inlineOptions: null,
+    reasoningStreaming: false,
     btwLoading: false,
     btwReply: null,
     btwError: null,
@@ -764,7 +769,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           if (evt.reasoning) {
             const buf = getBuffer(sid);
             buf.reasoning += evt.reasoning;
-            patchView(sid, { busy: true, streamingReasoning: buf.reasoning });
+            // reasoning 正在流式：大脑脉冲动画开启
+            patchView(sid, { busy: true, streamingReasoning: buf.reasoning, reasoningStreaming: true });
+          } else {
+            // text 增量（reasoning 已流完或未开始）：大脑脉冲停止
+            patchView(sid, { reasoningStreaming: false });
           }
           const delta = evt.message ?? '';
           if (delta) {
@@ -791,6 +800,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           }
           buf.flushedForTool = false;
           clearAssistantDelta(sid);
+          // reasoning 流式结束，大脑脉冲停止
+          patchView(sid, { reasoningStreaming: false });
           return;
         }
         if (evt.type === 'line_complete') {
@@ -835,6 +846,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
               clearAssistantDelta(sid);
               buf.flushedForTool = true;
             }
+            // reasoning 流式结束（工具调用前的思考已完整输出），大脑脉冲停止
+            patchView(sid, { reasoningStreaming: false });
             const toolInput = evt.item.tool_input ?? evt.tool_input;
             const toolUseId = evt.item.tool_use_id ?? evt.tool_use_id ?? '';
             const pendingList = pendingToolCallsRef.current[sid] ?? [];
@@ -1239,6 +1252,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       modal: view?.modal ?? null,
       todoItems: view?.todoItems ?? [],
       pendingToolCalls: view?.pendingToolCalls ?? [],
+      reasoningStreaming: view?.reasoningStreaming ?? false,
       restoringSessionId: view?.restoring ? view.id : null,
       setRestoringSessionId: (id: string | null) => {
         if (id) patchView(id, { restoring: true });

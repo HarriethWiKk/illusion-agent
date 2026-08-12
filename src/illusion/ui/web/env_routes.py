@@ -73,11 +73,15 @@ class UpdateMemoryRequest(BaseModel):
     字段均可选，只更新提供的字段：
         - enabled: 是否启用记忆功能
         - auto_extract: 是否允许后台 LLM 自动提取/整合（关闭后仅手动记录）
+        - extract_model: 提取子代理模型（env_N.model_M），空串清除
+        - dream_model: 整合子代理模型（env_N.model_M），空串清除
         - directory: 自定义记忆目录（绝对路径或 ~/ 开头），空串清除
     """
 
     enabled: bool | None = None
     auto_extract: bool | None = None
+    extract_model: str | None = None
+    dream_model: str | None = None
     directory: str | None = None
 
 
@@ -289,6 +293,8 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
             "memory": {
                 "enabled": settings.memory.enabled,
                 "auto_extract": settings.memory.auto_extract,
+                "extract_model": settings.memory.extract_model,
+                "dream_model": settings.memory.dream_model,
                 "directory": settings.memory.directory,
             },
         }
@@ -313,6 +319,14 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
 
         if req.auto_extract is not None:
             updates["auto_extract"] = req.auto_extract
+
+        if req.extract_model is not None:
+            raw = (req.extract_model or "").strip()
+            updates["extract_model"] = raw or None
+
+        if req.dream_model is not None:
+            raw = (req.dream_model or "").strip()
+            updates["dream_model"] = raw or None
 
         if req.directory is not None:
             raw = (req.directory or "").strip()

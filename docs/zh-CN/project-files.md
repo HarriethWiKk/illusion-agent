@@ -126,8 +126,8 @@ type: user|feedback|project|reference
 
 系统自动维护记忆质量，无需手动干预：
 
-- **后台提取**：每 `memory.extract_interval` 轮对话结束后，后台运行受限子代理分析新消息，主动保存值得记住的内容（用户偏好、纠正、项目上下文）。子代理只能读取和写入记忆目录（含类型子目录）。
-- **Auto Dream 整合**：距上次整合超过 `memory.dream_min_hours`（默认 24h）且会话数达到 `memory.dream_min_sessions`（默认 5）时，后台运行整合子代理：合并重复条目、更新过时内容、解决冲突、修剪无价值条目。
+- **后台提取**：每 `memory.extract_interval` 轮对话结束后，后台运行受限子代理分析新消息，主动保存值得记住的内容（用户偏好、纠正、项目上下文）。子代理只能读取和写入记忆目录（含类型子目录）。可通过 `memory.extract_model` 指定提取使用的模型（env_N.model_M 格式，不指定继承当前）。
+- **Auto Dream 整合**：距上次整合超过 `memory.dream_min_hours`（默认 24h）且会话数达到 `memory.dream_min_sessions`（默认 5）时，后台运行整合子代理：合并重复条目、更新过时内容、解决冲突、修剪无价值条目。可通过 `memory.dream_model` 指定整合使用的模型（env_N.model_M 格式，不指定继承当前）。
 
 ### 手动模式（默认，关闭后台 LLM 调用）
 
@@ -145,6 +145,7 @@ type: user|feedback|project|reference
 - `settings.json` → `memory.enabled: false` 可完全禁用记忆功能（不注入提示词、不搜索、不后台提取）
 - 项目级 `permissions.json` → `denied_memory: true` 可在单个项目禁用记忆
 - `settings.json` → `memory.directory: "~/my-memory"` 可自定义记忆目录（web 端设置弹窗中亦可配置）
+- `memory.extract_model` / `memory.dream_model`：分别为提取/整合子代理指定模型（`env_N.model_N` 格式，不指定继承当前模型）
 
 ### 初始化
 

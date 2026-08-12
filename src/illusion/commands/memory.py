@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from illusion.commands.types import CommandContext, CommandResult
 from illusion.memory import (
     add_memory_entry,
@@ -50,22 +52,20 @@ async def memory_handler(args: str, context: CommandContext) -> CommandResult:
     if action == "show" and rest:
         memory_dir = get_memory_dir_for_cwd(context.cwd)
         # 支持 "user/user_role" 或 "user_role" 两种形式
-        path = memory_dir / rest
-        if not path.exists():
+        path: Path | None = memory_dir / rest
+        if path is not None and not path.exists():
             path = memory_dir / f"{rest}.md"
-        if not path.exists():
+        if path is not None and not path.exists():
             # 在类型子目录中查找
-            found = None
             for sub in MEMORY_TYPE_DIRS:
                 candidate = memory_dir / sub / rest
                 if candidate.exists():
-                    found = candidate
+                    path = candidate
                     break
                 candidate = memory_dir / sub / f"{rest}.md"
                 if candidate.exists():
-                    found = candidate
+                    path = candidate
                     break
-            path = found
         if path is None or not path.exists():
             return CommandResult(message=f"Memory entry not found: {rest}")
         return CommandResult(message=path.read_text(encoding="utf-8"))

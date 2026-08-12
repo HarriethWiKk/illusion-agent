@@ -82,6 +82,8 @@ class MemorySettings(BaseModel):
         enabled: 是否启用记忆功能
         auto_extract: 是否允许后台 LLM 自动提取/整合记忆（默认关闭，仅手动记录；
             开启后每轮结束后台子代理自动分析对话并保存记忆）
+        extract_model: 提取子代理使用的模型（env_N.model_M 格式），None 继承当前
+        dream_model: 整合子代理使用的模型（env_N.model_M 格式），None 继承当前
         directory: 自定义记忆目录（绝对路径或 ~/ 开头），None 使用默认目录
         max_files: 最大注入的相关记忆文件数
         max_entrypoint_lines: 入口文件 MEMORY.md 最大行数
@@ -95,6 +97,8 @@ class MemorySettings(BaseModel):
     # 默认关闭后台自动提取/整合：自动提取开销不小（每轮一次子代理 LLM 调用），
     # 用户未显式开启时仅手动记录（用户要求时才由主对话 LLM 直接写记忆文件）
     auto_extract: bool = False
+    extract_model: str | None = None  # 提取子代理模型（env_N.model_M），None 继承当前
+    dream_model: str | None = None  # 整合子代理模型（env_N.model_M），None 继承当前
     directory: str | None = None  # 自定义记忆目录（None 使用默认）
     max_files: int = 5  # 默认最多注入 5 个相关记忆文件
     max_entrypoint_lines: int = 200  # 默认入口文件最多 200 行
@@ -106,9 +110,9 @@ class MemorySettings(BaseModel):
 
 class SandboxNetworkSettings(BaseModel):
     """沙箱网络限制配置
-
+    
     传递给沙箱运行时的操作系统级网络限制配置。
-
+    
     Attributes:
         allowed_domains: 允许访问的域名列表（支持 *.example.com 通配符）
         denied_domains: 拒绝访问的域名列表
@@ -196,7 +200,9 @@ class SandboxSettings(BaseModel):
     enabled_platforms: list[str] = Field(default_factory=list)  # 启用的平台
     excluded_commands: list[str] = Field(default_factory=list)  # 排除沙箱的命令模式
     network: SandboxNetworkSettings = Field(default_factory=SandboxNetworkSettings)  # 网络配置
-    filesystem: SandboxFilesystemSettings = Field(default_factory=SandboxFilesystemSettings)  # 文件系统配置
+    filesystem: SandboxFilesystemSettings = Field(
+        default_factory=SandboxFilesystemSettings
+    )  # 文件系统配置
     ignore_violations: dict[str, list[str]] = Field(default_factory=dict)  # 命令 → 忽略路径
     enable_weaker_nested_sandbox: bool = False  # Docker: 跳过 --proc /proc
     mandatory_deny_search_depth: int = Field(default=3, ge=1, le=10)  # 搜索深度
@@ -224,6 +230,7 @@ class ResolvedAuth:
 
 class EnvConfig(BaseModel):
     """环境/提供商组配置"""
+
     api_format: str  # "anthropic" / "openai"
     base_url: str | None = None
     api_key: str = ""
@@ -280,10 +287,7 @@ class Settings(BaseModel):
         """为缺少 type 字段的 MCP 服务器配置补全 ``type: "stdio"``。"""
         if not isinstance(value, dict):
             return value
-        return {
-            name: _normalize_server_config_type(cfg)
-            for name, cfg in value.items()
-        }
+        return {name: _normalize_server_config_type(cfg) for name, cfg in value.items()}
 
     # --- env_N 配置辅助方法 ---
 
@@ -295,7 +299,7 @@ class Settings(BaseModel):
             return EnvConfig.model_validate(value)
         if isinstance(value, EnvConfig):
             return value
-        
+
         # 然后检查 model_extra
         extras = self.model_extra or {}
         value = extras.get(env_key)
@@ -303,7 +307,7 @@ class Settings(BaseModel):
             return EnvConfig.model_validate(value)
         if isinstance(value, EnvConfig):
             return value
-        
+
         return None
 
     def list_envs(self) -> dict[str, EnvConfig]:
@@ -355,6 +359,46 @@ class Settings(BaseModel):
             return "claude-sonnet-4-6"
         return model_name
 
+    def resolve_model_ref(self, ref: str | None) -> str | None:
+        """解析模型引用（仅支持 env_N.model_M 格式）。
+
+        用于记忆提取/整合子代理等可指定模型的子系统。
+
+        Args:
+            ref: 模型引用字符串。None 表示不指定（调用方回退到当前模型）；
+                仅识别 ``env_N.model_M`` 格式，其他格式视为无效返回 None。
+
+        Returns:
+            str | None: 解析出的模型名称；ref 为 None 或无效格式时返回 None
+        """
+        _, model_name = self.resolve_model_ref_with_env(ref)
+        return model_name
+
+    def resolve_model_ref_with_env(self, ref: str | None) -> tuple[str | None, str | None]:
+        """解析模型引用，返回 (env_key, model_name)。
+
+        用于跨环境构建 API client：当引用指向非当前 env 时，
+        调用方需要按 env_key 的端点与凭据独立构建 client。
+
+        Args:
+            ref: 模型引用字符串（``env_N.model_M`` 格式）
+
+        Returns:
+            tuple[str | None, str | None]: (env_key, model_name)；
+                ref 为 None 或无效格式时返回 (None, None)
+        """
+        if not ref:
+            return None, None
+        # 仅识别 env_N.model_M 格式
+        parts = ref.split(".", 1)
+        if len(parts) != 2 or not parts[0].startswith("env_"):
+            return None, None
+        env_key, model_key = parts
+        env = self.get_env(env_key)
+        if env is None:
+            return None, None
+        return env_key, env.get_model(model_key)
+
     # --- 兼容性属性 ---
 
     @property
@@ -377,10 +421,14 @@ class Settings(BaseModel):
         """兼容性属性：当前活跃环境的 API 格式"""
         return self._active_env.api_format
 
-    def resolve_api_key(self) -> str:
-        """解析 API 密钥
+    def _resolve_api_key_from_env(self, env: EnvConfig, env_key: str) -> str:
+        """从 EnvConfig 与 credentials.json 解析 API 密钥（核心逻辑）。
 
         优先级：EnvConfig.api_key > EnvConfig.auth_token > credentials.json(env_N)
+
+        Args:
+            env: 环境配置对象
+            env_key: 环境键名（用于读取 credentials.json）
 
         Returns:
             str: API 密钥字符串
@@ -388,8 +436,6 @@ class Settings(BaseModel):
         Raises:
             ValueError: 未找到密钥时抛出
         """
-        env = self._active_env
-
         # 检查 EnvConfig 中的 api_key
         if env.api_key:
             return env.api_key
@@ -400,18 +446,43 @@ class Settings(BaseModel):
 
         # 从 credentials.json 的 env_N 读取
         from illusion.auth.storage import load_env_credential
-        env_cred = load_env_credential(self._active_env_key, "api_key")
+
+        env_cred = load_env_credential(env_key, "api_key")
         if env_cred:
             return env_cred
-        env_cred = load_env_credential(self._active_env_key, "auth_token")
+        env_cred = load_env_credential(env_key, "auth_token")
         if env_cred:
             return env_cred
 
         from illusion.config.i18n import t as _t
+
         raise ValueError(_t("no_api_key"))
 
-    def resolve_auth(self) -> ResolvedAuth:
-        """解析当前活跃环境的认证信息
+    def resolve_api_key_for(self, env_key: str) -> str:
+        """解析指定环境的 API 密钥（含 env 存在性校验）。
+
+        Args:
+            env_key: 环境键名（如 env_1）
+
+        Returns:
+            str: API 密钥字符串
+
+        Raises:
+            ValueError: env 不存在或未找到密钥时抛出
+        """
+        env = self.get_env(env_key)
+        if env is None:
+            from illusion.config.i18n import t as _t
+
+            raise ValueError(_t("no_api_key"))
+        return self._resolve_api_key_from_env(env, env_key)
+
+    def _resolve_auth_from_env(self, env: EnvConfig, env_key: str) -> ResolvedAuth:
+        """从 EnvConfig 与 credentials.json 解析认证信息（核心逻辑）。
+
+        Args:
+            env: 环境配置对象
+            env_key: 环境键名（用于读取 credentials.json）
 
         Returns:
             ResolvedAuth: 解析后的认证对象
@@ -419,8 +490,6 @@ class Settings(BaseModel):
         Raises:
             ValueError: 认证配置错误时抛出
         """
-        env = self._active_env
-
         # 检查 EnvConfig 中的 api_key
         if env.api_key:
             return ResolvedAuth(
@@ -441,25 +510,62 @@ class Settings(BaseModel):
 
         # 从 credentials.json 的 env_N 读取
         from illusion.auth.storage import load_env_credential
-        env_cred = load_env_credential(self._active_env_key, "api_key")
+
+        env_cred = load_env_credential(env_key, "api_key")
         if env_cred:
             return ResolvedAuth(
                 auth_kind="api_key",
                 value=env_cred,
-                source=f"file:{self._active_env_key}",
+                source=f"file:{env_key}",
                 state="configured",
             )
-        env_cred = load_env_credential(self._active_env_key, "auth_token")
+        env_cred = load_env_credential(env_key, "auth_token")
         if env_cred:
             return ResolvedAuth(
                 auth_kind="auth_token",
                 value=env_cred,
-                source=f"file:{self._active_env_key}",
+                source=f"file:{env_key}",
                 state="configured",
             )
 
         from illusion.config.i18n import t as _t
+
         raise ValueError(_t("no_auth"))
+
+    def resolve_auth_for(self, env_key: str) -> ResolvedAuth:
+        """解析指定环境的认证信息（含 env 存在性校验）。
+
+        Args:
+            env_key: 环境键名（如 env_1）
+
+        Returns:
+            ResolvedAuth: 解析后的认证对象
+
+        Raises:
+            ValueError: env 不存在或认证配置错误时抛出
+        """
+        env = self.get_env(env_key)
+        if env is None:
+            from illusion.config.i18n import t as _t
+
+            raise ValueError(_t("no_auth"))
+        return self._resolve_auth_from_env(env, env_key)
+
+    def resolve_api_key(self) -> str:
+        """解析当前活跃环境的 API 密钥（兼容旧调用）。
+
+        保留旧语义：_active_env 在活跃 env 缺失时回退到第一个可用 env，
+        避免旧式 settings（如 model 无 env_N 前缀）升级后启动失败。
+        """
+        return self._resolve_api_key_from_env(self._active_env, self._active_env_key)
+
+    def resolve_auth(self) -> ResolvedAuth:
+        """解析当前活跃环境的认证信息（兼容旧调用）。
+
+        保留旧语义：_active_env 在活跃 env 缺失时回退到第一个可用 env，
+        避免旧式 settings（如 model 无 env_N 前缀）升级后终端模式启动失败。
+        """
+        return self._resolve_auth_from_env(self._active_env, self._active_env_key)
 
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """返回应用了 CLI 覆盖的新 Settings（仅非 None 值）

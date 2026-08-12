@@ -840,7 +840,7 @@ function truncateCommand(str: string): string {
  * @param props.reasoning - 思考过程文本（可选）
  * @param props.lang - UI 语言
  */
-export function StreamingBuffer({ text, reasoning, lang }: { text: string; reasoning?: string; lang: UiLanguage }) {
+export function StreamingBuffer({ text, reasoning, reasoningStreaming, lang }: { text: string; reasoning?: string; reasoningStreaming?: boolean; lang: UiLanguage }) {
   const hasReasoning = !!reasoning && !!reasoning.trim();
   const hasText = !!text && !!text.trim();
 
@@ -850,7 +850,7 @@ export function StreamingBuffer({ text, reasoning, lang }: { text: string; reaso
         <ThinkingBlock
           text={reasoning}
           lang={lang}
-          streaming
+          streaming={reasoningStreaming ?? false}
           defaultOpen={!hasText}
           autoCollapsed={hasText}
         />

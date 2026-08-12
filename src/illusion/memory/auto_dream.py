@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from illusion.api.effort import EffortLevel
 from illusion.memory.extract import build_extract_tool_registry
 from illusion.memory.log import get_memory_logger, truncate
 from illusion.memory.paths import get_memory_dir_for_cwd
@@ -48,7 +49,8 @@ DREAM_LOCK_STALE_SECONDS = 600.0
 
 DEFAULT_MIN_HOURS = 24
 DEFAULT_MIN_SESSIONS = 5
-MAX_DREAM_TURNS = 15
+# 整合任务需要读取全部记忆文件（可能很多）再整合写入，给足轮次
+MAX_DREAM_TURNS = 50
 
 
 def _load_dream_state(memory_dir: Path) -> dict[str, Any]:
@@ -229,11 +231,16 @@ def _dream_prompt(memory_dir: Path) -> str:
 
 
 async def _run_dream_task(engine: Any, memory_dir: Path) -> None:
-    """后台执行记忆整合（受限子代理，最多 5 turns）。
+    """后台执行记忆整合（受限子代理，最多 50 turns）。
 
-    无感保证：子代理的事件流在此处被直接消费丢弃，不会渲染到主对话；
+    无感保证：任务首个 await 前先让出当前事件循环 tick（sleep(0) 非延迟），
+    确保调用方（行任务收尾、busy 释放、line_complete 推送）先完成；
+    之后的同步初始化（logger 首次创建、client 构建）不再阻塞任何收尾路径。
+    子代理的事件流在此处被直接消费丢弃，不会渲染到主对话；
     其活动通过 ~/.illusion/logs/memory_dream.log 透明记录。
     """
+    # 让出当前 tick：仅让事件循环先完成调用方剩余同步收尾，无实际等待
+    await asyncio.sleep(0)
     activity = get_memory_logger("dream")
     success = False
     try:
@@ -245,12 +252,33 @@ async def _run_dream_task(engine: Any, memory_dir: Path) -> None:
         from illusion.permissions.modes import PermissionMode
 
         auto_checker = PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO))
+        # 解析配置的整合模型：未指定（None）则继承当前引擎模型。
+        # 指定了其他 env 的模型时，按该 env 的端点/凭据独立构建 client
+        # （跨环境：不能复用主对话 client，否则模型不被当前 provider 支持）。
+        # client 与 model 必须原子选择：构建失败时 model 同步回退当前模型，
+        # 否则用主 client 调另一 provider 的模型必然 400（回退机制名存实亡）。
+        from illusion.config.settings import load_settings
+
+        settings = load_settings()
+        env_key, configured_model = settings.resolve_model_ref_with_env(settings.memory.dream_model)
+        sub_api_client = engine.api_client
+        if env_key and env_key != settings._active_env_key and configured_model:
+            try:
+                from illusion.api.factory import build_api_client_for_env
+
+                sub_api_client = build_api_client_for_env(settings, env_key)
+            except (ValueError, RuntimeError):
+                logger.warning(
+                    "Failed to build API client for env %s, falling back to current model",
+                    env_key,
+                )
+                configured_model = None
         sub_engine = engine.__class__(
-            api_client=engine.api_client,
+            api_client=sub_api_client,
             tool_registry=registry,
             permission_checker=auto_checker,
             cwd=engine.cwd,
-            model=engine.model,
+            model=configured_model or engine.model,
             system_prompt=(
                 "You are a background memory consolidation subagent. You review "
                 "and clean up a file-based memory system. You may only read files "
@@ -258,6 +286,8 @@ async def _run_dream_task(engine: Any, memory_dir: Path) -> None:
             ),
             max_tokens=65536,  # 记忆会持续增长，token 上限按最大配置
             max_turns=MAX_DREAM_TURNS,
+            # 思考强度固定 high：不继承主会话（记忆整合质量优先）
+            effort=EffortLevel.HIGH,
         )
         # 子代理守卫标记：其回合结束不得再触发提取/整合（防级联）
         sub_engine._is_memory_subagent = True

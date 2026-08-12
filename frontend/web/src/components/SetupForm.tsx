@@ -21,7 +21,7 @@
  * @module SetupForm
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import { GlassDropdown, type DropdownOption } from './GlassDropdown';
 import { CronTab } from './CronTab';
@@ -179,6 +179,10 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
   const [memEnabled, setMemEnabled] = useState(true);
   /** 后台 LLM 自动提取/整合开关（false = 仅手动记录） */
   const [memAutoExtract, setMemAutoExtract] = useState(true);
+  /** 提取子代理模型（空 = 继承当前） */
+  const [memExtractModel, setMemExtractModel] = useState('');
+  /** 整合子代理模型（空 = 继承当前） */
+  const [memDreamModel, setMemDreamModel] = useState('');
   /** 自定义记忆目录输入值（空 = 使用默认目录） */
   const [memDir, setMemDir] = useState('');
   /** 界面语言选择值（后端格式 zh-CN / en-US） */
@@ -205,6 +209,8 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
         setWorkDir(s.working_directory ?? '');
         setMemEnabled(s.memory?.enabled ?? true);
         setMemAutoExtract(s.memory?.auto_extract ?? true);
+        setMemExtractModel(s.memory?.extract_model ?? '');
+        setMemDreamModel(s.memory?.dream_model ?? '');
         setMemDir(s.memory?.directory ?? '');
         // 后端 ui_language 为 en-US / zh-CN / 空串；空串默认 zh-CN
         setUiLang(s.ui_language === 'en-US' ? 'en-US' : 'zh-CN');
@@ -250,6 +256,22 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       return { ...d, models: next };
     });
   }, []);
+
+  /** 可用模型下拉选项：所有 env 的 model_N，值为 env_N.model_N 引用，显示模型名 */
+  const modelOptions = useMemo<DropdownOption[]>(() => {
+    const opts: DropdownOption[] = [
+      { value: '', label: t(lang, 'setupFieldMemoryModelInherit') },
+    ];
+    for (const env of envs) {
+      for (const [key, name] of Object.entries(env.models)) {
+        opts.push({
+          value: `${env.env_key}.${key}`,
+          label: name, // 仅显示模型名，不显示 env_N.model_N
+        });
+      }
+    }
+    return opts;
+  }, [envs, lang]);
 
   /** 添加空模型行 */
   const addModel = useCallback(() => {
@@ -311,15 +333,19 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       if (settings && (workDir.trim() || '') !== (settings.working_directory ?? '')) {
         await settingsApi.updateWorkingDirectory(workDir.trim());
       }
-      // 3.5 记忆配置改动（enabled / auto_extract / directory 任一变化即提交）
+      // 3.5 记忆配置改动（任一字段变化即提交）
       if (settings && (
         memEnabled !== settings.memory?.enabled ||
         memAutoExtract !== settings.memory?.auto_extract ||
+        (memExtractModel.trim() || '') !== (settings.memory?.extract_model ?? '') ||
+        (memDreamModel.trim() || '') !== (settings.memory?.dream_model ?? '') ||
         (memDir.trim() || '') !== (settings.memory?.directory ?? '')
       )) {
         await settingsApi.updateMemory({
           enabled: memEnabled,
           auto_extract: memAutoExtract,
+          extract_model: memExtractModel.trim(),
+          dream_model: memDreamModel.trim(),
           directory: memDir.trim(),
         });
       }
@@ -331,7 +357,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       setSaving(false);
       setSaveError(err instanceof Error ? err.message : String(err));
     }
-  }, [settings, uiLang, workDir, memEnabled, memAutoExtract, memDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
+  }, [settings, uiLang, workDir, memEnabled, memAutoExtract, memExtractModel, memDreamModel, memDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
 
   /** 删除环境（即时 API） */
   const handleDeleteEnv = useCallback(async (envKey: string) => {
@@ -458,8 +484,13 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
               onMemEnabledChange={setMemEnabled}
               memAutoExtract={memAutoExtract}
               onMemAutoExtractChange={setMemAutoExtract}
+              memExtractModel={memExtractModel}
+              onMemExtractModelChange={setMemExtractModel}
+              memDreamModel={memDreamModel}
+              onMemDreamModelChange={setMemDreamModel}
               memDir={memDir}
               onMemDirChange={setMemDir}
+              modelOptions={modelOptions}
               envs={envs}
               activeEnvKey={activeEnvKey}
               onDeleteEnv={handleDeleteEnv}
@@ -669,9 +700,17 @@ interface SettingsTabProps {
   /** 后台 LLM 自动提取/整合开关（false = 仅手动记录） */
   memAutoExtract: boolean;
   onMemAutoExtractChange: (v: boolean) => void;
+  /** 提取子代理模型（空 = 继承当前） */
+  memExtractModel: string;
+  onMemExtractModelChange: (v: string) => void;
+  /** 整合子代理模型（空 = 继承当前） */
+  memDreamModel: string;
+  onMemDreamModelChange: (v: string) => void;
   /** 自定义记忆目录输入值（空 = 使用默认目录） */
   memDir: string;
   onMemDirChange: (v: string) => void;
+  /** 模型下拉选项（env_N.model_N 引用） */
+  modelOptions: DropdownOption[];
   envs: EnvInfo[];
   activeEnvKey: string | null;
   onDeleteEnv: (k: string) => void;
@@ -832,6 +871,26 @@ function SettingsTab(p: SettingsTabProps) {
             placeholder={t(lang, 'setupFieldMemoryDirectoryHint')}
           />
           <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldMemoryDirectoryHint')}</div>
+        </div>
+        {/* 提取模型 */}
+        <div>
+          <div className={labelClass}>{t(lang, 'setupFieldMemoryExtractModel')}</div>
+          <GlassDropdown
+            value={p.memExtractModel}
+            options={p.modelOptions}
+            onChange={p.onMemExtractModelChange}
+            placeholder={t(lang, 'setupFieldMemoryModelHint')}
+          />
+        </div>
+        {/* 整合模型 */}
+        <div>
+          <div className={labelClass}>{t(lang, 'setupFieldMemoryDreamModel')}</div>
+          <GlassDropdown
+            value={p.memDreamModel}
+            options={p.modelOptions}
+            onChange={p.onMemDreamModelChange}
+            placeholder={t(lang, 'setupFieldMemoryModelHint')}
+          />
         </div>
       </div>
     </div>

@@ -49,6 +49,10 @@ export interface SettingsResponse {
     enabled: boolean;
     /** 是否允许后台 LLM 自动提取/整合（false = 仅手动记录） */
     auto_extract: boolean;
+    /** 提取子代理模型（env_N.model_M），未设置时为 null */
+    extract_model: string | null;
+    /** 整合子代理模型（env_N.model_M），未设置时为 null */
+    dream_model: string | null;
     /** 自定义记忆目录（绝对路径或 ~/ 开头），未设置时为 null */
     directory: string | null;
   };
@@ -60,6 +64,10 @@ export interface UpdateMemoryPayload {
   enabled?: boolean;
   /** 是否允许后台 LLM 自动提取/整合 */
   auto_extract?: boolean;
+  /** 提取子代理模型（空字符串清除） */
+  extract_model?: string;
+  /** 整合子代理模型（空字符串清除） */
+  dream_model?: string;
   /** 自定义记忆目录（空字符串清除） */
   directory?: string;
 }
@@ -372,7 +380,7 @@ export const settingsApi = {
       method: 'PATCH',
       body: JSON.stringify({ working_directory: workingDirectory }),
     }),
-  /** 修改记忆配置（enabled / directory，只更新提供的字段） */
+  /** 修改记忆配置（enabled / extract_model / dream_model / directory，只更新提供的字段） */
   updateMemory: (payload: UpdateMemoryPayload) =>
     request<{ success: boolean }>('/api/settings/memory', {
       method: 'PATCH',
