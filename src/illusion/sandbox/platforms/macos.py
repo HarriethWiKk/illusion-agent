@@ -111,6 +111,12 @@ class MacOSSandboxPlatform(SandboxPlatform):
                 lines.append(
                     f'(allow network* (local tcp "localhost:{config.socks_proxy_port}"))'
                 )
+            # enable_weaker_network_isolation：允许访问 trustd（Go 工具 TLS 校验所需，
+            # 降低网络隔离，存在数据外泄风险）
+            if config.enable_weaker_network_isolation:
+                lines.append(
+                    '(allow network* (remote unix-socket "/private/var/run/com.apple.trustd.agent"))'
+                )
         else:
             lines.append("(allow network*)")
         lines.append("")

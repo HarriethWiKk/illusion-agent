@@ -12,7 +12,6 @@ def test_runtime_initializes_disabled_by_default():
 def test_runtime_initializes_with_config():
     runtime = SandboxRuntime()
     config = {
-        "enabled": True,
         "enabled_platforms": [],
         "filesystem": {"allow_write": ["."], "deny_write": [], "deny_read": [], "allow_read": []},
         "network": {"allowed_domains": [], "denied_domains": []},

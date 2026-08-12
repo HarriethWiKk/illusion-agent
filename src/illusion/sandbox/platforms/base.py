@@ -25,6 +25,7 @@ class SandboxPlatformConfig:
         proxy_env: 代理环境变量
         allow_all_unix_sockets: 允许所有 Unix socket
         enable_weaker_nested_sandbox: Docker 环境跳过 --proc /proc
+        enable_weaker_network_isolation: macOS 允许访问 trustd（降低网络隔离）
     """
     allow_write: list[str] = field(default_factory=lambda: ["."])
     deny_write: list[str] = field(default_factory=list)
@@ -36,6 +37,7 @@ class SandboxPlatformConfig:
     proxy_env: dict[str, str] = field(default_factory=dict)
     allow_all_unix_sockets: bool = False
     enable_weaker_nested_sandbox: bool = False
+    enable_weaker_network_isolation: bool = False
 
 
 class SandboxPlatform(ABC):

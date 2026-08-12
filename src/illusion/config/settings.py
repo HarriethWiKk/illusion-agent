@@ -62,6 +62,7 @@ class PermissionSettings(BaseModel):
         mode: 权限模式
         allowed_tools: 允许的工具列表
         denied_tools: 拒绝的工具列表
+        allowed_shell_commands: 命令级白名单（前缀匹配，命中直接放行，即使高危；bash/powershell 通用）
         path_rules: 路径规则列表
         denied_commands: 拒绝的命令列表
     """
@@ -69,6 +70,7 @@ class PermissionSettings(BaseModel):
     mode: PermissionMode = PermissionMode.DEFAULT  # 权限模式，默认为默认模式
     allowed_tools: list[str] = Field(default_factory=list)  # 允许的工具列表
     denied_tools: list[str] = Field(default_factory=list)  # 拒绝的工具列表
+    allowed_shell_commands: list[str] = Field(default_factory=list)  # 命令级白名单（前缀匹配，命中直接放行，即使高危；bash/powershell 通用）
     path_rules: list[PathRuleConfig] = Field(default_factory=list)  # 路径权限规则
     denied_commands: list[str] = Field(default_factory=list)  # 拒绝的命令列表
 
@@ -161,16 +163,31 @@ class SandboxFilesystemSettings(BaseModel):
     传递给沙箱运行时的操作系统级文件系统限制配置。
     
     Attributes:
-        allow_read: 允许读取的路径列表
+        allow_read: 允许读取的路径列表（可豁免 deny_read 区域）
         deny_read: 拒绝读取的路径列表
         allow_write: 允许写入的路径列表
         deny_write: 拒绝写入的路径列表
     """
 
-    allow_read: list[str] = Field(default_factory=list)  # 允许读取的路径
+    allow_read: list[str] = Field(default_factory=list)  # 允许读取的路径（可豁免 deny_read）
     deny_read: list[str] = Field(default_factory=list)  # 拒绝读取的路径
     allow_write: list[str] = Field(default_factory=lambda: ["."])  # 默认允许写入当前目录
     deny_write: list[str] = Field(default_factory=list)  # 拒绝写入的路径
+
+
+class SandboxRipgrepSettings(BaseModel):
+    """沙箱内置 ripgrep 配置
+
+    自定义沙箱内使用的 ripgrep 命令与参数（对齐 claude-code-sourcemap 的
+    sandbox.ripgrep 配置）。
+
+    Attributes:
+        command: ripgrep 可执行命令路径
+        args: 追加的参数列表
+    """
+
+    command: str = "rg"  # ripgrep 命令
+    args: list[str] = Field(default_factory=list)  # 追加参数
 
 
 class SandboxSettings(BaseModel):
@@ -179,9 +196,6 @@ class SandboxSettings(BaseModel):
     配置与沙箱运行时的集成选项。
 
     Attributes:
-        enabled: 是否启用沙箱
-        fail_if_unavailable: 沙箱不可用时是否失败
-        auto_allow_bash_if_sandboxed: 沙箱启用时自动允许 bash 命令
         allow_unsandboxed_commands: 允许 dangerouslyDisableSandbox
         enabled_platforms: 启用的平台列表
         excluded_commands: 排除沙箱的命令模式列表
@@ -189,14 +203,13 @@ class SandboxSettings(BaseModel):
         filesystem: 文件系统限制配置
         ignore_violations: 命令模式 → 忽略的路径列表
         enable_weaker_nested_sandbox: Docker 环境跳过 --proc /proc
+        enable_weaker_network_isolation: macOS 允许访问 trustd（降低网络隔离）
         mandatory_deny_search_depth: 搜索危险文件的最大目录深度
         allow_git_config: 允许写入 .git/config
+        ripgrep: 沙箱内置 ripgrep 配置
     """
 
-    enabled: bool = False  # 默认不启用沙箱
-    fail_if_unavailable: bool = False  # 沙箱不可用时不失败
-    auto_allow_bash_if_sandboxed: bool = True  # 沙箱启用时自动允许 bash
-    allow_unsandboxed_commands: bool = True  # 允许 dangerouslyDisableSandbox
+    allow_unsandboxed_commands: bool = False  # 允许 dangerouslyDisableSandbox（默认禁用，防止绕过沙箱）
     enabled_platforms: list[str] = Field(default_factory=list)  # 启用的平台
     excluded_commands: list[str] = Field(default_factory=list)  # 排除沙箱的命令模式
     network: SandboxNetworkSettings = Field(default_factory=SandboxNetworkSettings)  # 网络配置
@@ -205,8 +218,10 @@ class SandboxSettings(BaseModel):
     )  # 文件系统配置
     ignore_violations: dict[str, list[str]] = Field(default_factory=dict)  # 命令 → 忽略路径
     enable_weaker_nested_sandbox: bool = False  # Docker: 跳过 --proc /proc
+    enable_weaker_network_isolation: bool = False  # macOS: 允许 trustd（降低网络隔离）
     mandatory_deny_search_depth: int = Field(default=3, ge=1, le=10)  # 搜索深度
     allow_git_config: bool = False  # 允许写入 .git/config
+    ripgrep: SandboxRipgrepSettings | None = None  # 内置 ripgrep 配置
 
 
 @dataclass(frozen=True)
@@ -594,6 +609,40 @@ class Settings(BaseModel):
         return new_settings
 
 
+def _default_sandbox_config() -> dict[str, Any]:
+    """返回默认沙箱配置（对齐 claude-code-sourcemap 的 sandbox schema）。
+
+    作为显式默认配置写入 settings.json，使用户可直接查看/修改，
+    而非仅在内存中按默认值加载运行。
+    """
+    return {
+        "allow_unsandboxed_commands": False,
+        "enabled_platforms": [],
+        "excluded_commands": [],
+        "network": {
+            "allowed_domains": [],
+            "denied_domains": [],
+            "allow_unix_sockets": [],
+            "allow_all_unix_sockets": False,
+            "allow_local_binding": False,
+            "http_proxy_port": None,
+            "socks_proxy_port": None,
+        },
+        "filesystem": {
+            "allow_read": [],
+            "deny_read": [],
+            "allow_write": ["."],
+            "deny_write": [],
+        },
+        "ignore_violations": {},
+        "enable_weaker_nested_sandbox": False,
+        "enable_weaker_network_isolation": False,
+        "mandatory_deny_search_depth": 3,
+        "allow_git_config": False,
+        "ripgrep": None,
+    }
+
+
 def load_settings(config_path: Path | None = None) -> Settings:
     """从配置文件加载设置
 
@@ -613,6 +662,16 @@ def load_settings(config_path: Path | None = None) -> Settings:
         # 兼容 mcpServers（camelCase）键，映射到 mcp_servers（snake_case）
         if "mcpServers" in raw and "mcp_servers" not in raw:
             raw["mcp_servers"] = raw.pop("mcpServers")
+
+        # 将默认沙箱配置显式写入 settings.json（透明可改，非仅内存默认值）。
+        # 仅在配置缺失 sandbox 键时一次性落盘，避免每次加载都写。
+        if "sandbox" not in raw:
+            raw["sandbox"] = _default_sandbox_config()
+            try:
+                save_settings(Settings.model_validate(raw), config_path)
+            except (OSError, ValueError):
+                # 写入失败不阻塞加载（如只读配置目录）
+                pass
 
         # 清理 env_N 中不该存在的 model 字段
         for key in list(raw.keys()):

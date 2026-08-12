@@ -23,7 +23,6 @@ class TestSettings:
         assert s.max_tokens == 16384
         assert s.max_turns == 200
         assert s.permission.mode == "default"
-        assert s.sandbox.enabled is False
         assert s.sandbox.filesystem.allow_write == ["."]
 
     def test_resolve_api_key_from_env_config(self):
@@ -137,7 +136,6 @@ class TestLoadSaveSettings:
             json.dumps(
                 {
                     "sandbox": {
-                        "enabled": True,
                         "enabled_platforms": ["linux", "wsl"],
                         "network": {"allowed_domains": ["github.com"]},
                         "filesystem": {"allow_write": [".", "/tmp"], "deny_write": [".env"]},
@@ -148,7 +146,6 @@ class TestLoadSaveSettings:
 
         s = load_settings(path)
 
-        assert s.sandbox.enabled is True
         assert s.sandbox.enabled_platforms == ["linux", "wsl"]
         assert s.sandbox.network.allowed_domains == ["github.com"]
         assert s.sandbox.filesystem.allow_write == [".", "/tmp"]

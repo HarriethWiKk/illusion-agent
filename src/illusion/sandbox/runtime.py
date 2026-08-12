@@ -82,10 +82,6 @@ class SandboxRuntime:
         """
         self._config = config
         self._ask_callback = ask_callback
-        self._enabled = config.get("enabled", False)
-
-        if not self._enabled:
-            return
 
         self._platform_name = _detect_platform()
 
@@ -96,17 +92,23 @@ class SandboxRuntime:
             self._enabled = False
             return
 
-        self._platform = _get_platform_impl(self._platform_name)
-
-        # 检查依赖
-        errors = self._platform.check_dependencies()
-        if errors:
-            if config.get("fail_if_unavailable"):
-                raise RuntimeError(f"沙箱依赖缺失: {'; '.join(errors)}")
-            logger.warning("沙箱依赖缺失，沙箱已禁用: %s", "; ".join(errors))
+        # 未知平台：自动降级（禁用沙箱），不影响命令执行
+        if self._platform_name == "unknown":
+            logger.warning("沙箱平台不可识别，沙箱已禁用")
             self._enabled = False
             return
 
+        self._platform = _get_platform_impl(self._platform_name)
+
+        # 检查依赖；缺失时自动降级（禁用沙箱），不影响命令执行
+        errors = self._platform.check_dependencies()
+        if errors:
+            logger.warning("沙箱依赖缺失，沙箱已禁用: %s", "; ".join(errors))
+            self._platform = None
+            self._enabled = False
+            return
+
+        self._enabled = True
         logger.info("沙箱运行时已初始化 (平台: %s)", self._platform_name)
 
     def is_enabled(self) -> bool:
@@ -156,10 +158,8 @@ class SandboxRuntime:
         """
         import copy
         self._config = copy.deepcopy(new_config)
-        was_enabled = self._enabled
-        self._enabled = new_config.get("enabled", False)
-        if self._enabled and not was_enabled:
-            self.initialize(new_config, self._ask_callback)
+        # 沙箱始终开启：热重载时重新初始化，使平台/依赖/排除规则即时生效
+        self.initialize(new_config, self._ask_callback)
 
     def annotate_stderr_with_sandbox_failures(self, command: str, stderr: str) -> str:
         """在 stderr 中追加违规信息
@@ -210,4 +210,5 @@ class SandboxRuntime:
             proxy_env=proxy_env,
             allow_all_unix_sockets=net.get("allow_all_unix_sockets", False),
             enable_weaker_nested_sandbox=self._config.get("enable_weaker_nested_sandbox", False),
+            enable_weaker_network_isolation=self._config.get("enable_weaker_network_isolation", False),
         )

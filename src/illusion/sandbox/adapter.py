@@ -36,22 +36,23 @@ class SandboxUnavailableError(RuntimeError):
 
 
 class SandboxAvailability:
-    """当前环境的沙箱运行时可用性状态"""
+    """当前环境的沙箱运行时可用性状态
+
+    沙箱永远开启（无 enabled 开关），此处仅反映运行时是否就绪。
+    """
 
     def __init__(
         self,
-        enabled: bool,
         available: bool,
         reason: str | None = None,
     ) -> None:
-        self.enabled = enabled
         self.available = available
         self.reason = reason
 
     @property
     def active(self) -> bool:
         """返回是否应该对子进程应用沙箱"""
-        return self.enabled and self.available
+        return self.available
 
 
 class SandboxManager:
@@ -100,14 +101,10 @@ class SandboxManager:
             from ..config import load_settings
             settings = load_settings()
 
-        sandbox_settings = settings.sandbox
-        if not sandbox_settings.enabled:
-            return SandboxAvailability(enabled=False, available=False, reason="沙箱未启用")
-
         if not self._runtime.is_enabled():
-            return SandboxAvailability(enabled=True, available=False, reason="沙箱运行时未就绪")
+            return SandboxAvailability(available=False, reason="沙箱运行时未就绪")
 
-        return SandboxAvailability(enabled=True, available=True)
+        return SandboxAvailability(available=True)
 
     def should_use_sandbox(
         self,
@@ -131,7 +128,7 @@ class SandboxManager:
             settings = load_settings()
 
         sandbox_settings = settings.sandbox
-        if not sandbox_settings.enabled or not self._runtime.is_enabled():
+        if not self._runtime.is_enabled():
             return False
 
         if dangerously_disable and sandbox_settings.allow_unsandboxed_commands:
@@ -184,16 +181,19 @@ class SandboxManager:
     def _settings_to_config(self, sandbox_settings: Any) -> dict[str, Any]:
         """将 SandboxSettings 转换为运行时配置字典"""
         return {
-            "enabled": sandbox_settings.enabled,
-            "fail_if_unavailable": sandbox_settings.fail_if_unavailable,
-            "auto_allow_bash_if_sandboxed": sandbox_settings.auto_allow_bash_if_sandboxed,
             "allow_unsandboxed_commands": sandbox_settings.allow_unsandboxed_commands,
             "enabled_platforms": sandbox_settings.enabled_platforms,
             "excluded_commands": sandbox_settings.excluded_commands,
             "ignore_violations": sandbox_settings.ignore_violations,
             "enable_weaker_nested_sandbox": sandbox_settings.enable_weaker_nested_sandbox,
+            "enable_weaker_network_isolation": sandbox_settings.enable_weaker_network_isolation,
             "mandatory_deny_search_depth": sandbox_settings.mandatory_deny_search_depth,
             "allow_git_config": sandbox_settings.allow_git_config,
+            "ripgrep": (
+                sandbox_settings.ripgrep.model_dump()
+                if sandbox_settings.ripgrep is not None
+                else None
+            ),
             "filesystem": {
                 "allow_write": sandbox_settings.filesystem.allow_write,
                 "deny_write": sandbox_settings.filesystem.deny_write,
@@ -277,9 +277,7 @@ def wrap_command_for_sandbox(
 
     manager = SandboxManager()
     if not manager.should_use_sandbox(" ".join(command), settings=settings):
-        if settings.sandbox.enabled and settings.sandbox.fail_if_unavailable:
-            avail = manager.get_availability(settings)
-            raise SandboxUnavailableError(avail.reason or "沙箱不可用")
+        # 沙箱不可用时自动降级：不包装命令，直接原样执行
         return command, None
 
     wrapped = manager.wrap_command(command)

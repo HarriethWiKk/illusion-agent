@@ -65,15 +65,8 @@ def _format_status(sandbox: Any) -> CommandResult:
     """格式化沙箱状态信息"""
     lines = []
 
-    if sandbox.enabled:
-        lines.append("Sandbox status: enabled")
-    else:
-        lines.append("Sandbox status: disabled")
-        lines.append("Use /config set sandbox.enabled true to enable")
-        return CommandResult(message="\n".join(lines))
+    lines.append("Sandbox status: enabled")
 
-    lines.append(f"  Fail if unavailable: {'yes' if sandbox.fail_if_unavailable else 'no'}")
-    lines.append(f"  Auto-allow bash: {'yes' if sandbox.auto_allow_bash_if_sandboxed else 'no'}")
     lines.append(f"  Allow unsandboxed: {'yes' if sandbox.allow_unsandboxed_commands else 'no'}")
 
     if sandbox.enabled_platforms:

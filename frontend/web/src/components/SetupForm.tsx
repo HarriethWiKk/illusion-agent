@@ -28,6 +28,7 @@ import { CronTab } from './CronTab';
 import {
   envApi, oauthApi, settingsApi, channelsApi,
   type EnvInfo, type SettingsResponse, type CreateEnvPayload,
+  type SandboxSettings, type PermissionRiskSettings,
   type ChannelRuntimeStatusEntry, type ChannelsRuntimeStatus,
 } from '../api';
 
@@ -160,7 +161,7 @@ const labelClass = 'text-xs font-medium text-content-secondary mb-1.5';
  */
 export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose }: SetupFormProps) {
   /** 当前 Tab */
-  const [tab, setTab] = useState<'settings' | 'channels' | 'cron'>('settings');
+  const [tab, setTab] = useState<'settings' | 'channels' | 'cron' | 'sandbox'>('settings');
   /** 加载状态 */
   const [loading, setLoading] = useState(true);
   /** 加载错误 */
@@ -185,6 +186,14 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
   const [memDreamModel, setMemDreamModel] = useState('');
   /** 自定义记忆目录输入值（空 = 使用默认目录） */
   const [memDir, setMemDir] = useState('');
+  /** 沙箱配置（可删改） */
+  const [sandbox, setSandbox] = useState<SandboxSettings | null>(null);
+  /** 沙箱保存错误 */
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
+  /** 沙箱保存成功提示 */
+  const [sandboxSaved, setSandboxSaved] = useState(false);
+  /** 权限风险分级配置（LOW/MEDIUM/HIGH 三层级，后端内置只读展示） */
+  const [permission, setPermission] = useState<PermissionRiskSettings | null>(null);
   /** 界面语言选择值（后端格式 zh-CN / en-US） */
   const [uiLang, setUiLang] = useState<'zh-CN' | 'en-US'>('zh-CN');
   /** 新增环境草稿（首次模式 + 修改模式的新增分支共用） */
@@ -212,6 +221,10 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
         setMemExtractModel(s.memory?.extract_model ?? '');
         setMemDreamModel(s.memory?.dream_model ?? '');
         setMemDir(s.memory?.directory ?? '');
+        // 沙箱配置（默认值由后端保证返回）
+        setSandbox(s.sandbox ?? null);
+        // 权限风险分级配置（LOW/MEDIUM/HIGH 三层级）
+        setPermission(s.permission ?? null);
         // 后端 ui_language 为 en-US / zh-CN / 空串；空串默认 zh-CN
         setUiLang(s.ui_language === 'en-US' ? 'en-US' : 'zh-CN');
         setEnvs(e.envs);
@@ -351,13 +364,24 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
       }
       // 4. 渠道配置
       await channelsApi.update(channels as unknown as Parameters<typeof channelsApi.update>[0]);
+      // 5. 沙箱配置
+      if (sandbox) {
+        try {
+          await settingsApi.updateSandbox(sandbox as Parameters<typeof settingsApi.updateSandbox>[0]);
+          setSandboxSaved(true);
+          setSandboxError(null);
+        } catch (err) {
+          setSandboxError(err instanceof Error ? err.message : String(err));
+        }
+      }
+      // 6. 权限风险分级为内置只读（LOW/MEDIUM/HIGH），无需保存
       setSaving(false);
       onSaved();
     } catch (err) {
       setSaving(false);
       setSaveError(err instanceof Error ? err.message : String(err));
     }
-  }, [settings, uiLang, workDir, memEnabled, memAutoExtract, memExtractModel, memDreamModel, memDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved]);
+  }, [settings, uiLang, workDir, memEnabled, memAutoExtract, memExtractModel, memDreamModel, memDir, channels, firstLogin, showAddEnv, draft, draftValid, createEnvFromDraft, onSetUiLanguage, onSaved, sandbox]);
 
   /** 删除环境（即时 API） */
   const handleDeleteEnv = useCallback(async (envKey: string) => {
@@ -438,12 +462,13 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
         </div>
 
         {/* Tab 导航栏 */}
-        <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0">
-          {(['settings', 'channels', 'cron'] as const).map((tabKey, idx) => {
+        <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0 flex-wrap">
+          {(['settings', 'channels', 'cron', 'sandbox'] as const).map((tabKey, idx) => {
             const isActive = tab === tabKey;
             const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle'
               : tabKey === 'channels' ? 'setupFormChannelsTitle'
-              : 'setupFormCronTitle';
+              : tabKey === 'cron' ? 'setupFormCronTitle'
+              : 'setupFormSandboxTitle';
             return (
               <button
                 key={tabKey}
@@ -505,6 +530,15 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
               onAddModel={addModel}
               onRemoveModel={removeModel}
               opError={opError}
+            />
+          ) : tab === 'sandbox' ? (
+            <SandboxTab
+              lang={lang}
+              sandbox={sandbox}
+              onSandboxChange={setSandbox}
+              error={sandboxError}
+              saved={sandboxSaved}
+              permission={permission}
             />
           ) : (
             <ChannelsTab lang={lang} channels={channels} onChannelsChange={setChannels} />
@@ -1272,6 +1306,195 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
         <BoolField lang={lang} labelKey="setupChannelShowReasoning" checked={channels.qq.show_reasoning} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, show_reasoning: v } })} />
         <GroupPolicyFields lang={lang} policy={channels.qq.group_policy} onChange={(gp) => onChannelsChange({ ...channels, qq: { ...channels.qq, group_policy: gp } })} />
       </ChannelSection>
+    </div>
+  );
+}
+
+// ===== 沙箱配置 Tab =====
+
+interface SandboxTabProps {
+  lang: UiLanguage;
+  sandbox: SandboxSettings | null;
+  onSandboxChange: (s: SandboxSettings) => void;
+  error: string | null;
+  saved: boolean;
+  permission: PermissionRiskSettings | null;
+}
+
+/** 沙箱配置 Tab：文件系统/网络/高级选项 + 风险分级（LOW/MEDIUM/HIGH）只读展示 */
+function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }: SandboxTabProps) {
+  if (!sandbox) {
+    return <div className="text-sm text-content-disabled py-4">{t(lang, 'setupFormLoadFailed')}</div>;
+  }
+  const update = (patch: Partial<SandboxSettings>) => onSandboxChange({ ...sandbox, ...patch });
+  const updateFs = (patch: Partial<SandboxSettings['filesystem']>) =>
+    onSandboxChange({ ...sandbox, filesystem: { ...sandbox.filesystem, ...patch } });
+  const updateNet = (patch: Partial<SandboxSettings['network']>) =>
+    onSandboxChange({ ...sandbox, network: { ...sandbox.network, ...patch } });
+
+  return (
+    <div className="space-y-5">
+      {error && <div className="text-xs text-danger">{t(lang, 'setupSandboxSaveFailed')}: {error}</div>}
+      {saved && <div className="text-xs text-success">{t(lang, 'setupSandboxSaveSuccess')}</div>}
+
+      {/* 沙箱行为选项（沙箱强制开启，无需开关） */}
+      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+        <BoolWithHint
+          lang={lang}
+          labelKey="setupFieldSandboxAllowUnsandboxed"
+          hintKey="setupFieldSandboxAllowUnsandboxedHint"
+          checked={sandbox.allow_unsandboxed_commands}
+          onChange={(v) => update({ allow_unsandboxed_commands: v })}
+        />
+        <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskHint')}</div>
+      </div>
+
+      {/* 平台与排除命令 */}
+      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+        <TextFieldWithHint
+          lang={lang}
+          labelKey="setupFieldSandboxEnabledPlatforms"
+          hintKey="setupFieldSandboxEnabledPlatformsHint"
+          value={sandbox.enabled_platforms.join(', ')}
+          onChange={(v) => update({ enabled_platforms: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+        />
+        <StringListField
+          lang={lang}
+          labelKey="setupFieldSandboxExcludedCommands"
+          hintKey="setupFieldSandboxExcludedCommandsHint"
+          value={sandbox.excluded_commands}
+          onChange={(v) => update({ excluded_commands: v })}
+        />
+      </div>
+
+      {/* 文件系统 */}
+      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+        <div className={labelClass}>{t(lang, 'setupFieldSandbox')}</div>
+        <StringListField lang={lang} labelKey="setupFieldSandboxAllowWrite" value={sandbox.filesystem.allow_write} onChange={(v) => updateFs({ allow_write: v })} />
+        <StringListField lang={lang} labelKey="setupFieldSandboxDenyWrite" value={sandbox.filesystem.deny_write} onChange={(v) => updateFs({ deny_write: v })} />
+        <StringListField lang={lang} labelKey="setupFieldSandboxDenyRead" value={sandbox.filesystem.deny_read} onChange={(v) => updateFs({ deny_read: v })} />
+        <StringListField
+          lang={lang}
+          labelKey="setupFieldSandboxAllowRead"
+          hintKey="setupFieldSandboxAllowReadHint"
+          value={sandbox.filesystem.allow_read}
+          onChange={(v) => updateFs({ allow_read: v })}
+        />
+      </div>
+
+      {/* 网络 */}
+      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+        <div className={labelClass}>{t(lang, 'setupFieldSandboxNetwork')}</div>
+        <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxAllowDomains" value={sandbox.network.allowed_domains.join(', ')} onChange={(v) => updateNet({ allowed_domains: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+        <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxDenyDomains" value={sandbox.network.denied_domains.join(', ')} onChange={(v) => updateNet({ denied_domains: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+        <BoolField lang={lang} labelKey="setupFieldSandboxAllowAllUnixSockets" checked={sandbox.network.allow_all_unix_sockets} onChange={(v) => updateNet({ allow_all_unix_sockets: v })} />
+        <BoolField lang={lang} labelKey="setupFieldSandboxAllowLocalBinding" checked={sandbox.network.allow_local_binding} onChange={(v) => updateNet({ allow_local_binding: v })} />
+      </div>
+
+      {/* 高级选项 */}
+      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+        <div className={labelClass}>{t(lang, 'setupFieldSandboxAdvanced')}</div>
+        <BoolWithHint lang={lang} labelKey="setupFieldSandboxWeakerNetworkIsolation" hintKey="setupFieldSandboxWeakerNetworkIsolationHint" checked={sandbox.enable_weaker_network_isolation} onChange={(v) => update({ enable_weaker_network_isolation: v })} />
+        <BoolField lang={lang} labelKey="setupFieldSandboxWeakerNested" checked={sandbox.enable_weaker_nested_sandbox} onChange={(v) => update({ enable_weaker_nested_sandbox: v })} />
+        <BoolField lang={lang} labelKey="setupFieldSandboxAllowGitConfig" checked={sandbox.allow_git_config} onChange={(v) => update({ allow_git_config: v })} />
+        <div>
+          <div className={labelClass}>{t(lang, 'setupFieldSandboxMandatoryDepth')}</div>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={sandbox.mandatory_deny_search_depth}
+            onChange={(e) => update({ mandatory_deny_search_depth: Math.max(1, Math.min(10, Number(e.target.value) || 3)) })}
+            className={inputClass}
+          />
+        </div>
+        <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxRipgrepCommand" value={sandbox.ripgrep?.command ?? 'rg'} onChange={(v) => update({ ripgrep: { command: v || 'rg', args: sandbox.ripgrep?.args ?? [] } })} />
+      </div>
+
+      {/* 风险分级（LOW / MEDIUM / HIGH 三层级，内置只读展示） */}
+      {permission && (
+        <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+          <div className={labelClass}>{t(lang, 'setupFieldSandboxRiskLevels')}</div>
+          <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskLevelsHint')}</div>
+
+          {/* HIGH 层级 */}
+          <div className="rounded border border-danger/30 bg-danger/5 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-danger bg-danger/10">HIGH</span>
+              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskHigh')}</span>
+            </div>
+            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskHighHint')}</div>
+            <StringListField lang={lang} labelKey="setupFieldSandboxRiskHighBash" value={permission.dangerous_bash_patterns} readOnly />
+            <StringListField lang={lang} labelKey="setupFieldSandboxRiskHighPowershell" value={permission.dangerous_powershell_patterns} readOnly />
+          </div>
+
+          {/* MEDIUM 层级 */}
+          <div className="rounded border border-warning/30 bg-warning/5 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-warning bg-warning/10">MEDIUM</span>
+              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskMedium')}</span>
+            </div>
+            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskMediumHint')}</div>
+            <StringListField lang={lang} labelKey="setupFieldSandboxRiskMediumTools" value={permission.medium_risk_tools} readOnly />
+          </div>
+
+          {/* LOW 层级 */}
+          <div className="rounded border border-success/30 bg-success/5 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-success bg-success/10">LOW</span>
+              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskLow')}</span>
+            </div>
+            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskLowHint')}</div>
+            <StringListField lang={lang} labelKey="setupFieldSandboxRiskLowCommands" value={permission.read_only_commands} readOnly />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 带提示的布尔开关行 */
+function BoolWithHint({ lang, labelKey, hintKey, checked, onChange }: { lang: UiLanguage; labelKey: string; hintKey: string; checked: boolean; onChange: (v: boolean) => void; }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-content-secondary">{t(lang, labelKey)}</span>
+        <button
+          onClick={() => onChange(!checked)}
+          className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${checked ? 'bg-primary' : 'bg-surface-hover'}`}
+        >
+          <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: checked ? '18px' : '2px' }} />
+        </button>
+      </div>
+      <div className="text-[11px] text-content-disabled mt-1">{t(lang, hintKey)}</div>
+    </div>
+  );
+}
+
+/** 带提示的文本输入行 */
+function TextFieldWithHint({ lang, labelKey, hintKey, value, onChange }: { lang: UiLanguage; labelKey: string; hintKey?: string; value: string; onChange: (v: string) => void; }) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, labelKey)}</div>
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} />
+      {hintKey && <div className="text-[11px] text-content-disabled mt-1">{t(lang, hintKey)}</div>}
+    </div>
+  );
+}
+
+/** 字符串列表编辑（多行文本，每行一个元素；readOnly 时只读展示） */
+function StringListField({ lang, labelKey, hintKey, value, onChange, readOnly }: { lang: UiLanguage; labelKey: string; hintKey?: string; value: string[]; onChange?: (v: string[]) => void; readOnly?: boolean; }) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, labelKey)}</div>
+      <textarea
+        rows={3}
+        value={value.join('\n')}
+        readOnly={readOnly}
+        onChange={(e) => onChange?.(e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
+        className={`${inputClass} font-mono text-xs resize-y ${readOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+      />
+      {hintKey && <div className="text-[11px] text-content-disabled mt-1">{t(lang, hintKey)}</div>}
     </div>
   );
 }
