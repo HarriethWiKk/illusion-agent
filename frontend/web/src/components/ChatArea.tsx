@@ -386,6 +386,15 @@ export default function ChatArea({
   // tool_use_id → tool_input 映射（增量缓存：追加期间 Map 引用稳定）
   const toolInputMap = useStableToolInputMap(staticItems);
 
+  // 最后一条静态消息是否为已完成的 assistant 回复。
+  // assistant_complete 已将最终回复推入 staticItems，但 busy 需等 line_complete
+  // 才置 false；此窗口内 buffers 已清空、无待处理工具，"思考中"指标会误触发。
+  // 用该标志抑制，保证最终回复结束后不再闪现"思考中"。
+  const lastReplyDone = useMemo(() => {
+    if (staticItems.length === 0) return false;
+    return staticItems[staticItems.length - 1]!.role === 'assistant';
+  }, [staticItems]);
+
   // onRegenerate / onRewindToTurn 经 ref 稳定包装：App 传入的 onRegenerate
   // 依赖 session 对象（每次 patchView 重建），直接透传会导致所有 TurnView
   // 的 memo 失效；经 ref 转发后回调引用恒定，始终调用最新实现。
@@ -560,7 +569,7 @@ export default function ChatArea({
             ))}
           </div>
         )}
-        {busy && !assistantBuffer && !streamingReasoning && pendingToolCalls.length === 0 && (
+        {busy && !assistantBuffer && !streamingReasoning && pendingToolCalls.length === 0 && !lastReplyDone && (
           <div className={turns.length > 0 ? 'mt-4' : ''}>
             <ThinkingIndicator lang={lang} />
           </div>
