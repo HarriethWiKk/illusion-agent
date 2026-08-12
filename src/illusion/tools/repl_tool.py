@@ -20,6 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from illusion.permissions.modes import PermissionMode
 from illusion.sandbox import SandboxUnavailableError
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.utils.shell import create_shell_subprocess
@@ -52,11 +53,17 @@ class ReplTool(BaseTool[ReplToolInput]):
     async def execute(self, arguments: ReplToolInput, context: ToolExecutionContext) -> ToolResult:
         # 解析工作目录
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
+        # YOLO 模式：绕过沙箱完全运行（与 bash/powershell 一致）
+        disable_sandbox = False
+        checker = (context.metadata or {}).get("permission_checker")
+        if checker is not None and getattr(checker, "current_mode", None) == PermissionMode.YOLO:
+            disable_sandbox = True
         try:
             # 创建 shell 子进程
             process = await create_shell_subprocess(
                 arguments.command,
                 cwd=cwd,
+                disable_sandbox=disable_sandbox,
                 stdin=asyncio.subprocess.DEVNULL,  # 防止 Windows 上的句柄继承死锁
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

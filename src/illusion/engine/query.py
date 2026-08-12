@@ -70,8 +70,9 @@ from illusion.services.compact.token_utils import estimate_conversation_tokens
 from illusion.tools.base import ToolExecutionContext, ToolRegistry
 from illusion.utils.file_state_cache import FileStateCache
 
-# 权限提示回调类型：工具名称 -> 是否允许
-PermissionPrompt = Callable[[str, str], Awaitable[bool]]
+# 权限提示回调类型：(工具名称, 原因, 是否高危) -> 是否允许
+# high_risk 表示高危操作（如 rm / git reset --hard），前端据此只提供两选项（允许一次 / 拒绝）
+PermissionPrompt = Callable[[str, str, bool], Awaitable[bool]]
 # 用户询问回调类型：(问题, 结构化选项数据) -> 回答
 # questions 是 list[dict] 结构，含 question/header/options/multiSelect/noCustomInput
 AskUserPrompt = Callable[[str, object], Awaitable[str]]
@@ -437,6 +438,11 @@ class QueryContext:
     permission_prompt: PermissionPrompt | None = None
     ask_user_prompt: AskUserPrompt | None = None
     plan_approval_prompt: PlanApprovalPrompt | None = None
+    # 是否为 print 模式（非交互多轮退出）
+    print_mode: bool = False
+    # print 模式沙箱权限两选项（允许/拒绝）跨轮次确认回调。仅 print 模式使用，
+    # 与通用 permission_prompt（print 模式 Y/N 两选项，交互模式三选项）区分。
+    sandbox_permission_prompt: PermissionPrompt | None = None
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
@@ -1006,12 +1012,14 @@ async def _execute_tool_call(
     # 在权限检查前规范化通用工具输入，以便路径规则一致地应用于使用 `file_path` 或 `path` 的内置工具
     _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
     _command = _extract_permission_command(tool_input, parsed_input)
+    _disable_sandbox = _extract_permission_disable_sandbox(tool_input, parsed_input)
     # 评估权限
     decision = context.permission_checker.evaluate(
         tool_name,
         is_read_only=tool.is_read_only(parsed_input),
         file_path=_file_path,
         command=_command,
+        disable_sandbox=_disable_sandbox,
     )
     if not decision.allowed:
         # 系统自动阻止（如计划模式）：返回错误结果给模型，不终止查询循环
@@ -1021,67 +1029,99 @@ async def _execute_tool_call(
                 content=f"[Permission blocked] {decision.reason or f'{tool_name} is not allowed in current mode'}",
                 is_error=True,
             ), hook_additional_contexts, {}
-        # 沙箱限制阻止：向用户询问三选项确认
-        if decision.sandbox_blocked and context.ask_user_prompt is not None:
-            from illusion.config.i18n import _is_zh
-            from illusion.config.settings import load_settings as _load_settings
-            _locale = _load_settings().ui_language or "en"
-            _is_cn = _is_zh(_locale)
-
+        # 沙箱限制阻止：向用户请求确认
+        if decision.sandbox_blocked:
             denied_path = decision.sandbox_denied_path or "unknown"
-            if _is_cn:
-                question_text = (
-                    f"沙箱限制：「{denied_path}」被沙箱配置阻止。\n"
-                    f"工具：{tool_name}\n"
-                    f"是否允许此操作？"
+            # print 模式：两选项（允许/拒绝），复用 sandbox_permission_prompt 的
+            # 多轮 pending-sandbox 机制（save_pending_sandbox → 退出码 2 →
+            # 下次 -c -p 恢复）。与通用 permission_prompt（print 模式 Y/N，交互模式三选项）区分。
+            if context.print_mode and context.sandbox_permission_prompt is not None:
+                confirmed = await context.sandbox_permission_prompt(
+                    tool_name,
+                    f"Sandbox restriction: {denied_path} - {decision.reason or ''}",
                 )
-                questions_data = [
-                    {
-                        "question": f"允许访问「{denied_path}」？",
-                        "header": "沙箱",
-                        "options": [
+                if not confirmed:
+                    raise PermissionDenied(tool_name, f"Sandbox denied: {denied_path}")
+            # 交互模式：三选项（一次允许 / 会话级允许 / 拒绝）
+            elif context.ask_user_prompt is not None:
+                from illusion.config.i18n import _is_zh
+                from illusion.config.settings import load_settings as _load_settings
+                _locale = _load_settings().ui_language or "en"
+                _is_cn = _is_zh(_locale)
+                _high = "高危操作" if decision.high_risk else "常规操作"
+                _high_en = "HIGH-RISK operation" if decision.high_risk else "normal operation"
+                if _is_cn:
+                    question_text = (
+                        f"沙箱限制：「{denied_path}」被沙箱配置阻止。\n"
+                        f"工具：{tool_name}\n"
+                        f"风险：{_high}\n"
+                        f"是否允许此操作？"
+                    )
+                    # 高危操作不可被会话级豁免，仅提供两选项（允许一次 / 拒绝）
+                    _options = [
+                        {"label": "允许", "description": "允许本次操作"},
+                        {"label": "当前会话允许", "description": "允许此路径在当前会话中访问（重启后失效）"},
+                        {"label": "拒绝", "description": "阻止此操作"},
+                    ]
+                    if decision.high_risk:
+                        _options = [
                             {"label": "允许", "description": "允许本次操作"},
-                            {"label": "当前会话允许", "description": "允许此路径在当前会话中访问（重启后失效）"},
                             {"label": "拒绝", "description": "阻止此操作"},
-                        ],
-                        "multiSelect": False,
-                        "noCustomInput": True,
-                    }
-                ]
-            else:
-                question_text = (
-                    f"Sandbox restriction: '{denied_path}' is blocked by sandbox configuration.\n"
-                    f"Tool: {tool_name}\n"
-                    f"Do you want to allow this operation?"
-                )
-                questions_data = [
-                    {
-                        "question": f"Allow access to '{denied_path}'?",
-                        "header": "Sandbox",
-                        "options": [
+                        ]
+                    questions_data = [
+                        {
+                            "question": f"允许访问「{denied_path}」？",
+                            "header": "沙箱",
+                            "options": _options,
+                            "multiSelect": False,
+                            "noCustomInput": True,
+                        }
+                    ]
+                else:
+                    question_text = (
+                        f"Sandbox restriction: '{denied_path}' is blocked by sandbox configuration.\n"
+                        f"Tool: {tool_name}\n"
+                        f"Risk: {_high_en}\n"
+                        f"Do you want to allow this operation?"
+                    )
+                    # HIGH-RISK operations cannot be exempted for the session; only two options (allow once / deny)
+                    _options = [
+                        {"label": "Allow", "description": "Allow this single operation"},
+                        {"label": "Allow for session", "description": "Allow this path for the current session (not persistent)"},
+                        {"label": "Deny", "description": "Block this operation"},
+                    ]
+                    if decision.high_risk:
+                        _options = [
                             {"label": "Allow", "description": "Allow this single operation"},
-                            {"label": "Allow for session", "description": "Allow this path for the current session (not persistent)"},
                             {"label": "Deny", "description": "Block this operation"},
-                        ],
-                        "multiSelect": False,
-                        "noCustomInput": True,
-                    }
-                ]
-            answer = await context.ask_user_prompt(question_text, questions_data)
-            # 解析用户选择
-            answer_str = str(answer).strip() if answer else ""
-            if "Allow for session" in answer_str or "当前会话允许" in answer_str:
-                # 会话级允许
-                context.permission_checker.allow_sandbox_path_for_session(denied_path)
-            elif "Allow" in answer_str or "允许" in answer_str:
-                # 单次允许（不做任何持久化）
-                pass
+                        ]
+                    questions_data = [
+                        {
+                            "question": f"Allow access to '{denied_path}'?",
+                            "header": "Sandbox",
+                            "options": _options,
+                            "multiSelect": False,
+                            "noCustomInput": True,
+                        }
+                    ]
+                answer = await context.ask_user_prompt(question_text, questions_data)
+                # 解析用户选择
+                answer_str = str(answer).strip() if answer else ""
+                # 高危操作不可被会话级豁免：即使选中"当前会话允许"也不放行该路径
+                if (not decision.high_risk) and ("Allow for session" in answer_str or "当前会话允许" in answer_str):
+                    # 会话级允许
+                    context.permission_checker.allow_sandbox_path_for_session(denied_path)
+                elif "Allow" in answer_str or "允许" in answer_str:
+                    # 单次允许（不做任何持久化）
+                    pass
+                else:
+                    # 拒绝
+                    raise PermissionDenied(tool_name, f"Sandbox denied: {denied_path}")
             else:
-                # 拒绝
-                raise PermissionDenied(tool_name, f"Sandbox denied: {denied_path}")
+                raise PermissionDenied(tool_name, decision.reason or f"Sandbox denied: {denied_path}")
         # 需要用户确认
         elif decision.requires_confirmation and context.permission_prompt is not None:
-            confirmed = await context.permission_prompt(tool_name, decision.reason)
+            confirmed = await context.permission_prompt(tool_name, decision.reason, decision.high_risk)
             if not confirmed:
                 raise PermissionDenied(tool_name, f"Permission denied for {tool_name}")
         else:
@@ -1201,6 +1241,30 @@ def _extract_permission_command(
         return value
 
     return None
+
+
+def _extract_permission_disable_sandbox(
+    raw_input: dict[str, object],
+    parsed_input: object,
+) -> bool:
+    """提取权限检查所需的 dangerouslyDisableSandbox 标记。
+
+    用于判断本次调用是否请求解除沙箱。此标记是独立的安全边界：
+    即使权限模式自动放行，解除沙箱的命令也应请求用户确认
+    （对齐 Claude Code 文档意图）。
+
+    Args:
+        raw_input: 原始工具输入
+        parsed_input: 解析后的工具输入
+
+    Returns:
+        bool: 是否请求解除沙箱
+    """
+    value = raw_input.get("dangerouslyDisableSandbox")
+    if isinstance(value, bool) and value:
+        return True
+    value = getattr(parsed_input, "dangerouslyDisableSandbox", None)
+    return bool(isinstance(value, bool) and value)
 
 
 def _wrap_in_system_reminder(content: str) -> str:

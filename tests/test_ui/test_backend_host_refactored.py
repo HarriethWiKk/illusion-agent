@@ -42,7 +42,7 @@ def _make_host(**fields: Any) -> ReactBackendHost:
         "_request_queue": asyncio.Queue(),
         "_permission_requests": {},
         "_question_requests": {},
-        "_always_allowed_tools": set(),
+        "_session_allowed_tools": set(),
         "_busy": False,
         "_running": True,
         "_active_line_task": None,
@@ -291,13 +291,11 @@ async def test_resolve_permission_emits_modal_close_event():
 
 
 @pytest.mark.asyncio
-async def test_resolve_permission_persists_always_allow_to_file(tmp_path, monkeypatch):
-    """_resolve_permission 收到 always_allow=True 时应持久化到 .illusion/permissions.json。
+async def test_resolve_permission_session_allow_adds_to_session_set(tmp_path, monkeypatch):
+    """_resolve_permission 收到 session_allow=True 时应加入本会话集合但不持久化。
 
-    Bug 回归测试：原版 _resolve_permission 只处理 set_result 和 modal 关闭，
-    完全忽略 always_allow 字段。导致用户点击"总是允许"后，下次调用同一工具
-    仍要重新确认。always_allow 持久化逻辑只在 _process_request 的死代码中存在。
-    修复后 _resolve_permission 直接处理 always_allow。
+    对齐 kimi-cli 的 approve_for_session 语义：会话级允许仅存于内存，
+    重启后失效，不写入 .illusion/permissions.json。
     """
     monkeypatch.chdir(tmp_path)
     host = _make_host()
@@ -309,12 +307,12 @@ async def test_resolve_permission_persists_always_allow_to_file(tmp_path, monkey
     future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
     host._permission_requests["req-always"] = future
 
-    # 发送 always_allow=True 的权限响应
+    # 发送 session_allow=True 的权限响应
     req = FrontendRequest(
         type="permission_response",
         request_id="req-always",
         allowed=True,
-        always_allow=True,
+        session_allow=True,
         tool_name="Bash",
     )
     host._resolve_permission(req)
@@ -322,19 +320,16 @@ async def test_resolve_permission_persists_always_allow_to_file(tmp_path, monkey
     # future 应被 resolve 为 True
     assert future.done()
     assert future.result() is True
-    # 内存集合应包含 Bash
-    assert "Bash" in host._always_allowed_tools
-    # 文件应已持久化
+    # 本会话内存集合应包含 Bash
+    assert "Bash" in host._session_allowed_tools
+    # 不应持久化到 permissions.json（会话级允许不写盘）
     perm_file = tmp_path / ".illusion" / "permissions.json"
-    assert perm_file.exists(), "permissions.json 应被创建"
-    import json as _json
-    payload = _json.loads(perm_file.read_text(encoding="utf-8"))
-    assert "Bash" in payload.get("always_allow_tools", [])
+    assert not perm_file.exists(), "会话级允许不应写入 permissions.json"
 
 
 @pytest.mark.asyncio
-async def test_resolve_permission_skips_persist_when_always_allow_false(tmp_path, monkeypatch):
-    """_resolve_permission 收到 always_allow=False 时不应写文件。"""
+async def test_resolve_permission_skips_session_allow_when_false(tmp_path, monkeypatch):
+    """_resolve_permission 收到 session_allow=False 时不应加入会话集合。"""
     monkeypatch.chdir(tmp_path)
     host = _make_host()
     bundle = MagicMock()
@@ -348,7 +343,7 @@ async def test_resolve_permission_skips_persist_when_always_allow_false(tmp_path
         type="permission_response",
         request_id="req-normal",
         allowed=True,
-        always_allow=False,  # 不勾选总是允许
+        session_allow=False,  # 不勾选会话级允许
         tool_name="Bash",
     )
     host._resolve_permission(req)
@@ -357,8 +352,8 @@ async def test_resolve_permission_skips_persist_when_always_allow_false(tmp_path
     # 不应写入文件
     perm_file = tmp_path / ".illusion" / "permissions.json"
     assert not perm_file.exists()
-    # 内存集合也不应包含
-    assert "Bash" not in host._always_allowed_tools
+    # 本会话集合也不应包含
+    assert "Bash" not in host._session_allowed_tools
 
 
 @pytest.mark.asyncio

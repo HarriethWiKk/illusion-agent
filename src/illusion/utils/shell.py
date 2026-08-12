@@ -175,12 +175,67 @@ async def create_shell_subprocess(
     resolved_settings = settings or load_settings()
     argv = resolve_shell_command(command)
 
+    return await create_argv_subprocess(
+        argv,
+        cwd=cwd,
+        settings=resolved_settings,
+        command=command,
+        disable_sandbox=disable_sandbox,
+        stdin=stdin,
+        stdout=stdout,
+        stderr=stderr,
+        env=env,
+        new_process_group=new_process_group,
+    )
+
+
+async def create_argv_subprocess(
+    argv: list[str],
+    *,
+    cwd: str | Path,
+    settings: Settings | None = None,
+    command: str | None = None,
+    disable_sandbox: bool = False,
+    stdin: int | None = None,
+    stdout: int | None = None,
+    stderr: int | None = None,
+    env: Mapping[str, str] | None = None,
+    new_process_group: bool = False,
+) -> asyncio.subprocess.Process:
+    """
+    基于显式 argv 创建带沙箱支持的子进程
+
+    与 create_shell_subprocess 的区别：接收已解析的 argv（首元素为可执行文件
+    路径），而非原始命令字符串。供 PowerShell 等需显式指定解释器参数的工具使用，
+    保证与 bash 一致的沙箱覆盖与 YOLO 模式行为。
+
+    Args:
+        argv: 已解析的可执行文件 argv（首元素为可执行文件路径）
+        cwd: 工作目录
+        settings: 配置对象，默认自动加载
+        command: 原始命令字符串（用于沙箱排除命令匹配；缺省时回退到 argv[0]）
+        disable_sandbox: 是否绕过沙箱包装
+        stdin: 标准输入文件描述符
+        stdout: 标准输出文件描述符
+        stderr: 标准错误文件描述符
+        env: 环境变量映射
+        new_process_group: 是否创建独立进程组
+
+    Returns:
+        asyncio.subprocess.Process: 异步子进程对象
+    """
+    resolved_settings = settings or load_settings()
+    # 沙箱排除命令匹配应基于原始命令字符串（如 PowerShell 的 -Command 参数），
+    # 而非可执行文件路径；缺省时回退到 argv[0]。
+    exclusion_command = command or argv[0]
+
     # 使用沙箱包装命令（如果配置启用且未显式禁用）
     sandbox_manager = None
     if not disable_sandbox:
         from illusion.sandbox import SandboxManager
+
         sandbox_manager = SandboxManager()
-        if sandbox_manager.should_use_sandbox(command, settings=resolved_settings):
+        if sandbox_manager.should_use_sandbox(exclusion_command, settings=resolved_settings):
             argv = sandbox_manager.wrap_command(argv, shell=argv[0])
 
     try:

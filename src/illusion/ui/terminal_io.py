@@ -73,7 +73,7 @@ def format_question_options(questions: object) -> str:
     return "\n".join(lines)
 
 
-async def terminal_permission(tool_name: str, reason: str) -> bool:
+async def terminal_permission(tool_name: str, reason: str, high_risk: bool = False) -> bool:
     """终端权限确认回调（仅用于 TUI 后端）
 
     在终端显示 Y/N 提示，用户输入 Y=允许，其他=拒绝。
@@ -85,6 +85,7 @@ async def terminal_permission(tool_name: str, reason: str) -> bool:
     Args:
         tool_name: 工具名称
         reason: 权限请求原因
+        high_risk: 是否高危操作（print/TUI 场景忽略，仅 Y/N 两选项）
 
     Returns:
         bool: True=允许，False=拒绝
@@ -279,9 +280,8 @@ def make_print_mode_permission(
     """print 模式跨轮次权限确认回调工厂
 
     检查顺序：
-    1. always_allow_tools（永久允许，复用现有 .illusion/permissions.json）
-    2. pending-permission 文件 approved=true（Y 一次性允许，用完即删）
-    3. 未命中：持久化请求 + 设置 state flag + 返回 False
+    1. pending-permission 文件 approved=true（Y 一次性允许，用完即删）
+    2. 未命中：持久化请求 + 设置 state flag + 返回 False
 
     Args:
         cwd: 工作目录路径
@@ -296,25 +296,71 @@ def make_print_mode_permission(
         load_pending_permission,
         save_pending_permission,
     )
-    from illusion.ui.permission_store import load_always_allowed_tools
-    always_allowed = load_always_allowed_tools(cwd)
 
-    async def _prompt(tool_name: str, reason: str) -> bool:
-        # 1. 永久允许
-        if tool_name in always_allowed:
-            return True
-        # 2. 一次性允许（pending 文件 approved=true）
+    async def _prompt(tool_name: str, reason: str, high_risk: bool = False) -> bool:
+        # 1. 一次性允许（pending 文件 approved=true）
         if session_id:
             pending = load_pending_permission(cwd, session_id)
             if pending and pending.get("tool_name") == tool_name and pending.get("approved"):
                 delete_pending_permission(cwd, session_id)  # 一次性，用完即删
                 return True
-            # 3. 未命中：持久化请求
+            # 2. 未命中：持久化请求
             save_pending_permission(
                 cwd=cwd, session_id=session_id, tool_name=tool_name, reason=reason
             )
         state["pending_permission_tool"] = tool_name
         state["pending_permission_raised"] = True
+        return False
+
+    return _prompt
+
+
+def make_print_mode_sandbox_permission(
+    *,
+    cwd: str,
+    session_id: str | None,
+    state: dict[str, Any],
+) -> Any:
+    """print 模式沙箱权限两选项（允许/拒绝）跨轮次确认回调工厂
+
+    与通用 `make_print_mode_permission`（Y/N 两选项）不同，print 模式的沙箱
+    权限确认仅提供两选项（允许/拒绝），使用独立的 pending-sandbox 文件实现
+    跨轮次退出：
+
+    1. 首次拦截：持久化 pending-sandbox 文件，设置 state flag，返回 False
+    2. 用户 `-c -p "Y"`（允许）：app.py 置 approved=true，回调放行并删除
+    3. 用户 `-c -p "N"`（拒绝）：app.py 删除 pending，回调返回 False
+
+    沙箱拒绝为一次性放行，不提供"永久允许"（始终允许）选项，避免把"已放行
+    某次访问"误用作后续所有相同路径操作的通行证。
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID（None 时不持久化）
+        state: print 模式状态字典（设置 pending_sandbox_raised flag）
+
+    Returns:
+        沙箱权限回调函数 (tool_name, reason) -> bool
+    """
+    from illusion.services.session_storage import (
+        delete_pending_sandbox,
+        load_pending_sandbox,
+        save_pending_sandbox,
+    )
+
+    async def _prompt(tool_name: str, reason: str, high_risk: bool = False) -> bool:
+        # 一次性允许（pending-sandbox 文件 approved=true，用完即删）
+        if session_id:
+            pending = load_pending_sandbox(cwd, session_id)
+            if pending and pending.get("tool_name") == tool_name and pending.get("approved"):
+                delete_pending_sandbox(cwd, session_id)
+                return True
+            # 未命中：持久化请求
+            save_pending_sandbox(
+                cwd=cwd, session_id=session_id, tool_name=tool_name, reason=reason
+            )
+        state["pending_sandbox_tool"] = tool_name
+        state["pending_sandbox_raised"] = True
         return False
 
     return _prompt

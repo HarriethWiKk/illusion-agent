@@ -290,7 +290,7 @@ async def test_make_print_mode_permission_persists_and_returns_false(tmp_path, m
 
     callback = make_print_mode_permission(cwd=cwd, session_id=session_id, state=state)
 
-    # 未在 always_allowed 中的工具
+    # 未获允许的工具（print 模式无永久允许，直接请求确认）
     result = await callback("write_file", "Mutating tools require confirmation")
     assert result is False
     assert state.get("pending_permission_raised") is True

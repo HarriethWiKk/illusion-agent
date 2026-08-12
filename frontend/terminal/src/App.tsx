@@ -84,11 +84,11 @@ type SelectModalState = {
 
 /**
  * 权限确认提示选项列表
- * 当工具需要执行权限时显示的三个选项：允许、始终允许、拒绝
+ * 当工具需要执行权限时显示的三个选项：允许一次、本次会话允许、拒绝
  */
 const PERMISSION_PROMPT_OPTIONS: SelectOption[] = [
 	{value: 'allow', label: 'Allow', description: 'Approve this tool execution'},
-	{value: 'always', label: 'Always Allow', description: 'Always allow this tool without asking again'},
+	{value: 'session', label: 'Allow for session', description: 'Allow this tool for the current session only'},
 	{value: 'deny', label: 'Deny', description: 'Reject this tool execution'},
 ];
 
@@ -150,15 +150,19 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const contextPct = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 1000 / contextWindow) / 10) : 0;
 	const permissionRequestId =
 		isPermissionModal && typeof session.modal?.request_id === 'string' ? String(session.modal.request_id) : '';
-	const localizedPermissionOptions = PERMISSION_PROMPT_OPTIONS.map((opt) => {
-		if (opt.value === 'allow') {
-			return {...opt, label: t(language, 'allow')};
-		}
-		if (opt.value === 'always') {
-			return {...opt, label: t(language, 'alwaysAllow')};
-		}
-		return {...opt, label: t(language, 'deny')};
-	});
+	// 高危操作（如 rm / git reset --hard）只提供两选项（允许一次 / 拒绝），不可会话级豁免
+	const permissionHighRisk = isPermissionModal && session.modal?.high_risk === true;
+	const localizedPermissionOptions = PERMISSION_PROMPT_OPTIONS
+		.filter((opt) => !(permissionHighRisk && opt.value === 'session'))
+		.map((opt) => {
+			if (opt.value === 'allow') {
+				return {...opt, label: t(language, 'allow')};
+			}
+			if (opt.value === 'session') {
+				return {...opt, label: t(language, 'sessionAllow')};
+			}
+			return {...opt, label: t(language, 'deny')};
+		});
 
 	/**
 	 * 当前正在执行的工具名称
@@ -614,12 +618,12 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					return;
 				}
 				const selected = key.escape ? 'deny' : localizedPermissionOptions[permissionIndex]?.value;
-				const allowed = selected === 'allow' || selected === 'always';
+				const allowed = selected === 'allow' || selected === 'session';
 				session.sendRequest({
 					type: 'permission_response',
 					request_id: permissionRequestId,
 					allowed,
-					always_allow: selected === 'always',
+					session_allow: selected === 'session',
 					tool_name: String(session.modal?.tool_name ?? ''),
 				});
 				setPendingPermissionAck(true);

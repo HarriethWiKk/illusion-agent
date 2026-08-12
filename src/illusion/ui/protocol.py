@@ -52,7 +52,7 @@ class FrontendRequest(BaseModel):
         value: 命令值
         request_id: 请求 ID（web_query 用）
         allowed: 是否允许
-        always_allow: 是否总是允许
+        session_allow: 是否允许本会话内该工具（不持久化）
         tool_name: 工具名称
         answer: 用户答案
         session_id: 会话 ID（web_restore_session 用）
@@ -95,7 +95,7 @@ class FrontendRequest(BaseModel):
     value: str | None = None
     request_id: str | None = None
     allowed: bool | None = None
-    always_allow: bool | None = None
+    session_allow: bool | None = None
     tool_name: str | None = None
     answer: str | None = None
     feedback: str | None = None
@@ -454,9 +454,11 @@ _MODE_LABELS = {
     "default": "Default",
     "plan": "Plan Mode",
     "full_auto": "Auto",
+    "yolo": "YOLO",
     "PermissionMode.DEFAULT": "Default",
     "PermissionMode.PLAN": "Plan Mode",
     "PermissionMode.FULL_AUTO": "Auto",
+    "PermissionMode.YOLO": "YOLO",
 }
 
 

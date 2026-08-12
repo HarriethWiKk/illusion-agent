@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from illusion.permissions.modes import PermissionMode
 from illusion.platforms import get_platform
 from illusion.sandbox import SandboxUnavailableError
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
@@ -140,12 +141,10 @@ def _build_sandbox_config_text() -> str:
         availability = get_sandbox_availability(settings)
 
         if not availability.active:
-            if settings.sandbox.enabled:
-                return (
-                    f"Sandbox is enabled but not currently available: {availability.reason}\n"
-                    "All commands will run WITHOUT sandbox restrictions.\n"
-                )
-            return "Sandbox is disabled. All commands will run WITHOUT sandbox restrictions.\n"
+            return (
+                f"Sandbox is enabled but not currently available: {availability.reason}\n"
+                "Commands will run without OS-level sandbox isolation, but permission confirmation still applies.\n"
+            )
 
         config = build_sandbox_runtime_config(settings)
         fs = config.get("filesystem", {})
@@ -390,12 +389,19 @@ class BashTool(BaseTool[BashToolInput]):
 
         # 解析工作目录
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
+        # YOLO 模式：绕过沙箱完全运行。即使未显式声明 dangerouslyDisableSandbox，
+        # 也强制以无沙箱方式执行（权限检查器在 YOLO 模式下已放行，此处关闭 OS 级沙箱）。
+        disable_sandbox = arguments.dangerouslyDisableSandbox
+        if not disable_sandbox:
+            checker = (context.metadata or {}).get("permission_checker")
+            if checker is not None and getattr(checker, "current_mode", None) == PermissionMode.YOLO:
+                disable_sandbox = True
         try:
             # 创建 shell 子进程
             process = await create_shell_subprocess(
                 arguments.command,
                 cwd=cwd,
-                disable_sandbox=arguments.dangerouslyDisableSandbox,
+                disable_sandbox=disable_sandbox,
                 stdin=asyncio.subprocess.DEVNULL,  # 防止 Windows 上的句柄继承死锁
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

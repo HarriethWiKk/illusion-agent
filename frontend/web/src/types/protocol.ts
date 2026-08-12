@@ -232,7 +232,7 @@ export interface RuleSnapshot {
 export type FrontendRequest =
   | { type: 'submit_line'; line: string; treat_as_text?: boolean; session_id?: string }
   | { type: 'stop'; session_id?: string }
-  | { type: 'permission_response'; request_id: string; allowed: boolean; always_allow?: boolean; tool_name?: string; session_id?: string }
+  | { type: 'permission_response'; request_id: string; allowed: boolean; session_allow?: boolean; tool_name?: string; session_id?: string }
   | { type: 'question_response'; request_id: string; answer: string; session_id?: string }
   | { type: 'list_sessions' }
   | { type: 'select_command'; command: string; session_id?: string }

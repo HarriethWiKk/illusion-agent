@@ -83,3 +83,24 @@ async def test_permission_mode_invalid_value_warns(tmp_path, monkeypatch, caplog
         assert bundle.engine._permission_checker.current_mode == PermissionMode.DEFAULT
     finally:
         await close_runtime(bundle)
+
+
+@pytest.mark.asyncio
+async def test_permission_mode_yolo(tmp_path, monkeypatch):
+    """--permission-mode yolo 应设置 YOLO 模式（绕过沙箱）。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    from illusion.permissions.modes import PermissionMode
+    from illusion.ui.runtime import build_runtime, close_runtime
+
+    bundle = await build_runtime(
+        api_client=StaticApiClient(),
+        permission_mode="yolo",
+    )
+    try:
+        assert bundle.app_state.get().permission_mode == PermissionMode.YOLO.value
+        assert bundle.engine._permission_checker.current_mode == PermissionMode.YOLO
+    finally:
+        await close_runtime(bundle)

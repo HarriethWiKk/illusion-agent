@@ -62,7 +62,6 @@ from illusion.services.agent_creator import (
 from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import TaskRecord, get_task_manager
 from illusion.tasks.types import is_task_notification
-from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
     BackendEvent,
     FrontendRequest,
@@ -157,7 +156,7 @@ class ReactBackendHost:
         _request_queue: 请求队列
         _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
-        _always_allowed_tools: "总是允许"的工具集合
+        _session_allowed_tools: 本会话内允许的工具集合（不持久化）
         _busy: 当前是否正在处理请求
         _running: 是否正在运行
         _active_line_task: 当前活动的行处理任务
@@ -173,7 +172,7 @@ class ReactBackendHost:
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}      # 用户问答
-        self._always_allowed_tools: set[str] = set()                # 总是允许的工具
+        self._session_allowed_tools: set[str] = set()          # 本会话内允许的工具（不持久化）
         self._busy = False            # 忙碌状态
         self._running = True           # 运行状态
         self._active_line_task: asyncio.Task[bool] | None = None    # 当前任务
@@ -234,8 +233,6 @@ class ReactBackendHost:
             await start_runtime(self._bundle)
             # 首次进入主动 sync，避免 context_window 为 0
             sync_app_state(self._bundle)
-            # 加载总是允许的工具列表
-            self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
 
             # 包装 on_task_complete：后台任务完成后发送 tasks_snapshot，
             # 确保前端 statusBar 的 task 计数及时更新（后台任务不触发 ToolExecutionCompleted）
@@ -436,7 +433,7 @@ class ReactBackendHost:
             return
         # 注意：permission_response 由 _dispatch_stdin_line → _resolve_permission
         # 即时处理，不会入队 _request_queue，因此不会进入此方法。
-        # always_allow 持久化逻辑在 _resolve_permission 中实现。
+        # 会话级允许逻辑在 _resolve_permission 中实现。
         # 用户问答响应
         if req.type == "question_response":
             if req.request_id in self._question_requests:
@@ -595,8 +592,8 @@ class ReactBackendHost:
         原 _handle_request 路径不会被执行（请求在此即时处理），所以必须在此处补发事件，
         否则前端模态框永远不消失。
 
-        若 req.always_allow 为真，将工具名持久化到 .illusion/permissions.json，
-        下次调用同一工具时直接放行，不再弹模态框。
+        若 req.session_allow 为真，将工具名加入会话级允许集合（不持久化），
+        本会话内下次调用同一工具时直接放行，不再弹模态框。
         """
         request_id = req.request_id
         if request_id is None:
@@ -605,17 +602,9 @@ class ReactBackendHost:
         future = self._permission_requests.pop(request_id, None)
         if future is not None and not future.done():
             future.set_result(allowed)
-        # 持久化"总是允许"工具到 permissions.json
-        if req.always_allow and req.tool_name:
-            self._always_allowed_tools.add(req.tool_name)
-            if self._bundle is not None:
-                try:
-                    self._always_allowed_tools = add_always_allowed_tool(
-                        self._bundle.cwd,
-                        req.tool_name,
-                    )
-                except Exception:
-                    log.exception("保存 always_allow 工具失败: %s", req.tool_name)
+        # 会话级允许：加入本会话工具集合（不持久化，重启后清除）
+        if req.session_allow and req.tool_name:
+            self._session_allowed_tools.add(req.tool_name)
         # 通知前端关闭模态框（put_nowait 非阻塞，无需 await）
         try:
             self._write_queue.put_nowait(BackendEvent(type="modal_request", modal=None))
@@ -788,7 +777,8 @@ class ReactBackendHost:
                 await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
                 await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
-                if event.tool_name in ("set_permission_mode", "plan_mode", "enter_plan_mode", "exit_plan_mode"):
+                # （仅 enter_plan_mode / exit_plan_mode 两个工具存在）
+                if event.tool_name in ("enter_plan_mode", "exit_plan_mode"):
                     assert self._bundle is not None
                     # 从设置中读取最新模式（app_state 可能尚未同步）
                     raw_mode = self._bundle.current_settings().permission.mode.value
@@ -1304,8 +1294,14 @@ class ReactBackendHost:
                 {
                     "value": "full_auto",
                     "label": "自动" if zh else "Auto",
-                    "description": "自动允许所有工具" if zh else "Allow all tools automatically",
+                    "description": "自动允许所有工具（仍受沙箱限制）" if zh else "Allow all tools automatically (still sandboxed)",
                     "active": settings.permission.mode.value == "full_auto",
+                },
+                {
+                    "value": "yolo",
+                    "label": "YOLO",
+                    "description": "绕过沙箱完全运行" if zh else "Bypass sandbox and run fully",
+                    "active": settings.permission.mode.value == "yolo",
                 },
                 {
                     "value": "plan",
@@ -1797,9 +1793,11 @@ class ReactBackendHost:
 
         return options
 
-    async def _ask_permission(self, tool_name: str, reason: str) -> bool:
-        # 如果工具在"总是允许"列表中，则直接允许
-        if tool_name in self._always_allowed_tools:
+    async def _ask_permission(self, tool_name: str, reason: str, high_risk: bool = False) -> bool:
+        # 如果工具在本会话内已获允许，则直接允许（不持久化）。
+        # 高危操作（high_risk）不可被会话级豁免：即使工具名已放行，仍须重新确认，
+        # 防止"本次会话允许"被用作高危命令（如 rm -rf）的通行证。
+        if not high_risk and tool_name in self._session_allowed_tools:
             return True
         # 串行化 modal 请求：前端 modal 是单例，并发请求会互相覆盖
         async with self._modal_lock:
@@ -1814,6 +1812,7 @@ class ReactBackendHost:
                         "request_id": request_id,
                         "tool_name": tool_name,
                         "reason": reason,
+                        "high_risk": high_risk,
                     },
                 )
             )

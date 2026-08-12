@@ -205,20 +205,36 @@ def _parse_permission_response(prompt: str) -> dict[str, Any]:
 
     支持的输入（不区分大小写）：
     - "y"/"yes"/"批准" → allow（一次性允许）
-    - "f"/"always"/"始终" → always_allow（永久允许）
     - 其他 → deny（拒绝）
 
     Args:
         prompt: 用户输入文本
 
     Returns:
-        dict: {"decision": "allow"|"always_allow"|"deny"}
+        dict: {"decision": "allow"|"deny"}
     """
     text = prompt.strip().lower()
     if text in ("y", "yes", "批准"):
         return {"decision": "allow"}
-    if text in ("f", "always", "始终"):
-        return {"decision": "always_allow"}
+    return {"decision": "deny"}
+
+
+def _parse_sandbox_response(prompt: str) -> dict[str, Any]:
+    """解析 print 模式沙箱权限审批输入（两选项：允许/拒绝）
+
+    与通用权限（Y/N 两选项）不同，沙箱权限仅支持：
+    - "y"/"yes"/"批准" → allow（一次允许）
+    - 其他 → deny（拒绝）
+
+    Args:
+        prompt: 用户输入文本
+
+    Returns:
+        dict: {"decision": "allow"|"deny"}
+    """
+    text = prompt.strip().lower()
+    if text in ("y", "yes", "批准"):
+        return {"decision": "allow"}
     return {"decision": "deny"}
 
 
@@ -235,15 +251,13 @@ def _inject_permission_to_tool_result(
     Args:
         messages: 消息历史列表
         tool_name: 被请求权限的工具名称
-        decision: 审批决策 ("allow"|"always_allow"|"deny")
+        decision: 审批决策 ("allow"|"deny")
 
     Returns:
         list: 修改后的消息历史
     """
     if decision == "allow":
         new_content = "Permission approved by user. Please retry the tool call."
-    elif decision == "always_allow":
-        new_content = "Permission approved (always) by user. Please retry the tool call."
     else:
         new_content = "Permission denied by user."
     target = f"Permission denied for {tool_name}"
@@ -384,20 +398,22 @@ async def run_print_mode(
         delete_pending_permission,
         delete_pending_plan_approval,
         delete_pending_question,
+        delete_pending_sandbox,
         load_pending_permission,
         load_pending_plan_approval,
         load_pending_question,
+        load_pending_sandbox,
         read_index,
         read_meta,
         session_dir_for,
     )
-    from illusion.ui.permission_store import add_always_allowed_tool
     from illusion.ui.terminal_io import (
         PENDING_ANSWER_MARKER,
         PENDING_PLAN_APPROVAL_MARKER,
         make_print_mode_ask_user,
         make_print_mode_permission,
         make_print_mode_plan_approval,
+        make_print_mode_sandbox_permission,
     )
 
     # 会话恢复
@@ -495,11 +511,6 @@ async def run_print_mode(
                 _perm_path = _pending_permission_path(effective_cwd, restore_session_id)
                 atomic_write_text(_perm_path, _json.dumps(_perm_payload, indent=2, ensure_ascii=False) + "\n")
                 print(_t("print_mode_permission_approved"), file=sys.stderr)
-            elif perm_decision["decision"] == "always_allow":
-                # F：添加到 always_allow_tools，删除 pending 文件
-                add_always_allowed_tool(effective_cwd, tool_name)
-                delete_pending_permission(effective_cwd, restore_session_id)
-                print(_t("print_mode_permission_always_approved"), file=sys.stderr)
             else:
                 # N：删除 pending 文件
                 delete_pending_permission(effective_cwd, restore_session_id)
@@ -510,6 +521,43 @@ async def run_print_mode(
                     restore_messages, tool_name, perm_decision["decision"]
                 )
             print(_t("print_mode_permission_resuming"), file=sys.stderr)
+
+    # 检测 pending sandbox（上次 print 模式退出时遗留的待审批沙箱权限）
+    # 沙箱权限为两选项（允许/拒绝），与通用权限（Y/N）区分。
+    if restore_session_id:
+        pending_sandbox = load_pending_sandbox(effective_cwd, restore_session_id)
+        if pending_sandbox:
+            sandbox_decision = _parse_sandbox_response(prompt)
+            sandbox_tool = pending_sandbox.get("tool_name", "")
+            if sandbox_decision["decision"] == "allow":
+                # Y：更新 pending-sandbox 文件 approved=true，回调读取后放行并删除
+                import json as _json
+
+                from illusion.services.session_storage import _pending_sandbox_path
+                from illusion.utils.atomic_write import atomic_write_text
+
+                _sb_payload = {
+                    "session_id": restore_session_id,
+                    "tool_name": sandbox_tool,
+                    "reason": pending_sandbox.get("reason", ""),
+                    "approved": True,
+                    "created_at": pending_sandbox.get("created_at", time.time()),
+                }
+                atomic_write_text(
+                    _pending_sandbox_path(effective_cwd, restore_session_id),
+                    _json.dumps(_sb_payload, indent=2, ensure_ascii=False) + "\n",
+                )
+                print(_t("print_mode_sandbox_approved"), file=sys.stderr)
+            else:
+                # N：删除 pending-sandbox 文件
+                delete_pending_sandbox(effective_cwd, restore_session_id)
+                print(_t("print_mode_sandbox_denied_resuming"), file=sys.stderr)
+            # 修改消息历史中的合成 tool_result
+            if restore_messages:
+                restore_messages = _inject_permission_to_tool_result(
+                    restore_messages, sandbox_tool, sandbox_decision["decision"]
+                )
+            print(_t("print_mode_sandbox_resuming"), file=sys.stderr)
 
     # 预生成 session_id（确保 make_print_mode_ask_user 和 build_runtime 一致）
     from uuid import uuid4
@@ -539,6 +587,12 @@ async def run_print_mode(
             session_id=effective_session_id,
             state=print_state,
         ),
+        sandbox_permission_prompt=make_print_mode_sandbox_permission(
+            cwd=effective_cwd,
+            session_id=effective_session_id,
+            state=print_state,
+        ),
+        print_mode=True,
         effort=effort,
         permission_mode=permission_mode,
         name=name,
@@ -707,6 +761,7 @@ async def run_print_mode(
             print_state.get("pending_question_raised")
             or print_state.get("pending_plan_approval_raised")
             or print_state.get("pending_permission_raised")
+            or print_state.get("pending_sandbox_raised")
         ):
             # 打印 pending 状态指引（含文件路径和审批命令）
             if print_state.get("pending_question_raised"):
@@ -717,6 +772,9 @@ async def run_print_mode(
             if print_state.get("pending_permission_raised"):
                 tool_name = print_state.get("pending_permission_tool", "")
                 print(_t("print_mode_pending_permission_exit", tool=tool_name), file=sys.stderr)
+            if print_state.get("pending_sandbox_raised"):
+                tool_name = print_state.get("pending_sandbox_tool", "")
+                print(_t("print_mode_pending_sandbox_exit", tool=tool_name), file=sys.stderr)
             raise SystemExit(2)
     finally:
         # 关闭运行时

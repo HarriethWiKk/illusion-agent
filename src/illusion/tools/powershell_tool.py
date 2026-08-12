@@ -19,15 +19,15 @@ import contextlib
 import logging
 import os
 import shutil
-import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from illusion.permissions.modes import PermissionMode
 from illusion.tools.base import BaseTool, ToolExecutionContext, ToolResult
 from illusion.tools.shell_common import MAX_OUTPUT_LENGTH, CommandExecutor
+from illusion.utils.shell import create_argv_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -333,22 +333,25 @@ class PowerShellTool(BaseTool[PowerShellToolInput]):
             # Windows PowerShell 5.1
             args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", arguments.command]
 
-        # 创建子进程
-        kwargs: dict[str, Any] = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            # 独立进程组，便于 taskkill /T 终止整个进程树
-            kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
-        process = await asyncio.create_subprocess_exec(
-            powershell,
-            *args,
+        # YOLO 模式：绕过沙箱完全运行。即使未显式禁用沙箱，也强制以无沙箱方式
+        # 执行（与 bash_tool 一致）。沙箱命中与否由 create_argv_subprocess 结合
+        # SandboxManager 判定，确保与 bash 相同的沙箱覆盖。
+        disable_sandbox = False
+        checker = (context.metadata or {}).get("permission_checker")
+        if checker is not None and getattr(checker, "current_mode", None) == PermissionMode.YOLO:
+            disable_sandbox = True
+
+        # 创建子进程（沙箱感知，与 bash 一致）
+        argv = [powershell, *args]
+        process = await create_argv_subprocess(
+            argv,
             cwd=str(cwd.resolve()),
+            command=arguments.command,
+            disable_sandbox=disable_sandbox,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            **kwargs,
+            new_process_group=True,
         )
 
         # 后台运行模式：注册到 BackgroundTaskManager，返回 task_id

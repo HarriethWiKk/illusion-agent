@@ -67,7 +67,6 @@ from illusion.services.agent_creator import (
 from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import get_task_manager
 from illusion.tasks.types import is_task_notification
-from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import (
     BackendEvent,
     FrontendRequest,
@@ -192,7 +191,7 @@ class WebBackendHost:
         _request_queue: 请求队列
         _permission_requests: 权限请求字典（request_id -> Future[Any]）
         _question_requests: 用户问答请求字典
-        _always_allowed_tools: "总是允许"的工具集合
+        _session_allowed_tools: 本会话内允许的工具集合（不持久化）
         _running: 是否正在运行
         _ws_closed: WebSocket 是否已关闭
         _periodic_task: 周期状态更新 Task
@@ -212,7 +211,7 @@ class WebBackendHost:
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}  # 权限请求
         self._question_requests: dict[str, asyncio.Future[str | dict[Any, Any]]] = {}  # 用户问答
-        self._always_allowed_tools: set[str] = set()  # 总是允许的工具
+        self._session_allowed_tools: set[str] = set()  # 本会话内允许的工具（不持久化）
         self._running = True  # 运行状态
         self._ws_closed = False  # WebSocket 是否已关闭
         self._periodic_task: asyncio.Task[None] | None = None  # 周期状态更新 Task
@@ -259,8 +258,6 @@ class WebBackendHost:
         await start_runtime(self._bundle)
         # 首次进入主动 sync，避免 context_window 为 0
         sync_app_state(self._bundle)
-        # 加载总是允许的工具列表
-        self._always_allowed_tools = load_always_allowed_tools(self._bundle.cwd)
         # 初始会话：共享 bundle 直接作为其会话级 bundle（引擎即初始引擎），
         # 后续新建/恢复的会话通过 build_session_engine 构建独立引擎
         initial_session = SessionRuntime(
@@ -423,14 +420,9 @@ class WebBackendHost:
                 self._permission_requests[request.request_id].set_result(
                     bool(request.allowed)
                 )
-            # 记住"总是允许"工具
-            if request.always_allow and request.tool_name:
-                self._always_allowed_tools.add(request.tool_name)
-                if self._bundle is not None:
-                    self._always_allowed_tools = add_always_allowed_tool(
-                        self._bundle.cwd,
-                        request.tool_name,
-                    )
+            # 会话级允许：加入本会话工具集合（不持久化）
+            if request.session_allow and request.tool_name:
+                self._session_allowed_tools.add(request.tool_name)
             await self._emit(BackendEvent(type="modal_request", modal=None))
             return True
         # 用户问答响应
@@ -557,13 +549,8 @@ class WebBackendHost:
             if request.type == "permission_response":
                 if request.request_id in self._permission_requests:
                     self._permission_requests[request.request_id].set_result(bool(request.allowed))
-                if request.always_allow and request.tool_name:
-                    self._always_allowed_tools.add(request.tool_name)
-                    if self._bundle is not None:
-                        self._always_allowed_tools = add_always_allowed_tool(
-                            self._bundle.cwd,
-                            request.tool_name,
-                        )
+                if request.session_allow and request.tool_name:
+                    self._session_allowed_tools.add(request.tool_name)
                 await self._emit(BackendEvent(type="modal_request", modal=None))
                 continue
             if request.type == "stop":
@@ -753,12 +740,8 @@ class WebBackendHost:
                 await self._emit(BackendEvent.tasks_snapshot(_manager.list_tasks()))
                 await self._emit(self._status_snapshot())
                 # 计划相关工具完成时发送 plan_mode_change 事件
-                if event.tool_name in (
-                    "set_permission_mode",
-                    "plan_mode",
-                    "enter_plan_mode",
-                    "exit_plan_mode",
-                ):
+                # （仅 enter_plan_mode / exit_plan_mode 两个工具存在）
+                if event.tool_name in ("enter_plan_mode", "exit_plan_mode"):
                     assert self._bundle is not None
                     raw_mode = self._bundle.current_settings().permission.mode.value
                     formatted_mode = format_permission_mode(raw_mode)
@@ -1791,8 +1774,8 @@ class WebBackendHost:
     def _make_permission_prompt(self, session_id: str) -> Any:
         """为指定会话构造权限确认回调（modal 事件携带会话 ID）。"""
 
-        async def _ask_permission(tool_name: str, reason: str) -> bool:
-            return await self._ask_permission(session_id, tool_name, reason)
+        async def _ask_permission(tool_name: str, reason: str, high_risk: bool = False) -> bool:
+            return await self._ask_permission(session_id, tool_name, reason, high_risk)
 
         return _ask_permission
 
@@ -1913,8 +1896,14 @@ class WebBackendHost:
                 {
                     "value": "full_auto",
                     "label": "自动" if zh else "Auto",
-                    "description": "自动允许所有工具" if zh else "Allow all tools automatically",
+                    "description": "自动允许所有工具（仍受沙箱限制）" if zh else "Allow all tools automatically (still sandboxed)",
                     "active": settings.permission.mode.value == "full_auto",
+                },
+                {
+                    "value": "yolo",
+                    "label": "YOLO",
+                    "description": "绕过沙箱完全运行" if zh else "Bypass sandbox and run fully",
+                    "active": settings.permission.mode.value == "yolo",
                 },
                 {
                     "value": "plan",
@@ -2555,22 +2544,28 @@ class WebBackendHost:
 
         return options
 
-    async def _ask_permission(self, session_id: str, tool_name: str, reason: str) -> bool:
+    async def _ask_permission(
+        self, session_id: str, tool_name: str, reason: str, high_risk: bool = False
+    ) -> bool:
         """请求用户权限确认。
 
-        如果工具在"总是允许"列表中，则直接允许。
+        如果工具在本会话内已获允许，则直接允许。
         否则通过 WebSocket 发送权限请求模态框，等待用户响应。
 
         Args:
             session_id: 发起请求的会话 ID（modal 事件携带，前端按会话展示）
             tool_name: 工具名称
             reason: 权限请求原因
+            high_risk: 是否为高危操作（如 rm / git reset --hard），
+                高危只提供两选项（允许一次 / 拒绝），不可会话级豁免
 
         Returns:
             bool: 用户是否允许
         """
-        # 如果工具在"总是允许"列表中，则直接允许
-        if tool_name in self._always_allowed_tools:
+        # 如果工具在本会话内已获允许，则直接允许（不持久化）。
+        # 高危操作（high_risk）不可被会话级豁免：即使工具名已放行，仍须重新确认，
+        # 防止"本次会话允许"被用作高危命令（如 rm -rf）的通行证。
+        if not high_risk and tool_name in self._session_allowed_tools:
             return True
         session = self._sessions.get(session_id)
         if session is not None:
@@ -2591,6 +2586,7 @@ class WebBackendHost:
                         "request_id": request_id,
                         "tool_name": tool_name,
                         "reason": reason,
+                        "high_risk": high_risk,
                     },
                 ),
                 session_id=session_id,

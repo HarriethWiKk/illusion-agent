@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 
@@ -11,7 +12,6 @@ from illusion.api.client import ApiMessageCompleteEvent
 from illusion.api.usage import UsageSnapshot
 from illusion.engine.messages import ConversationMessage, TextBlock, ThinkingBlock
 from illusion.ui.backend_host import BackendHostConfig, ReactBackendHost
-from illusion.ui.permission_store import add_always_allowed_tool, load_always_allowed_tools
 from illusion.ui.protocol import BackendEvent
 from illusion.ui.runtime import build_runtime, close_runtime, start_runtime
 
@@ -253,21 +253,59 @@ async def test_backend_host_phase_transitions_on_model_turn(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_backend_host_loads_workspace_always_allow_tools(tmp_path, monkeypatch):
+async def test_backend_host_session_allow_skips_modal(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
-    add_always_allowed_tool(tmp_path, "bash")
 
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
     host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
     await start_runtime(host._bundle)
     try:
-        host._always_allowed_tools = load_always_allowed_tools(host._bundle.cwd)
+        # 先加入会话级允许，再调用 _ask_permission 应直接放行，不弹模态框
+        host._session_allowed_tools.add("bash")
         allowed = await host._ask_permission("bash", "test")
     finally:
         await close_runtime(host._bundle)
     assert allowed is True
+
+
+@pytest.mark.asyncio
+async def test_backend_host_high_risk_not_exempted_by_session_allow(tmp_path, monkeypatch):
+    """高危操作（high_risk=True）不可被会话级允许豁免，仍须弹模态框确认。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ILLUSION_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events: list[object] = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        # 已会话级允许的工具，遇到高危操作仍须发请求卡确认
+        host._session_allowed_tools.add("bash")
+        # 直接调用会阻塞等待响应，改为在任务中执行
+        task = asyncio.create_task(host._ask_permission("bash", "rm -rf /", high_risk=True))
+        await asyncio.sleep(0)  # 让 _ask_permission 发出 modal_request
+        # 应已发出模态框请求（未被会话级豁免短路）
+        perm_events = [
+            e
+            for e in events
+            if getattr(e, "type", None) == "modal_request"
+            and getattr(e, "modal", {}).get("kind") == "permission"
+        ]
+        assert perm_events, "高危操作不应被会话级允许跳过确认"
+        # 兑现响应，避免任务悬挂
+        request_id = perm_events[0].modal["request_id"]
+        host._permission_requests[request_id].set_result(True)
+        assert await task is True
+    finally:
+        await close_runtime(host._bundle)
 
 
 @pytest.mark.asyncio
@@ -304,6 +342,7 @@ async def test_backend_resume_keeps_restored_session_id(tmp_path, monkeypatch):
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     import time as _time_mod
+
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
         get_project_session_dir,
@@ -345,6 +384,7 @@ async def test_backend_resume_replay_keeps_assistant_reasoning(tmp_path, monkeyp
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
 
     import time as _time_mod
+
     from illusion.services.checkpoint_store import CheckpointStore
     from illusion.services.session_storage import (
         get_project_session_dir,
@@ -410,7 +450,6 @@ async def test_backend_rewind_replay_keeps_reasoning_only_assistant(tmp_path, mo
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        from illusion.services.checkpoint_store import CheckpointStore
 
         turn1_user = ConversationMessage(role="user", content=[TextBlock(text="turn1")])
         turn1_asst = ConversationMessage(role="assistant", content=[ThinkingBlock(thinking="先检查上下文")])
@@ -456,6 +495,7 @@ async def test_resume_replay_has_no_session_restored_system_banner(tmp_path, mon
     await start_runtime(host._bundle)
     try:
         import time as _time_mod
+
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (
             get_project_session_dir,
@@ -505,6 +545,7 @@ async def test_resume_replay_skips_empty_user_transcript_rows(tmp_path, monkeypa
     await start_runtime(host._bundle)
     try:
         import time as _time_mod
+
         from illusion.engine.messages import ToolResultBlock
         from illusion.services.checkpoint_store import CheckpointStore
         from illusion.services.session_storage import (

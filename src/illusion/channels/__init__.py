@@ -836,7 +836,7 @@ class ChannelRunner:
 
     def _make_permission_prompt(self, chat_id: str) -> Any:
         """构造权限确认回调（渠道自动批准，不影响终端对话）"""
-        async def _prompt(tool: str, desc: str) -> bool:
+        async def _prompt(tool: str, desc: str, high_risk: bool = False) -> bool:
             return True  # 渠道消息自动批准所有工具权限
         return _prompt
 
