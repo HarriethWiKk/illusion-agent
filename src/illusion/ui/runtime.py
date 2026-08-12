@@ -176,6 +176,7 @@ def build_session_engine(
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
     plan_approval_prompt: PlanApprovalPrompt | None = None,
+    print_mode: bool = False,
 ) -> QueryEngine:
     """构建与共享运行时隔离的会话引擎（Web 多会话并发用）。
 
@@ -220,6 +221,7 @@ def build_session_engine(
         tool_metadata=tool_metadata,
         effort=bundle.engine.effort,
         session_id=session_id,
+        print_mode=print_mode,
     )
     # 将引擎自身与后台代理追踪器加入工具元数据（与 build_runtime 同构）
     engine._tool_metadata["query_engine"] = engine
@@ -374,6 +376,8 @@ async def build_runtime(
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
     plan_approval_prompt: PlanApprovalPrompt | None = None,
+    print_mode: bool = False,
+    sandbox_permission_prompt: PermissionPrompt | None = None,
     restore_messages: list[dict[str, Any]] | None = None,
     restore_session_id: str | None = None,
     effort: str | None = None,
@@ -581,7 +585,7 @@ async def build_runtime(
     )
     # 创建权限检查器并同步沙箱限制
     permission_checker = PermissionChecker(settings.permission)
-    permission_checker.sync_sandbox_restrictions(settings.sandbox)
+    permission_checker.sync_sandbox_restrictions(settings.sandbox, working_directory=cwd)
 
     # 创建查询引擎
     engine = QueryEngine(
@@ -612,6 +616,8 @@ async def build_runtime(
         },
         effort=EffortMapper.normalize(settings.effort),
         session_id=session_id,
+        print_mode=print_mode,
+        sandbox_permission_prompt=sandbox_permission_prompt,
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine

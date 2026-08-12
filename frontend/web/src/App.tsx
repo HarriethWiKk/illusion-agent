@@ -619,11 +619,11 @@ export default function App() {
    *
    * @param requestId - 请求 ID
    * @param allowed - 是否允许
-   * @param alwaysAllow - 是否总是允许
+   * @param sessionAllow - 是否允许本会话内（不持久化）
    * @param toolName - 工具名称
    */
-  const handlePermissionResponse = (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => {
-    session.sendRequest({ type: 'permission_response', request_id: requestId, allowed, always_allow: alwaysAllow, tool_name: toolName });
+  const handlePermissionResponse = (requestId: string, allowed: boolean, sessionAllow: boolean, toolName: string) => {
+    session.sendRequest({ type: 'permission_response', request_id: requestId, allowed, session_allow: sessionAllow, tool_name: toolName });
     session.clearModal();
   };
 

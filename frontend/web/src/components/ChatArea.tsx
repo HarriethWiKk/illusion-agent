@@ -328,7 +328,7 @@ interface ChatAreaProps {
   /** 模态对话框配置 */
   modal: Record<string, unknown> | null;
   /** 权限响应回调 */
-  onPermissionResponse: (requestId: string, allowed: boolean, alwaysAllow: boolean, toolName: string) => void;
+  onPermissionResponse: (requestId: string, allowed: boolean, sessionAllow: boolean, toolName: string) => void;
   /** 问答响应回调 */
   onQuestionResponse: (requestId: string, answer: string) => void;
   /** 正在恢复的会话 ID（可选，非空时显示居中加载卡片覆盖转录区） */

@@ -96,7 +96,7 @@ def main(
     permission_mode: str | None = typer.Option(
         None,
         "--permission-mode",
-        help="Permission mode: default, plan, or full_auto",
+        help="Permission mode: default, plan, full_auto, or yolo",
         rich_help_panel="Permissions",
     ),
     dangerously_skip_permissions: bool = typer.Option(

@@ -30,7 +30,7 @@ type WizardResult = { success: boolean; path?: string; errors?: Record<string, s
 /** effort 选项值列表 */
 const EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** permission_mode 选项值列表 */
-const PERMISSION_VALUES = ['default', 'plan', 'full_auto'];
+const PERMISSION_VALUES = ['default', 'plan', 'full_auto', 'yolo'];
 /** 'skip' 选项值（提交时跳过该字段） */
 const SKIP_VALUE = '__skip__';
 /** 'inherit' 选项值（继承默认） */

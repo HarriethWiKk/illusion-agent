@@ -56,6 +56,79 @@ export interface SettingsResponse {
     /** 自定义记忆目录（绝对路径或 ~/ 开头），未设置时为 null */
     directory: string | null;
   };
+  /** 沙箱配置（可删改） */
+  sandbox: SandboxSettings;
+  /** 权限模式（default / plan / full_auto / yolo） */
+  permission_mode?: string;
+  /** 权限风险分级配置（LOW/MEDIUM/HIGH 三层级） */
+  permission: PermissionRiskSettings;
+}
+
+/** 权限风险分级配置（明确区分 LOW/MEDIUM/HIGH 三层级） */
+export interface PermissionRiskSettings {
+  /** HIGH：高危 bash 命令正则（rm、git restore 等） */
+  dangerous_bash_patterns: string[];
+  /** HIGH：高危 powershell 命令正则（Remove-Item 等） */
+  dangerous_powershell_patterns: string[];
+  /** LOW：只读命令前缀（ls、cat、git status 等） */
+  read_only_commands: string[];
+  /** MEDIUM：变更类工具（write_file、edit_file 等） */
+  medium_risk_tools: string[];
+}
+
+/** 沙箱网络配置 */
+export interface SandboxNetworkSettings {
+  allowed_domains: string[];
+  denied_domains: string[];
+  allow_unix_sockets: string[];
+  allow_all_unix_sockets: boolean;
+  allow_local_binding: boolean;
+  http_proxy_port: number | null;
+  socks_proxy_port: number | null;
+}
+
+/** 沙箱文件系统配置 */
+export interface SandboxFilesystemSettings {
+  allow_read: string[];
+  deny_read: string[];
+  allow_write: string[];
+  deny_write: string[];
+}
+
+/** 沙箱内置 ripgrep 配置 */
+export interface SandboxRipgrepSettings {
+  command: string;
+  args: string[];
+}
+
+/** 沙箱配置（与后端 SandboxSettings 对齐，snake_case） */
+export interface SandboxSettings {
+  allow_unsandboxed_commands: boolean;
+  enabled_platforms: string[];
+  excluded_commands: string[];
+  network: SandboxNetworkSettings;
+  filesystem: SandboxFilesystemSettings;
+  ignore_violations: Record<string, string[]>;
+  enable_weaker_nested_sandbox: boolean;
+  enable_weaker_network_isolation: boolean;
+  mandatory_deny_search_depth: number;
+  allow_git_config: boolean;
+  ripgrep: SandboxRipgrepSettings | null;
+}
+
+/** PATCH /api/settings/sandbox 请求体（字段可选，只更新提供的字段） */
+export interface UpdateSandboxPayload {
+  allow_unsandboxed_commands?: boolean;
+  enabled_platforms?: string[];
+  excluded_commands?: string[];
+  network?: Partial<SandboxNetworkSettings>;
+  filesystem?: Partial<SandboxFilesystemSettings>;
+  ignore_violations?: Record<string, string[]>;
+  enable_weaker_nested_sandbox?: boolean;
+  enable_weaker_network_isolation?: boolean;
+  mandatory_deny_search_depth?: number;
+  allow_git_config?: boolean;
+  ripgrep?: SandboxRipgrepSettings | null;
 }
 
 /** PATCH /api/settings/memory 请求体（字段可选，只更新提供的字段） */
@@ -391,6 +464,12 @@ export const settingsApi = {
     request<{ success: boolean }>('/api/settings/theme', {
       method: 'PATCH',
       body: JSON.stringify({ theme }),
+    }),
+  /** 修改沙箱配置（只更新提供的字段），保存并热重载生效 */
+  updateSandbox: (payload: UpdateSandboxPayload) =>
+    request<{ success: boolean; sandbox: SandboxSettings }>('/api/settings/sandbox', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     }),
 };
 

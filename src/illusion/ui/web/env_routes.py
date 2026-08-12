@@ -95,6 +95,98 @@ class UpdateThemeRequest(BaseModel):
     theme: str = Field(..., pattern="^(light|dark|system)$")
 
 
+class UpdateSandboxRequest(BaseModel):
+    """修改沙箱配置请求体。
+
+    字段均可选，只更新提供的字段。数据结构与
+    illusion.config.settings.SandboxSettings 对齐（snake_case）。
+    """
+
+    allow_unsandboxed_commands: bool | None = None
+    enabled_platforms: list[str] | None = None
+    excluded_commands: list[str] | None = None
+    network: dict[str, Any] | None = None
+    filesystem: dict[str, Any] | None = None
+    ignore_violations: dict[str, list[str]] | None = None
+    enable_weaker_nested_sandbox: bool | None = None
+    enable_weaker_network_isolation: bool | None = None
+    mandatory_deny_search_depth: int | None = None
+    allow_git_config: bool | None = None
+    ripgrep: dict[str, Any] | None = None
+
+
+class UpdatePermissionRiskRequest(BaseModel):
+    """修改权限风险分级配置请求体。
+
+    字段均可选，只更新提供的字段。数据结构与
+    PermissionSettings 中的 risk 分级字段对齐（snake_case）。
+    分别为 HIGH（dangerous_bash/powershell_patterns）、
+    LOW（read_only_commands）、MEDIUM（medium_risk_tools）。
+    """
+
+    dangerous_bash_patterns: list[str] | None = None
+    dangerous_powershell_patterns: list[str] | None = None
+    read_only_commands: list[str] | None = None
+    medium_risk_tools: list[str] | None = None
+
+
+def _sandbox_settings_payload(sandbox: Any) -> dict[str, Any]:
+    """将 SandboxSettings 序列化为前端可读的字典。"""
+    return {
+        "allow_unsandboxed_commands": sandbox.allow_unsandboxed_commands,
+        "enabled_platforms": list(sandbox.enabled_platforms),
+        "excluded_commands": list(sandbox.excluded_commands),
+        "network": {
+            "allowed_domains": list(sandbox.network.allowed_domains),
+            "denied_domains": list(sandbox.network.denied_domains),
+            "allow_unix_sockets": list(sandbox.network.allow_unix_sockets),
+            "allow_all_unix_sockets": sandbox.network.allow_all_unix_sockets,
+            "allow_local_binding": sandbox.network.allow_local_binding,
+            "http_proxy_port": sandbox.network.http_proxy_port,
+            "socks_proxy_port": sandbox.network.socks_proxy_port,
+        },
+        "filesystem": {
+            "allow_read": list(sandbox.filesystem.allow_read),
+            "deny_read": list(sandbox.filesystem.deny_read),
+            "allow_write": list(sandbox.filesystem.allow_write),
+            "deny_write": list(sandbox.filesystem.deny_write),
+        },
+        "ignore_violations": dict(sandbox.ignore_violations),
+        "enable_weaker_nested_sandbox": sandbox.enable_weaker_nested_sandbox,
+        "enable_weaker_network_isolation": sandbox.enable_weaker_network_isolation,
+        "mandatory_deny_search_depth": sandbox.mandatory_deny_search_depth,
+        "allow_git_config": sandbox.allow_git_config,
+        "ripgrep": (
+            {"command": sandbox.ripgrep.command, "args": list(sandbox.ripgrep.args)}
+            if sandbox.ripgrep is not None
+            else None
+        ),
+    }
+
+
+def _permission_risk_payload() -> dict[str, Any]:
+    """返回权限风险分级（内置只读，LOW/MEDIUM/HIGH 三层级）。
+
+    风险分级规则已内置（risk.py），web 端只读展示，不支持修改：
+        - HIGH: dangerous_bash_patterns / dangerous_powershell_patterns
+        - MEDIUM: medium_risk_tools
+        - LOW: read_only_commands
+    """
+    from illusion.permissions.risk import (
+        DEFAULT_DANGEROUS_BASH_PATTERNS,
+        DEFAULT_DANGEROUS_POWERSHELL_PATTERNS,
+        DEFAULT_MEDIUM_RISK_TOOLS,
+        DEFAULT_READ_ONLY_COMMANDS,
+    )
+
+    return {
+        "dangerous_bash_patterns": list(DEFAULT_DANGEROUS_BASH_PATTERNS),
+        "dangerous_powershell_patterns": list(DEFAULT_DANGEROUS_POWERSHELL_PATTERNS),
+        "read_only_commands": list(DEFAULT_READ_ONLY_COMMANDS),
+        "medium_risk_tools": list(DEFAULT_MEDIUM_RISK_TOOLS),
+    }
+
+
 def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
     """注册 env/oauth/settings 相关 HTTP 路由到 FastAPI app。"""
 
@@ -285,6 +377,7 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
         credentials.json，由 /api/envs 单独管理 has_credential 标志）。
         """
         settings = load_settings()
+
         return {
             "ui_language": settings.ui_language,
             "working_directory": settings.working_directory,
@@ -297,7 +390,48 @@ def register_env_routes(app: FastAPI, host_config: Any | None = None) -> None:
                 "dream_model": settings.memory.dream_model,
                 "directory": settings.memory.directory,
             },
+            "sandbox": _sandbox_settings_payload(settings.sandbox),
+            "permission": _permission_risk_payload(),
         }
+
+    @app.patch("/api/settings/permission")
+    async def update_permission(_req: UpdatePermissionRiskRequest) -> dict[str, Any]:
+        """权限风险分级已内置，web 端只读展示，不支持修改。
+
+        返回 400 明确告知前端该配置为只读，避免静默忽略写请求。
+        """
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail="权限风险分级已内置为只读，可编辑的沙箱路径白名单请使用 /api/settings/sandbox",
+        )
+
+    @app.patch("/api/settings/sandbox")
+    async def update_sandbox(req: UpdateSandboxRequest) -> dict[str, Any]:
+        """修改沙箱配置。
+
+        仅更新请求中提供的字段，其余保持不变。保存后返回最新沙箱配置。
+        """
+        from illusion.sandbox import SandboxManager
+
+        settings = load_settings()
+        current = settings.sandbox
+        updates: dict[str, Any] = {}
+        for field in UpdateSandboxRequest.model_fields:
+            value = getattr(req, field)
+            if value is not None:
+                updates[field] = value
+        new_sandbox = current.model_copy(update=updates)
+        new_settings = settings.model_copy(update={"sandbox": new_sandbox})
+        save_settings(new_settings)
+        # 热重载沙箱管理器配置，使修改立即生效
+        try:
+            SandboxManager().update_config(load_settings())
+        except (OSError, ValueError, RuntimeError) as exc:
+            import logging
+            logging.getLogger(__name__).warning("sandbox 配置热重载失败: %s", exc)
+        return {"success": True, "sandbox": _sandbox_settings_payload(new_sandbox)}
 
     @app.patch("/api/settings/memory")
     async def update_memory(req: UpdateMemoryRequest) -> dict[str, Any]:

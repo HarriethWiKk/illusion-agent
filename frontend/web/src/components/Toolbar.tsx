@@ -95,6 +95,7 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
     { value: 'default', label: t(lang, 'mode_default') },
     { value: 'plan', label: t(lang, 'mode_plan') },
     { value: 'full_auto', label: t(lang, 'mode_auto') },
+    { value: 'yolo', label: t(lang, 'mode_yolo') },
   ], [lang]);
 
   // 推理强度选项为前端静态常量（固定枚举 low/medium/high/xhigh/max）

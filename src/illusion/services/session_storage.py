@@ -590,3 +590,84 @@ def delete_pending_permission(cwd: str | Path, session_id: str) -> None:
     path = _pending_permission_path(cwd, session_id)
     if path.exists():
         path.unlink()
+
+
+def _pending_sandbox_path(cwd: str | Path, session_id: str) -> Path:
+    """获取 pending-sandbox 文件路径
+
+    print 模式下沙箱权限确认使用独立的 pending 文件，仅支持两选项
+    （允许/拒绝），与通用权限（print 模式 Y/N，交互模式三选项）区分开。
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+
+    Returns:
+        Path: pending-sandbox 文件路径
+    """
+    session_dir = get_project_session_dir_no_create(cwd)
+    return session_dir / f"pending-sandbox-{session_id}.json"
+
+
+def save_pending_sandbox(
+    *,
+    cwd: str | Path,
+    session_id: str,
+    tool_name: str,
+    reason: str,
+) -> Path:
+    """保存 pending-sandbox 到会话目录
+
+    print 模式沙箱权限请求（两选项：允许/拒绝）。
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+        tool_name: 被请求权限的工具名称
+        reason: 权限请求原因
+
+    Returns:
+        Path: 保存的文件路径
+    """
+    payload = {
+        "session_id": session_id,
+        "tool_name": tool_name,
+        "reason": reason,
+        "approved": False,
+        "created_at": time.time(),
+    }
+    path = _pending_sandbox_path(cwd, session_id)
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return path
+
+
+def load_pending_sandbox(cwd: str | Path, session_id: str) -> dict[str, Any] | None:
+    """加载 pending-sandbox
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+
+    Returns:
+        dict | None: pending-sandbox 数据，不存在返回 None
+    """
+    path = _pending_sandbox_path(cwd, session_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def delete_pending_sandbox(cwd: str | Path, session_id: str) -> None:
+    """删除 pending-sandbox
+
+    Args:
+        cwd: 工作目录路径
+        session_id: 会话 ID
+    """
+    path = _pending_sandbox_path(cwd, session_id)
+    if path.exists():
+        path.unlink()

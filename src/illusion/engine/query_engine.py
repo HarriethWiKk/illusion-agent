@@ -107,6 +107,8 @@ class QueryEngine:
         tool_metadata: dict[str, object] | None = None,
         effort: EffortLevel | None = None,
         session_id: str = "",
+        print_mode: bool = False,
+        sandbox_permission_prompt: PermissionPrompt | None = None,
     ) -> None:
         self._api_client = api_client  # API客户端
         self._tool_registry = tool_registry  # 工具注册表
@@ -132,6 +134,8 @@ class QueryEngine:
         self._compact_state = AutoCompactState()  # 自动压缩状态（跨会话持久）
         self._file_history: FileHistoryState | None = None  # 文件历史状态
         self._session_id: str = session_id or ""  # 会话 ID（用于文件历史目录）
+        self._print_mode: bool = print_mode  # 是否为 print 模式（非交互多轮退出）
+        self._sandbox_permission_prompt = sandbox_permission_prompt  # print 模式沙箱两选项回调
         self._file_state_cache = FileStateCache()  # 文件状态缓存（用于读写去重）
         self._checkpoint_store: CheckpointStore | None = None  # 持久化存储
 
@@ -650,6 +654,8 @@ class QueryEngine:
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
             plan_approval_prompt=self._plan_approval_prompt,
+            print_mode=self._print_mode,
+            sandbox_permission_prompt=self._sandbox_permission_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,
@@ -778,6 +784,8 @@ class QueryEngine:
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
             plan_approval_prompt=self._plan_approval_prompt,
+            print_mode=self._print_mode,
+            sandbox_permission_prompt=self._sandbox_permission_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,
@@ -842,6 +850,8 @@ class QueryEngine:
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
             plan_approval_prompt=self._plan_approval_prompt,
+            print_mode=self._print_mode,
+            sandbox_permission_prompt=self._sandbox_permission_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
             effort=self._effort,

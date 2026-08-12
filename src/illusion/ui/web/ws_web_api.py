@@ -507,7 +507,9 @@ class WebApiDispatcher:
                 # 权限限制不生效（多会话下仅更新初始引擎会绕过其他会话的权限限制）
                 from illusion.permissions import PermissionChecker
                 checker = PermissionChecker(settings.permission)
-                checker.sync_sandbox_restrictions(settings.sandbox)
+                checker.sync_sandbox_restrictions(
+                    settings.sandbox, working_directory=settings.working_directory
+                )
                 self._apply_engine_setting(lambda e: e.set_permission_checker(checker))
             elif key == "turns":
                 # turns: unlimited → None，否则 int；影响 engine.max_turns

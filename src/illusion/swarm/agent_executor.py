@@ -474,10 +474,13 @@ def _build_agent_cli_flags(
     """构建从当前会话继承到子代理的 CLI 标志。"""
     flags: list[str] = ["--headless"]
 
-    if permission_mode == "bypassPermissions":
+    if permission_mode in ("bypassPermissions", "yolo"):
+        # bypassPermissions / yolo 都绕过沙箱与权限提示
         flags.append("--dangerously-skip-permissions")
     elif permission_mode == "acceptEdits":
         flags.extend(["--permission-mode", "acceptEdits"])
+    elif permission_mode == "full_auto":
+        flags.extend(["--permission-mode", "full_auto"])
 
     if model:
         flags.extend(["--model", shlex.quote(model)])
@@ -608,6 +611,10 @@ async def run_agent_in_process(
         max_turns=agent_def.max_turns if agent_def and agent_def.max_turns else query_context.max_turns,
         hook_executor=None,  # agent 不执行 hooks
         effort=query_context.effort,
+        # 透传 print 模式与沙箱两选项回调，确保子 agent 在 print 模式下沙箱
+        # 权限确认同样走两选项跨轮次机制（与父 agent 一致）
+        print_mode=query_context.print_mode,
+        sandbox_permission_prompt=query_context.sandbox_permission_prompt,
         on_before_tool_execute=query_context.on_before_tool_execute,
         file_state_cache=query_context.file_state_cache,
     )

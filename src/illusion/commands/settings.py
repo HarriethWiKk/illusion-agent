@@ -20,7 +20,7 @@ from illusion.output_styles import load_output_styles
 from illusion.permissions import PermissionChecker, PermissionMode
 from illusion.prompts import build_runtime_system_prompt
 
-_MODE_LABELS = {"default": "Default", "plan": "Plan Mode", "full_auto": "Auto"}
+_MODE_LABELS = {"default": "Default", "plan": "Plan Mode", "full_auto": "Auto", "yolo": "YOLO"}
 
 
 async def config_handler(args: str, context: CommandContext) -> CommandResult:
@@ -262,7 +262,9 @@ async def permissions_handler(args: str, context: CommandContext) -> CommandResu
         settings.permission.mode = PermissionMode(tokens[1])
         save_settings(settings)
         checker = PermissionChecker(settings.permission)
-        checker.sync_sandbox_restrictions(settings.sandbox)
+        checker.sync_sandbox_restrictions(
+            settings.sandbox, working_directory=settings.working_directory
+        )
         if context.engine is not None:
             context.engine.set_permission_checker(checker)
         if context.app_state is not None:
