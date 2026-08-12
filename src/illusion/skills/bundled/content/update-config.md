@@ -111,9 +111,6 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
     "dream_min_sessions": 5
   },
   "sandbox": {
-    "enabled": false,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
     "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
     "excluded_commands": [],
@@ -232,14 +229,15 @@ Each `env_N` is an independent API provider config. Models are referenced as `en
 }
 ```
 
-**Permission modes (only 3):**
+**Permission modes (4):**
 | Mode | Value | Description |
 |------|-------|-------------|
 | Default | `default` | Modification tools require user confirmation |
 | Plan | `plan` | Block all modification tools |
-| Full Auto | `full_auto` | Allow all operations automatically |
+| Full Auto | `full_auto` | Allow all operations automatically (still sandboxed) |
+| YOLO | `yolo` | Bypass the sandbox entirely, run fully |
 
-> **Note:** `accept_edits` and `dont_ask` modes do NOT exist. Use `full_auto` for automatic execution.
+> **Note:** `accept_edits` and `dont_ask` modes do NOT exist. Use `full_auto` for automatic execution (still sandboxed), or `yolo` to bypass the sandbox entirely.
 
 **Tool names** (lowercase, used in matchers):
 - `bash` — Shell commands
@@ -395,9 +393,6 @@ The sandbox provides OS-level isolation for shell commands. Supports Linux (bubb
 ```json
 {
   "sandbox": {
-    "enabled": false,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
     "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
     "excluded_commands": [],
@@ -503,7 +498,6 @@ Controls deny-lists for the current project. **Highest priority** — overrides 
 
 ```json
 {
-  "always_allow_tools": ["read_file", "grep"],
   "denied_tools": ["bash"],
   "denied_skills": ["dangerous-skill"],
   "denied_hooks": ["pre_tool_use"],
@@ -516,7 +510,6 @@ Controls deny-lists for the current project. **Highest priority** — overrides 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `always_allow_tools` | list | `[]` | Tools always allowed (overrides mode) |
 | `denied_tools` | list | `[]` | Tools always denied |
 | `denied_skills` | list | `[]` | Disabled skill names, `["*"]` = all |
 | `denied_hooks` | list | `[]` | Disabled hook events, `["*"]` = all |
@@ -779,7 +772,7 @@ If a hook isn't running:
 7. Check project `.illusion/permissions.json` hasn't denied the hook event
 
 If permissions aren't working:
-1. Verify mode is one of: `default`, `plan`, `full_auto` (no other modes exist)
+1. Verify mode is one of: `default`, `plan`, `full_auto`, `yolo`
 2. Check tool names are lowercase: `bash`, `read_file`, `edit_file`, `write_file`, `grep`, `glob`
 3. Check rule syntax: `bash(command:*)` for prefix match, `bash(exact command)` for exact match
 4. Check project `.illusion/permissions.json` hasn't denied the tool

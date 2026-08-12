@@ -34,7 +34,7 @@ a cron scheduler for unattended automation — spanning Feishu, WeChat, and QQ.
 - 📝 **Comprehensive Markdown Rendering** - Box-drawing tables, rounded card-style code blocks, multi-color rich text, links and more
 - 📂 **Project-Level Config Friendly** - Auto-generate skills, rules, mcp, plugins directories, project-level skills override global ones
 - 🔌 **Flexible Extension System** - Plugins, hooks, skills, MCP servers
-- 🔐 **Comprehensive Permission Control** - Three modes + fine-grained rules + Always Allow one-click approval
+- 🔐 **Comprehensive Permission Control** - Four modes (default / plan / full_auto / yolo) + fine-grained rules + session-level / one-time approval
 - 💾 **Memory & Context** - Project knowledge persistence and dynamic retrieval
 - 🎨 **Dual Interface** - Modern React + Ink terminal TUI + browser-based Web UI
 - 🎯 **Reasoning Effort Control** - Supports low/medium/high/xhigh/max five reasoning effort levels with automatic fallback

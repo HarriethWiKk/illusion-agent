@@ -114,10 +114,7 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
     "max_entrypoint_lines": 200
   },
   "sandbox": {
-    "enabled": false,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
-    "allow_unsandboxed_commands": true,
+    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {
@@ -137,8 +134,10 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
     },
     "ignore_violations": {},
     "enable_weaker_nested_sandbox": false,
+    "enable_weaker_network_isolation": false,
     "mandatory_deny_search_depth": 3,
-    "allow_git_config": false
+    "allow_git_config": false,
+    "ripgrep": null
   },
   "enabled_plugins": {},
   "mcp_servers": {},
@@ -345,7 +344,8 @@ LongCat uses `Authorization: Bearer` authentication, configured via the `auth_to
 |------|-------|-------------|
 | Default | `default` | Modification tools require user confirmation |
 | Plan | `plan` | Block all modification tools |
-| Full Auto | `full_auto` | Allow all operations |
+| Full Auto | `full_auto` | Constrained by the sandbox and blocks high-risk ops (HIGH requires confirmation) |
+| YOLO | `yolo` | **Bypass the sandbox entirely** with no sandbox restrictions |
 
 ```json
 {
@@ -411,10 +411,7 @@ The sandbox system provides OS-level isolation for shell commands. Supports thre
 ```json
 {
   "sandbox": {
-    "enabled": true,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
-    "allow_unsandboxed_commands": true,
+    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": []
   }
@@ -454,6 +451,32 @@ The sandbox system provides OS-level isolation for shell commands. Supports thre
 }
 ```
 
+> **Filesystem restriction semantics**: writes are **deny-by-default** — only paths inside the `allow_write` whitelist are writable, and `deny_write` overrides the whitelist; reads are **allow-by-default** — only restricted by `deny_read`. These restrictions also apply to file tools (Write/Edit/Read, etc.), aligning with OS-level sandbox behavior: writes outside the working directory (`"."`) are sandbox-blocked or require confirmation.
+
+#### Advanced Options
+
+```json
+{
+  "sandbox": {
+    "enable_weaker_nested_sandbox": false,
+    "enable_weaker_network_isolation": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false,
+    "ripgrep": {
+      "command": "rg",
+      "args": []
+    }
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enable_weaker_network_isolation` | false | macOS: allow access to trustd (needed for Go tool TLS verification; **reduces network isolation**, data exfiltration risk) |
+| `enable_weaker_nested_sandbox` | false | Docker: skip `--proc /proc` |
+| `allow_git_config` | false | Allow writing `.git/config` |
+| `ripgrep` | null | Bundled ripgrep command and args |
+
 #### Excluded Commands
 
 ```json
@@ -467,3 +490,55 @@ The sandbox system provides OS-level isolation for shell commands. Supports thre
   }
 }
 ```
+
+#### High-Risk Operation Levels
+
+Operations are classified by risk level; **high-risk operations outrank reads**:
+
+- **HIGH**: destructive commands (`rm`, `Remove-Item`, `git restore`, `git clean`, `git reset --hard`, etc.). Even if a path was already **session-allowed**, a high-risk operation re-prompts for confirmation, preventing "allowed access" from being abused as a delete/restore pass.
+- **MEDIUM**: general mutations (write, edit, etc.).
+- **LOW**: read-only operations (read files, query commands, etc.).
+
+**Risk-level rules are built-in** (LOW/MEDIUM/HIGH):
+
+- `dangerous_bash_patterns` (HIGH): high-risk bash command regexes; matching triggers confirmation
+- `dangerous_powershell_patterns` (HIGH): high-risk powershell command regexes
+- `read_only_commands` (LOW): read-only command prefixes, allowed directly
+- `medium_risk_tools` (MEDIUM): mutation tools, require confirmation by default
+
+To allow a command that would otherwise be blocked as high-risk, configure a **command allowlist** in `permission.allowed_shell_commands` under `settings.json` (works for both bash and powershell commands):
+
+- **Non-high-risk commands**: a prefix match allows them (e.g. `git push` allows `git push origin main`).
+- **High-risk commands**: they are only allowed when an allowlist entry **fully lists** the high-risk command head — i.e. that entry is itself a high-risk pattern. A plain prefix does **not** exempt its high-risk sub-commands (e.g. `git push` does not allow `git push --force`; `rm` does not allow `rm -rf`). To exempt a high-risk command, configure its full command head, such as `git push --force`, `rm -rf`, or `Remove-Item`.
+
+```json
+{
+  "permission": {
+    "mode": "default",
+    "allowed_shell_commands": ["git push --force", "rm -rf", "Remove-Item"]
+  }
+}
+```
+
+#### Relationship Between Sandbox Config and Risk Levels
+
+The `sandbox` config and the built-in risk levels (LOW/MEDIUM/HIGH) are **two independent dimensions** that run in sequence during permission checks:
+
+| Dimension | Nature | Decides | Located |
+|-----------|--------|---------|---------|
+| Sandbox config (`sandbox.*`) | Runtime isolation | "Which paths/domains a command may touch" | The `sandbox` section of `settings.json` |
+| Risk levels | Decision classification | "How dangerous this operation is, whether to prompt" | Built-in (`risk.py`), read-only |
+
+- **Sandbox config** (`filesystem.*`, `network.*`, `excluded_commands`, `allow_unsandboxed_commands`) constrains the OS sandbox's actual behavior; it does not directly decide whether to prompt.
+- **Risk levels** (`dangerous_bash_patterns` / `read_only_commands` / `medium_risk_tools`) decide whether to prompt for confirmation.
+- **Execution order**: sandbox path restrictions (`filesystem`) are checked first, then risk levels. Hitting a sandbox deny or HIGH triggers confirmation.
+- **Key overlap**: a high-risk operation (HIGH) re-prompts for confirmation even if the path was already session-allowed, preventing "allowed access" from being used as a delete/restore pass.
+
+**How each permission mode consumes the two dimensions:**
+
+| Mode | Sandbox config | Risk levels |
+|------|----------------|-------------|
+| `default` | Fully applied (filesystem/network/excluded/allow_unsandboxed) | Fully consumed: LOW allowed / MEDIUM confirm / HIGH must-confirm |
+| `full_auto` | Subject to sandbox filesystem restrictions | Only HIGH is blocked; everything else allowed |
+| `plan` | Plan file exempt; other mutations blocked | Not by level; blocked by "is it a mutation tool" |
+| `yolo` | Bypassed entirely | Ignored; only explicit tool/path denies remain |

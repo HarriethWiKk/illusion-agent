@@ -23,21 +23,23 @@ illusion -p "<prompt>"
 
 ## Permission Modes (Critical)
 
-Print mode uses cross-turn Y/F/N callback for permissions. Choose explicitly:
+Print mode uses cross-turn callbacks for permissions. Choose explicitly:
 
 | Mode | Behavior | Use When |
 |------|----------|----------|
-| `default` (omit) | Mutating tools trigger **cross-turn Y/F/N approval** | Interactive-ish workflows, selective approval |
-| `full_auto` | All tools execute | Fully autonomous, writing files, running commands |
+| `default` (omit) | Mutating tools trigger **cross-turn Y/N approval** | Interactive-ish workflows, selective approval |
+| `full_auto` | All tools execute (still sandboxed) | Fully autonomous, writing files, running commands |
+| `yolo` | Bypass the sandbox entirely, run fully | Fully autonomous with sandbox disabled |
 | `plan` | All mutation tools blocked | Planning only |
 
 > **Note**: In print mode, `plan` mode uses cross-turn approval. When the agent calls `exit_plan_mode`, the plan is persisted and the process exits with code 2. Resume with `illusion -c -p "approve"` (or any feedback text to reject).
+> **Note**: In print mode, sandbox permission confirmations offer **two options** (allow / deny) instead of the interactive three options.
 
-### `default` mode: Cross-Turn Permission Approval (Y/F/N)
+### `default` mode: Cross-Turn Permission Approval (Y/N)
 
 In `default` mode, when a tool requires permission, print mode does NOT block or directly deny. Instead:
 
-1. **Turn 1**: `illusion -p "write a file"` → tool needs permission → persisted to `pending-permission-<session_id>.json` → exit code **2**, stderr shows guidance with tool name and Y/F/N commands
+1. **Turn 1**: `illusion -p "write a file"` → tool needs permission → persisted to `pending-permission-<session_id>.json` → exit code **2**, stderr shows guidance with tool name and Y/N commands
 2. **Turn 2**: `illusion -c -p "Y"` → detects pending permission → injects approval → resumes execution
 
 **Approval input** (case-insensitive):
@@ -45,7 +47,6 @@ In `default` mode, when a tool requires permission, print mode does NOT block or
 | Input | Meaning | Persistence |
 |-------|---------|-------------|
 | `Y` / `yes` / `approve` | Allow once | None — only this tool call |
-| `F` / `always` | Always allow | `.illusion/permissions.json` `always_allow_tools` (permanent) |
 | `N` / other | Deny | None — LLM receives denial, may try alternatives |
 
 ```bash
@@ -55,13 +56,29 @@ illusion -p "Analyze the project structure"
 # Allow writes/commands — must be explicit
 illusion --permission-mode full_auto -p "Fix the failing tests"
 
-# default mode with Y/F/N approval
+# default mode with Y/N approval
 illusion -p "Write a test file"
-# → exit 2, stderr: "Permission request: write_file. Use Y/F/N..."
+# → exit 2, stderr: "Permission request: write_file. Use Y/N..."
 illusion -c -p "Y"   # allow once
-illusion -c -p "F"   # always allow (persists)
 illusion -c -p "N"   # deny
 ```
+
+### Sandbox Permission: Two-Option Cross-Turn Approval (Y/N)
+
+When a tool is blocked by the **sandbox** in print mode, the confirmation uses a dedicated **two-option** flow (allow / deny) — distinct from the general Y/N permission flow. It never offers "always allow" for sandbox, so allowing one sandboxed operation cannot become a blanket pass for later destructive access.
+
+1. **Turn 1**: `illusion -p "..."` → tool hits a sandbox restriction → persisted to `pending-sandbox-<session_id>.json` → exit code **2**, stderr: `Sandbox permission request: <tool>. Use Y/N...`
+2. **Turn 2**: `illusion -c -p "Y"` → allows that single sandboxed operation and resumes; `illusion -c -p "N"` → denies it.
+
+```bash
+# sandbox two-option approval
+illusion -p "read /etc/config"
+# → exit 2, stderr: "Sandbox permission request: read_file. Use illusion -c -p \"Y\" / \"N\""
+illusion -c -p "Y"   # allow once
+illusion -c -p "N"   # deny
+```
+
+> **High-risk operations**: destructive commands (e.g. `rm`, `git restore`, `Remove-Item`) are ranked above reads. Even if a path was already allowed for the session, a destructive operation on it still triggers this sandbox confirmation.
 
 ## ask_user_question: Cross-Turn Non-Interactive Pattern
 
@@ -191,8 +208,8 @@ illusion -m env_1.model_2 -e high -t 20 --permission-mode full_auto -c -p "Compl
 
 - **Don't** expect interactive prompts — print mode never waits
 - **Don't** put `-p` value before other flags — it must be last
-- **Don't** forget `--permission-mode full_auto` when writes are needed and you want to skip Y/F/N approval
+- **Don't** forget `--permission-mode full_auto` when writes are needed and you want to skip confirmation
 - **Don't** ignore exit code 2 — it means a question, plan approval, or permission approval needs answering
 - **Don't** use `--dangerously-skip-permissions` — prefer `--permission-mode full_auto` (explicit intent)
 - **Don't expect plan approvals to be automatic** in `default` print mode. If you want auto-approval, use `--permission-mode full_auto`.
-- **Don't** assume `default` mode denies all tools — it now uses cross-turn Y/F/N approval; respond with `Y`/`F`/`N` on exit code 2.
+- **Don't** assume `default` mode denies all tools — it now uses cross-turn Y/N approval; respond with `Y`/`N` on exit code 2.

@@ -31,7 +31,7 @@ The `illusion` main command supports the following options, grouped by function:
 
 | Option | Description |
 |--------|-------------|
-| `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto`, persists to settings.json |
+| `--permission-mode <MODE>` | Permission mode: `default` / `plan` / `full_auto` / `yolo`, persists to settings.json |
 | `--dangerously-skip-permissions` | Bypass all permission checks (equivalent to `--permission-mode full_auto`, only for sandboxed environments) |
 
 ### Global
@@ -174,7 +174,7 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 | `--model <MODEL>` | `-m` | Model alias or full model ID | Yes (writes `settings.model`) |
 | `--effort <LEVEL>` | `-e` | Effort level: `low` / `medium` / `high` / `max` | Yes (writes `settings.effort`) |
 | `--max-turns <N>` | `-t` | Maximum agentic turns | Yes (writes `settings.max_turns`) |
-| `--permission-mode <MODE>` | - | Permission mode: `default` / `plan` / `full_auto` | Yes (writes `settings.permission.mode`) |
+| `--permission-mode <MODE>` | - | Permission mode: `default` / `plan` / `full_auto` / `yolo` | Yes (writes `settings.permission.mode`) |
 | `--continue` | `-c` | Continue the most recent session in the current directory (requires `-p`) | No |
 | `--resume <SESSION_ID>` | `-r` | Resume a specific session by ID (requires `-p`) | No |
 | `--name <NAME>` | `-n` | Set a display name for this session | No |
@@ -182,16 +182,20 @@ Use `-p` / `--print <PROMPT>` to enter non-interactive mode: execute a single pr
 
 **Interactive Behavior**:
 
-- **Permission confirmation**: Print mode uses a cross-turn Y/F/N callback — in `default` mode, tools requiring permission do not execute directly; instead the permission request is persisted and the program exits with code 2, stderr shows `Permission request: {tool}. Use illusion -c -p "Y" to allow once / "F" to always allow / "N" to deny`:
+- **Permission confirmation**: Print mode uses a cross-turn Y/N callback — in `default` mode, tools requiring permission do not execute directly; instead the permission request is persisted and the program exits with code 2, stderr shows `Permission request: {tool}. Use illusion -c -p "Y" to allow once / "N" to deny`:
   1. **Turn 1**: `illusion -p "write a file"` → tool requires permission → persisted to `pending-permission-<session_id>.json` → exit code **2**
   2. **Turn 2**: `illusion -c -p "Y"` → detects pending permission → injects approval result → resumes execution
 
   **Approval input format** (case-insensitive):
   - **Y** / **yes** / **approve**: Allow once (not persisted, effective only for the current tool call)
-  - **F** / **always**: Always allow (writes to `.illusion/permissions.json`'s `always_allow_tools`, permanently effective)
   - **N** / any other input: Deny (LLM receives denial message, may try alternative approaches)
 
   Use `--permission-mode full_auto` to skip permission confirmation entirely; `plan` mode blocks all mutation tools.
+- **Sandbox permission confirmation (two options)**: In print mode, a **sandbox restriction** uses a dedicated **two-option** cross-turn confirmation (allow / deny), distinct from the general Y/N flow, and never offers "always allow":
+  1. **Turn 1**: `illusion -p "..."` → tool hits a sandbox restriction → persisted to `pending-sandbox-<session_id>.json` → exit code **2**, stderr shows `Sandbox permission request: {tool}. Use illusion -c -p "Y" to allow / "N" to deny`
+  2. **Turn 2**: `illusion -c -p "Y"` → allows that single sandboxed operation and resumes; `illusion -c -p "N"` → denies it.
+
+  **High-risk operations**: destructive commands (e.g. `rm`, `git restore`, `Remove-Item`) rank above reads. Even if a path was already allowed for the session, destructive operations on it still trigger sandbox confirmation.
 - **ask_user_question interaction**: When the LLM calls the ask_user_question tool, print mode uses a **cross-turn non-interactive** pattern:
   1. **Turn 1**: `illusion -p "do something"` → agent calls ask_user_question during execution → tool persists the question to `pending-question-<session_id>.json`, returns a special marker as tool_result → agent ends the turn → program exits with **exit code 2** (indicating waiting for user answer)
   2. **Turn 2**: `illusion -c -p "<answer>"` → detects pending question → injects the answer as tool_result (replacing the marker) → calls `continue_pending` to resume agent execution

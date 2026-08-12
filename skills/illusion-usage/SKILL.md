@@ -104,11 +104,11 @@ For programmatic parsing, use `--output-format json` (single object at end) or `
 
 ## A.5 Permission Modes (Critical)
 
-Print mode uses cross-turn Y/F/N callback for permissions. Choose explicitly:
+Print mode uses cross-turn Y/N callback for permissions. Choose explicitly:
 
 | Mode | Behavior | Use when |
 |------|----------|----------|
-| `default` (omit) | Mutating tools trigger **cross-turn Y/F/N approval** | Selective approval, interactive-ish |
+| `default` (omit) | Mutating tools trigger **cross-turn Y/N approval** | Selective approval, interactive-ish |
 | `full_auto` | All tools execute | Autonomous coding, writes, commands |
 | `plan` | All mutation tools blocked | Planning only |
 
@@ -117,29 +117,28 @@ Print mode uses cross-turn Y/F/N callback for permissions. Choose explicitly:
 > - **Print mode**: Cross-turn (exit code 2, resume with `illusion -c -p "approve"`)
 > - **Channel**: Plan content sent as message, user replies to approve/reject
 
-### `default` mode: Cross-Turn Permission Approval (Y/F/N)
+### `default` mode: Cross-Turn Permission Approval (Y/N)
 
 In `default` mode, mutating tools trigger a cross-turn approval instead of direct denial:
 
-1. **Turn 1**: `illusion -p "write a file"` → exit 2, stderr shows `Permission request: {tool}. Use Y/F/N...`
-2. **Turn 2**: `illusion -c -p "Y"` → approve once; `"F"` → always allow (persists to `.illusion/permissions.json`); `"N"` → deny
+1. **Turn 1**: `illusion -p "write a file"` → exit 2, stderr shows `Permission request: {tool}. Use Y/N...`
+2. **Turn 2**: `illusion -c -p "Y"` → approve once; `"N"` → deny
 
 ```bash
 # Read-only (no permission needed)
 illusion -p "Analyze the project structure"
 
-# Autonomous coding (skip Y/F/N approval)
+# Autonomous coding (skip Y/N approval)
 illusion --permission-mode full_auto -p "Fix the failing tests"
 
-# default mode with Y/F/N approval
+# default mode with Y/N approval
 illusion -p "Write a test file"
-# → exit 2, stderr shows permission request with Y/F/N guidance
+# → exit 2, stderr shows permission request with Y/N guidance
 illusion -c -p "Y"   # allow once
-illusion -c -p "F"   # always allow (persists)
 illusion -c -p "N"   # deny
 ```
 
-> **Autonomous agents**: default to `full_auto` for coding tasks to avoid Y/F/N interruptions.
+> **Autonomous agents**: default to `full_auto` for coding tasks to avoid interruptions.
 
 ## A.6 ask_user_question — Cross-Turn Non-Interactive
 

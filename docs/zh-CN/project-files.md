@@ -169,7 +169,6 @@ type: user|feedback|project|reference
 
 ```json
 {
-  "always_allow_tools": ["read_file", "grep"],
   "denied_tools": ["bash"],
   "denied_skills": ["dangerous-skill"],
   "denied_hooks": ["PreToolUse"],
@@ -183,7 +182,6 @@ type: user|feedback|project|reference
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `always_allow_tools` | list | `[]` | 始终允许的工具列表 |
 | `denied_tools` | list | `[]` | 始终拒绝的工具列表 |
 | `denied_skills` | list | `[]` | 禁用的 skill 名称列表，`["*"]` 表示全部禁用 |
 | `denied_hooks` | list | `[]` | 禁用的 hook 事件列表，`["*"]` 表示全部禁用 |

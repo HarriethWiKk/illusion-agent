@@ -36,7 +36,7 @@ IllusionAgent 是一款开源的 AI 智能体平台。它将多模型语言模�
 - 📝 **全面 Markdown 渲染** - 直角边框表格、圆角卡片代码块、多色富文本、链接等
 - 📂 **项目级配置友好** - 自动生成 skills、rules、mcp、plugins 目录，项目同名 skill 优先覆盖全局
 - 🔌 **灵活扩展系统** - 插件、钩子、技能、MCP 服务器
-- 🔐 **完善权限控制** - 三种模式 + 细粒度规则 + Always Allow 一键放行
+- 🔐 **完善权限控制** - 四种模式（default / plan / full_auto / yolo）+ 细粒度规则 + 会话级 / 单次允许
 - 💾 **记忆与上下文** - 项目知识持久化与动态检索
 - 🎨 **双界面模式** - React + Ink 终端 TUI + 浏览器 Web UI
 - 🎯 **推理强度控制** - 支持 low/medium/high/xhigh/max 五种推理强度级别，自动降级处理

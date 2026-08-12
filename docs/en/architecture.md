@@ -74,13 +74,14 @@ Delivery targets accept `channel:chat_id` (fully qualified) or a bare channel na
 
 ### Permission System
 
-Three permission modes:
+Four permission modes:
 
 | Mode | Description |
 |------|-------------|
 | `default` | Modification tools require user confirmation |
 | `plan` | Block all modification tools |
-| `full_auto` | Allow all operations |
+| `full_auto` | Without sandbox it equals `yolo`; with sandbox it is constrained by the sandbox and blocks high-risk ops |
+| `yolo` | Bypass the sandbox entirely with no sandbox restrictions |
 
 ### Multi-Agent Coordinator
 

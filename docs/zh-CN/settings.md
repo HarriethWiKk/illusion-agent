@@ -104,6 +104,7 @@
     "mode": "default",
     "allowed_tools": [],
     "denied_tools": [],
+    "allowed_shell_commands": [],
     "path_rules": [],
     "denied_commands": []
   },
@@ -114,10 +115,7 @@
     "max_entrypoint_lines": 200
   },
   "sandbox": {
-    "enabled": false,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
-    "allow_unsandboxed_commands": true,
+    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {
@@ -137,8 +135,10 @@
     },
     "ignore_violations": {},
     "enable_weaker_nested_sandbox": false,
+    "enable_weaker_network_isolation": false,
     "mandatory_deny_search_depth": 3,
-    "allow_git_config": false
+    "allow_git_config": false,
+    "ripgrep": null
   },
   "enabled_plugins": {},
   "mcp_servers": {},
@@ -345,7 +345,8 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 |------|-----|------|
 | 默认模式 | `default` | 修改类工具需要用户确认 |
 | 计划模式 | `plan` | 阻止所有修改类工具 |
-| 全自动模式 | `full_auto` | 允许一切操作 |
+| 全自动模式 | `full_auto` | 受沙箱限制并拦高危（HIGH 需确认） |
+| YOLO 模式 | `yolo` | **绕过沙箱完全运行**，不施加任何沙箱限制 |
 
 ```json
 {
@@ -411,10 +412,7 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 ```json
 {
   "sandbox": {
-    "enabled": true,
-    "fail_if_unavailable": false,
-    "auto_allow_bash_if_sandboxed": true,
-    "allow_unsandboxed_commands": true,
+    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": []
   }
@@ -454,6 +452,32 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 }
 ```
 
+> **文件系统限制语义**：写入为**默认拒绝**——仅 `allow_write` 白名单内的路径可写，`deny_write` 覆盖白名单；读取为**默认允许**——仅 `deny_read` 限制。此限制同样作用于文件工具（Write/Edit/Read 等），对齐 OS 级沙箱行为：工作目录（`"."`）之外的文件写入会被沙箱拦截/请求确认。
+
+#### 高级选项
+
+```json
+{
+  "sandbox": {
+    "enable_weaker_nested_sandbox": false,
+    "enable_weaker_network_isolation": false,
+    "mandatory_deny_search_depth": 3,
+    "allow_git_config": false,
+    "ripgrep": {
+      "command": "rg",
+      "args": []
+    }
+  }
+}
+```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `enable_weaker_network_isolation` | false | macOS 允许访问 trustd（Go 工具 TLS 校验所需，**降低网络隔离**，存在数据外泄风险） |
+| `enable_weaker_nested_sandbox` | false | Docker 环境跳过 `--proc /proc` |
+| `allow_git_config` | false | 允许写入 `.git/config` |
+| `ripgrep` | null | 沙箱内置 ripgrep 命令与参数 |
+
 #### 排除命令
 
 ```json
@@ -467,3 +491,55 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
   }
 }
 ```
+
+#### 高危操作分级
+
+操作按风险等级分级，**高危操作权限等级高于读取**：
+
+- **高危（HIGH）**：删除 / 还原 / 强制重置类命令（`rm`、`Remove-Item`、`git restore`、`git clean`、`git reset --hard` 等）。即使某路径已被**会话级允许**，涉及高危操作时仍会重新请求用户确认，防止"已放开访问"被用作删除通行证。
+- **中危（MEDIUM）**：一般变更操作（写文件、编辑等）。
+- **低危（LOW）**：只读操作（读文件、查询命令等）。
+
+**风险分级规则已内置**（LOW/MEDIUM/HIGH）：
+
+- `dangerous_bash_patterns`（HIGH）：高危 bash 命令正则，匹配即请求确认
+- `dangerous_powershell_patterns`（HIGH）：高危 powershell 命令正则
+- `read_only_commands`（LOW）：只读命令前缀，直接放行
+- `medium_risk_tools`（MEDIUM）：变更类工具，默认需要确认
+
+若希望放行某个会被高危拦截的指令，可在 `settings.json` 的 `permission.allowed_shell_commands` 中配置**命令级白名单**（bash / powershell 命令通用）：
+
+- **非高危命令**：命中前缀即放行（如配置 `git push` 放行 `git push origin main`）。
+- **高危命令**：仅当白名单项**完整列出**该高危命令头时才放行——即该项本身也是高危模式。仅配置普通前缀**不会**豁免其高危子命令（如配置 `git push` 不放行 `git push --force`；配置 `rm` 不放行 `rm -rf`）。需豁免高危时，请配置完整命令头，如 `git push --force`、`rm -rf`、`Remove-Item`。
+
+```json
+{
+  "permission": {
+    "mode": "default",
+    "allowed_shell_commands": ["git push --force", "rm -rf", "Remove-Item"]
+  }
+}
+```
+
+#### 沙箱配置与风险分级的关系
+
+`sandbox` 配置与内置风险分级（LOW/MEDIUM/HIGH）是**两个相互独立的维度**，在权限检查时串联执行：
+
+| 维度 | 本质 | 决定什么 | 位于 |
+|------|------|----------|------|
+| 沙箱配置（`sandbox.*`） | 运行时隔离 | "命令能碰哪些路径/域名" | `settings.json` 的 `sandbox` 段 |
+| 风险分级 | 决策分类 | "这个操作多危险，是否弹窗确认" | 内置（`risk.py`），只读 |
+
+- **沙箱配置**（`filesystem.*`、`network.*`、`excluded_commands`、`allow_unsandboxed_commands`）约束 OS 沙箱实际行为，不直接决定是否弹窗。
+- **风险分级**（`dangerous_bash_patterns` / `read_only_commands` / `medium_risk_tools`）决定是否弹窗确认。
+- **串联顺序**：先查沙箱路径限制（`filesystem`），再算风险分级。命中沙箱 deny 或 HIGH 都会触发确认。
+- **关键交集**：高危操作（HIGH）即使路径已被会话级允许，仍会重新请求确认，防止"已放开访问"被当作删除通行证。
+
+**各权限模式对两个维度的消费方式：**
+
+| 模式 | 消费沙箱配置 | 消费风险分级 |
+|------|--------------|--------------|
+| `default` | 全量生效（filesystem/network/excluded/allow_unsandboxed） | 完整消费：LOW 放行 / MEDIUM 确认 / HIGH 必问 |
+| `full_auto` | 受沙箱文件系统限制 | 只拦 HIGH，其余放行 |
+| `plan` | 计划文件豁免，其余变更被挡 | 不按分级，按"是否变更工具"拦截 |
+| `yolo` | 全部绕过 | 忽略，仅保留显式工具/路径 deny |
