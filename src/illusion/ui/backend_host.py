@@ -1223,11 +1223,11 @@ class ReactBackendHost:
             options: list[dict[str, Any]] = []
             for s in sessions:
                 ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
-                summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
+                display = s.get("title") or s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
                 turn_count = s.get("turn_count", 0)
                 options.append({
                     "value": s["session_id"],
-                    "label": f"#{len(options)+1}  {ts}  {turn_count}轮  {summary}",
+                    "label": f"#{len(options)+1}  {ts}  {turn_count}轮  {display}",
                 })
             await self._emit(
                 BackendEvent(
@@ -1490,11 +1490,11 @@ class ReactBackendHost:
                 options = []
                 for i, s in enumerate(sessions, 1):
                     ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
-                    summary = s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
+                    display = s.get("title") or s.get("summary", "")[:50] or ("（无摘要）" if zh else "(no summary)")
                     turn_count = s.get("turn_count", 0)
                     options.append({
                         "value": s["session_id"],
-                        "label": f"#{i}  {ts}  {turn_count}轮  {summary}",
+                        "label": f"#{i}  {ts}  {turn_count}轮  {display}",
                     })
                 options.append({
                     "value": "__all__",

@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from illusion.config.paths import get_cron_dir, get_logs_dir
+from illusion.config.paths import get_cron_dir
 from illusion.services.cron import load_cron_jobs
 
 if TYPE_CHECKING:
@@ -98,13 +98,14 @@ def maybe_spawn_cron_daemon(
         )
         return None, ref
 
+    # spawn 子进程。stdout/stderr 重定向到 DEVNULL，避免与守护进程内部的
+    # RotatingFileHandler（写 cron_scheduler.log）形成"双写者"：父进程若把
+    # stdout 指向同一日志文件，子进程会持有一个绕过轮转的 fd，导致 Windows 上
+    # 旧的滚动备份被永久锁定且无法删除、轮转也可能因覆盖被锁文件而失败。
+    # 日志统一由守护进程内的 RotatingFileHandler 落盘（见 cron_serve.py）。
     creation_flags = 0
     if os.name == "nt":
         creation_flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-
-    logs_dir = get_logs_dir()
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = logs_dir / "cron_scheduler.log"
 
     try:
         daemon_cwd = str(Path.cwd())
@@ -112,20 +113,17 @@ def maybe_spawn_cron_daemon(
         daemon_cwd = str(cron_dir)
 
     try:
-        # 使用 with 管理 log_file：Popen 会在子进程中复制文件描述符，
-        # with 块退出后父进程关闭自身句柄，子进程的 stdout 仍然有效。
-        with open(log_path, "ab") as log_file:
-            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-            proc = subprocess.Popen(
-                [sys.executable, "-m", "illusion", "cron", "serve"],
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                creationflags=creation_flags,
-                close_fds=True,
-                env=env,
-                cwd=daemon_cwd,
-            )
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "illusion", "cron", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=creation_flags,
+            close_fds=True,
+            env=env,
+            cwd=daemon_cwd,
+        )
     except OSError as exc:
         logger.warning("启动 cron 守护进程失败: %s", exc)
         return None, None

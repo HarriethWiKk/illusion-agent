@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from typing import Any
 
 from illusion.config.paths import get_cron_dir, get_logs_dir
@@ -28,7 +29,11 @@ logger = logging.getLogger(__name__)
 
 
 def _setup_logging() -> None:
-    """配置日志：RotatingFileHandler + StreamHandler"""
+    """配置日志：RotatingFileHandler + StreamHandler
+    父进程 spawn 时 stdout/stderr 已重定向到 DEVNULL，避免"双写者"问题
+    （见 cron_spawn.py 的 DEVNULL 说明），日志统一由本 handler 落盘。
+    轮转策略：单文件最大 10MB，保留 5 个备份（总计约 60MB），避免无限增长
+    """
     from logging.handlers import RotatingFileHandler
 
     log_path = get_logs_dir() / "cron_scheduler.log"
@@ -52,8 +57,19 @@ def _setup_logging() -> None:
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
-
     logger.info("cron 守护进程启动，日志文件: %s", log_path)
+
+    # stdout 已不重定向到日志文件，补一个 excepthook 把未捕获异常写入日志，
+    # 保留崩溃可追溯性。
+    def _handle_uncaught(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logging.getLogger().error(
+            "cron 守护进程未捕获异常", exc_info=(exc_type, exc_value, exc_tb)
+        )
+
+    sys.excepthook = _handle_uncaught
 
 
 def run_cron_serve() -> None:

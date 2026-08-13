@@ -68,6 +68,7 @@ const PERMISSION_MODES = (language: UiLanguage): SelectOption[] => [
 	{value: 'default', label: 'Default', description: t(language, 'permDefaultDesc')},
 	{value: 'full_auto', label: 'Auto', description: t(language, 'permAutoDesc')},
 	{value: 'plan', label: 'Plan Mode', description: t(language, 'permPlanDesc')},
+	{value: 'yolo', label: 'YOLO', description: t(language, 'permYoloDesc')},
 ];
 
 /**
@@ -224,6 +225,26 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	useEffect(() => {
 		setPickerIndex(0);
 	}, [canShowPicker, commandHints.length, input]);
+
+	/**
+	 * 动态设置终端窗口/tab 标题为当前会话显示名称
+	 *
+	 * 后端在 app_state 中暴露 session_name（CLI --name 或 /rename 写入的自定义名称）。
+	 * 名称为空（--clear / /new / resume 到无标题会话）时回退默认标题 "IllusionAgent"，
+	 * 避免残留上一次的自定义标题。通过 ANSI 转义序列 ESC ] 0 ; title BEL 写入，仅在 TTY 生效。
+	 */
+	const lastTitleRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!process.stdout.isTTY) {
+			return;
+		}
+		const name = String(session.status.session_name ?? '').trim();
+		const title = name || 'IllusionAgent';
+		if (lastTitleRef.current !== title) {
+			lastTitleRef.current = title;
+			process.stdout.write(`\x1B]0;${title}\x07`);
+		}
+	}, [session.status.session_name]);
 
 	/**
 	 * 处理后端发起的选择请求

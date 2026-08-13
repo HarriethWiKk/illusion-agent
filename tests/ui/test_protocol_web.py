@@ -3,7 +3,8 @@
 验证 web_* 请求类型与事件类型的协议定义正确。
 """
 
-from illusion.ui.protocol import BackendEvent, FrontendRequest
+from illusion.state.app_state import AppState
+from illusion.ui.protocol import BackendEvent, FrontendRequest, _state_payload
 
 
 class TestWebFrontendRequest:
@@ -101,3 +102,23 @@ class TestWebBackendEvent:
         )
         assert evt.web_request_id == "req-1"
         assert evt.web_query_kind == "text"
+
+
+class TestStatePayload:
+    """_state_payload 状态载荷测试"""
+
+    def test_state_payload_includes_session_name(self):
+        """会话显示名称必须写入状态载荷，供终端/Web 标题使用。
+
+        回归防护：前端读 session.status.session_name，若后端未序列化该字段，终端标题功能失效。
+        """
+        state = AppState(model="test-model", permission_mode="default", session_id="abc", session_name="我的会话")
+        payload = _state_payload(state)
+        assert payload["session_id"] == "abc"
+        assert payload["session_name"] == "我的会话"
+
+    def test_state_payload_empty_session_name(self):
+        """会话名称为空时载荷中为 ''（前端回退默认标题）。"""
+        state = AppState(model="test-model", permission_mode="default", session_id="abc", session_name="")
+        payload = _state_payload(state)
+        assert payload["session_name"] == ""

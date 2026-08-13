@@ -61,3 +61,58 @@ def test_cleanup_custom_ttl(tmp_path: Path):
     file_5d_2 = tmp_path / "five2.log"
     _make_old_file(file_5d_2, age_days=5)
     assert cleanup_old_files(tmp_path, "*.log", max_age_days=10) == 0
+
+
+def test_cleanup_by_size(tmp_path: Path):
+    """超过体积上限的文件应被删除（与 mtime 无关）。"""
+    f = tmp_path / "too_big.log"
+    f.write_text("x" * 5000, encoding="utf-8")  # 5KB
+    # 年龄新（mtime=now），但体积超限 → 删除
+    assert cleanup_old_files(tmp_path, "*.log", max_size_bytes=1000) == 1
+    assert not f.exists()
+
+
+def test_cleanup_by_size_keeps_small_files(tmp_path: Path):
+    """未超过体积上限的文件应保留。"""
+    f = tmp_path / "small.log"
+    f.write_text("x" * 100, encoding="utf-8")
+    assert cleanup_old_files(tmp_path, "*.log", max_size_bytes=5000) == 0
+    assert f.exists()
+
+
+def test_cleanup_by_size_none_is_noop(tmp_path: Path):
+    """max_size_bytes=None 时不按体积清理。"""
+    large = tmp_path / "large.log"
+    large.write_text("x" * 99999, encoding="utf-8")
+    assert cleanup_old_files(tmp_path, "*.log") == 0  # 无 max_size_bytes
+    assert large.exists()
+
+
+def test_cleanup_by_age_or_size_either_wins(tmp_path: Path):
+    """年龄或体积任一条件满足即删。"""
+    old = tmp_path / "old_small.log"
+    old.write_text("x", encoding="utf-8")
+    old_ts = time.time() - 10 * 24 * 3600
+    os.utime(old, (old_ts, old_ts))
+    # 体积小（< 1000），但年龄超 7 天 → 删除
+    assert cleanup_old_files(tmp_path, "*.log", max_age_days=7, max_size_bytes=1000) == 1
+
+
+def test_cleanup_glob_backup_pattern(tmp_path: Path):
+    """memory_*.log* 应覆盖活动文件与滚动备份。"""
+    active = tmp_path / "memory_dream.log"
+    active.write_text("x", encoding="utf-8")
+    backup = tmp_path / "memory_dream.log.1"
+    backup.write_text("x", encoding="utf-8")
+    backup2 = tmp_path / "memory_dream.log.2.gz"
+    backup2.write_text("x", encoding="utf-8")
+    for f in (active, backup, backup2):
+        _make_old_file(f, age_days=10)
+
+    # 旧的 memory_*.log 仅匹配 active，旧的 memory_*.log* 匹配全部
+    assert cleanup_old_files(tmp_path, "memory_*.log", max_age_days=7) == 1
+    # 重建
+    for f in (active, backup, backup2):
+        f.write_text("x", encoding="utf-8")
+        _make_old_file(f, age_days=10)
+    assert cleanup_old_files(tmp_path, "memory_*.log*", max_age_days=7) == 3

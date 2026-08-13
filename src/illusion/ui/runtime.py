@@ -554,6 +554,16 @@ async def build_runtime(
             filtered.register(tool)
         tool_registry = filtered
     # 创建应用状态存储
+    # 会话显示名称：恢复会话时优先读取磁盘 meta 的自定义 title（/rename 写入），
+    # 否则回退到 CLI --name 传入的会话名称。
+    session_name = name or ""
+    if restore_session_id and not session_name:
+        try:
+            from illusion.services.session_storage import read_meta
+            meta = read_meta(cwd, restore_session_id)
+            session_name = ((meta or {}).get("title")) or ""
+        except (OSError, ValueError):
+            session_name = ""
     app_state = AppStateStore(
         AppState(
             model=settings.active_model_name,
@@ -569,6 +579,7 @@ async def build_runtime(
             show_thinking=settings.show_thinking,
             phase="idle",
             session_id=session_id,
+            session_name=session_name,
         )
     )
     # 创建会话钩子存储和钩子执行器
@@ -999,6 +1010,10 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
     created_at = existing.get("created_at", time.time())
     # 首次写入 index.json（标记为 latest session）
     write_index_to(session_dir, session_id)
+    # 首次写入时把 CLI --name 的会话显示名称持久化为 title（仅在无自定义名称时），
+    # 使纯 --name 启动的会话在 /resume、/delete 列表中也能显示该名称；
+    # 已存在 title（/rename 设置的）则保留。
+    title = existing.get("title") or (bundle.app_state.get().session_name or "")
     write_meta_to(session_dir, session_id, {
         "session_id": session_id,
         "cwd": bundle.cwd,
@@ -1008,7 +1023,7 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
         "summary": summary,
         "message_count": len(bundle.engine.messages),
         "turn_count": turn_count,
-        "title": existing.get("title"),
+        "title": title,
     })
 
 

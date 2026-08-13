@@ -110,12 +110,14 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
 
     # 跟踪 subprocess.Popen 调用
     spawn_calls: list[list[str]] = []
+    spawn_kwargs: dict = {}
 
     class _FakeProc:
         pid = 99999
 
     def _fake_popen(*args, **kwargs):
         spawn_calls.append(args[0] if args else [])
+        spawn_kwargs.update(kwargs)
         return _FakeProc()
     monkeypatch.setattr("subprocess.Popen", _fake_popen)
 
@@ -123,5 +125,11 @@ def test_fingerprint_mismatch_triggers_restart(monkeypatch: pytest.MonkeyPatch):
     # 验证 spawn 发生（指纹不匹配时应 spawn 新进程）
     assert proc is not None, "指纹不匹配时应 spawn 新进程"
     assert len(spawn_calls) >= 1, "应调用 subprocess.Popen 至少一次"
+    # 回归防护：stdout/stderr 必须重定向到 DEVNULL，避免与守护进程内
+    # RotatingFileHandler 形成"双写者"（Windows 锁定滚动备份、轮转失败）。
+    import subprocess
+    assert spawn_kwargs.get("stdout") is subprocess.DEVNULL
+    assert spawn_kwargs.get("stderr") is subprocess.DEVNULL
+    assert spawn_kwargs.get("stdin") is subprocess.DEVNULL
     # 验证杀旧进程被尝试（Unix: os.kill；Windows: fake TerminateProcess）
     assert kill_called, "指纹不匹配时应尝试杀旧进程"

@@ -37,6 +37,12 @@ from illusion.config.settings import (
     save_settings as _save_settings,
 )
 from illusion.permissions import PermissionMode
+from illusion.services.file_history import (
+    cleanup_all_file_histories as _cleanup_all_file_histories,
+)
+from illusion.services.file_history import (
+    cleanup_file_history as _cleanup_file_history,
+)
 from illusion.services.session_storage import (
     delete_session_by_id as _delete_session_by_id,
 )
@@ -376,6 +382,8 @@ class WebApiDispatcher:
                 return_exceptions=True,
             )
             deleted_ids = {s["session_id"] for s in sessions}
+            # 清理全部文件历史备份目录（file-history 独立于会话目录树，需显式删除）
+            await asyncio.to_thread(_cleanup_all_file_histories)
         elif request.session_ids:
             await asyncio.gather(
                 *(
@@ -385,6 +393,11 @@ class WebApiDispatcher:
                 return_exceptions=True,
             )
             deleted_ids = set(request.session_ids)
+            # 逐个清理对应会话的文件历史备份目录（独立于会话目录树，需显式删除）
+            await asyncio.gather(
+                *(asyncio.to_thread(_cleanup_file_history, sid) for sid in request.session_ids),
+                return_exceptions=True,
+            )
         # 释放被删会话的运行时（取消行任务、关闭引擎）；若删除了活跃会话，
         # 后端原子化地新建一个空会话并推送 web_restore_completed（空转录），
         # 使前端主区域即时进入新会话，无需前端编排两阶段删除。

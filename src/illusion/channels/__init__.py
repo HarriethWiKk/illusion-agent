@@ -152,25 +152,26 @@ def maybe_spawn_channel_daemon(
         )
         return None, ref
 
-    # spawn 子进程，stdout/stderr 重定向到日志文件（便于排查，不干扰主终端）
+    # spawn 子进程。stdout/stderr 重定向到 DEVNULL，避免与守护进程内部的
+    # RotatingFileHandler（写 serve.log）形成"双写者"：父进程若把 stdout 指向
+    # 同一日志文件，子进程会持有一个绕过轮转的 fd，导致 Windows 上旧的滚动
+    # 备份被永久锁定且无法删除、轮转也可能因覆盖被锁文件而失败。
+    # 日志统一由守护进程内的 RotatingFileHandler 落盘（裁剪见 serve.py）。
     creation_flags = 0
     if os.name == "nt":
         creation_flags = 0x00000008 | 0x00000200
 
-    log_path = data_dir / "serve.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         daemon_cwd = str(Path.cwd())
     except (OSError, FileNotFoundError):
         daemon_cwd = str(data_dir)
 
     try:
-        log_file = open(log_path, "ab")  # noqa: SIM115  追加写，子进程持有句柄
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "illusion", "channel", "serve"],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             creationflags=creation_flags,
             close_fds=True,

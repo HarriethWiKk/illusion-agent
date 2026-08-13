@@ -244,6 +244,74 @@ class TestWebNewAndDeleteSession:
         return dispatcher
 
     @pytest.mark.asyncio
+    async def test_delete_sessions_calls_file_history_cleanup(self, monkeypatch):
+        """测试删除会话时必须调用对应 file-history 目录清理（与 CLI 对齐）。
+
+        根因：file-history 备份目录独立于会话目录树存储，必须显式调用
+        cleanup_file_history/session_id 否则产生磁盘泄漏。
+        """
+        from illusion.ui.protocol import FrontendRequest
+        host = MagicMock()
+        host._emit = AsyncMock()
+        host._status_snapshot = MagicMock(return_value=MagicMock())
+        host._bundle = MagicMock()
+        host._bundle.cwd = "/fake/cwd"
+        host._bundle.session_id = "current-sid"
+        host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        host._push_sessions = AsyncMock()
+        host._dispose_session = AsyncMock()
+        host._create_session = AsyncMock()
+        host._session_state_payload = MagicMock(return_value={})
+        host._sessions = {}
+        host._active_session_id = "current-sid"
+
+        dispatcher = WebApiDispatcher(host)
+
+        cleanup_calls: list[str] = []
+        cleanup_all_calls: list[int] = []
+
+        def fake_cleanup(sid: str) -> None:
+            cleanup_calls.append(sid)
+
+        def fake_cleanup_all() -> int:
+            cleanup_all_calls.append(1)
+            return 0
+
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._list_session_snapshots",
+            lambda cwd, limit=20: [{"session_id": "s1"}, {"session_id": "s2"}],
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._delete_session_by_id",
+            lambda cwd, sid: True,
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._cleanup_file_history",
+            fake_cleanup,
+        )
+        monkeypatch.setattr(
+            "illusion.ui.web.ws_web_api._cleanup_all_file_histories",
+            fake_cleanup_all,
+        )
+
+        # 场景一：批量删除指定会话
+        req = FrontendRequest(type="web_delete_sessions", session_ids=["s1", "s2"])
+        await dispatcher.handle(req)
+        # 两个会话都应该清理 file-history
+        assert set(cleanup_calls) == {"s1", "s2"}, (
+            f"每个被删会话都应调用 cleanup_file_history，实际调用={cleanup_calls}"
+        )
+        cleanup_calls.clear()
+
+        # 场景二：删除全部会话
+        req2 = FrontendRequest(type="web_delete_sessions", delete_all=True)
+        await dispatcher.handle(req2)
+        # delete_all 应调用 _cleanup_all_file_histories 清理全部备份目录
+        assert len(cleanup_all_calls) == 1, (
+            "delete_all 应调用 cleanup_all_file_histories"
+        )
+
+    @pytest.mark.asyncio
     async def test_new_session_emits_web_restore_completed_empty(self, dispatcher):
         """测试新建会话：创建独立运行时并发送空 transcript 的 web_restore_completed"""
         from illusion.ui.protocol import FrontendRequest

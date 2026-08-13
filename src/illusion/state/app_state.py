@@ -59,6 +59,7 @@ class AppState:
     show_thinking: bool = True  # 是否显示思考过程
     phase: str = "idle"  # 会话阶段: idle / thinking / tool_executing
     session_id: str = ""  # 当前会话 ID
+    session_name: str = ""  # 当前会话显示名称（CLI --name / /rename）
     context_window: int = 0  # 上下文窗口大小（tokens）
     context_tokens: int = 0  # 当前已用 tokens（估算）
     context_cache_read: int = 0  # 最后一次 API 调用的缓存命中 tokens

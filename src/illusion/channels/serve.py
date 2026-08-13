@@ -13,6 +13,7 @@ import asyncio  # 异步
 import logging  # 日志
 import os  # 进程强制退出
 import signal  # 信号处理
+import sys  # excepthook（未捕获异常回写日志）
 import time  # 时间戳（_EventWatchdog 用）
 from typing import Any  # 类型
 
@@ -100,9 +101,9 @@ def run_channel_serve() -> None:
     if not _check_channel_dependencies(cfg):
         return
 
-    # 配置日志：同时输出到 stdout（前台可见）和文件（守护进程可追溯）
-    # detached 子进程的 stdout 重定向到文件时可能因缓冲丢失，
-    # 故额外用 RotatingFileHandler 直接写文件，确保日志可靠落盘 + 自动轮转
+    # 配置日志：RotatingFileHandler 写文件（大小轮转） + StreamHandler 控制台输出
+    # 父进程 spawn 时 stdout/stderr 已重定向到 DEVNULL，避免"双写者"问题
+    # （见 channels/__init__.py 的 DEVNULL 说明），日志统一由本 handler 落盘。
     # 轮转策略：单文件最大 10MB，保留 5 个备份（总计约 60MB），避免无限增长
     from logging.handlers import RotatingFileHandler
     log_path = get_channels_data_dir() / "serve.log"
@@ -122,6 +123,18 @@ def run_channel_serve() -> None:
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(stream_handler)
     logger.info("渠道守护进程启动，日志文件: %s", log_path)
+
+    # stdout 已不重定向到日志文件（见 channels/__init__.py 的 DEVNULL 说明），
+    # 补一个 excepthook 把未捕获异常写入日志，保留崩溃可追溯性。
+    def _handle_uncaught(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logging.getLogger().error(
+            "渠道守护进程未捕获异常", exc_info=(exc_type, exc_value, exc_tb)
+        )
+
+    sys.excepthook = _handle_uncaught
 
     # 清理旧文件
     from illusion.channels import _cleanup_old_channel_files, _config_fingerprint

@@ -498,6 +498,9 @@ async def rename_handler(args: str, context: CommandContext) -> CommandResult:
             return CommandResult(message=t("rename_not_found", sid=context.session_id))
         meta.pop("title", None)
         write_meta(context.cwd, context.session_id, meta)
+        # 同步当前会话显示名称（应用状态关联字段）
+        if context.app_state is not None:
+            context.app_state.set(session_name="")
         return CommandResult(message=t("rename_cleared"), refresh_state=True)
 
     # 解析目标会话和名称
@@ -542,6 +545,13 @@ async def rename_handler(args: str, context: CommandContext) -> CommandResult:
         return CommandResult(message=t("rename_not_found", sid=target_sid))
     meta["title"] = name
     write_meta(context.cwd, target_sid, meta)
+
+    # 重命名的是当前会话：同步应用状态显示名称，使终端/Web 标题即时更新
+    if (
+        target_sid == context.session_id
+        and context.app_state is not None
+    ):
+        context.app_state.set(session_name=name)
 
     return CommandResult(
         message=t("rename_set", title=name),

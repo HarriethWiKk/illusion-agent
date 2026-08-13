@@ -10,7 +10,8 @@
     - 专用文件日志器（RotatingFileHandler，5MB × 3 备份）
     - propagate=False：不传播到根 logger，避免在控制台刷屏
     - 路径通过 get_logs_dir() 解析（支持 ILLUSION_LOGS_DIR 覆盖，无硬编码）
-    - 周期清理：超过 7 天的记忆活动日志自动删除（统一走 log_cleanup 工具）
+    - 周期清理：超过 7 天或超过体积上限的记忆活动日志自动删除
+      （统一走 log_cleanup 工具，覆盖活动文件与滚动备份）
     - 子代理事件流本身不渲染到主对话（无感），日志文件是唯一的可见通道
 
 函数说明：
@@ -29,6 +30,11 @@ from illusion.utils.log_cleanup import cleanup_old_files
 _MAX_BYTES = 5 * 1024 * 1024  # 单文件上限 5MB
 _BACKUP_COUNT = 3  # 滚动备份数
 _LOG_TTL_DAYS = 7  # 记忆活动日志保留天数
+# 体积兜底阈值：活动日志由 RotatingFileHandler 约束在 _MAX_BYTES 内，
+# 年龄清理（mtime 超 TTL）对"持续写入、mtime 不断刷新"的活动文件永不触发，
+# 故额外按单文件体积兜底：任一文件（活动文件或滚动备份）达到该阈值即删除，
+# 防止异常情况下（如轮转失效）单个日志无限增长。
+_MAX_SIZE_BYTES = _MAX_BYTES * 10
 
 _loggers: dict[str, logging.Logger] = {}
 
@@ -48,10 +54,17 @@ def get_memory_logger(kind: str) -> logging.Logger:
         return _loggers[kind]
     logger = logging.getLogger(f"illusion.memory.{kind}")
     if not logger.handlers:
-        # 先清理超过保留天数的旧记忆活动日志（统一走 log_cleanup 工具）。
+        # 先清理超龄/超大的旧记忆活动日志（统一走 log_cleanup 工具）。
         # 顺序必须在创建 handler 之前：Windows 上被打开的文件无法删除，
         # 若 handler 先打开文件则清理会失败。
-        cleanup_old_files(get_logs_dir(), "memory_*.log", max_age_days=_LOG_TTL_DAYS)
+        # glob 用 "memory_*.log*" 以一并覆盖 RotatingFileHandler 的滚动备份
+        # （memory_dream.log.1/.2/.3），并叠加体积阈值兜底。
+        cleanup_old_files(
+            get_logs_dir(),
+            "memory_*.log*",
+            max_age_days=_LOG_TTL_DAYS,
+            max_size_bytes=_MAX_SIZE_BYTES,
+        )
         logger.setLevel(logging.INFO)
         logger.propagate = False  # 不传播到根 logger，避免刷屏控制台
         log_path = get_logs_dir() / f"memory_{kind}.log"

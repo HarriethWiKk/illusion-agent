@@ -435,6 +435,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "show_thinking": state.show_thinking,
         "phase": state.phase,
         "session_id": state.session_id,
+        "session_name": state.session_name,
         "context_window": state.context_window,
         "context_tokens": state.context_tokens,
         "context_cache_read": state.context_cache_read,

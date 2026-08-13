@@ -12,17 +12,12 @@ from illusion.services.cron_spawn import (
 
 @pytest.fixture(autouse=True)
 def _tmp_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """重定向 cron 目录和日志目录到临时目录"""
+    """重定向 cron 目录到临时目录"""
     cron_dir = tmp_path / "data" / "cron"
-    logs_dir = tmp_path / "logs"
     cron_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(
         "illusion.services.cron_spawn.get_cron_dir", lambda: cron_dir
-    )
-    monkeypatch.setattr(
-        "illusion.services.cron_spawn.get_logs_dir", lambda: logs_dir
     )
 
 
@@ -109,11 +104,22 @@ def test_no_daemon_running_spawns_and_connects(monkeypatch: pytest.MonkeyPatch, 
     class _FakeProc:
         pid = 99999
 
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: _FakeProc())
+    captured_kwargs: dict = {}
+    def _fake_popen(*args, **kw):
+        captured_kwargs.update(kw)
+        return _FakeProc()
+    monkeypatch.setattr("subprocess.Popen", _fake_popen)
 
     proc, ref = maybe_spawn_cron_daemon()
     assert proc is not None
     assert ref is not None
+    # 回归防护：stdout/stderr 必须重定向到 DEVNULL。
+    # 若父进程把 stdout 指向日志文件，会与守护进程内 RotatingFileHandler
+    # 形成"双写者"，导致 Windows 上滚动备份被锁定且轮转失败。
+    import subprocess
+    assert captured_kwargs.get("stdout") is subprocess.DEVNULL
+    assert captured_kwargs.get("stderr") is subprocess.DEVNULL
+    assert captured_kwargs.get("stdin") is subprocess.DEVNULL
     # 后台线程异步连接：等待最多 2s 让 ref._client 被设置
     import time
     for _ in range(40):
