@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -149,7 +150,6 @@ def main(
     if cwd is None and settings.working_directory:
         cwd = settings.working_directory
     if cwd:
-        import os
         working_dir = Path(cwd).expanduser().resolve()
         if working_dir.exists() and working_dir.is_dir():
             os.chdir(working_dir)

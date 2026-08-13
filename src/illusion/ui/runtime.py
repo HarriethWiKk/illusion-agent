@@ -76,7 +76,7 @@ from illusion.tasks.types import TaskRecord, is_task_notification
 from illusion.tools import ToolRegistry, create_default_tool_registry
 
 # 类型别名定义
-PermissionPrompt = Callable[[str, str], Awaitable[bool]]  # 权限确认回调
+PermissionPrompt = Callable[[str, str, bool], Awaitable[bool]]  # 权限确认回调（tool_name, question, high_risk）
 AskUserPrompt = Callable[[str, object], Awaitable[str]]  # 用户问答回调
 PlanApprovalPrompt = Callable[[str], Awaitable[tuple[bool, str]]]  # 计划审批回调
 SystemPrinter = Callable[[str], Awaitable[None]]  # 系统消息打印回调

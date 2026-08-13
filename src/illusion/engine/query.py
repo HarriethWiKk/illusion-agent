@@ -1039,6 +1039,7 @@ async def _execute_tool_call(
                 confirmed = await context.sandbox_permission_prompt(
                     tool_name,
                     f"Sandbox restriction: {denied_path} - {decision.reason or ''}",
+                    decision.high_risk,
                 )
                 if not confirmed:
                     raise PermissionDenied(tool_name, f"Sandbox denied: {denied_path}")
