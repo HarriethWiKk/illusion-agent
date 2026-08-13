@@ -15,6 +15,17 @@
   cursor: default;
 }
 
+/* 隐藏 number 输入框的步进箭头，仅保留手动输入 */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinner {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 :root {
   /* 主色 - 青绿色系 (清新风格) */
   --primary: #2a9d99;

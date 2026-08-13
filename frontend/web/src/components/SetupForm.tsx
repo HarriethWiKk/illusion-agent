@@ -439,7 +439,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-md animate-fade-in" onClick={firstLogin ? undefined : onClose}>
       <div
-        className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[560px] max-w-[92vw] max-h-[88vh] flex flex-col animate-scale-in modal-origin-center"
+        className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[760px] h-[600px] max-w-[95vw] max-h-[90vh] flex flex-col animate-scale-in modal-origin-center"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
@@ -461,30 +461,34 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
           )}
         </div>
 
-        {/* Tab 导航栏 */}
-        <div className="px-6 pt-3 flex items-center gap-1.5 shrink-0 flex-wrap">
-          {(['settings', 'channels', 'cron', 'sandbox'] as const).map((tabKey, idx) => {
-            const isActive = tab === tabKey;
-            const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle'
-              : tabKey === 'channels' ? 'setupFormChannelsTitle'
-              : tabKey === 'cron' ? 'setupFormCronTitle'
-              : 'setupFormSandboxTitle';
-            return (
-              <button
-                key={tabKey}
-                onClick={() => setTab(tabKey)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
-                  isActive ? 'bg-primary text-white' : 'text-content-secondary hover:bg-surface-hover'
-                }`}
-              >
-                <span className="mr-1">{idx + 1}.</span>{t(lang, labelKey)}
-              </button>
-            );
-          })}
-        </div>
+        {/* 主体：左侧 Tab 栏 + 右侧内容区 */}
+        <div className="flex flex-1 min-h-0">
+          {/* 左侧 Tab 导航栏（垂直） */}
+          <div className="w-fit shrink-0 border-r border-border-light px-3 py-3 flex flex-col gap-1 overflow-y-auto">
+            {(['settings', 'channels', 'cron', 'sandbox'] as const).map((tabKey) => {
+              const isActive = tab === tabKey;
+              const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle'
+                : tabKey === 'channels' ? 'setupFormChannelsTitle'
+                : tabKey === 'cron' ? 'setupFormCronTitle'
+                : 'setupFormSandboxTitle';
+              return (
+                <button
+                  key={tabKey}
+                  onClick={() => setTab(tabKey)}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all cursor-pointer text-left whitespace-nowrap ${
+                    isActive
+                      ? 'bg-primary text-white'
+                      : 'text-content-secondary hover:bg-surface-hover'
+                  }`}
+                >
+                  {t(lang, labelKey)}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* 内容区：cron Tab 独立加载数据，不依赖 settings/envs/channels 主加载流程 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {/* 内容区：cron Tab 独立加载数据，不依赖 settings/envs/channels 主加载流程 */}
+          <div className="flex-1 min-w-0 overflow-y-auto px-6 py-4 [scrollbar-gutter:stable]">
           {tab === 'cron' ? (
             <CronTab lang={lang} />
           ) : loading ? (
@@ -543,6 +547,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
           ) : (
             <ChannelsTab lang={lang} channels={channels} onChannelsChange={setChannels} />
           )}
+          </div>
         </div>
 
         {/* 底部操作栏（cron Tab 操作即时生效，非首次登录时隐藏保存按钮） */}
@@ -893,7 +898,6 @@ function SettingsTab(p: SettingsTabProps) {
             />
           </button>
         </div>
-        <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldMemoryAutoExtractHint')}</div>
         {/* 记忆目录输入 */}
         <div>
           <div className={labelClass}>{t(lang, 'setupFieldMemoryDirectory')}</div>
@@ -904,7 +908,6 @@ function SettingsTab(p: SettingsTabProps) {
             className={inputClass}
             placeholder={t(lang, 'setupFieldMemoryDirectoryHint')}
           />
-          <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldMemoryDirectoryHint')}</div>
         </div>
         {/* 提取模型 */}
         <div>
@@ -1333,12 +1336,12 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
     onSandboxChange({ ...sandbox, network: { ...sandbox.network, ...patch } });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {error && <div className="text-xs text-danger">{t(lang, 'setupSandboxSaveFailed')}: {error}</div>}
       {saved && <div className="text-xs text-success">{t(lang, 'setupSandboxSaveSuccess')}</div>}
 
-      {/* 沙箱行为选项（沙箱强制开启，无需开关） */}
-      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+      {/* 沙箱行为（沙箱强制开启，无需开关） */}
+      <SandboxSection lang={lang} titleKey="setupFieldSandboxBehavior" >
         <BoolWithHint
           lang={lang}
           labelKey="setupFieldSandboxAllowUnsandboxed"
@@ -1346,11 +1349,10 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
           checked={sandbox.allow_unsandboxed_commands}
           onChange={(v) => update({ allow_unsandboxed_commands: v })}
         />
-        <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskHint')}</div>
-      </div>
+      </SandboxSection>
 
       {/* 平台与排除命令 */}
-      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
+      <SandboxSection lang={lang} titleKey="setupFieldSandboxPlatform" >
         <TextFieldWithHint
           lang={lang}
           labelKey="setupFieldSandboxEnabledPlatforms"
@@ -1365,11 +1367,10 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
           value={sandbox.excluded_commands}
           onChange={(v) => update({ excluded_commands: v })}
         />
-      </div>
+      </SandboxSection>
 
       {/* 文件系统 */}
-      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
-        <div className={labelClass}>{t(lang, 'setupFieldSandbox')}</div>
+      <SandboxSection lang={lang} titleKey="setupFieldSandbox" >
         <StringListField lang={lang} labelKey="setupFieldSandboxAllowWrite" value={sandbox.filesystem.allow_write} onChange={(v) => updateFs({ allow_write: v })} />
         <StringListField lang={lang} labelKey="setupFieldSandboxDenyWrite" value={sandbox.filesystem.deny_write} onChange={(v) => updateFs({ deny_write: v })} />
         <StringListField lang={lang} labelKey="setupFieldSandboxDenyRead" value={sandbox.filesystem.deny_read} onChange={(v) => updateFs({ deny_read: v })} />
@@ -1380,21 +1381,19 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
           value={sandbox.filesystem.allow_read}
           onChange={(v) => updateFs({ allow_read: v })}
         />
-      </div>
+      </SandboxSection>
 
       {/* 网络 */}
-      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
-        <div className={labelClass}>{t(lang, 'setupFieldSandboxNetwork')}</div>
+      <SandboxSection lang={lang} titleKey="setupFieldSandboxNetwork" >
         <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxAllowDomains" value={sandbox.network.allowed_domains.join(', ')} onChange={(v) => updateNet({ allowed_domains: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
         <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxDenyDomains" value={sandbox.network.denied_domains.join(', ')} onChange={(v) => updateNet({ denied_domains: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
         <BoolField lang={lang} labelKey="setupFieldSandboxAllowAllUnixSockets" checked={sandbox.network.allow_all_unix_sockets} onChange={(v) => updateNet({ allow_all_unix_sockets: v })} />
         <BoolField lang={lang} labelKey="setupFieldSandboxAllowLocalBinding" checked={sandbox.network.allow_local_binding} onChange={(v) => updateNet({ allow_local_binding: v })} />
-      </div>
+      </SandboxSection>
 
-      {/* 高级选项 */}
-      <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
-        <div className={labelClass}>{t(lang, 'setupFieldSandboxAdvanced')}</div>
-        <BoolWithHint lang={lang} labelKey="setupFieldSandboxWeakerNetworkIsolation" hintKey="setupFieldSandboxWeakerNetworkIsolationHint" checked={sandbox.enable_weaker_network_isolation} onChange={(v) => update({ enable_weaker_network_isolation: v })} />
+      {/* 高级选项（默认折叠，减少视觉噪音） */}
+      <SandboxSection lang={lang} titleKey="setupFieldSandboxAdvanced">
+        <BoolWithHint lang={lang} labelKey="setupFieldSandboxWeakerNetworkIsolation" checked={sandbox.enable_weaker_network_isolation} onChange={(v) => update({ enable_weaker_network_isolation: v })} />
         <BoolField lang={lang} labelKey="setupFieldSandboxWeakerNested" checked={sandbox.enable_weaker_nested_sandbox} onChange={(v) => update({ enable_weaker_nested_sandbox: v })} />
         <BoolField lang={lang} labelKey="setupFieldSandboxAllowGitConfig" checked={sandbox.allow_git_config} onChange={(v) => update({ allow_git_config: v })} />
         <div>
@@ -1405,56 +1404,227 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
             max={10}
             value={sandbox.mandatory_deny_search_depth}
             onChange={(e) => update({ mandatory_deny_search_depth: Math.max(1, Math.min(10, Number(e.target.value) || 3)) })}
-            className={inputClass}
+            className="no-spinner w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200"
           />
         </div>
         <TextFieldWithHint lang={lang} labelKey="setupFieldSandboxRipgrepCommand" value={sandbox.ripgrep?.command ?? 'rg'} onChange={(v) => update({ ripgrep: { command: v || 'rg', args: sandbox.ripgrep?.args ?? [] } })} />
-      </div>
+      </SandboxSection>
 
-      {/* 风险分级（LOW / MEDIUM / HIGH 三层级，内置只读展示） */}
+      {/* 风险分级（LOW / MEDIUM / HIGH 三层级，内置只读展示，默认折叠） */}
       {permission && (
-        <div className="rounded-lg border border-border-light p-4 bg-surface-card-alt/50 space-y-3">
-          <div className={labelClass}>{t(lang, 'setupFieldSandboxRiskLevels')}</div>
-          <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskLevelsHint')}</div>
+        <SandboxSection lang={lang} titleKey="setupFieldSandboxRiskLevels">
+          <div className="space-y-3">
+            {/* HIGH 层级 */}
+            <RiskLevelCard
+              lang={lang}
+              level="HIGH"
+              titleKey="setupFieldSandboxRiskHigh"
+              hintKey="setupFieldSandboxRiskHighHint"
+              badgeClass="text-danger bg-danger/10"
+            >
+              <RiskPatternGroup
+                lang={lang}
+                titleKey="setupFieldSandboxRiskHighBash"
+                examplesTitleKey="setupFieldSandboxRiskHighBashExamples"
+                patterns={permission.dangerous_bash_patterns}
+                examples={[
+                  { cmd: 'rm -rf build/', desc: t(lang, 'setupRiskExampleRmRf') },
+                  { cmd: 'sudo rm /etc/hosts', desc: t(lang, 'setupRiskExampleSudoRm') },
+                  { cmd: 'git reset --hard HEAD~1', desc: t(lang, 'setupRiskExampleGitHard') },
+                  { cmd: 'git clean -fd src/', desc: t(lang, 'setupRiskExampleGitClean') },
+                ]}
+              />
+              <RiskPatternGroup
+                lang={lang}
+                titleKey="setupFieldSandboxRiskHighPowershell"
+                examplesTitleKey="setupFieldSandboxRiskHighPowershellExamples"
+                patterns={permission.dangerous_powershell_patterns}
+                examples={[
+                  { cmd: 'Remove-Item -Recurse C:\\Temp', desc: t(lang, 'setupRiskExamplePsRecurse') },
+                  { cmd: 'Clear-Content .\\log.txt', desc: t(lang, 'setupRiskExamplePsClear') },
+                  { cmd: 'Format-Volume -DriveLetter D', desc: t(lang, 'setupRiskExamplePsFormat') },
+                ]}
+              />
+            </RiskLevelCard>
 
-          {/* HIGH 层级 */}
-          <div className="rounded border border-danger/30 bg-danger/5 p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-danger bg-danger/10">HIGH</span>
-              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskHigh')}</span>
-            </div>
-            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskHighHint')}</div>
-            <StringListField lang={lang} labelKey="setupFieldSandboxRiskHighBash" value={permission.dangerous_bash_patterns} readOnly />
-            <StringListField lang={lang} labelKey="setupFieldSandboxRiskHighPowershell" value={permission.dangerous_powershell_patterns} readOnly />
-          </div>
+            {/* MEDIUM 层级 */}
+            <RiskLevelCard
+              lang={lang}
+              level="MEDIUM"
+              titleKey="setupFieldSandboxRiskMedium"
+              hintKey="setupFieldSandboxRiskMediumHint"
+              badgeClass="text-warning bg-warning/10"
+            >
+              <RiskGrid lang={lang} labelKey="setupFieldSandboxRiskMediumTools" items={permission.medium_risk_tools} />
+            </RiskLevelCard>
 
-          {/* MEDIUM 层级 */}
-          <div className="rounded border border-warning/30 bg-warning/5 p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-warning bg-warning/10">MEDIUM</span>
-              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskMedium')}</span>
-            </div>
-            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskMediumHint')}</div>
-            <StringListField lang={lang} labelKey="setupFieldSandboxRiskMediumTools" value={permission.medium_risk_tools} readOnly />
+            {/* LOW 层级 */}
+            <RiskLevelCard
+              lang={lang}
+              level="LOW"
+              titleKey="setupFieldSandboxRiskLow"
+              hintKey="setupFieldSandboxRiskLowHint"
+              badgeClass="text-success bg-success/10"
+            >
+              <RiskGrid lang={lang} labelKey="setupFieldSandboxRiskLowCommands" items={permission.read_only_commands} />
+            </RiskLevelCard>
           </div>
+        </SandboxSection>
+      )}
+    </div>
+  );
+}
 
-          {/* LOW 层级 */}
-          <div className="rounded border border-success/30 bg-success/5 p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-success bg-success/10">LOW</span>
-              <span className="text-sm font-medium text-content-primary">{t(lang, 'setupFieldSandboxRiskLow')}</span>
-            </div>
-            <div className="text-[11px] text-content-disabled">{t(lang, 'setupFieldSandboxRiskLowHint')}</div>
-            <StringListField lang={lang} labelKey="setupFieldSandboxRiskLowCommands" value={permission.read_only_commands} readOnly />
-          </div>
+/** 可折叠区块：沙箱设置的折叠面板，点击标题展开/收起
+ *
+ * @param props - 组件属性
+ * @param props.titleKey - 区块标题 i18n key
+ * @param props.subtitleKey - 可选副标题（右对齐，如"折叠后仍展示"的信息）
+ * @param props.defaultOpen - 默认是否展开
+ * @param props.children - 区块内容
+ */
+function SandboxSection({ lang, titleKey, subtitleKey, defaultOpen = false, children }: {
+  lang: UiLanguage; titleKey: string; subtitleKey?: string; defaultOpen?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-border-light overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-4 py-2.5 bg-surface-card-alt hover:bg-surface-hover transition-colors cursor-pointer"
+      >
+        <svg className={`w-3 h-3 shrink-0 text-content-disabled transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
+        <span className="text-sm font-medium text-content-primary">{t(lang, titleKey)}</span>
+        {subtitleKey && <span className="text-[11px] text-content-disabled truncate flex-1 text-right">{t(lang, subtitleKey)}</span>}
+      </button>
+      {open && (
+        <div className="px-4 py-3 space-y-3">
+          {children}
         </div>
       )}
     </div>
   );
 }
 
+/** 风险等级卡片：可折叠面板，带彩色等级徽章；默认折叠，展开后展示规则与示例
+ *
+ * @param props - 组件属性
+ * @param props.level - 等级徽章文本（HIGH / MEDIUM / LOW）
+ * @param props.titleKey - 标题 i18n key
+ * @param props.hintKey - 说明 i18n key
+ * @param props.badgeClass - 徽章配色（text-xx bg-xx/10）
+ * @param props.children - 卡片内容（字段与示例）
+ */
+function RiskLevelCard({ lang, level, titleKey, hintKey, badgeClass, children }: {
+  lang: UiLanguage; level: string; titleKey: string; hintKey: string; badgeClass: string; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-border-light overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-3 py-2 bg-surface-card-alt hover:bg-surface-hover transition-colors cursor-pointer"
+      >
+        <svg className={`w-3 h-3 shrink-0 text-content-disabled transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold tracking-wide ${badgeClass}`}>{level}</span>
+        <span className="text-sm font-medium text-content-primary flex-1 text-left">{t(lang, titleKey)}</span>
+      </button>
+      {open && (
+        <div className="px-4 py-3 space-y-3">
+          <div className="text-[11px] text-content-disabled leading-relaxed">{t(lang, hintKey)}</div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 风险规则分组：bash / powershell 各自为一个带标题的边框分组，
+ * 组内为只读正则 textarea + 匹配示例，层级清晰、不再杂乱堆叠
+ *
+ * @param props - 组件属性
+ * @param props.titleKey - 分组标题 i18n key（如"高危 bash 正则"）
+ * @param props.examplesTitleKey - 示例区标题 i18n key
+ * @param props.patterns - 只读正则列表
+ * @param props.examples - 匹配示例列表（命令 + 说明）
+ */
+function RiskPatternGroup({ lang, titleKey, examplesTitleKey, patterns, examples }: {
+  lang: UiLanguage; titleKey: string; examplesTitleKey: string; patterns: string[]; examples: { cmd: string; desc: string }[];
+}) {
+  return (
+    <div className="rounded-md border border-border-light overflow-hidden">
+      <div className="px-3 py-1.5 text-xs font-medium text-content-secondary bg-surface-card border-b border-border-light">{t(lang, titleKey)}</div>
+      {/* 只读规则列表：固定高度 + 平滑滚动，避免禁写光标与原生 textarea 的粗糙滚动体验 */}
+      <ReadOnlyList items={patterns} />
+      <div className="p-3">
+        <RiskExamples lang={lang} titleKey={examplesTitleKey} examples={examples} />
+      </div>
+    </div>
+  );
+}
+
+/** 只读规则列表：固定高度 + 平滑滚动的只读展示，替代禁写的 textarea
+ * 圆角 + 边框自洽呈现，与周围卡片过渡平滑
+ *
+ * @param props - 组件属性
+ * @param props.items - 只读字符串列表（每条一行）
+ */
+function ReadOnlyList({ items }: { items: string[] }) {
+  return (
+    <div className="max-h-40 overflow-y-auto rounded-md border border-border-light bg-surface-card-alt px-3 py-2 font-mono text-xs text-content-primary leading-relaxed [scrollbar-gutter:stable]">
+      {items.map((p, i) => (
+        <div key={i} className="whitespace-pre-wrap break-all">{p}</div>
+      ))}
+    </div>
+  );
+}
+
+/** 变更/只读工具网格：grid-cols-2 展示命令本身（无说明）
+ *
+ * @param props - 组件属性
+ * @param props.labelKey - 字段标签 i18n key
+ * @param props.items - 命令列表
+ */
+function RiskGrid({ lang, labelKey, items }: { lang: UiLanguage; labelKey: string; items: string[] }) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, labelKey)}</div>
+      <div className="grid grid-cols-2 gap-2">
+        {items.map((item, i) => (
+          <div key={i} className="rounded-md bg-surface-card border border-border-light px-3 py-1.5 font-mono text-xs text-content-primary truncate">{item}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 正则匹配示例区：用具体命令帮助零基础用户理解正则规则
+ * 采用左右分栏网格，命令与说明更紧凑对齐
+ *
+ * @param props - 组件属性
+ * @param props.titleKey - 示例区标题 i18n key
+ * @param props.examples - 示例列表（命令 + 说明）
+ */
+function RiskExamples({ lang, titleKey, examples }: {
+  lang: UiLanguage; titleKey: string; examples: { cmd: string; desc: string }[];
+}) {
+  return (
+    <div>
+      <div className={labelClass}>{t(lang, titleKey)}</div>
+      <div className="grid grid-cols-2 gap-2">
+        {examples.map((ex, i) => (
+          <div key={i} className="rounded-md bg-surface-card border border-border-light px-3 py-2">
+            <code className="font-mono text-content-primary text-xs block whitespace-nowrap overflow-hidden text-ellipsis">{ex.cmd}</code>
+            <div className="text-[11px] text-content-disabled mt-0.5 truncate">{ex.desc}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 带提示的布尔开关行 */
-function BoolWithHint({ lang, labelKey, hintKey, checked, onChange }: { lang: UiLanguage; labelKey: string; hintKey: string; checked: boolean; onChange: (v: boolean) => void; }) {
+function BoolWithHint({ lang, labelKey, hintKey, checked, onChange }: { lang: UiLanguage; labelKey: string; hintKey?: string; checked: boolean; onChange: (v: boolean) => void; }) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -1466,7 +1636,7 @@ function BoolWithHint({ lang, labelKey, hintKey, checked, onChange }: { lang: Ui
           <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: checked ? '18px' : '2px' }} />
         </button>
       </div>
-      <div className="text-[11px] text-content-disabled mt-1">{t(lang, hintKey)}</div>
+      {hintKey && <div className="text-[11px] text-content-disabled mt-1">{t(lang, hintKey)}</div>}
     </div>
   );
 }
