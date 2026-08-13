@@ -188,6 +188,52 @@ class TestJobsDue:
         assert len(due) == 1
 
 
+class TestResolveCronPermissionMode:
+    """_resolve_cron_permission_mode 权限模式解析测试。"""
+
+    def test_no_targets_yolo(self) -> None:
+        """无投递目标且无指定会话 → yolo。"""
+        from illusion.services.cron_scheduler import _resolve_cron_permission_mode
+
+        assert _resolve_cron_permission_mode({"id": "x"}) == "yolo"
+        assert _resolve_cron_permission_mode({"id": "x", "deliver_to": [], "session_id": ""}) == "yolo"
+
+    def test_deliver_to_uses_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """有投递目标（无会话）→ 继承 settings 权限模式。"""
+        from types import SimpleNamespace
+
+        from illusion.permissions.modes import PermissionMode
+        from illusion.services.cron_scheduler import _resolve_cron_permission_mode
+
+        fake = SimpleNamespace(permission=SimpleNamespace(mode=PermissionMode.FULL_AUTO))
+        monkeypatch.setattr("illusion.config.settings.load_settings", lambda: fake)
+        assert _resolve_cron_permission_mode({"deliver_to": ["weixin:x"]}) == "full_auto"
+
+    def test_session_uses_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """有指定会话 → 继承 settings 权限模式。"""
+        from types import SimpleNamespace
+
+        from illusion.permissions.modes import PermissionMode
+        from illusion.services.cron_scheduler import _resolve_cron_permission_mode
+
+        fake = SimpleNamespace(permission=SimpleNamespace(mode=PermissionMode.PLAN))
+        monkeypatch.setattr("illusion.config.settings.load_settings", lambda: fake)
+        assert _resolve_cron_permission_mode({"session_id": "s1"}) == "plan"
+
+    def test_session_priority_over_deliver_to(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """有指定会话优先于投递目标：session 优先。"""
+        from types import SimpleNamespace
+
+        from illusion.permissions.modes import PermissionMode
+        from illusion.services.cron_scheduler import _resolve_cron_permission_mode
+
+        fake = SimpleNamespace(permission=SimpleNamespace(mode=PermissionMode.DEFAULT))
+        monkeypatch.setattr("illusion.config.settings.load_settings", lambda: fake)
+        assert _resolve_cron_permission_mode(
+            {"session_id": "s1", "deliver_to": ["weixin:x"]}
+        ) == "default"
+
+
 class TestExecuteJob:
     """任务执行测试。"""
 
@@ -208,17 +254,21 @@ class TestExecuteJob:
             "stdout": "OK",
             "stderr": "",
         }
-        with patch(
-            "illusion.services.cron_scheduler._execute_prompt_in_subprocess",
-            new_callable=AsyncMock,
-            return_value=mock_result,
-        ) as mock_exec:
+        with (
+            patch("illusion.services.cron_scheduler._resolve_cron_permission_mode", return_value="yolo"),
+            patch(
+                "illusion.services.cron_scheduler._execute_prompt_in_subprocess",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ) as mock_exec,
+        ):
             job = {"name": "test", "id": "test1", "prompt": "echo hello", "cwd": str(tmp_path)}
             entry = await execute_job(job)
             assert entry["status"] == "success"
-            # 无 deliver_to 时：不拼接前缀，extra_env=None
+            # 无 deliver_to 无 session：yolo 模式通过环境变量传递，不持久化
             mock_exec.assert_called_once_with(
-                "echo hello", tmp_path, timeout=300, extra_env=None
+                "echo hello", tmp_path, timeout=300,
+                extra_env={"ILLUSION_PERMISSION_MODE": "yolo"},
             )
 
     @pytest.mark.asyncio
@@ -232,6 +282,7 @@ class TestExecuteJob:
         }
         with (
             patch("illusion.services.cron_scheduler.validate_job_targets", return_value=[]) as _validate_mock,
+            patch("illusion.services.cron_scheduler._resolve_cron_permission_mode", return_value="default"),
             patch(
                 "illusion.services.cron_scheduler._execute_prompt_in_subprocess",
                 new_callable=AsyncMock,
@@ -252,7 +303,12 @@ class TestExecuteJob:
             actual_prompt = call_args.args[0]
             assert "[CRON TASK CONTEXT]" in actual_prompt
             assert "发送早安问候" in actual_prompt
-            assert call_args.kwargs["extra_env"] == {"ILLUSION_CRON_TASK": "1"}
+            # 有投递无 session：渠道端语义——权限自动批准 + 保留沙箱
+            assert call_args.kwargs["extra_env"] == {
+                "ILLUSION_PERMISSION_MODE": "default",
+                "ILLUSION_CRON_TASK": "1",
+                "ILLUSION_CRON_AUTO_APPROVE": "1",
+            }
 
     @pytest.mark.asyncio
     async def test_execute_with_session_id_uses_delegation(self, tmp_path: Path) -> None:
@@ -303,6 +359,7 @@ class TestExecuteJob:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
+            patch("illusion.services.cron_scheduler._resolve_cron_permission_mode", return_value="default"),
             patch(
                 "illusion.services.cron_scheduler._execute_prompt_in_subprocess",
                 new_callable=AsyncMock,
@@ -317,6 +374,8 @@ class TestExecuteJob:
             assert entry["status"] == "success"
             call_args = mock_exec.call_args
             assert call_args.kwargs["extra_args"] == ["-r", "sess_1", "--cwd", str(tmp_path)]
+            # 指定会话：权限模式通过环境变量继承当前配置（不持久化）
+            assert call_args.kwargs["extra_env"] == {"ILLUSION_PERMISSION_MODE": "default"}
 
     @pytest.mark.asyncio
     async def test_try_delegate_execution_reports_success(self) -> None:

@@ -303,6 +303,34 @@ async def test_make_print_mode_permission_persists_and_returns_false(tmp_path, m
 
 
 @pytest.mark.asyncio
+async def test_make_print_mode_permission_auto_approve_for_cron(tmp_path, monkeypatch):
+    """cron 投递任务（ILLUSION_CRON_AUTO_APPROVE=1）：权限自动批准（含高危）。
+
+    对齐渠道端 `_make_permission_prompt` 行为；不持久化、不设置 pending flag。
+    """
+    monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ILLUSION_CRON_AUTO_APPROVE", "1")
+    from illusion.services.session_storage import load_pending_permission
+    from illusion.ui.terminal_io import make_print_mode_permission
+
+    cwd = str(tmp_path / "project")
+    session_id = "test-perm-auto"
+    state: dict = {}
+
+    callback = make_print_mode_permission(cwd=cwd, session_id=session_id, state=state)
+
+    # 高危命令权限也应自动批准
+    result = await callback("bash", "rm -rf /", high_risk=True)
+    assert result is True
+    assert state.get("pending_permission_raised") is None
+    assert load_pending_permission(cwd, session_id) is None
+
+    # 普通工具权限同样自动批准
+    result = await callback("write_file", "Mutating tools require confirmation")
+    assert result is True
+
+
+@pytest.mark.asyncio
 async def test_make_print_mode_permission_approved_pending_returns_true(tmp_path, monkeypatch):
     """测试 make_print_mode_permission：pending 文件 approved=true 时应放行并删除"""
     monkeypatch.setenv("ILLUSION_DATA_DIR", str(tmp_path / "data"))

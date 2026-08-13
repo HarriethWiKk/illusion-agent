@@ -298,6 +298,13 @@ def make_print_mode_permission(
     )
 
     async def _prompt(tool_name: str, reason: str, high_risk: bool = False) -> bool:
+        # cron 投递任务（ILLUSION_CRON_AUTO_APPROVE=1）：自动批准所有工具权限
+        #（含高危），对齐渠道端 `_make_permission_prompt` 行为。保留沙箱限制，
+        # 沙箱确认不受此影响（由 make_print_mode_sandbox_permission 处理）。
+        import os as _os
+
+        if _os.environ.get("ILLUSION_CRON_AUTO_APPROVE") == "1":
+            return True
         # 1. 一次性允许（pending 文件 approved=true）
         if session_id:
             pending = load_pending_permission(cwd, session_id)

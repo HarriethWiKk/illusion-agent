@@ -414,6 +414,34 @@ def _build_cron_context_prefix(
     )
 
 
+def _resolve_cron_permission_mode(job: dict[str, Any]) -> str:
+    """解析 cron 任务执行时的权限模式。
+
+    依据投递目标与指定会话决定子进程的 `--permission-mode`：
+    - 无投递目标且无指定会话 → yolo（无人值守独立任务，绕过权限与沙箱）
+    - 有投递目标（无指定会话）→ 渠道端语义：权限自动批准由环境变量
+      ILLUSION_CRON_AUTO_APPROVE 触发，权限模式沿用 settings.permission.mode
+      （保留沙箱限制，与渠道 bot 一致）
+    - 有指定会话 → 继承当前 settings.permission.mode
+
+    Args:
+        job: cron 任务字典（含 deliver_to / session_id 字段）
+
+    Returns:
+        str: 权限模式字符串（default/plan/full_auto/yolo）
+    """
+    from illusion.config.settings import load_settings
+    from illusion.permissions.modes import PermissionMode
+
+    session_id = str(job.get("session_id") or "").strip()
+    deliver_to_list = job.get("deliver_to", []) or []
+    if not session_id and not deliver_to_list:
+        # 无投递无会话：独立无人值守任务，绕过权限与沙箱保证跑通
+        return PermissionMode.YOLO.value
+    # 有指定会话或有投递目标：沿用当前 settings 权限模式（继承当前配置）
+    return load_settings().permission.mode.value or PermissionMode.DEFAULT.value
+
+
 def validate_job_targets(job: dict[str, Any]) -> list[str]:
     """校验任务引用的会话目标是否存在（session_id / deliver_to）。
 
@@ -558,8 +586,23 @@ async def execute_job(
             {**job, "prompt": actual_prompt}, timeout,
         )
 
+    # 解析 cron 执行权限模式（依据投递目标 / 指定会话）：
+    #   - 无投递目标且无指定会话 → yolo（无人值守独立任务，绕过权限与沙箱）
+    #   - 有投递目标 → 渠道端语义：权限自动批准（环境变量触发）+ 保留沙箱
+    #   - 有指定会话 → 继承当前 settings.permission.mode
+    # 权限模式通过环境变量 ILLUSION_PERMISSION_MODE 传递（临时、不持久化），
+    # 而非 --permission-mode CLI 参数——后者会持久化到 settings.json，
+    # 污染主会话的全局权限配置。
+    permission_mode = _resolve_cron_permission_mode(job)
+
     # 设置环境变量标记 cron 任务上下文，子进程据此屏蔽 channel_hints 注入
-    extra_env = {"ILLUSION_CRON_TASK": "1"} if deliver_to_list else None
+    extra_env: dict[str, str] = {"ILLUSION_PERMISSION_MODE": permission_mode}
+    if deliver_to_list:
+        extra_env["ILLUSION_CRON_TASK"] = "1"
+        # 有投递且未指定会话：对齐渠道端行为——print 模式权限回调自动批准所有
+        # 工具权限（含高危），但保留沙箱限制（与渠道 bot 一致）
+        if not session_id:
+            extra_env["ILLUSION_CRON_AUTO_APPROVE"] = "1"
 
     # 在独立子进程中执行提示词（委托未接管时）
     if delegated_entry is None:

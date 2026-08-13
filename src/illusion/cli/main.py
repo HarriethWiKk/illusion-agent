@@ -323,7 +323,12 @@ def main(
         if resume == "":
             print(_t("session_resume_requires_id"), file=sys.stderr)
             raise typer.Exit(1)
+        # cron 上下文：通过环境变量 ILLUSION_PERMISSION_MODE 临时指定权限模式，
+        # 不持久化到 settings.json（避免 cron 子进程污染全局权限配置）。
+        # CLI --permission-mode 仍用于用户主动切换并持久化。
+        effective_permission_mode = permission_mode or os.environ.get("ILLUSION_PERMISSION_MODE")
         # 持久化 model/effort/max_turns/permission_mode 到 settings.json
+        # 注意：仅持久化 CLI 显式传入的 --permission-mode，不含 cron 环境变量
         if any(v is not None for v in (model, effort, max_turns, permission_mode)):
             from illusion.config import load_settings, save_settings
             _settings = load_settings()
@@ -344,7 +349,7 @@ def main(
                 output_format=output_format or "text",  # 输出格式
                 cwd=cwd,  # 工作目录
                 model=model,  # 模型
-                permission_mode=permission_mode,  # 权限模式
+                permission_mode=effective_permission_mode,  # 权限模式
                 max_turns=max_turns,  # 最大轮次
                 effort=effort,  # 推理强度级别
                 continue_session=continue_session,
