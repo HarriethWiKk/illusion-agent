@@ -454,11 +454,10 @@ const ToolResultBubble = memo(function ToolResultBubble({ name, text, isError, t
 /**
  * 流式进度消息渲染（供 PendingToolBubble 使用）
  *
- * thinking/text 为增量流式片段（token 级累积，完成后不再有光标），
+ * thinking/text 为增量流式片段（token 级累积），
  * tool/status 为完整消息，加 ▸ 前缀。
  */
-function ProgressMessages({ messages, showCursor }: { messages: Array<{message: string; type?: string}>; showCursor?: boolean }) {
-  const lastIdx = messages.length - 1;
+function ProgressMessages({ messages }: { messages: Array<{message: string; type?: string}> }) {
   return (
     <>
       {messages.map((msg, i) => (
@@ -469,14 +468,11 @@ function ProgressMessages({ messages, showCursor }: { messages: Array<{message: 
                 <span className="text-primary/70 mr-1">▸</span>
               )}
               {line || '\u00A0'}
-              {showCursor && i === lastIdx && li === 0 && (msg.type === 'thinking' || msg.type === 'text') && (
-                <span className="inline-block w-0.5 h-3 bg-primary animate-blink ml-0.5 align-middle" />
-              )}
             </div>
           ))}
         </div>
       ))}
-    </>
+    </>    
   );
 }
 
@@ -629,7 +625,6 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                     {text}
                   </ReactMarkdown>
                 </div>
-                {streaming && <span className="inline-block w-0.5 h-3 bg-content-secondary animate-blink ml-0.5 align-middle" />}
               </div>
             </div>
           </div>
@@ -666,9 +661,6 @@ export const PendingToolBubble = memo(function PendingToolBubble({ call }: { cal
     ? getAgentDisplayName(call.tool_input as Record<string, unknown>)
     : toolDisplayName(call.tool_name);
   const progressMessages = call.progressMessages ?? [];
-  // thinking/text 为增量流式片段（token 级累积），tool/status 为完整消息
-  const lastMsg = progressMessages.length > 0 ? progressMessages[progressMessages.length - 1] : undefined;
-  const hasStreamingTail = !!lastMsg && (lastMsg.type === 'thinking' || lastMsg.type === 'text');
   // 内容累积时的自动跟随：用户未上滑过内部容器时无条件跟随（大段进度增量
   // 也能跟上）；上滑过则仅滚回底部附近时恢复。程序滚动（auto-scroll 赋值）
   // 派生的 scroll 事件用 programmaticScrollRef 忽略。
@@ -716,7 +708,7 @@ export const PendingToolBubble = memo(function PendingToolBubble({ call }: { cal
           onScroll={handleProgressScroll}
           className="mt-1 ml-3.5 p-2.5 whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-96 overflow-y-auto scrollbar-hidden rounded-lg select-text text-content-secondary bg-surface-card-alt border border-border-light"
         >
-          <ProgressMessages messages={progressMessages} showCursor={hasStreamingTail} />
+          <ProgressMessages messages={progressMessages} />
         </div>
       )}
     </div>
@@ -860,7 +852,6 @@ export function StreamingBuffer({ text, reasoning, reasoningStreaming, lang }: {
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
             {text}
           </ReactMarkdown>
-          <span className="inline-block w-0.5 h-4 bg-primary animate-blink align-middle" />
         </div>
       )}
     </div>

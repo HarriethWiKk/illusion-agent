@@ -603,6 +603,9 @@ class WebBackendHost:
                         type="assistant_complete",
                         message=cleaned,
                         reasoning=reasoning if reasoning else None,
+                        # 该回合后是否跟随工具链：有 tool_use 则为中间步骤（true），
+                        # 无 tool_use 则为最终答案（false，前端据此立即退出 busy）
+                        tool_chain_follows=bool(event.message.tool_uses),
                         item=TranscriptItem(
                             role="assistant",
                             text=cleaned,

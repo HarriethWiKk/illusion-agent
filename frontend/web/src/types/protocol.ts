@@ -301,6 +301,8 @@ export interface BackendEvent {
   progress_type?: string;
   /** 助手的思考/推理过程（可选） */
   reasoning?: string;
+  /** assistant_complete 携带：该助手回合后是否跟随工具链（true=中间步骤，false=最终答案） */
+  tool_chain_follows?: boolean;
   /** 计划模式状态（可选） */
   plan_mode?: string;
   /** 待办事项列表快照（可选） */

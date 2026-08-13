@@ -801,7 +801,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           buf.flushedForTool = false;
           clearAssistantDelta(sid);
           // reasoning 流式结束，大脑脉冲停止
-          patchView(sid, { reasoningStreaming: false });
+          const completePatch: { reasoningStreaming: boolean; busy?: boolean } = { reasoningStreaming: false };
+          // 最终答案（不跟随工具链）时立即退出 busy，无需等待 line_complete；
+          // 中间步骤（tool_chain_follows=true）保持 busy，避免工具链期间闪烁
+          if (evt.tool_chain_follows === false) completePatch.busy = false;
+          patchView(sid, completePatch);
           return;
         }
         if (evt.type === 'line_complete') {

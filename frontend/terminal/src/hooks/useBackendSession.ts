@@ -596,6 +596,12 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			assistantFlushedForToolRef.current = false;
 
 			clearAssistantDelta();
+			// 若此助手回合后不跟随工具链（最终答案），立即退出 busy，
+			// 无需等待 line_complete（后者在整行处理后端才到，存在延迟）。
+			// 中间步骤（tool_chain_follows=true）保持 busy，避免工具链期间闪烁。
+			if (event.tool_chain_follows === false) {
+				setBusy(false);
+			}
 			return;
 		}
 		if (event.type === 'line_complete') {

@@ -253,6 +253,8 @@ export type BackendEvent = {
 	swarm_notifications?: SwarmNotificationSnapshot[] | null;
 	/** 助手的思考/推理过程（可选） */
 	reasoning?: string | null;
+	/** assistant_complete 携带：该助手回合后是否跟随工具链（true=中间步骤，false=最终答案） */
+	tool_chain_follows?: boolean | null;
 	/** 指令结果数据（可选） */
 	command_result_data?: {
 		/** 结果消息 */

@@ -287,6 +287,9 @@ class BackendEvent(BaseModel):
     tool_metadata: dict[str, Any] | None = None
     # 新增：进度消息
     progress_type: str | None = None
+    # assistant_complete 携带：该助手回合后是否跟随工具链（true=中间步骤，false=最终答案）
+    # 前端据此在最终文本输出后立即退出 busy，无需等待 line_complete
+    tool_chain_follows: bool | None = None
     # 新增：会话回退
     rewind_to_index: int | None = None
     # === rewind / 会话回退事件字段 ===
