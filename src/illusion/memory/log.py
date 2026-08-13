@@ -53,30 +53,34 @@ def get_memory_logger(kind: str) -> logging.Logger:
     if kind in _loggers:
         return _loggers[kind]
     logger = logging.getLogger(f"illusion.memory.{kind}")
-    if not logger.handlers:
-        # 先清理超龄/超大的旧记忆活动日志（统一走 log_cleanup 工具）。
-        # 顺序必须在创建 handler 之前：Windows 上被打开的文件无法删除，
-        # 若 handler 先打开文件则清理会失败。
-        # glob 用 "memory_*.log*" 以一并覆盖 RotatingFileHandler 的滚动备份
-        # （memory_dream.log.1/.2/.3），并叠加体积阈值兜底。
-        cleanup_old_files(
-            get_logs_dir(),
-            "memory_*.log*",
-            max_age_days=_LOG_TTL_DAYS,
-            max_size_bytes=_MAX_SIZE_BYTES,
-        )
-        logger.setLevel(logging.INFO)
-        logger.propagate = False  # 不传播到根 logger，避免刷屏控制台
-        log_path = get_logs_dir() / f"memory_{kind}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        handler = RotatingFileHandler(
-            log_path,
-            maxBytes=_MAX_BYTES,
-            backupCount=_BACKUP_COUNT,
-            encoding="utf-8",
-        )
-        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-        logger.addHandler(handler)
+    # 移除可能残留的旧 handler（logging.getLogger 返回全局单例，
+    # 测试间可能携带指向旧路径的 handler）
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+    # 先清理超龄/超大的旧记忆活动日志（统一走 log_cleanup 工具）。
+    # 顺序必须在创建 handler 之前：Windows 上被打开的文件无法删除，
+    # 若 handler 先打开文件则清理会失败。
+    # glob 用 "memory_*.log*" 以一并覆盖 RotatingFileHandler 的滚动备份
+    # （memory_dream.log.1/.2/.3），并叠加体积阈值兜底。
+    cleanup_old_files(
+        get_logs_dir(),
+        "memory_*.log*",
+        max_age_days=_LOG_TTL_DAYS,
+        max_size_bytes=_MAX_SIZE_BYTES,
+    )
+    logger.setLevel(logging.INFO)
+    logger.propagate = False  # 不传播到根 logger，避免刷屏控制台
+    log_path = get_logs_dir() / f"memory_{kind}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=_MAX_BYTES,
+        backupCount=_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
     _loggers[kind] = logger
     return logger
 

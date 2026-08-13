@@ -11,29 +11,12 @@ from illusion.memory.log import get_memory_logger, truncate
 
 @pytest.fixture(autouse=True)
 def reset_memory_loggers():
-    """每个测试前后清理记忆日志器缓存与 handlers（避免跨测试污染）。
-
-    除清理 _loggers 缓存外，还从全局 logging registry 按名字清理残留
-    handler——其他测试文件（如 test_extract.py）可能通过 get_memory_logger
-    创建了同名 logger，其 handler 会残留在 Python 全局 registry 中。
-    """
-    import logging as _logging
-
+    """每个测试前后清理记忆日志器缓存（避免跨测试污染）。"""
     from illusion.memory import log as log_mod
 
-    def _cleanup() -> None:
-        # 清理全局 registry 中所有 illusion.memory.* logger 的 handler
-        manager = _logging.Logger.manager
-        for name, logger in list(manager.loggerDict.items()):
-            if isinstance(logger, _logging.Logger) and name.startswith("illusion.memory."):
-                for handler in list(logger.handlers):
-                    logger.removeHandler(handler)
-                    handler.close()
-        log_mod._loggers.clear()
-
-    _cleanup()
+    log_mod._loggers.clear()
     yield
-    _cleanup()
+    log_mod._loggers.clear()
 
 
 def test_truncate_short_text():
