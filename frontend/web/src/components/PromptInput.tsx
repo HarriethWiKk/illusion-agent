@@ -23,7 +23,7 @@ import { t, type UiLanguage } from '../i18n';
 // 自动补全列表：包含所有前端识别的斜杠指令
 // 注意：'/agent' 虽在此列表中，但在 App.tsx 的 handleSubmit 中有特殊分支处理（分支选择器/创建向导/查看摘要）
 // 因此 '/agent' 不在 B_COMMANDS 中，不会走 web_query 通道
-const WEB_COMMANDS = [
+export const WEB_COMMANDS = [
   '/rewind', '/compact', '/context', '/export', '/init',
   '/agent', '/turns', '/output-style', '/language', '/max-tokens', '/rename',
 ];
@@ -84,6 +84,8 @@ interface PromptInputProps {
   btwLoading?: boolean;
   /** 侧问提交回调（可选） */
   onBtwSubmit?: (question: string) => void;
+  /** 底部工具行注入内容（Mode/Model/Effort 下拉，右对齐由发送/侧问按钮区隔离） */
+  children?: React.ReactNode;
 }
 
 /**
@@ -99,8 +101,10 @@ export interface PromptInputHandle {
   setDraft: (text: string) => void;
 }
 
-const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit }, ref) {
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, children }, ref) {
   const [value, setValue] = useState('');
+  // + 号快捷指令菜单开关（与斜杠共用同一弹窗，展示全部 WEB_COMMANDS）
+  const [plusOpen, setPlusOpen] = useState(false);
 
   useImperativeHandle(ref, () => ({
     setDraft: (text: string) => {
@@ -114,6 +118,8 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           ta.setSelectionRange(len, len);
           ta.style.height = 'auto';
           ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+          // 光标置于末尾：回填长草稿时滚动到底部，避免光标超出可视区
+          ta.scrollTop = ta.scrollHeight;
         }
       });
     },
@@ -149,17 +155,18 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     return () => document.removeEventListener('mousedown', handler);
   }, [inlineOptions, onInlineClose]);
 
-  // 点击外部关闭命令补全
+  // 点击外部关闭命令补全（含 + 号菜单）
   useEffect(() => {
-    if (!showCommands) return;
+    if (!showCommands && !plusOpen) return;
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowCommands(false);
+        setPlusOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showCommands]);
+  }, [showCommands, plusOpen]);
 
   // 自动补全仅显示 B 类指令（与后端 ready 推送的完整命令列表取交集，无交集则用静态集合）
   const webCommands = useMemo(() => {
@@ -183,12 +190,14 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setValue(newValue);
+    setPlusOpen(false);
     setShowCommands(newValue.startsWith('/') && newValue.length > 0 && filteredCommands.length > 0 && !inlineOptions);
   }, [filteredCommands.length, inlineOptions]);
 
   const selectCommand = useCallback((cmd: string) => {
     setValue('');
     setShowCommands(false);
+    setPlusOpen(false);
     onSubmit(cmd);
   }, [onSubmit]);
 
@@ -261,6 +270,11 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
             target.selectionStart = target.selectionEnd = start + 1;
             target.style.height = 'auto';
             target.style.height = Math.min(target.scrollHeight, 140) + 'px';
+            // 插入换行后光标可能超出可视区（textarea 内部滚动）：光标在末尾附近时滚到底部，
+            // 避免用户手动滚动才能看到新行
+            if (start + 1 >= newValue.length - 1) {
+              target.scrollTop = target.scrollHeight;
+            }
           });
           return;
         }
@@ -272,9 +286,10 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         // 始终清空输入框（包括 B 指令触发 inline popup 的情况）
         setValue('');
         setShowCommands(false);
+        setPlusOpen(false);
       }
     },
-    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose, btwEnabled],
+    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose],
   );
 
   const handleSend = () => {
@@ -289,6 +304,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     onSubmit(line);
     setValue('');
     setShowCommands(false);
+    setPlusOpen(false);
   };
 
   /**
@@ -351,12 +367,18 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
 
   const showInline = inlineOptions && inlineOptions.options.length > 0;
   const showAutocomplete = showCommands && filteredCommands.length > 0 && !showInline;
+  // + 号与斜杠共用同一命令弹窗（+ 展示全部 WEB_COMMANDS，斜杠展示过滤结果）
+  const showMenu = plusOpen || showAutocomplete;
+  const menuCommands = plusOpen ? webCommands : filteredCommands;
+  // 发送按钮状态：停止（busy 或后台任务+空输入）｜空输入灰色（不可发送）｜正常发送
+  const isStopState = busy || (hasActiveTasks && !value.trim());
+  const isIdleEmpty = !value.trim() && !busy && !stopping && !isStopState;
 
   return (
-    <div className="px-4 md:px-5 pb-4 pt-2 relative" ref={containerRef}>
+    <div className="relative px-3 pt-3" ref={containerRef}>
       {/* 内联选项 */}
       {showInline && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-64 overflow-y-auto py-1.5 z-20">
+        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl max-h-64 overflow-y-auto py-1.5 z-20">
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">{inlineOptions.title}</div>
           {inlineOptions.options.map((opt, idx) => (
             <button
@@ -373,23 +395,24 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         </div>
       )}
 
-      {/* 自动补全列表 */}
-      {showAutocomplete && (
+      {/* + 号 / 斜杠共用的命令弹窗（同一位置、同一样式） */}
+      {showMenu && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl max-h-56 overflow-y-auto py-1.5 z-20 animate-fade-in-up"
+          className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl max-h-56 overflow-y-auto py-1.5 z-20 animate-fade-in-up scrollbar-hidden"
         >
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">Commands</div>
-          {filteredCommands.map((cmd, idx) => (
+          {menuCommands.map((cmd, idx) => (
             <button
               key={cmd}
               onClick={() => selectCommand(cmd)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up rounded-md ${
-                idx === selectedIndex ? 'glass-option-active text-content-primary' : 'text-content-secondary glass-option-hover'
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up rounded-md ${
+                (!plusOpen && idx === selectedIndex) ? 'glass-option-active text-content-primary' : 'text-content-secondary glass-option-hover'
               }`}
               style={{ animationDelay: `${idx * 30}ms` }}
             >
-              <span className="font-mono">{cmd}</span>
+              <span className="font-mono shrink-0">{cmd}</span>
+              <span className="text-xs text-content-disabled truncate flex-1 text-left">{t(lang, `cmd_${cmd.slice(1).replace(/-/g, '_')}`)}</span>
             </button>
           ))}
         </div>
@@ -397,7 +420,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
 
       {/* 侧问内联输入框（textarea 上方），busy 时隐藏 */}
       {btwEnabled && !busy && showBtwInput && (
-        <div className="absolute bottom-full left-4 right-4 md:left-5 md:right-5 mb-1 glass-surface rounded-xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
+        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
           <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
           <input
             ref={btwInputRef}
@@ -420,7 +443,8 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         </div>
       )}
 
-      <div className="flex items-end glass-surface rounded-lg transition-all duration-200 focus-within:shadow-glow">
+      {/* 输入区：仅 textarea（字体与主聊天区普通 text 一致） */}
+      <div className="flex items-end">
         <textarea
           ref={textareaRef}
           value={value}
@@ -429,7 +453,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           placeholder={connected ? t(lang, 'input_placeholder') : t(lang, 'disconnected')}
           rows={1}
           disabled={!connected}
-          className="flex-1 resize-none bg-transparent text-sm text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed leading-normal py-2.5 pl-3 pr-2 scrollbar-hidden"
+          className="flex-1 resize-none bg-transparent text-base text-content-primary placeholder-content-disabled min-h-[36px] max-h-[140px] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed leading-[1.8] py-2 pl-3 pr-2 scrollbar-hidden"
           style={{ height: 'auto', overflowY: 'auto' }}
           onInput={(e) => {
             const el = e.currentTarget;
@@ -437,53 +461,77 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
             el.style.height = Math.min(el.scrollHeight, 140) + 'px';
           }}
         />
-        {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 且非 busy 时显示 */}
-        {btwEnabled && !busy && (
+      </div>
+
+      {/* 底部工具行：+ 号 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-4 与输入区留出视觉空白行 */}
+      <div className="flex items-center justify-between gap-2 px-1 pt-4 pb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* + 号：打开快捷指令菜单（与斜杠同一弹窗） */}
           <button
-            onClick={toggleBtwInput}
-            disabled={btwLoadingActive}
-            title={t(lang, 'btw_button')}
-            className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
-              showBtwInput
-                ? 'bg-primary-light text-primary border border-primary/30'
-                : 'text-content-secondary glass-option-hover hover:bg-black/5'
+            onClick={() => { setPlusOpen((o) => !o); setShowCommands(false); }}
+            title="Commands"
+            aria-label="Commands"
+            className={`pill-badge w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
+              plusOpen ? 'text-primary' : 'text-content-secondary hover:text-content-primary'
             }`}
           >
-            {btwLoadingActive ? (
-              <svg className="w-4 h-4 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+          {children}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 且非 busy 时显示 */}
+          {btwEnabled && !busy && (
+            <button
+              onClick={toggleBtwInput}
+              disabled={btwLoadingActive}
+              title={t(lang, 'btw_button')}
+              className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                showBtwInput
+                  ? 'bg-primary-light text-primary border border-primary/30'
+                  : 'text-content-secondary glass-option-hover hover:text-primary'
+              }`}
+            >
+              {btwLoadingActive ? (
+                <svg className="w-4 h-4 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4.5v5A1.5 1.5 0 0 1 12.5 11H7l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5z" />
+                  <path d="M5.5 7h5M5.5 5.5h3" />
+                </svg>
+              )}
+            </button>
+          )}
+          <button
+            onClick={handleSend}
+            disabled={(!connected && !busy) || stopping}
+            className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              stopping
+                ? 'bg-danger/10 text-danger hover:bg-danger/20'
+                : isStopState
+                  ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
+                  : isIdleEmpty
+                    ? 'bg-black/10 text-content-disabled cursor-not-allowed pointer-events-none'
+                    : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
+            }`}
+            title={stopping ? t(lang, 'task_stopping') : isStopState ? t(lang, 'task_stopped') : t(lang, 'send')}
+          >
+            {stopping ? (
+              // 停止请求已发出、等待后端确认：旋转圆圈缓冲动画（终止可能延迟 1-2s）
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
                 <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-            ) : (
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4.5v5A1.5 1.5 0 0 1 12.5 11H7l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5z" />
-                <path d="M5.5 7h5M5.5 5.5h3" />
-              </svg>
-            )}
+            ) : isStopState
+              ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
+              : '↑'}
           </button>
-        )}
-        <button
-          onClick={handleSend}
-          disabled={(!connected && !busy) || stopping}
-          className={`shrink-0 m-1.5 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-90 ${
-            stopping
-              ? 'bg-danger/10 text-danger hover:bg-danger/20'
-              : (busy || (hasActiveTasks && !value.trim()))
-                ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
-                : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
-          }`}
-          title={stopping ? t(lang, 'task_stopping') : (busy || (hasActiveTasks && !value.trim())) ? t(lang, 'task_stopped') : t(lang, 'send')}
-        >
-          {stopping ? (
-            // 停止请求已发出、等待后端确认：旋转圆圈缓冲动画（终止可能延迟 1-2s）
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
-              <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          ) : (busy || (hasActiveTasks && !value.trim()))
-            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
-            : '↑'}
-        </button>
+        </div>
       </div>
     </div>
   );

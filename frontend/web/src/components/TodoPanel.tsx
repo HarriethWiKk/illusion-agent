@@ -1,21 +1,23 @@
 /**
  * @fileoverview 待办事项面板组件
  *
- * Web 前端的待办事项面板组件，支持：
+ * Web 前端的待办事项面板组件：
+ * - 状态用「圆环」字形表达（完成=勾选圆环、进行中=实心圆环、待办=虚线圆环）
+ * - 头部带清单图标 + 活跃任务预览 + 进度计数
+ * - 列表项长文本自动换行
+ *
+ * 保留的功能：
  * - 任务状态显示（进行中、待处理、已完成）
  * - 自动排序（进行中 > 待处理 > 已完成）
- * - 折叠/展开功能
- * - 所有任务完成后自动隐藏
+ * - 折叠/展开功能、活跃任务预览
+ * - 面板始终显示，空列表时显示「暂无待办」占位
  *
  * @module TodoPanel
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import type { TodoItemSnapshot } from '../types/protocol';
-
-/** 所有任务完成后自动隐藏的延迟时间（毫秒） */
-const HIDE_DELAY_MS = 4000;
 
 /**
  * TodoPanel 组件属性接口
@@ -36,10 +38,8 @@ interface TodoPanelProps {
  * @returns 返回待办事项面板的 JSX 元素
  */
 export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
-  // 默认折叠；空列表也保持折叠态
+  // 默认折叠；面板始终显示，不随任务完成自动隐藏
   const [collapsed, setCollapsed] = useState(true);
-  const [hidden, setHidden] = useState(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 排序：in_progress > pending > completed
   const sorted = useMemo(() => {
@@ -49,7 +49,6 @@ export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
 
   const done = sorted.filter((i) => i.status === 'completed').length;
   const total = sorted.length;
-  const allDone = total > 0 && done === total;
 
   // 找到当前活跃任务用于折叠态预览
   const activeItem = useMemo(() => {
@@ -60,56 +59,54 @@ export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
       ?? null;
   }, [sorted]);
 
-  // 自动隐藏：全部完成后折叠，延迟后隐藏（空列表不触发自动隐藏，保持占位）
-  useEffect(() => {
-    if (total === 0) {
-      setHidden(false);
-      if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
-      return;
-    }
-    if (allDone) {
-      setCollapsed(true);
-      hideTimerRef.current = setTimeout(() => setHidden(true), HIDE_DELAY_MS);
-    } else {
-      setHidden(false);
-      if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
-    }
-    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
-  }, [sorted, allDone, total]);
-
-  // hidden 仅作用于"全部完成"场景；空列表仍渲染卡片占位
-  if (hidden) return null;
   const isEmpty = sorted.length === 0;
 
   return (
-    <div className="mb-4 rounded-xl glass-surface overflow-hidden">
+    <div className="rounded-xl glass-surface overflow-hidden">
       {/* 头部 */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full px-4 py-2.5 flex items-center gap-3 glass-option-hover transition-colors cursor-pointer"
+        className="w-full px-4 py-2.5 flex items-center gap-2.5 glass-option-hover transition-colors cursor-pointer"
       >
-        {/* 进度计数 */}
-        <span className="text-xs font-mono text-content-secondary tabular-nums shrink-0">
-          <span className="text-content-primary font-medium">{done}</span>
-          <span className="mx-0.5">/</span>
-          <span>{total}</span>
-        </span>
+        {/* 清单图标 */}
+        <svg
+          className="w-4 h-4 text-content-disabled shrink-0"
+          viewBox="0 0 16 16" fill="currentColor"
+        >
+          <circle cx="3.5" cy="3.5" r="1.4" />
+          <rect x="6.5" y="2.75" width="8" height="1.5" rx="0.75" />
+          <circle cx="3.5" cy="8" r="1.4" />
+          <rect x="6.5" y="7.25" width="8" height="1.5" rx="0.75" />
+          <circle cx="3.5" cy="12.5" r="1.4" />
+          <rect x="6.5" y="11.75" width="8" height="1.5" rx="0.75" />
+        </svg>
 
-        {/* 折叠态：显示活跃任务预览，或空列表提示 */}
+        {/* 折叠态：显示活跃任务预览，或空列表提示（leading-4 与 16px 图标垂直居中对齐） */}
         {collapsed && (isEmpty ? (
-          <span className="flex-1 text-xs text-content-disabled truncate text-left min-w-0">
+          <span className="flex-1 text-[13px] leading-4 text-content-disabled truncate text-left min-w-0">
             {t(lang, 'no_todos')}
           </span>
         ) : activeItem ? (
-          <span className="flex-1 text-xs text-content-secondary truncate text-left min-w-0">
+          <span className="flex-1 text-[13px] leading-4 text-content-secondary truncate text-left min-w-0">
             {activeItem.activeForm && activeItem.status === 'in_progress'
               ? activeItem.activeForm
               : activeItem.content}
           </span>
         ) : null)}
 
-        {/* 展开态占位 */}
-        {!collapsed && <span className="flex-1" />}
+        {/* 展开态：显示面板标题，填充折叠标题位置的空区 */}
+        {!collapsed && (
+          <span className="flex-1 text-[13px] leading-4 text-content-secondary font-medium truncate text-left min-w-0">
+            {t(lang, 'todo_title')}
+          </span>
+        )}
+
+        {/* 进度计数（统一颜色） */}
+        <span className="text-xs text-content-disabled tabular-nums shrink-0">
+          <span>{done}</span>
+          <span className="mx-0.5">/</span>
+          <span>{total}</span>
+        </span>
 
         {/* 折叠箭头 */}
         <svg
@@ -120,11 +117,11 @@ export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
         </svg>
       </button>
 
-      {/* 任务列表 */}
+      {/* 任务列表（无水平内边距，行内 px-4 与头部清单图标对齐） */}
       {!collapsed && (
-        <div className="px-3 pb-3 flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+        <div className="pb-3 flex flex-col gap-0.5 max-h-40 overflow-y-auto scrollbar-hidden">
           {isEmpty ? (
-            <div className="px-2 py-2 text-xs text-content-disabled">{t(lang, 'no_todos')}</div>
+            <div className="px-4 py-2 text-[13px] text-content-disabled">{t(lang, 'no_todos')}</div>
           ) : sorted.map((item, idx) => (
             <TodoRow key={`${item.content}-${idx}`} item={item} />
           ))}
@@ -134,29 +131,66 @@ export default function TodoPanel({ items, lang = 'zh-CN' }: TodoPanelProps) {
   );
 }
 
+/**
+ * 状态字形：进行中为实心圆环、待办为虚线圆环、完成为勾选圆环
+ *
+ * @param status - 任务状态
+ * @returns 返回对应状态的圆环字形 SVG
+ */
+function StatusGlyph({ status }: { status: TodoItemSnapshot['status'] }) {
+  // 进行中：主色实线圆环（无动画，降低渲染要求）
+  if (status === 'in_progress') {
+    return (
+      <svg
+        className="w-[14px] h-[14px] text-primary"
+        viewBox="0 0 14 14" fill="none"
+      >
+        <circle cx="7" cy="7" r="5.8" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+
+  // 待办：虚线圆环
+  if (status === 'pending') {
+    return (
+      <svg
+        className="w-[14px] h-[14px] text-content-disabled"
+        viewBox="0 0 14 14" fill="none"
+      >
+        <circle cx="7" cy="7" r="5.8" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2.4 2.4" />
+      </svg>
+    );
+  }
+
+  // 已完成：勾选圆环
+  return (
+    <svg
+      className="w-[14px] h-[14px] text-success"
+      viewBox="0 0 14 14" fill="none"
+    >
+      <circle cx="7" cy="7" r="5.8" stroke="currentColor" strokeWidth="1.2" fill="currentColor" fillOpacity="0.12" />
+      <path
+        d="M4.5 7l1.8 1.8 3.2-3.6"
+        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function TodoRow({ item }: { item: TodoItemSnapshot }) {
   const status = item.status;
 
+  // 行内 px-4 与头部清单图标缩进对齐（圆环字形位于 16px 起始）
   return (
-    <div className="flex items-start gap-2.5 px-2 py-1.5 rounded-md group">
-      {/* 状态图标 */}
-      <div className="mt-0.5 shrink-0 w-4 h-4 flex items-center justify-center">
-        {status === 'completed' && (
-          <svg className="w-4 h-4 text-green-500" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 8.5l3.5 3.5 6.5-8" />
-          </svg>
-        )}
-        {status === 'in_progress' && (
-          <span className="w-3 h-3 rounded-full bg-primary" />
-        )}
-        {status === 'pending' && (
-          <span className="w-3 h-3 rounded-full border-2 border-border-light bg-white" />
-        )}
+    <div className="flex items-start gap-2.5 px-4 py-1.5 rounded-md min-w-0">
+      {/* 状态字形 */}
+      <div className="shrink-0 w-4 h-4 mt-0.5 flex items-center justify-center">
+        <StatusGlyph status={status} />
       </div>
 
-      {/* 文本 */}
+      {/* 文本：长文本自动换行 */}
       <span
-        className={`text-sm leading-relaxed flex-1 min-w-0 transition-colors duration-200 ${
+        className={`text-[13px] leading-5 flex-1 min-w-0 break-words transition-colors duration-200 ${
           status === 'completed'
             ? 'text-content-disabled line-through'
             : status === 'in_progress'

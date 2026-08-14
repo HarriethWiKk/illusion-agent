@@ -662,23 +662,29 @@ export default function App() {
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
           onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
-        <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
-          hasActiveTasks={session.tasks.some(
-            (t) =>
-              (t.status === 'in_progress' || t.status === 'pending') &&
-              t.metadata?.owner_session_id === session.activeSessionId,
-          )}
-          commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
-          inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
-          btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest} />
-        <Toolbar lang={lang} status={session.status}
-          modelOptions={session.modelOptions}
-          onSetSetting={(key, value) => {
-            if (key === 'model') session.setModelSwitching(true);
-            session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
-          }}
-          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
-          modelSwitching={session.modelSwitching} />
+        {/* 输入框 + 工具栏合并为单卡片，宽度对齐主聊天区（max-w-5xl 居中），上下留视觉空行 */}
+        <div className="mx-auto max-w-5xl w-full min-w-0 px-6 md:px-10 lg:px-16 pt-4 pb-4 shrink-0">
+          <div className="glass-surface rounded-3xl focus-within:shadow-glow">
+            <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
+              hasActiveTasks={session.tasks.some(
+                (t) =>
+                  (t.status === 'in_progress' || t.status === 'pending') &&
+                  t.metadata?.owner_session_id === session.activeSessionId,
+              )}
+              commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
+              inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
+              btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}>
+              <Toolbar lang={lang} status={session.status}
+                modelOptions={session.modelOptions}
+                onSetSetting={(key, value) => {
+                  if (key === 'model') session.setModelSwitching(true);
+                  session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
+                }}
+                onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
+                modelSwitching={session.modelSwitching} />
+            </PromptInput>
+          </div>
+        </div>
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"

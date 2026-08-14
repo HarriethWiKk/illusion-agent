@@ -45,10 +45,10 @@ export default function WelcomeScreen({ lang }: WelcomeScreenProps) {
         Illusion Agent
       </h1>
 
-      {/* 副标题 — 闪光扫过文字 */}
+      {/* 副标题 — 闪光扫过文字（仅英文） */}
       <p className="mt-5 text-lg tracking-[0.3em] uppercase shiny-text animate-blur-in relative z-10"
         style={{ animationDelay: '200ms' }}>
-        AI Coding Assistant
+        Where fantasy meets functionality
       </p>
 
       {/* 分割线 */}

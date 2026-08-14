@@ -194,9 +194,13 @@ export default function Sidebar({
         <button
           onClick={onNewSession}
           disabled={!connected}
-          className="pill-badge w-full text-left px-3 py-2.5 rounded-lg text-sm text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          className="pill-badge w-full px-3 py-2.5 rounded-lg text-sm leading-4 text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-center"
         >
-          <span className="w-5 h-5 rounded-md bg-primary flex items-center justify-center text-white font-bold text-xs">+</span>
+          {/* 新建会话图标 */}
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2.5" y="2.5" width="11" height="11" rx="3" />
+            <path d="M8 5.5v5M5.5 8h5" />
+          </svg>
           {t(lang, 'new_session')}
         </button>
       </div>
