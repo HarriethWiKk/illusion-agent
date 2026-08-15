@@ -121,7 +121,7 @@ def test_handle_web_delete_sessions_uses_gather_and_to_thread():
 
 
 @pytest.mark.asyncio
-async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch):
+async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch, tmp_path):
     """行为测试：delete_all 分支通过 to_thread 调用 _delete_session_by_id。
 
     mock _list_session_snapshots 返回 3 个会话，mock _delete_session_by_id 记录调用线程，
@@ -134,7 +134,7 @@ async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch):
     host._emit = AsyncMock()
     host._status_snapshot = MagicMock(return_value=MagicMock())
     host._bundle = MagicMock()
-    host._bundle.cwd = "/fake/cwd"
+    host._bundle.cwd = str(tmp_path)
     host._bundle.session_id = "current-sid"
     host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
     host._push_sessions = AsyncMock()
@@ -177,7 +177,7 @@ async def test_handle_web_delete_sessions_calls_delete_in_threads(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypatch):
+async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypatch, tmp_path):
     """行为测试：单个删除失败被 gather(return_exceptions=True) 吞掉，不传播异常。"""
     from illusion.ui.protocol import FrontendRequest
     from illusion.ui.web.ws_web_api import WebApiDispatcher
@@ -186,7 +186,7 @@ async def test_handle_web_delete_sessions_swallows_individual_failures(monkeypat
     host._emit = AsyncMock()
     host._status_snapshot = MagicMock(return_value=MagicMock())
     host._bundle = MagicMock()
-    host._bundle.cwd = "/fake/cwd"
+    host._bundle.cwd = str(tmp_path)
     host._bundle.session_id = "current-sid"
     host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
     host._push_sessions = AsyncMock()

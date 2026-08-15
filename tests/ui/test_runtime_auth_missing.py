@@ -43,6 +43,7 @@ def test_rebuild_api_client_sets_auth_status_missing_on_failure(tmp_path, monkey
     # 创建一个 mock bundle
     from unittest.mock import MagicMock
     bundle = MagicMock()
+    bundle.cwd = str(tmp_path)
     bundle.app_state.get.return_value.auth_status = "configured"
 
     from illusion.ui.runtime import _rebuild_api_client

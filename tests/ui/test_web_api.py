@@ -14,11 +14,12 @@ class TestWebApiDispatcherRouting:
     """WebApiDispatcher 请求路由测试"""
 
     @pytest.fixture
-    def dispatcher(self):
+    def dispatcher(self, tmp_path):
         """创建带 mock emit 的分发器"""
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
+        host._bundle.cwd = str(tmp_path)
         host._push_sessions = AsyncMock()
         dispatcher = WebApiDispatcher(host)
         return dispatcher
@@ -41,11 +42,12 @@ class TestWebApiDispatcherRouting:
             assert wt in table, f"web 请求类型 {wt} 未注册 handler"
 
     @pytest.mark.asyncio
-    async def test_handle_isolates_handler_exception(self, monkeypatch):
+    async def test_handle_isolates_handler_exception(self, monkeypatch, tmp_path):
         """测试 handle 捕获处理异常并发 error 事件，不向主循环冒泡（回归：异常拖垮 host）"""
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         dispatcher = WebApiDispatcher(host)
 
@@ -78,12 +80,12 @@ class TestWebRequestSessions:
     """web_request_sessions 会话列表拉取测试"""
 
     @pytest.fixture
-    def dispatcher_with_bundle(self, monkeypatch):
+    def dispatcher_with_bundle(self, monkeypatch, tmp_path):
         """创建带 mock bundle 和 session_storage 的分发器"""
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         host._push_sessions = AsyncMock()
         dispatcher = WebApiDispatcher(host)
@@ -112,7 +114,7 @@ class TestWebRestoreSession:
     """web_restore_session 零 suppress 恢复流程测试"""
 
     @pytest.fixture
-    def dispatcher_restore(self, monkeypatch):
+    def dispatcher_restore(self, monkeypatch, tmp_path):
         """创建带 mock 恢复流程的分发器。
 
         预置内存会话（s1），验证"运行时已存在 → 直接从引擎重建转录"路径。
@@ -122,7 +124,7 @@ class TestWebRestoreSession:
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._ws_closed = False  # 模拟 WebSocket 处于连接状态
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.session_id = "old-sid"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         host._push_sessions = AsyncMock()
@@ -134,6 +136,7 @@ class TestWebRestoreSession:
         memory_session.session_id = "restored-sid"
         memory_session.engine.messages = []
         memory_session.bundle = MagicMock()
+        memory_session.bundle.cwd = str(tmp_path)
         host._sessions = {"s1": memory_session}
         host._active_session_id = "old-sid"
         dispatcher = WebApiDispatcher(host)
@@ -212,7 +215,7 @@ class TestWebNewAndDeleteSession:
     """web_new_session 与 web_delete_sessions 测试（多会话架构）"""
 
     @pytest.fixture
-    def dispatcher(self, monkeypatch):
+    def dispatcher(self, monkeypatch, tmp_path):
         """多会话架构下新建/删除会话的 mock 宿主。
 
         新建会话由 host._create_session 负责（真实实现在 host 层测试覆盖），
@@ -222,7 +225,7 @@ class TestWebNewAndDeleteSession:
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.session_id = "old-sid"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         host._push_sessions = AsyncMock()
@@ -231,6 +234,7 @@ class TestWebNewAndDeleteSession:
         new_session = MagicMock()
         new_session.session_id = "new-sid"
         new_session.bundle = MagicMock()
+        new_session.bundle.cwd = str(tmp_path)
         host._create_session = AsyncMock(return_value=new_session)
         host._sessions = {}
         host._active_session_id = "old-sid"
@@ -244,7 +248,7 @@ class TestWebNewAndDeleteSession:
         return dispatcher
 
     @pytest.mark.asyncio
-    async def test_delete_sessions_calls_file_history_cleanup(self, monkeypatch):
+    async def test_delete_sessions_calls_file_history_cleanup(self, monkeypatch, tmp_path):
         """测试删除会话时必须调用对应 file-history 目录清理（与 CLI 对齐）。
 
         根因：file-history 备份目录独立于会话目录树存储，必须显式调用
@@ -255,7 +259,7 @@ class TestWebNewAndDeleteSession:
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.session_id = "current-sid"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         host._push_sessions = AsyncMock()
@@ -382,12 +386,12 @@ class TestWebSetSetting:
     """web_set_setting 统一设置入口测试"""
 
     @pytest.fixture
-    def dispatcher_setting(self, monkeypatch):
+    def dispatcher_setting(self, monkeypatch, tmp_path):
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         dispatcher = WebApiDispatcher(host)
 
@@ -440,13 +444,13 @@ class TestWebSetSetting:
         assert "error" in types
 
     @pytest.mark.asyncio
-    async def test_set_permission_mode_with_real_enum(self, monkeypatch):
+    async def test_set_permission_mode_with_real_enum(self, monkeypatch, tmp_path):
         """测试设置 permission_mode 使用真实 PermissionMode 枚举（回归 Enum 只读 value 问题）"""
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
         host._active_bundle = MagicMock(return_value=host._bundle)
@@ -480,7 +484,7 @@ class TestEngineSettingBroadcast:
     """设置变更广播到所有会话引擎（多会话一致性）测试"""
 
     @pytest.mark.asyncio
-    async def test_permission_mode_reaches_all_session_engines(self, monkeypatch):
+    async def test_permission_mode_reaches_all_session_engines(self, monkeypatch, tmp_path):
         """切换权限模式必须更新所有会话引擎的 PermissionChecker（安全相关）。"""
         from illusion.ui.protocol import FrontendRequest
         from illusion.ui.web.ws_web_api import WebApiDispatcher
@@ -489,7 +493,7 @@ class TestEngineSettingBroadcast:
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
         host._active_bundle = MagicMock(return_value=host._bundle)
@@ -524,7 +528,7 @@ class TestEngineSettingBroadcast:
         assert real_settings.permission.mode.value == "plan"
 
     @pytest.mark.asyncio
-    async def test_model_switch_reaches_all_session_engines(self, monkeypatch):
+    async def test_model_switch_reaches_all_session_engines(self, monkeypatch, tmp_path):
         """切换模型必须同步所有会话引擎的 model 与 api_client。"""
         from illusion.ui.protocol import FrontendRequest
         from illusion.ui.web.ws_web_api import WebApiDispatcher
@@ -533,7 +537,7 @@ class TestEngineSettingBroadcast:
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
         host._active_bundle = MagicMock(return_value=host._bundle)
@@ -543,7 +547,7 @@ class TestEngineSettingBroadcast:
         engine_a = MagicMock()
         session_a = MagicMock()
         session_a.engine = engine_a
-        session_a.bundle = MagicMock(cwd="/fake/cwd")
+        session_a.bundle = MagicMock(cwd=str(tmp_path))
         host._sessions = {"a": session_a}
         dispatcher = WebApiDispatcher(host)
 
@@ -579,11 +583,11 @@ class TestWebModels:
     """web_models 推送与 web_request_models 测试"""
 
     @pytest.fixture
-    def dispatcher_models(self):
+    def dispatcher_models(self, tmp_path):
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # 复用 ws_host 的 _model_select_options 生成模型选项
         host._model_select_options = MagicMock(return_value=[
@@ -608,12 +612,12 @@ class TestWebResources:
     """web_resources 推送测试"""
 
     @pytest.mark.asyncio
-    async def test_request_resources_emits_web_resources(self, monkeypatch):
+    async def test_request_resources_emits_web_resources(self, monkeypatch, tmp_path):
         """测试拉取资源发送 web_resources 事件"""
         host = MagicMock()
         host._emit = AsyncMock()
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # 多工作区：无会话时资源回退活跃/默认 bundle
         host._sessions = {}
@@ -639,12 +643,12 @@ class TestWebResources:
         assert res_evts[0].web_resources["skills"][0]["name"] == "s1"
 
     @pytest.mark.asyncio
-    async def test_push_resources_reuses_collect(self, monkeypatch):
+    async def test_push_resources_reuses_collect(self, monkeypatch, tmp_path):
         """测试 _push_resources 复用 _collect_resources"""
         host = MagicMock()
         host._emit = AsyncMock()
         bundle = MagicMock()
-        bundle.cwd = "/fake/cwd"
+        bundle.cwd = str(tmp_path)
         dispatcher = WebApiDispatcher(host)
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api._collect_resources",
@@ -658,17 +662,18 @@ class TestWebQuery:
     """web_query B 通道精细化指令测试"""
 
     @pytest.fixture
-    def dispatcher_query(self, monkeypatch):
+    def dispatcher_query(self, monkeypatch, tmp_path):
         host = MagicMock()
         host._emit = AsyncMock()
         host._status_snapshot = MagicMock(return_value=MagicMock())
         host._bundle = MagicMock()
-        host._bundle.cwd = "/fake/cwd"
+        host._bundle.cwd = str(tmp_path)
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
         # B 通道指令按会话路由：解析出会话后使用其 bundle
         session = MagicMock()
         session.session_id = "s1"
         session.bundle = MagicMock()
+        session.bundle.cwd = str(tmp_path)
         host._resolve_session = MagicMock(return_value=session)
         dispatcher = WebApiDispatcher(host)
         return dispatcher

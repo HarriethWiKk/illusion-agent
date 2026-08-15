@@ -46,11 +46,12 @@ from illusion.ui.protocol import FrontendRequest
 
 
 @pytest.mark.asyncio
-async def test_agent_wizard_init_returns_tools_models(monkeypatch):
+async def test_agent_wizard_init_returns_tools_models(monkeypatch, tmp_path):
     from illusion.ui.backend_host import ReactBackendHost
 
     host = ReactBackendHost.__new__(ReactBackendHost)
     host._bundle = MagicMock()
+    host._bundle.cwd = str(tmp_path)
     host._bundle.tool_registry = MagicMock()
     captured = {}
     async def fake_emit(ev):
@@ -88,12 +89,13 @@ async def test_agent_wizard_submit_validates_and_writes(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_agent_generate_returns_generated_agent(monkeypatch):
+async def test_agent_generate_returns_generated_agent(monkeypatch, tmp_path):
     from illusion.ui.backend_host import ReactBackendHost
     from illusion.services.agent_creator import GeneratedAgent
 
     host = ReactBackendHost.__new__(ReactBackendHost)
     host._bundle = MagicMock()
+    host._bundle.cwd = str(tmp_path)
     host._bundle.engine = MagicMock()
     captured = {}
     async def fake_emit(ev):

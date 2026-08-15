@@ -34,13 +34,14 @@ def test_btw_response_error():
 
 
 @pytest.mark.asyncio
-async def test_btw_request_dispatches_to_handler(monkeypatch):
+async def test_btw_request_dispatches_to_handler(monkeypatch, tmp_path):
     """btw_request 被路由到 _handle_btw_request 并返回 btw_response。"""
     host = ReactBackendHost.__new__(ReactBackendHost)
     # 根据实际属性名设置 mock
     host._btw_tasks = {}
     host._dispatch_tasks = set()
     host._bundle = MagicMock()
+    host._bundle.cwd = str(tmp_path)
     host._bundle.engine = MagicMock()
 
     captured = {}
