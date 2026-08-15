@@ -283,6 +283,18 @@ def get_channels_file_path() -> Path:
     return get_config_dir() / "channels.json"
 
 
+def get_workspaces_file_path() -> Path:
+    """返回 Web 多工作区注册表文件路径（~/.illusion/workspaces.json）
+
+    用于存储 Web 端注册的目录空间列表（默认工作区来自
+    settings.working_directory，不重复存储于此文件）。
+
+    Returns:
+        Path: 工作区注册表文件路径
+    """
+    return get_config_dir() / "workspaces.json"
+
+
 def get_channels_data_dir() -> Path:
     """返回渠道数据目录（~/.illusion/channels/）
 
