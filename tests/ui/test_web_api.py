@@ -289,10 +289,8 @@ class TestWebNewAndDeleteSession:
             "illusion.ui.web.ws_web_api._cleanup_file_history",
             fake_cleanup,
         )
-        monkeypatch.setattr(
-            "illusion.ui.web.ws_web_api._cleanup_all_file_histories",
-            fake_cleanup_all,
-        )
+        # _cleanup_all_file_histories 已从 ws_web_api 移除（delete_all 改为
+        # 按会话清理）；cleanup_all_calls 用于断言该函数绝不被调用
 
         # 场景一：批量删除指定会话
         req = FrontendRequest(type="web_delete_sessions", session_ids=["s1", "s2"])
@@ -306,9 +304,13 @@ class TestWebNewAndDeleteSession:
         # 场景二：删除全部会话
         req2 = FrontendRequest(type="web_delete_sessions", delete_all=True)
         await dispatcher.handle(req2)
-        # delete_all 应调用 _cleanup_all_file_histories 清理全部备份目录
-        assert len(cleanup_all_calls) == 1, (
-            "delete_all 应调用 cleanup_all_file_histories"
+        # delete_all 限定当前工作区：按会话逐个清理 file-history，
+        # 不再调用 cleanup_all_file_histories（会清掉所有工作区的撤销历史）
+        assert set(cleanup_calls) == {"s1", "s2"}, (
+            f"delete_all 应按会话清理 file-history，实际调用={cleanup_calls}"
+        )
+        assert len(cleanup_all_calls) == 0, (
+            "delete_all 不应调用 cleanup_all_file_histories（避免误删其他工作区历史）"
         )
 
     @pytest.mark.asyncio
@@ -346,6 +348,7 @@ class TestWebNewAndDeleteSession:
         from illusion.ui.protocol import FrontendRequest
         target = MagicMock()
         target.session_id = "s1"
+        target.busy = False
         dispatcher._host._sessions = {"s1": target}
         req = FrontendRequest(type="web_delete_sessions", session_ids=["s1", "s2"])
         await dispatcher.handle(req)
@@ -359,6 +362,7 @@ class TestWebNewAndDeleteSession:
         from illusion.ui.protocol import FrontendRequest
         target = MagicMock()
         target.session_id = "old-sid"
+        target.busy = False
         dispatcher._host._sessions = {"old-sid": target}
         dispatcher._host._active_session_id = "old-sid"
         req = FrontendRequest(type="web_delete_sessions", session_ids=["old-sid"])
@@ -444,6 +448,9 @@ class TestWebSetSetting:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
+        host._active_bundle = MagicMock(return_value=host._bundle)
+        host._workspace_bundles = MagicMock(return_value=[host._bundle])
         dispatcher = WebApiDispatcher(host)
 
         # 使用真实 Settings 实例（含真实 PermissionMode 枚举）
@@ -484,6 +491,9 @@ class TestEngineSettingBroadcast:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
+        host._active_bundle = MagicMock(return_value=host._bundle)
+        host._workspace_bundles = MagicMock(return_value=[host._bundle])
         # 初始引擎 + 两个会话引擎
         host._bundle.engine = MagicMock()
         engine_a = MagicMock()
@@ -525,11 +535,15 @@ class TestEngineSettingBroadcast:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 多工作区：默认工作区即 host._bundle（active/workspace_bundles 指向它）
+        host._active_bundle = MagicMock(return_value=host._bundle)
+        host._workspace_bundles = MagicMock(return_value=[host._bundle])
         host._bundle.engine = MagicMock()
         host._bundle.api_client = MagicMock()
         engine_a = MagicMock()
         session_a = MagicMock()
         session_a.engine = engine_a
+        session_a.bundle = MagicMock(cwd="/fake/cwd")
         host._sessions = {"a": session_a}
         dispatcher = WebApiDispatcher(host)
 
@@ -601,6 +615,10 @@ class TestWebResources:
         host._bundle = MagicMock()
         host._bundle.cwd = "/fake/cwd"
         host._bundle.app_state.get.return_value = MagicMock(ui_language="zh-CN")
+        # 多工作区：无会话时资源回退活跃/默认 bundle
+        host._sessions = {}
+        host._active_bundle = MagicMock(return_value=host._bundle)
+        host._workspace_bundles = MagicMock(return_value=[host._bundle])
         dispatcher = WebApiDispatcher(host)
 
         monkeypatch.setattr(

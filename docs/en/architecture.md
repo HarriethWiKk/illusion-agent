@@ -120,6 +120,16 @@ Built-in 7 specialized Agents:
 | FastAPI | - | Backend API framework |
 | WebSocket | - | Real-time bidirectional communication |
 
+### Web Multi-Workspace (Directory Spaces)
+
+The Web UI can run sessions concurrently across multiple directory workspaces, each with its own scope:
+
+- **Backend**: `WebBackendHost` holds an independent `RuntimeBundle` per workspace (api_client / tool_registry / mcp / hooks initialized per directory; project-level `.illusion/` config applies per directory). The default workspace builds eagerly (startup flow unchanged); other workspaces are **built lazily** (on first session in that directory) and **evicted when idle** (60s grace period). The registry persists at `~/.illusion/workspaces.json`
+- **Sessions**: stored per directory (`~/.illusion/data/sessions/{dir}-{sha}/`) and grouped by directory in the UI; new sessions can target a directory (welcome-screen directory button); restore routes by owning directory
+- **cron**: jobs carry their own `cwd` (required, must be a registered directory on create/update); web delegation matches the session's owning directory; `/api/cron/sessions?cwd=` filters per directory
+- **Channels**: channel config includes `working_directory` (required to enable); channel agents run anchored in that directory; `channel enable/login --working-directory <dir>` specifies and auto-registers the workspace
+- **Zero impact on terminal/print modes**: `build_runtime(cwd=)` defaults to the process directory
+
 ---
 
 ## Main Dependencies

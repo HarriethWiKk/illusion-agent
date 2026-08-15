@@ -191,6 +191,15 @@ Fixed working directory. If set, illusion-agent will automatically switch to thi
 - If the specified directory does not exist, `illusion set` will automatically create it
 - If directory validation fails on startup (e.g., insufficient permissions), logs a warning and uses the current directory
 
+### Workspaces (Web Multi-Directory)
+
+`working_directory` serves as the **default workspace** on the Web UI. The Web UI can run concurrently across multiple directory workspaces; each directory keeps its own session history and project-level config (`<dir>/.illusion/` permissions, skills, rules, MCP, plugins, hooks), while models and API environments are shared globally.
+
+- The registry is stored at `~/.illusion/workspaces.json` (the default workspace is not duplicated into the file; it is injected dynamically)
+- Web Settings → "Workspaces" tab can add / remove / set-default directories; **removing a directory deletes all of its sessions** (removal is blocked while any session in that directory is running)
+- The session list is grouped by directory; the directory button in the input box (always visible on the welcome screen) creates a new session in the chosen directory
+- Each directory's runtime bundle is built lazily and evicted when idle, avoiding resource duplication
+
 ---
 
 ### Environment Configuration (EnvConfig)

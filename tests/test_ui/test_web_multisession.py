@@ -19,7 +19,7 @@ import pytest
 
 from illusion.ui.protocol import BackendEvent, FrontendRequest
 from illusion.ui.web.session_runtime import SessionRuntime
-from illusion.ui.web.ws_host import WebBackendHost
+from illusion.ui.web.ws_host import WebBackendHost, _WorkspaceState, _cwd_key
 from illusion.ui.web.ws_web_api import WebApiDispatcher
 from illusion.utils.aioqueue import Queue
 
@@ -38,6 +38,9 @@ def _make_host(**fields: Any) -> WebBackendHost:
         "_bundle": bundle,
         "_sessions": {},
         "_active_session_id": None,
+        # 多工作区状态：默认工作区挂接 mock bundle（与 run() 初始化一致）
+        "_workspaces": {_cwd_key(bundle.cwd): _WorkspaceState(cwd=bundle.cwd, bundle=bundle)},
+        "_default_workspace_cwd": bundle.cwd,
         "_write_queue": Queue(),
         "_write_task": None,
         "_dispatch_tasks": set(),
@@ -52,6 +55,11 @@ def _make_host(**fields: Any) -> WebBackendHost:
     defaults.update(fields)
     for key, value in defaults.items():
         setattr(host, key, value)
+    # 多工作区：默认目录解析改为返回 mock bundle 的 cwd。
+    # （object.__new__ 构造无真实配置/注册表；真实 WebBackendHost 中
+    #   _resolve_workspace_cwd 动态读取 settings.working_directory）
+    if "_resolve_workspace_cwd" not in fields:
+        host._resolve_workspace_cwd = lambda cwd=None: bundle.cwd  # type: ignore[method-assign]
     return host
 
 
@@ -272,6 +280,11 @@ class TestEvictionAndRestoreSafety:
         fake_engine._tool_metadata = {}
         fake_engine._bg_agent_tracker = MagicMock()
         fake_engine.aclose = AsyncMock()  # type: ignore[attr-defined]
+        # 多工作区：磁盘 meta 存在 → 定位到默认工作区后再走恢复流程
+        monkeypatch.setattr(
+            "illusion.services.session_storage.read_meta",
+            lambda cwd, sid: {"session_id": sid, "cwd": cwd} if sid == "s1" else None,
+        )
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api.build_session_engine",
             lambda *a, **k: fake_engine,
@@ -490,6 +503,11 @@ class TestWebApiSessionScoping:
         fake_engine = MagicMock()
         fake_engine._tool_metadata = {}
         fake_engine._bg_agent_tracker = MagicMock()
+        # 多工作区：磁盘 meta 存在 → 定位到默认工作区后再按需物化
+        monkeypatch.setattr(
+            "illusion.services.session_storage.read_meta",
+            lambda cwd, sid: {"session_id": sid, "cwd": cwd} if sid == "s1" else None,
+        )
         monkeypatch.setattr(
             "illusion.ui.web.ws_web_api.build_session_engine",
             lambda *a, **k: fake_engine,

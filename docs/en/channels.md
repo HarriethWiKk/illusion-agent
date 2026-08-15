@@ -137,7 +137,12 @@ Channel config is stored separately in `~/.illusion/channels.json` (not in `sett
 | `group_policy.allowlist` | `[]` | Allowed chat_ids (when mode=allowlist) |
 | `group_policy.blacklist` | `[]` | Blocked chat_ids (when mode=blacklist) |
 | `group_policy.admin_list` | `[]` | user_ids that always bypass policy |
+| `working_directory` | — | Channel agent run directory (**required to enable**; channel agents run anchored in this directory; auto-registered as a Web workspace) |
 
+> **Run directory notes**: enabling a channel (`enabled: true`) requires `working_directory`.
+> - CLI: `illusion channel enable <name> --working-directory <dir>` / `illusion channel login --working-directory <dir>` (interactive prompt when omitted); the directory is validated and registered into `~/.illusion/workspaces.json`
+> - Web: Settings → Channels → expand the channel card to pick a run directory (dropdown matches global workspaces, shows the selected directory directly); enabling without a directory is blocked with a hint
+> - Channel agents anchor per-message to the configured directory
 ## Feishu Slash Commands
 
 You can manage sessions directly from Feishu chats:

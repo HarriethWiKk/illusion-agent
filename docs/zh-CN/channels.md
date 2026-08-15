@@ -139,6 +139,12 @@ illusion channel serve
 | `group_policy.allowlist` | `[]` | 允许的 chat_id 列表（mode=allowlist 时生效） |
 | `group_policy.blacklist` | `[]` | 拒绝的 chat_id 列表（mode=blacklist 时生效） |
 | `group_policy.admin_list` | `[]` | 永远放行的 user_id 列表（管理员） |
+| `working_directory` | — | 渠道 agent 运行目录（**启用渠道必填**；渠道 agent 固定在该目录运行，自动注册为 Web 工作区） |
+
+> **运行目录说明**：启用渠道（`enabled: true`）必须配置 `working_directory`。
+> - CLI：`illusion channel enable <name> --working-directory <dir>` / `illusion channel login --working-directory <dir>`（未传时交互式询问），目录自动校验并注册到 `~/.illusion/workspaces.json`
+> - Web：设置 → 渠道配置 → 展开渠道卡片选择运行目录（下拉与全局工作区一致，直接显示所选目录）；未配置目录时启用会被阻止并提示
+> - 渠道 agent 每次处理消息按配置锚定运行目录
 
 ### 飞书侧斜杠命令
 

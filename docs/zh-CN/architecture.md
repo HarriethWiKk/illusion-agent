@@ -122,6 +122,16 @@ illusion-agent/
 | FastAPI | - | 后端 API 框架 |
 | WebSocket | - | 实时双向通信 |
 
+### Web 多工作区（目录空间）
+
+Web 端支持在多个目录空间并发运行会话，每个目录独立工作区：
+
+- **后端**：`WebBackendHost` 为每个工作区持有独立 `RuntimeBundle`（api_client / tool_registry / mcp / hooks 按目录初始化，项目级 `.illusion/` 配置随目录生效）。默认工作区急建 bundle（启动流程不变），其余工作区**懒构建**（首次进入该目录会话时）并**空闲驱逐**（60 秒宽限期）。工作区注册表持久化于 `~/.illusion/workspaces.json`
+- **会话**：按目录分区存储（`~/.illusion/data/sessions/{目录}-{sha}/`），会话列表按目录分组；新建会话可指定目录（欢迎界面目录按钮）；恢复会话按所属目录路由
+- **cron**：任务自带 `cwd`（创建/更新时必选已注册目录），web 委托按会话所属目录匹配；`/api/cron/sessions?cwd=` 按目录过滤
+- **渠道**：渠道配置含 `working_directory`（启用必填），渠道 agent 固定在该目录运行；`channel enable/login --working-directory <dir>` 指定并自动注册工作区
+- **terminal/print 模式零影响**：`build_runtime(cwd=)` 缺省取进程目录，行为不变
+
 ---
 
 ## 📦 主要依赖
