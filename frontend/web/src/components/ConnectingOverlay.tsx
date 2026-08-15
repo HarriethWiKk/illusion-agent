@@ -58,7 +58,7 @@ export default function ConnectingOverlay({ lang }: ConnectingOverlayProps) {
         className="animate-pulse-soft"
         style={{ filter: 'drop-shadow(0 0 6px rgba(42,157,153,0.35))' }}
       >
-        {/* 定义流动渐变：三色取自欢迎界面 gradient-text */}
+        {/* 定义流动渐变：青绿→紫→珊瑚三色循环 */}
         <defs>
           <linearGradient id="mobi-grad" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#2a9d99">

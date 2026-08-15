@@ -333,6 +333,8 @@ interface ChatAreaProps {
   onRewindToTurn?: (turnsToRewind: number) => void;
   /** 重新生成回调（回退最后一轮并重发 user 消息） */
   onRegenerate?: () => void;
+  /** 欢迎态注入到标题下方的内容（输入框 + 工具栏卡片；非欢迎态不渲染） */
+  children?: ReactNode;
 }
 
 /**
@@ -345,7 +347,7 @@ interface ChatAreaProps {
  */
 export default function ChatArea({
   lang, staticItems, assistantBuffer, streamingReasoning, pendingToolCalls, reasoningStreaming, busy, connected,
-  modal, onPermissionResponse, onQuestionResponse, restoringSessionId, onRewindToTurn, onRegenerate,
+  modal, onPermissionResponse, onQuestionResponse, restoringSessionId, onRewindToTurn, onRegenerate, children,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -522,12 +524,12 @@ export default function ChatArea({
           {t(lang, 'connecting')}
         </div>
       )}
-      {connected && !hasContent && (
-        <WelcomeScreen lang={lang} />
+      {connected && !hasContent && !busy && (
+        <WelcomeScreen>{children}</WelcomeScreen>
       )}
 
       {(hasContent || busy) && (
-      <div className="mx-auto max-w-5xl px-6 md:px-10 lg:px-16 py-6">
+      <div className="mx-auto max-w-[var(--chat-content-width)] px-6 md:px-10 lg:px-16 pt-6 pb-0">
         {/* 折叠的更早消息入口 */}
         {hiddenCount > 0 && (
           <div className="flex justify-center mb-6">
@@ -589,7 +591,7 @@ export default function ChatArea({
       {showScrollDown && (
         <button
           onClick={scrollToBottom}
-          className="fixed bottom-36 left-1/2 -translate-x-1/2 z-30 w-9 h-9 flex items-center justify-center rounded-full glass-surface text-content-secondary hover:text-content-primary shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer animate-fade-in-up"
+          className="fixed bottom-44 left-1/2 -translate-x-1/2 z-30 w-9 h-9 flex items-center justify-center rounded-full glass-surface text-content-secondary hover:text-content-primary shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer animate-fade-in-up"
           title={t(lang, 'scroll_to_bottom')}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

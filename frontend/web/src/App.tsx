@@ -90,6 +90,8 @@ export default function App() {
   const pendingRegenerateRef = useRef<string | null>(null);
   const prevBusyRef = useRef(false);
   const promptInputRef = useRef<PromptInputHandle>(null);
+  // rewind 回退到开头时欢迎界面重新挂载 PromptInput，用 state 持久化回退文本
+  const [rewindDraft, setRewindDraft] = useState<string | null>(null);
 
   // Toast 状态
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -134,6 +136,9 @@ export default function App() {
     // 注：select_request 内联选项已由 hook 按会话路由（session.inlineOptions），
     // 无需在此注册 onSelectRequest 回调
     session.setOnRewindRestored((text) => {
+      // 持久化回退文本：回退到欢迎界面时输入框重挂载，靠 initialDraft 兜底回填；
+      // 普通 rewind 时 ref 即时回填（两者不冲突）
+      setRewindDraft(text);
       promptInputRef.current?.setDraft(text);
     });
     session.setOnCommandResult((text, type, requestId) => {
@@ -151,10 +156,8 @@ export default function App() {
     });
     return () => {
       session.setOnSelectRequest(null);
-      session.setOnRewindRestored((text) => {
-      promptInputRef.current?.setDraft(text);
-    });
-    session.setOnCommandResult(null);
+      session.setOnRewindRestored(null);
+      session.setOnCommandResult(null);
       session.setOnUpdateAvailable(null);
     };
   }, [session.setOnSelectRequest, session.setOnCommandResult, session.setOnUpdateAvailable, showToast, lang]);
@@ -285,6 +288,8 @@ export default function App() {
     // treat_as_text=true 告诉后端跳过命令注册表，直接当文本提交给 LLM
     session.setBusyTrue();
     session.sendRequest({ type: 'submit_line', line: trimmed, treat_as_text: true });
+    // 用户发送消息时清空持久化回退草稿，避免非欢迎态 rewind 残留影响后续
+    setRewindDraft(null);
   };
 
   /**
@@ -420,8 +425,9 @@ export default function App() {
   const [showSetupForm, setShowSetupForm] = useState(false);
   // 设置表单初始页（目录按钮"管理目录…"直达目录空间页）
   const [setupInitialTab, setSetupInitialTab] = useState<'settings' | 'workspaces' | 'channels' | 'cron' | 'sandbox'>('settings');
-  // 欢迎界面可见（无任何会话内容）：输入框目录按钮常显，可直接选目录新建
-  const welcomeVisible = session.connected
+  // 欢迎界面可见（无任何会话内容且非忙碌）：输入框目录按钮常显，可直接选目录新建。
+  // 忙碌（首条消息生成）时不算欢迎态，输入框回到底部，避免与"思考中"指示器并存
+  const welcomeVisible = session.connected && !session.busy
     && !(session.staticItems.length > 0 || !!session.assistantBuffer || !!session.streamingReasoning
       || session.pendingToolCalls.length > 0 || !!session.modal);
 
@@ -556,6 +562,7 @@ export default function App() {
   /** 处理新建会话：直接新建（当前活跃目录）；cwd 指定时在该目录新建。
    *  目录选择由欢迎界面常显的输入框目录按钮承担，不再弹出选择弹窗 */
   const handleNewSession = (cwd?: string) => {
+    setRewindDraft(null); // 新建会话清空持久化回退草稿
     session.newSession(cwd);
   };
 
@@ -572,6 +579,7 @@ export default function App() {
   const handleSelectSession = useCallback((id: string, cwd?: string) => {
     // 视图已就绪的会话纯本地切换（瞬时，无加载态）；未恢复的会话由
     // hook 自动发送 web_restore_session 并显示加载动画
+    setRewindDraft(null); // 切换会话清空持久化回退草稿
     session.activateSession(id, cwd);
   }, [session.activateSession]);
 
@@ -612,6 +620,7 @@ export default function App() {
     if (ids.length > 0) {
       // 直接发送删除请求；若包含当前会话，后端会原子化地新建空会话，
       // 避免前端"先删后建"两阶段逻辑的竞态。
+      setRewindDraft(null); // 删除会话（可能新建空会话）清空持久化回退草稿
       session.deleteSessions(ids);
     }
     requestDeleteModalClose();
@@ -670,6 +679,7 @@ export default function App() {
       .replace('{count}', String(group.sessions.length)))) {
       return;
     }
+    setRewindDraft(null); // 整组删除（可能删除当前会话并新建空会话）清空持久化回退草稿
     session.deleteSessions(group.sessions.map((s) => s.value));
     requestDeleteModalClose();
   }, [session.deleteSessions, lang, requestDeleteModalClose]);
@@ -698,6 +708,37 @@ export default function App() {
     session.clearModal();
   };
 
+  /** 输入框 + 工具栏合并为单卡片（欢迎态注入标题下方，非欢迎态置于底部） */
+  const composer = (
+    <div className="glass-surface rounded-3xl focus-within:shadow-glow">
+      <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
+        hasActiveTasks={session.tasks.some(
+          (t) =>
+            (t.status === 'in_progress' || t.status === 'pending') &&
+            t.metadata?.owner_session_id === session.activeSessionId,
+        )}
+        commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
+        inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
+        btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}
+        workspaces={session.workspaces} activeCwd={session.activeWorkspaceCwd}
+        welcomeVisible={welcomeVisible}
+        onPickWorkspace={(cwd) => handleNewSession(cwd)}
+        onAddWorkspace={(path) => session.addWorkspace(path)}
+        onManageWorkspaces={() => { setSetupInitialTab('workspaces'); setShowSetupForm(true); }}
+        initialDraft={rewindDraft ?? undefined}
+        onConsumeInitialDraft={() => setRewindDraft(null)}>
+        <Toolbar lang={lang} status={session.status}
+          modelOptions={session.modelOptions}
+          onSetSetting={(key, value) => {
+            if (key === 'model') session.setModelSwitching(true);
+            session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
+          }}
+          onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
+          modelSwitching={session.modelSwitching} />
+      </PromptInput>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-screen">
       {/* Electron 桌面壳自定义顶部栏（浏览器端返回 null） */}
@@ -722,35 +763,17 @@ export default function App() {
           busy={session.busy} connected={session.connected}
           modal={session.modal} onPermissionResponse={handlePermissionResponse}
           onQuestionResponse={handleQuestionResponse} restoringSessionId={session.restoringSessionId}
-          onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate} />
-        {/* 输入框 + 工具栏合并为单卡片，宽度对齐主聊天区（max-w-5xl 居中），上下留视觉空行 */}
-        <div className="mx-auto max-w-5xl w-full min-w-0 px-6 md:px-10 lg:px-16 pt-4 pb-4 shrink-0">
-          <div className="glass-surface rounded-3xl focus-within:shadow-glow">
-            <PromptInput ref={promptInputRef} lang={lang} busy={session.busy} connected={session.connected}
-              hasActiveTasks={session.tasks.some(
-                (t) =>
-                  (t.status === 'in_progress' || t.status === 'pending') &&
-                  t.metadata?.owner_session_id === session.activeSessionId,
-              )}
-              commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
-              inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
-              btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}
-              workspaces={session.workspaces} activeCwd={session.activeWorkspaceCwd}
-              welcomeVisible={welcomeVisible}
-              onPickWorkspace={(cwd) => handleNewSession(cwd)}
-              onAddWorkspace={(path) => session.addWorkspace(path)}
-              onManageWorkspaces={() => { setSetupInitialTab('workspaces'); setShowSetupForm(true); }}>
-              <Toolbar lang={lang} status={session.status}
-                modelOptions={session.modelOptions}
-                onSetSetting={(key, value) => {
-                  if (key === 'model') session.setModelSwitching(true);
-                  session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
-                }}
-                onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
-                modelSwitching={session.modelSwitching} />
-            </PromptInput>
+          onRewindToTurn={handleRewindToTurn} onRegenerate={handleRegenerate}>
+          {/* 欢迎态：输入框 + 工具栏注入到标题/副标题下方（ChatArea 内渲染） */}
+          {welcomeVisible && composer}
+        </ChatArea>
+        {/* 非欢迎态或会话恢复中：输入框 + 工具栏恢复到底部；宽度比主聊天区每边宽 17px（--composer-card-max-width），
+            与聊天区紧贴（无顶部间距）。恢复中 ChatArea 提前返回加载卡不渲染欢迎态 composer，故不会重复渲染 */}
+        {(!welcomeVisible || session.restoringSessionId) && (
+          <div className="mx-auto max-w-[var(--composer-card-max-width)] w-full min-w-0 px-6 md:px-10 lg:px-16 pt-0 pb-4 shrink-0">
+            {composer}
           </div>
-        </div>
+        )}
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"

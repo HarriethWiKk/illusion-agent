@@ -13,7 +13,7 @@
  * @module Sidebar
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import type { WebWorkspaceItem } from '../types/protocol';
 import { FolderClosedIcon, FolderOpenIcon, NewChatIcon } from './icons';
@@ -92,7 +92,7 @@ function basenameOf(path: string): string {
 }
 
 /**
- * 会话列表项（带聚光灯悬停效果、活跃指示条与运行状态视觉）
+ * 会话列表项（带活跃指示条与运行状态视觉）
  */
 function SessionItem({ session, isRestoring, isActive, onSelect }: {
   session: SidebarSession;
@@ -100,23 +100,13 @@ function SessionItem({ session, isRestoring, isActive, onSelect }: {
   isActive: boolean;
   onSelect: (id: string, cwd?: string) => void;
 }) {
-  const ref = useRef<HTMLButtonElement>(null);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    el.style.setProperty('--spotlight-x', `${e.clientX - rect.left}px`);
-    el.style.setProperty('--spotlight-y', `${e.clientY - rect.top}px`);
-  }, []);
-
   // 状态样式：
   // - 所有会话项预留 1px 透明边框（状态切换无布局跳动）
   // - 活跃（active）：主色淡背景 + 主色细边框（不再加重字重）
   // - 运行中（busy）：细边框 + 一小段主色系光束沿边框流动（BorderBeam 风格）
   // - 无图标：缩进表达所属目录关系
   const className = [
-    'session-item spotlight-hover relative w-full text-left pl-9 pr-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade',
+    'session-item relative w-full text-left pl-9 pr-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade',
     isActive
       ? 'session-active text-content-primary'
       : 'text-content-secondary glass-option-hover hover:text-content-primary',
@@ -125,9 +115,7 @@ function SessionItem({ session, isRestoring, isActive, onSelect }: {
 
   return (
     <button
-      ref={ref}
       onClick={() => onSelect(session.value, session.cwd || undefined)}
-      onMouseMove={handleMouseMove}
       className={className}
       title={session.label}
     >
@@ -165,25 +153,13 @@ function WorkspaceGroupSection({ group, lang, collapsedByDefault, restoringSessi
 
   const visible = listExpanded ? group.sessions : group.sessions.slice(0, 5);
 
-  // 组头聚光（spotlight）跟随鼠标：与会话项一致的浮光效果
-  const groupRef = useRef<HTMLDivElement>(null);
-  const handleGroupMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const el = groupRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    el.style.setProperty('--spotlight-x', `${e.clientX - rect.left}px`);
-    el.style.setProperty('--spotlight-y', `${e.clientY - rect.top}px`);
-  }, []);
-
   return (
     <div>
       {/* 组头：目录名（无选中高光、无边框）；文件夹图标随展开/折叠切换，
           悬停时淡出并淡入三角指示器（指向右，展开时旋转指向下）；
           右侧新建会话指示器（点击即在该目录新建） */}
       <div
-        ref={groupRef}
-        onMouseMove={handleGroupMouseMove}
-        className="spotlight-hover w-full flex items-center rounded-lg transition-colors cursor-pointer glass-option-hover hover:text-content-primary"
+        className="w-full flex items-center rounded-lg transition-colors cursor-pointer glass-option-hover hover:text-content-primary"
       >
         <button
           onClick={() => setExpanded((v) => !v)}

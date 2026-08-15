@@ -99,6 +99,10 @@ interface PromptInputProps {
   onManageWorkspaces?: () => void;
   /** 底部工具行注入内容（Mode/Model/Effort 下拉，右对齐由发送/侧问按钮区隔离） */
   children?: React.ReactNode;
+  /** 挂载时的初始草稿（rewind 回退到欢迎界面时输入框重挂载，用此回填被回退的 user 消息） */
+  initialDraft?: string;
+  /** 消费初始草稿后的回调（父组件据此清空持久化草稿，避免残留影响下次会话） */
+  onConsumeInitialDraft?: (draft: string) => void;
 }
 
 /**
@@ -114,8 +118,14 @@ export interface PromptInputHandle {
   setDraft: (text: string) => void;
 }
 
-const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children }, ref) {
-  const [value, setValue] = useState('');
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children, initialDraft, onConsumeInitialDraft }, ref) {
+  const [value, setValue] = useState(initialDraft ?? '');
+
+  // 挂载时若携带初始草稿（欢迎界面重挂载回填），通知父组件消费清空，避免残留
+  useEffect(() => {
+    if (initialDraft) onConsumeInitialDraft?.(initialDraft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // + 号快捷指令菜单开关（与斜杠共用同一弹窗，展示全部 WEB_COMMANDS）
   const [plusOpen, setPlusOpen] = useState(false);
   // 目录选择弹层（选目录即新建会话）状态
@@ -483,8 +493,8 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         />
       </div>
 
-      {/* 底部工具行：+ 号 + 目录选择 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-4 与输入区留出视觉空白行 */}
-      <div className="flex items-center justify-between gap-2 px-1 pt-4 pb-2">
+      {/* 底部工具行：+ 号 + 目录选择 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-8 与输入区留出更高视觉空白行 */}
+      <div className="flex items-center justify-between gap-2 px-1 pt-8 pb-2">
         <div className="flex items-center gap-2 min-w-0">
           {/* + 号：打开快捷指令菜单（与斜杠同一弹窗） */}
           <button
