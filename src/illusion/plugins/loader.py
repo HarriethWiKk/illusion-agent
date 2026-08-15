@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from pydantic import ValidationError
@@ -35,7 +35,12 @@ def get_project_plugins_dir(cwd: str | Path) -> Path:
 
     cwd 无效（如守护进程启动目录被删除）时回退到用户级插件目录，
     避免 WinError 267 阻断 build_runtime。
+
+    加固：cwd 若非真实路径类型（如测试误传 MagicMock），直接回退到
+    用户级插件目录，避免在 cwd 下创建 ``MagicMock/.../.illusion`` 目录。
     """
+    if not isinstance(cwd, (str, PurePath)):
+        return get_user_plugins_dir()
     try:
         path = Path(cwd).resolve() / ".illusion" / "plugins"
         path.mkdir(parents=True, exist_ok=True)

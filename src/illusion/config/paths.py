@@ -29,7 +29,7 @@ IllusionAgent 配置和数据目录路径解析模块
 from __future__ import annotations
 
 import os  # 导入 os 模块用于环境变量和路径操作
-from pathlib import Path  # 导入 Path 类用于路径处理
+from pathlib import Path, PurePath  # 导入 Path 类用于路径处理
 
 # 常量定义
 _DEFAULT_BASE_DIR = ".illusion"  # 默认基础目录名称
@@ -243,12 +243,17 @@ def get_project_config_dir(cwd: str | Path) -> Path:
     cwd 无效（如守护进程启动目录被删除）时回退到用户级配置目录，
     避免 WinError 267 阻断 build_runtime。
 
+    加固：cwd 若非真实路径类型（如测试误传 MagicMock），直接回退到
+    用户级配置目录，避免在 cwd 下创建 ``MagicMock/.../.illusion`` 目录。
+
     Args:
         cwd: 当前工作目录
 
     Returns:
         Path: 项目配置目录路径
     """
+    if not isinstance(cwd, (str, PurePath)):
+        return get_config_dir()
     try:
         project_dir = Path(cwd).resolve() / ".illusion"
         project_dir.mkdir(parents=True, exist_ok=True)
