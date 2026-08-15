@@ -266,6 +266,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "channel_enabled": {"zh-CN": "已启用 {channel} 渠道（下次 illusion 启动生效）", "en-US": "Enabled {channel} channel (effective on next illusion start)"},
     "channel_disabled": {"zh-CN": "已禁用 {channel} 渠道", "en-US": "Disabled {channel} channel"},
     "channel_no_creds": {"zh-CN": "未配置凭据，请先运行 'illusion channel login {channel}'", "en-US": "No credentials, run 'illusion channel login {channel}' first"},
+    "channel_need_workdir": {"zh-CN": "启用渠道必须指定运行目录，请使用 'illusion channel enable {channel} --working-directory <dir>'", "en-US": "Enabling a channel requires a working directory. Use 'illusion channel enable {channel} --working-directory <dir>'"},
+    "channel_ask_workdir": {"zh-CN": "渠道运行目录（渠道 agent 将固定在此目录运行）: ", "en-US": "Channel working directory (channel agents will run here): "},
+    "channel_workdir_required": {"zh-CN": "运行目录不能为空", "en-US": "Working directory is required"},
+    "channel_invalid_workdir": {"zh-CN": "运行目录无效: {error}", "en-US": "Invalid working directory: {error}"},
     "channel_logout_done": {"zh-CN": "已清除 {channel} 渠道凭据", "en-US": "Cleared {channel} channel credentials"},
     # --- channel serve ---
     "channel_starting": {"zh-CN": "[渠道] 正在启动 {channel} 渠道...", "en-US": "[Channel] Starting {channel} channel..."},

@@ -75,6 +75,7 @@ class FeishuChannelConfig(BaseModel):
     group_sessions_per_user: bool = True  # 群组会话按用户隔离
     group_policy: FeishuGroupPolicy = Field(default_factory=FeishuGroupPolicy)  # 群组策略
     show_reasoning: bool = True  # 默认显示思考过程
+    working_directory: str | None = None  # 渠道 agent 运行目录（缺省 = 默认工作区）
 
 
 class WeixinChannelConfig(BaseModel):
@@ -100,6 +101,7 @@ class WeixinChannelConfig(BaseModel):
     cdn_base_url: str = "https://novac2c.cdn.weixin.qq.com/c2c"  # CDN 入口
     user_id: str = ""  # bot 自身 user id
     allow_bots: bool = False  # 默认拒绝机器人消息
+    working_directory: str | None = None  # 渠道 agent 运行目录（缺省 = 默认工作区）
 
 
 class QQGroupPolicy(BaseModel):
@@ -147,6 +149,7 @@ class QQChannelConfig(BaseModel):
     require_mention: bool = True  # 群组需 @提及
     group_policy: QQGroupPolicy = Field(default_factory=QQGroupPolicy)  # 群组策略
     show_reasoning: bool = True  # 默认显示思考过程
+    working_directory: str | None = None  # 渠道 agent 运行目录（缺省 = 默认工作区）
 
 
 class ChannelsConfig(BaseModel):

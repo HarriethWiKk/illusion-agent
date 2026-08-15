@@ -719,6 +719,20 @@ class ChannelRunner:
             qq_markdown_support=qq_md,
             active_sessions=active_sessions,
         )
+        # 渠道 agent 运行目录锚定：优先渠道配置的 working_directory
+        # （每条消息动态读取，配置变更即时生效，无需重启守护进程），
+        # 缺省回退默认工作区（settings.working_directory / 进程目录）。
+        # 此前隐式继承守护进程启动目录，多目录空间下行为不可控。
+        channel_cwd = getattr(
+            getattr(all_cfg, self.channel.name, None), "working_directory", None
+        )
+        if not channel_cwd:
+            try:
+                from illusion.services.workspace_registry import get_default_workspace
+
+                channel_cwd = get_default_workspace()
+            except (OSError, ValueError):
+                channel_cwd = str(Path.cwd())
 
         try:
             bundle = await build_runtime(
@@ -734,6 +748,7 @@ class ChannelRunner:
                 plan_approval_prompt=self._make_plan_approval_prompt(msg.chat_id),
                 channel_hint=channel_hint,
                 channel_tools=self._build_channel_tools(msg),
+                cwd=channel_cwd,
             )
         except Exception as exc:
             logger.exception("构建 runtime 失败")

@@ -32,10 +32,26 @@ _CHANNEL_OPTIONS: list[tuple[str, dict[str, str]]] = [
 ]
 
 
-def _feishu_login() -> None:
+def _resolve_or_ask_workdir(working_directory: str | None) -> str:
+    """解析渠道运行目录：优先参数，否则交互询问（必填）。"""
+    raw = working_directory
+    if not raw:
+        raw = typer.prompt(_t("channel_ask_workdir")).strip()
+    if not raw:
+        print(_t("channel_workdir_required"), file=sys.stderr)
+        raise typer.Exit(1)
+    resolved, err = _resolve_channel_workdir(raw)
+    if resolved is None:
+        print(_t("channel_invalid_workdir", error=err or ""), file=sys.stderr)
+        raise typer.Exit(1)
+    return resolved
+
+
+def _feishu_login(working_directory: str | None = None) -> None:
     """飞书渠道配置引导流程
 
     引导用户完成飞书自建应用的凭据配置，明文存储（按需求不遮掩 App Secret）。
+    启用渠道必须配置运行目录（渠道 agent 的工作区锚点）。
     """
     from illusion.channels.config import (
         FeishuChannelConfig,
@@ -82,6 +98,7 @@ def _feishu_login() -> None:
 
     # 5. 保存到 channels.json，置 enabled=true
     cfg = load_channels_config()
+    workdir = _resolve_or_ask_workdir(working_directory)
     cfg.feishu = FeishuChannelConfig(
         enabled=True,
         app_id=app_id,
@@ -92,17 +109,20 @@ def _feishu_login() -> None:
         group_sessions_per_user=group_isolation,
         group_policy=FeishuGroupPolicy(),
         show_reasoning=show_reasoning,
+        working_directory=workdir,
     )
     save_channels_config(cfg)
 
     path = get_channels_file_path()
     print(_t("channel_saved", path=str(path), channel=_t("channel_feishu_label")))
+    print(f"  working directory: {workdir}")
 
 
-def _weixin_login() -> None:
+def _weixin_login(working_directory: str | None = None) -> None:
     """微信渠道扫码登录流程
 
-    安装依赖 → 扫码登录（浏览器投射二维码）→ 保存凭据
+    安装依赖 → 扫码登录（浏览器投射二维码）→ 保存凭据。
+    启用渠道必须配置运行目录（渠道 agent 的工作区锚点）。
     """
     from illusion.channels.config import (
         WeixinChannelConfig,
@@ -132,6 +152,7 @@ def _weixin_login() -> None:
         token=creds.token,
         base_url=creds.base_url,
         user_id=creds.user_id,
+        working_directory=_resolve_or_ask_workdir(working_directory),
     )
     save_channels_config(cfg)
 
@@ -139,10 +160,11 @@ def _weixin_login() -> None:
     print(_t("channel_saved", path=str(path), channel=_t("channel_weixin_label")))
 
 
-def _qq_login() -> None:
+def _qq_login(working_directory: str | None = None) -> None:
     """QQ 渠道配置引导流程
 
     引导用户完成 QQ 开放平台机器人应用的凭据配置。
+    启用渠道必须配置运行目录（渠道 agent 的工作区锚点）。
     """
     from illusion.channels.config import (
         QQChannelConfig,
@@ -190,6 +212,7 @@ def _qq_login() -> None:
         require_mention=require_mention,
         group_policy=QQGroupPolicy(),
         show_reasoning=show_reasoning,
+        working_directory=_resolve_or_ask_workdir(working_directory),
     )
     save_channels_config(cfg)
 
@@ -198,10 +221,16 @@ def _qq_login() -> None:
 
 
 @channel_app.command("login")
-def channel_login() -> None:
+def channel_login(
+    working_directory: str | None = typer.Option(
+        None, "--working-directory", "-d",
+        help="渠道 agent 运行目录（必填；自动注册为 Web 工作区）/ Channel working directory (required)",
+    ),
+) -> None:
     """交互式配置消息渠道
 
-    流程：选择渠道 → 配置凭据 → 自动安装依赖 → 保存
+    流程：选择渠道 → 配置凭据 → 自动安装依赖 → 保存。
+    启用渠道必须配置运行目录（渠道 agent 的工作区锚点）。
     """
     _ensure_language()
     from illusion.config import load_settings
@@ -228,13 +257,13 @@ def channel_login() -> None:
 
     # 2. 分发到具体渠道配置流程
     if channel_choice == "feishu":
-        _feishu_login()
+        _feishu_login(working_directory)
         return
     elif channel_choice == "weixin":
-        _weixin_login()
+        _weixin_login(working_directory)
         return
     elif channel_choice == "qq":
-        _qq_login()
+        _qq_login(working_directory)
         return
 
 
@@ -271,36 +300,63 @@ def channel_status() -> None:
 @channel_app.command("enable")
 def channel_enable(
     name: str = typer.Argument("feishu", help="渠道名称 / Channel name"),
+    working_directory: str | None = typer.Option(
+        None, "--working-directory", "-d",
+        help="渠道 agent 运行目录（必填；自动注册为 Web 工作区）/ Channel working directory (required)",
+    ),
 ) -> None:
-    """启用指定渠道"""
+    """启用指定渠道（必须指定运行目录）"""
     from illusion.channels.config import load_channels_config, save_channels_config
 
     _ensure_language()
     cfg = load_channels_config()
-    if name == "feishu":
-        if not cfg.feishu.app_id:
-            print(_t("channel_no_creds", channel=name), file=sys.stderr)
-            raise typer.Exit(1)
-        cfg.feishu.enabled = True
-        save_channels_config(cfg)
-        print(_t("channel_enabled", channel=name))
-    elif name == "weixin":
-        if not cfg.weixin.account_id:
-            print(_t("channel_no_creds", channel=name), file=sys.stderr)
-            raise typer.Exit(1)
-        cfg.weixin.enabled = True
-        save_channels_config(cfg)
-        print(_t("channel_enabled", channel=name))
-    elif name == "qq":
-        if not cfg.qq.app_id:
-            print(_t("channel_no_creds", channel=name), file=sys.stderr)
-            raise typer.Exit(1)
-        cfg.qq.enabled = True
-        save_channels_config(cfg)
-        print(_t("channel_enabled", channel=name))
-    else:
+
+    # 校验凭据
+    cred_field = {"feishu": "app_id", "weixin": "account_id", "qq": "app_id"}.get(name)
+    channel_cfg = getattr(cfg, name, None)
+    if channel_cfg is None:
         print(_t("invalid_selection"), file=sys.stderr)
         raise typer.Exit(1)
+    if not getattr(channel_cfg, cred_field or "", ""):
+        print(_t("channel_no_creds", channel=name), file=sys.stderr)
+        raise typer.Exit(1)
+
+    # 运行目录：启用必须指定（渠道配置已有目录时允许复用）
+    if working_directory:
+        resolved, err = _resolve_channel_workdir(working_directory)
+        if resolved is None:
+            print(_t("channel_invalid_workdir", error=err or ""), file=sys.stderr)
+            raise typer.Exit(1)
+        channel_cfg.working_directory = resolved
+    elif not channel_cfg.working_directory:
+        print(_t("channel_need_workdir", channel=name), file=sys.stderr)
+        raise typer.Exit(1)
+
+    channel_cfg.enabled = True
+    save_channels_config(cfg)
+    print(_t("channel_enabled", channel=name))
+    if working_directory:
+        print(f"  working directory: {channel_cfg.working_directory}")
+
+
+def _resolve_channel_workdir(path: str) -> tuple[str | None, str | None]:
+    """校验渠道运行目录并注册为 Web 工作区（与 web 端 start 流程一致）。
+
+    Returns:
+        tuple[str | None, str | None]: (规范化目录或 None, 错误信息或 None)
+    """
+    from illusion.cli.workspace import validate_and_normalize
+    from illusion.services import workspace_registry
+
+    resolved, err = validate_and_normalize(path)
+    if resolved is None:
+        return None, err or "invalid path"
+    normalized = str(resolved)
+    if not workspace_registry.is_known_workspace(normalized):
+        entry, reg_err = workspace_registry.register_workspace(normalized)
+        if entry is None:
+            return None, reg_err or "register failed"
+    return normalized, None
 
 
 @channel_app.command("disable")

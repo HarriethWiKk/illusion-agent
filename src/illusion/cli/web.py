@@ -33,7 +33,9 @@ def web_start(
     from illusion.ui.web.server import create_app
     from illusion.ui.web.ws_host import WebHostConfig
 
-    # 渠道自动激活：有 enabled 渠道时 spawn 守护进程（与 illusion 主命令一致）
+    # 渠道自动激活：与 illusion 主命令一致，有 enabled 渠道时 spawn 守护进程。
+    # 渠道启用必须配置运行目录（working_directory，见 channel enable --working-directory
+    # 与 /api/channels PATCH 校验），守护进程内 runner 按该目录锚定 agent 运行。
     _daemon_proc = None
     _daemon_client = None
     try:

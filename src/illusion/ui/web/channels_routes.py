@@ -51,6 +51,18 @@ class UpdateChannelsRequest(BaseModel):
     qq: dict[str, Any] | None = None
 
 
+class StartChannelRequest(BaseModel):
+    """启动渠道请求体。
+
+    Attributes:
+        working_directory: 渠道 agent 运行目录（可选；提供时先写入渠道
+            配置再启动，守护进程按该目录锚定 agent 运行。缺省沿用现有
+            渠道配置或默认工作区）
+    """
+
+    working_directory: str | None = None
+
+
 class TestConnectionRequest(BaseModel):
     """测试连接请求体（携带待校验的凭据，不依赖已保存的配置）
 
@@ -92,6 +104,9 @@ def register_channels_routes(app: FastAPI, host_config: Any | None = None) -> No
         仅合并请求中提供的渠道字段（顶层浅合并），其余渠道保持不变。
         合并后经 ChannelsConfig 校验，校验失败返回 400。
 
+        多目录空间：启用渠道（enabled=true）必须配置运行目录
+        （working_directory），否则渠道 agent 无法锚定工作区。
+
         Returns:
             dict: 更新后的全部渠道配置
         """
@@ -108,6 +123,14 @@ def register_channels_routes(app: FastAPI, host_config: Any | None = None) -> No
             new_cfg = ChannelsConfig.model_validate(data)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        # 启用校验：渠道 enabled 时必须有 working_directory
+        for ch_name in ("feishu", "weixin", "qq"):
+            ch_cfg = getattr(new_cfg, ch_name, None)
+            if ch_cfg is not None and ch_cfg.enabled and not ch_cfg.working_directory:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"启用 {ch_name} 渠道必须指定运行目录（working_directory）",
+                )
         save_channels_config(new_cfg)
         return new_cfg.model_dump()
 
@@ -130,22 +153,41 @@ def register_channels_routes(app: FastAPI, host_config: Any | None = None) -> No
         return await _async_query_channels_status()
 
     @app.post("/api/channels/{name}/start")
-    async def start_channel(name: str) -> dict[str, Any]:
+    async def start_channel(name: str, req: StartChannelRequest | None = None) -> dict[str, Any]:
         """启动指定渠道 runner（通过 IPC 通知守护进程）
 
         直接在 FastAPI 事件循环中创建 DaemonClient 并 async 发送 start_channel。
         若守护进程未运行，先通过 asyncio.to_thread 调用 maybe_spawn_channel_daemon
         拉起（避免阻塞事件循环），spawn 后短暂等待再重试连接。
 
+        多目录空间：请求体可携带 working_directory，启动前先写入渠道配置
+        （未注册目录自动注册到工作区列表），渠道 agent 固定在该目录运行，
+        不再隐式继承守护进程启动目录。
+
         实际 runner 创建在守护进程事件循环中异步进行，前端可通过
         GET /api/channels/status 轮询确认运行状态。
 
         Args:
             name: 渠道名（feishu/weixin/qq）
+            req: 启动请求体（working_directory 可选）
 
         Returns:
             dict: {"ok": bool, "daemon_running": bool}
         """
+        # 先落盘渠道运行目录（在 spawn/notify 之前，确保守护进程读到新配置）
+        req = req or StartChannelRequest()
+        raw_dir = (req.working_directory or "").strip()
+        if raw_dir:
+            resolved_dir, err = await asyncio.to_thread(_resolve_channel_dir, raw_dir)
+            if resolved_dir is None:
+                raise HTTPException(status_code=400, detail=err or "目录路径非法")
+            cfg = load_channels_config()
+            channel_cfg = getattr(cfg, name, None)
+            if channel_cfg is None:
+                raise HTTPException(status_code=404, detail=f"Unknown channel: {name}")
+            channel_cfg.working_directory = resolved_dir
+            save_channels_config(cfg)
+
         # 第一次尝试：直接连接发送 start_channel
         ok = await _async_notify_channel(name, "start")
         if ok:
@@ -354,6 +396,29 @@ def register_channels_routes(app: FastAPI, host_config: Any | None = None) -> No
             }
 
         return result
+
+
+def _resolve_channel_dir(raw: str) -> tuple[str | None, str | None]:
+    """校验并注册渠道运行目录（复用已注册工作区或自动注册新目录）。
+
+    与工作目录设置相同的校验规则（expanduser、缺失目录自动创建）；
+    目录合法但未注册时自动加入工作区注册表（web 端列表立即可见）。
+
+    Returns:
+        tuple[str | None, str | None]: (规范化目录或 None, 错误信息或 None)
+    """
+    from illusion.cli.workspace import validate_and_normalize
+    from illusion.services import workspace_registry
+
+    resolved, err = validate_and_normalize(raw)
+    if resolved is None:
+        return None, err or "目录路径非法"
+    path = str(resolved)
+    if not workspace_registry.is_known_workspace(path):
+        entry, reg_err = workspace_registry.register_workspace(path)
+        if entry is None:
+            return None, reg_err or "注册目录失败"
+    return workspace_registry.normalize_workspace_path(path), None
 
 
 async def _test_feishu(app_id: str, app_secret: str, domain: str) -> dict[str, Any]:
