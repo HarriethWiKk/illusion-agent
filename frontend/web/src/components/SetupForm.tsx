@@ -838,7 +838,6 @@ function WorkspacesTab({ lang, workspaces, onAdd, onRemove, onRefresh, onSetDefa
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-content-disabled leading-relaxed">{t(lang, 'workspace_desc')}</div>
       <div className="space-y-1.5">
         {workspaces.length === 0 && (
           <div className="text-sm text-content-disabled py-4 text-center">{t(lang, 'workspace_empty')}</div>
@@ -918,7 +917,6 @@ function WorkspacesTab({ lang, workspaces, onAdd, onRemove, onRefresh, onSetDefa
           </button>
         </div>
       )}
-      <div className="text-[11px] text-content-disabled">{t(lang, 'workspace_add_hint')}</div>
     </div>
   );
 }

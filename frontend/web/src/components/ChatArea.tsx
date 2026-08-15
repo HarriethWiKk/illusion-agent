@@ -159,15 +159,11 @@ const TaskCompleteSection = memo(function TaskCompleteSection({ streaming, lang,
       </h3>
       {/* 标题下方的分隔直线 */}
       <div className="border-t border-border-light" />
-      {/* 展开/折叠微动画（与右栏 skills 折叠风格一致：grid 高度过渡 + fade-in-up） */}
-      {hasContent && (
-        <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: open ? '1fr' : '0fr' }}>
-          <div className="overflow-hidden">
-            <div className={open ? 'animate-fade-in-up' : ''} style={open ? { animationDelay: '80ms' } : undefined}>
-              <div className="mt-1.5" onClick={handleContentClick} onDoubleClick={handleContentDoubleClick}>
-                {children}
-              </div>
-            </div>
+      {/* 展开/折叠微动画（简洁 fade：纯透明度 150ms） */}
+      {hasContent && open && (
+        <div className="animate-fade">
+          <div className="mt-1.5" onClick={handleContentClick} onDoubleClick={handleContentDoubleClick}>
+            {children}
           </div>
         </div>
       )}

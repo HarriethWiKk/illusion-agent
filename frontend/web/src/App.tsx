@@ -29,6 +29,7 @@ import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
 import { SetupForm } from './components/SetupForm';
+import { FolderClosedIcon, FolderOpenIcon } from './components/icons';
 
 /** WebSocket 连接地址 */
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -409,6 +410,8 @@ export default function App() {
   // 删除会话弹窗状态（本地控制，数据源来自 session.sessions 主列表）
   const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  // 删除弹窗退出动画阶段：关闭时先播放淡出，动画结束后再真正卸载
+  const [deleteModalClosing, setDeleteModalClosing] = useState(false);
 
   // Agent 创建向导显示状态（/agent create 或 /agent new 触发）
   const [showAgentWizard, setShowAgentWizard] = useState(false);
@@ -580,8 +583,24 @@ export default function App() {
   /** 处理删除会话：打开删除弹窗（数据源来自 session.sessions 主列表） */
   const handleDeleteSessions = useCallback(() => {
     setDeleteSelected(new Set());
+    setDeleteModalClosing(false);
     setDeleteModalOpen(true);
   }, []);
+
+  /** 触发删除弹窗退出动画（真正卸载由 handleDeleteModalAnimationEnd 完成） */
+  const requestDeleteModalClose = useCallback(() => {
+    setDeleteModalClosing(true);
+  }, []);
+
+  /** 退出动画结束：真正卸载弹窗并清空选中状态（仅响应弹窗自身动画） */
+  const handleDeleteModalAnimationEnd = useCallback((e: React.AnimationEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return; // 忽略子元素冒泡的动画事件
+    if (!deleteModalClosing) return;
+    setDeleteModalOpen(false);
+    setDeleteModalClosing(false);
+    setDeleteSelected(new Set());
+  }, [deleteModalClosing]);
+
   /**
    * 处理确认删除
    *
@@ -595,19 +614,17 @@ export default function App() {
       // 避免前端"先删后建"两阶段逻辑的竞态。
       session.deleteSessions(ids);
     }
-    setDeleteModalOpen(false);
-    setDeleteSelected(new Set());
-  }, [deleteSelected, session.deleteSessions]);
+    requestDeleteModalClose();
+  }, [deleteSelected, session.deleteSessions, requestDeleteModalClose]);
 
   /**
    * 处理关闭删除模态框
    *
-   * 关闭删除会话弹窗并清除选中状态。
+   * 触发退出动画后关闭删除会话弹窗并清除选中状态。
    */
   const handleCloseDeleteModal = useCallback(() => {
-    setDeleteModalOpen(false);
-    setDeleteSelected(new Set());
-  }, []);
+    requestDeleteModalClose();
+  }, [requestDeleteModalClose]);
 
   /**
    * 切换删除项选中状态
@@ -618,8 +635,6 @@ export default function App() {
     setDeleteSelected((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
   }, []);
 
-  /** 是否显示删除模态框（本地控制，不再依赖 select_request:delete 填充） */
-  const showDeleteModal = deleteModalOpen;
   /** 待删除的普通会话列表（来自主会话列表 session.sessions） */
   const regularSessions = session.sessions;
   /** 总是提供"删除全部"入口 */
@@ -656,9 +671,8 @@ export default function App() {
       return;
     }
     session.deleteSessions(group.sessions.map((s) => s.value));
-    setDeleteModalOpen(false);
-    setDeleteSelected(new Set());
-  }, [session.deleteSessions, lang]);
+    requestDeleteModalClose();
+  }, [session.deleteSessions, lang, requestDeleteModalClose]);
 
   /**
    * 处理权限响应
@@ -755,10 +769,13 @@ export default function App() {
       </div>
 
       {/* 删除会话弹窗（仅 sidebar 触发；按目录分组查看，支持整组删除） */}
-      {showDeleteModal && (
+      {deleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[460px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
+          <div className={`absolute inset-0 bg-black/35 backdrop-blur-md ${deleteModalClosing ? 'animate-fade-out' : 'animate-fade'}`} onClick={handleCloseDeleteModal} />
+          <div
+            onAnimationEnd={handleDeleteModalAnimationEnd}
+            className={`relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[460px] max-h-[70vh] flex flex-col ${deleteModalClosing ? 'animate-scale-out' : 'animate-scale-in'} modal-origin-center`}
+          >
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
@@ -782,7 +799,7 @@ export default function App() {
                   // 删除全部限定在当前活跃工作区目录（多目录空间下互不影响）；
                   // 后端会原子化地新建空会话，避免两阶段竞态
                   session.deleteSessions([], true, session.activeWorkspaceCwd ?? undefined);
-                  setDeleteModalOpen(false); setDeleteSelected(new Set());
+                  requestDeleteModalClose();
                 }} className="danger-action px-4 py-2 text-sm text-danger rounded-lg cursor-pointer">{t(lang, 'delete_all_workspace')}</button>
               )}</div>
               <div className="flex gap-2">
@@ -982,10 +999,8 @@ function DeleteGroupSection({ group, deleteSelected, onToggleItem, onDeleteGroup
         <svg className={`w-3 h-3 shrink-0 text-content-secondary transition-transform duration-150 ${open ? 'rotate-90' : ''}`} viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 3l5 5-5 5" />
         </svg>
-        {/* 文件夹图标（与侧栏组头/输入框目录按钮一致） */}
-        <svg className="w-3.5 h-3.5 shrink-0 text-content-secondary" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
-        </svg>
+        {/* 文件夹双图标（展开=打开文件夹、折叠=关闭文件夹，与侧栏组头一致） */}
+        {open ? <FolderOpenIcon className="w-3.5 h-3.5 shrink-0 text-content-secondary" /> : <FolderClosedIcon className="w-3.5 h-3.5 shrink-0 text-content-secondary" />}
         <span className="text-sm text-content-secondary truncate flex-1">{group.name}</span>
         <span className="text-[10px] text-content-disabled tabular-nums shrink-0">{group.sessions.length}</span>
         <button
@@ -995,9 +1010,8 @@ function DeleteGroupSection({ group, deleteSelected, onToggleItem, onDeleteGroup
           {t(lang, 'delete_group')}
         </button>
       </div>
-      {/* 组内会话 checkbox 列表：外层 pl-4（16px，与组头背景同起点），
-          label 内 pl-5（20px）→ checkbox 起点 36px 与组头文件夹图标对齐；
-          悬浮背景从 16px 起覆盖选中方框与缩进区，视觉与组头对齐 */}
+      {/* 组内会话 checkbox 列表：外层缩进使 checkbox 与组头文件夹图标同列，
+          悬浮背景覆盖选中方框与缩进区 */}
       {open && (
         <div className="space-y-0.5 px-2 pl-4">
           {group.sessions.map((s) => (

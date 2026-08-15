@@ -424,7 +424,7 @@ export function CronTab({ lang, workspaces }: CronTabProps) {
           </div>
 
           {/* 执行目录（必选）：任务运行的目录空间，会话下拉随其过滤；
-              与渠道运行目录一致：直接显示所选目录，无"跟随默认工作区"选项 */}
+              直接显示所选目录，无"跟随默认工作区"选项 */}
           <div>
             <div className={labelClass}>{t(lang, 'cronFieldCwd')}</div>
             <GlassDropdown

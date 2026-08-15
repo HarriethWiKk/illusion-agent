@@ -614,22 +614,20 @@ export const ThinkingBlock = memo(function ThinkingBlock({
           <path d="M4.5 2.5L8 6L4.5 9.5" />
         </svg>
       </button>
-      {/* 展开/折叠微动画（与右栏 skills 折叠风格一致：grid 高度过渡 + fade-in-up） */}
-      <div className="grid transition-[grid-template-rows] duration-200 ease-out" style={{ gridTemplateRows: open ? '1fr' : '0fr' }}>
-        <div className="overflow-hidden">
-          <div className={open ? 'animate-fade-in-up' : ''} style={open ? { animationDelay: '80ms' } : undefined}>
-            <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
-              <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
-                <div className="prose prose-sm max-w-full">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
-                    {text}
-                  </ReactMarkdown>
-                </div>
+      {/* 展开/折叠微动画（简洁 fade：纯透明度 150ms） */}
+      {open && (
+        <div className="animate-fade">
+          <div onClick={handleContentClick} onDoubleClick={handleContentDoubleClick} className="relative">
+            <div className="text-sm text-content-secondary leading-relaxed select-text mt-1.5 opacity-80 py-1">
+              <div className="prose prose-sm max-w-full">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkSuperscript]} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={mdComponents}>
+                  {text}
+                </ReactMarkdown>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 });

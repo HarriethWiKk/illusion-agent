@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import type { WebWorkspaceItem } from '../types/protocol';
+import { FolderClosedIcon, FolderOpenIcon, NewChatIcon } from './icons';
 
 /**
  * 会话列表项（供侧边栏渲染的最小结构）
@@ -93,9 +94,8 @@ function basenameOf(path: string): string {
 /**
  * 会话列表项（带聚光灯悬停效果、活跃指示条与运行状态视觉）
  */
-function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
+function SessionItem({ session, isRestoring, isActive, onSelect }: {
   session: SidebarSession;
-  index: number;
   isRestoring: boolean;
   isActive: boolean;
   onSelect: (id: string, cwd?: string) => void;
@@ -114,9 +114,9 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
   // - 所有会话项预留 1px 透明边框（状态切换无布局跳动）
   // - 活跃（active）：主色淡背景 + 主色细边框（不再加重字重）
   // - 运行中（busy）：细边框 + 一小段主色系光束沿边框流动（BorderBeam 风格）
-  // - 无图标：缩进（pl-9 与组头文字起点对齐）表达所属目录关系
+  // - 无图标：缩进表达所属目录关系
   const className = [
-    'session-item spotlight-hover relative w-full text-left pl-9 pr-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up',
+    'session-item spotlight-hover relative w-full text-left pl-9 pr-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade',
     isActive
       ? 'session-active text-content-primary'
       : 'text-content-secondary glass-option-hover hover:text-content-primary',
@@ -129,7 +129,6 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
       onClick={() => onSelect(session.value, session.cwd || undefined)}
       onMouseMove={handleMouseMove}
       className={className}
-      style={{ animationDelay: `${index * 30}ms` }}
       title={session.label}
     >
       {/* 运行中/恢复中 spinner：绝对定位占用缩进空白，文字位置保持不动。
@@ -148,10 +147,9 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
 }
 
 /** 单个目录分组（组头 + 组内会话列表，支持折叠与前 5 条展开） */
-function WorkspaceGroupSection({ group, lang, index, collapsedByDefault, restoringSessionId, onSelectSession, onNewSession }: {
+function WorkspaceGroupSection({ group, lang, collapsedByDefault, restoringSessionId, onSelectSession, onNewSession }: {
   group: WorkspaceGroup;
   lang: UiLanguage;
-  index: number;
   collapsedByDefault: boolean;
   restoringSessionId?: string | null;
   onSelectSession: (id: string, cwd?: string) => void;
@@ -167,20 +165,38 @@ function WorkspaceGroupSection({ group, lang, index, collapsedByDefault, restori
 
   const visible = listExpanded ? group.sessions : group.sessions.slice(0, 5);
 
+  // 组头聚光（spotlight）跟随鼠标：与会话项一致的浮光效果
+  const groupRef = useRef<HTMLDivElement>(null);
+  const handleGroupMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = groupRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.style.setProperty('--spotlight-x', `${e.clientX - rect.left}px`);
+    el.style.setProperty('--spotlight-y', `${e.clientY - rect.top}px`);
+  }, []);
+
   return (
-    <div className="animate-fade-in-up" style={{ animationDelay: `${index * 40}ms` }}>
-      {/* 组头：目录名（无选中高光）；边框 + 文件夹图标使目录项与会话项
-          有明确视觉区分；右侧新建会话指示器（点击即在该目录新建） */}
-      <div className="w-full flex items-center rounded-lg border border-border-medium transition-colors cursor-pointer glass-option-hover hover:text-content-primary">
+    <div>
+      {/* 组头：目录名（无选中高光、无边框）；文件夹图标随展开/折叠切换，
+          悬停时淡出并淡入三角指示器（指向右，展开时旋转指向下）；
+          右侧新建会话指示器（点击即在该目录新建） */}
+      <div
+        ref={groupRef}
+        onMouseMove={handleGroupMouseMove}
+        className="spotlight-hover w-full flex items-center rounded-lg transition-colors cursor-pointer glass-option-hover hover:text-content-primary"
+      >
         <button
           onClick={() => setExpanded((v) => !v)}
           title={group.cwd}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left px-3 py-2.5 text-sm text-content-secondary"
+          className="group flex-1 min-w-0 flex items-center gap-2 text-left px-3 py-2.5 text-sm text-content-secondary"
         >
-          {/* 16px 图标槽位：文件夹图标（与输入框工作目录按钮一致） */}
-          <span className="w-4 h-4 shrink-0 flex items-center justify-center text-content-secondary">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+          {/* 16px 图标槽位：常显文件夹图标（展开=打开、折叠=关闭）；悬停时淡出、三角指示器淡入 */}
+          <span className="relative w-4 h-4 shrink-0 flex items-center justify-center text-content-secondary">
+            <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-100 group-hover:opacity-0">
+              {expanded ? <FolderOpenIcon className="w-3.5 h-3.5" /> : <FolderClosedIcon className="w-3.5 h-3.5" />}
+            </span>
+            <svg className={`absolute inset-0 m-auto w-3 h-3 opacity-0 transition-[opacity,transform] duration-100 group-hover:opacity-100 group-hover:duration-150 ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 14 14" fill="none">
+              <path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z" fill="currentColor" />
             </svg>
           </span>
           <span className="truncate flex-1 text-left">{group.name}</span>
@@ -191,20 +207,15 @@ function WorkspaceGroupSection({ group, lang, index, collapsedByDefault, restori
           title={`${t(lang, 'workspace_new_in')} · ${group.name}`}
           className="shrink-0 mr-1.5 w-6 h-6 flex items-center justify-center rounded-md text-content-secondary hover:text-primary transition-colors cursor-pointer"
         >
-          {/* 与顶部"新建会话"按钮同款图标 */}
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2.5" y="2.5" width="11" height="11" rx="3" />
-            <path d="M8 5.5v5M5.5 8h5" />
-          </svg>
+          <NewChatIcon className="w-3.5 h-3.5" />
         </button>
       </div>
       {expanded && (
         <div className="space-y-0.5">
-          {visible.map((s, idx) => (
+          {visible.map((s) => (
             <SessionItem
               key={s.value}
               session={s}
-              index={idx}
               isRestoring={restoringSessionId === s.value}
               isActive={s.active}
               onSelect={onSelectSession}
@@ -279,9 +290,7 @@ export default function Sidebar({
           className="mt-2 w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           title={t(lang, 'new_session')}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
+          <NewChatIcon className="w-4 h-4" />
         </button>
         <button
           onClick={onDeleteSessions}
@@ -360,12 +369,9 @@ export default function Sidebar({
           disabled={!connected}
           title={activeCwd ? `${t(lang, 'new_session')} · ${activeGroupName}` : t(lang, 'new_session')}
           className="pill-badge w-full px-3 py-2.5 rounded-lg text-sm leading-4 text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-center"
+          style={{ borderColor: 'var(--border-medium)' }}
         >
-          {/* 新建会话图标 */}
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2.5" y="2.5" width="11" height="11" rx="3" />
-            <path d="M8 5.5v5M5.5 8h5" />
-          </svg>
+          <NewChatIcon className="w-4 h-4 shrink-0" />
           {t(lang, 'new_session')}
         </button>
       </div>
@@ -375,12 +381,11 @@ export default function Sidebar({
         </div>
         {groups.some((g) => g.sessions.length > 0) ? (
           <div className="space-y-1">
-            {groups.filter((g) => g.sessions.length > 0).map((g, idx) => (
+            {groups.filter((g) => g.sessions.length > 0).map((g) => (
               <WorkspaceGroupSection
-                key={g.cwd || `__unknown_${idx}`}
+                key={g.cwd || '__unknown'}
                 group={g}
                 lang={lang}
-                index={idx}
                 collapsedByDefault={g.cwd !== activeCwd}
                 restoringSessionId={restoringSessionId}
                 onSelectSession={onSelectSession}
@@ -404,6 +409,7 @@ export default function Sidebar({
           onClick={onOpenSettings}
           title={t(lang, 'sidebarSettingsTooltip')}
           className="pill-badge w-full flex items-center justify-center gap-2 text-xs text-content-secondary hover:text-content-primary rounded-lg px-2 py-2 transition-colors cursor-pointer"
+          style={{ borderColor: 'var(--border-medium)' }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />

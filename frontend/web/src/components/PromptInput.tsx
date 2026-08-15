@@ -574,7 +574,6 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
                         {t(lang, 'workspace_add_confirm')}
                       </button>
                     </div>
-                    <div className="text-[10px] text-content-disabled mt-1.5 px-0.5">{t(lang, 'workspace_add_hint')}</div>
                   </div>
                 ) : (
                   <button
