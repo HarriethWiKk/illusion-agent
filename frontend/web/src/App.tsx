@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeLanguage, t, type UiLanguage } from './i18n';
+import { settingsApi } from './api';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -414,6 +415,12 @@ export default function App() {
 
   // 设置配置表单显示状态（首次登录自动弹出，或点击左栏 settings 齿轮手动打开）
   const [showSetupForm, setShowSetupForm] = useState(false);
+  // 设置表单初始页（目录按钮"管理目录…"直达目录空间页）
+  const [setupInitialTab, setSetupInitialTab] = useState<'settings' | 'workspaces' | 'channels' | 'cron' | 'sandbox'>('settings');
+  // 欢迎界面可见（无任何会话内容）：输入框目录按钮常显，可直接选目录新建
+  const welcomeVisible = session.connected
+    && !(session.staticItems.length > 0 || !!session.assistantBuffer || !!session.streamingReasoning
+      || session.pendingToolCalls.length > 0 || !!session.modal);
 
   // 首次登录：后端 ready 且 first_login=true 时自动弹出配置表单（仅触发一次）
   const setupShownRef = useRef(false);
@@ -543,23 +550,26 @@ export default function App() {
     prevBusyRef.current = session.busy;
   }, [session.busy, session]);
 
-  /** 处理新建会话：后端创建后自动切换为活跃会话，列表即时更新 */
-  const handleNewSession = () => {
-    session.newSession();
+  /** 处理新建会话：直接新建（当前活跃目录）；cwd 指定时在该目录新建。
+   *  目录选择由欢迎界面常显的输入框目录按钮承担，不再弹出选择弹窗 */
+  const handleNewSession = (cwd?: string) => {
+    session.newSession(cwd);
   };
 
   /**
    * 处理选择会话（A 通道，零 suppress）
    *
-   * 点击会话项 → 发送 web_restore_session，前端立即进入 restoring 态显示加载动画，
-   * 收到 web_restore_completed 后清除动画并替换转录。不再有 /resume 弹框副作用。
+   * 点击会话项 → 发送 web_restore_session（携带所属目录，跨工作区路由），
+   * 前端立即进入 restoring 态显示加载动画，收到 web_restore_completed 后
+   * 清除动画并替换转录。不再有 /resume 弹框副作用。
    *
    * @param id - 会话 ID
+   * @param cwd - 会话所属工作区目录（可选，恢复请求路由依据）
    */
-  const handleSelectSession = useCallback((id: string) => {
+  const handleSelectSession = useCallback((id: string, cwd?: string) => {
     // 视图已就绪的会话纯本地切换（瞬时，无加载态）；未恢复的会话由
     // hook 自动发送 web_restore_session 并显示加载动画
-    session.activateSession(id);
+    session.activateSession(id, cwd);
   }, [session.activateSession]);
 
   /** 处理列出会话（A 通道，后端推送 web_sessions） */
@@ -575,7 +585,8 @@ export default function App() {
   /**
    * 处理确认删除
    *
-   * 删除所有选中的会话。
+   * 删除所有选中的会话。删除全部时限定在当前活跃工作区目录
+   * （多目录空间下互不影响）。
    */
   const handleConfirmDelete = useCallback(() => {
     const ids = Array.from(deleteSelected);
@@ -614,6 +625,41 @@ export default function App() {
   /** 总是提供"删除全部"入口 */
   const hasAllOption = session.sessions.length > 0;
 
+  /** 目录 basename（删除弹窗分组显示用，与 Sidebar 分组一致） */
+  const deleteGroupName = (path: string): string => {
+    const parts = (path || '').split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] || path || t(lang, 'workspace_unknown');
+  };
+
+  /** 删除弹窗按目录分组（保持会话列表顺序，同目录会话归组） */
+  const deleteGroups = useMemo(() => {
+    const byCwd = new Map<string, typeof regularSessions>();
+    for (const s of regularSessions) {
+      const key = s.cwd || '';
+      const bucket = byCwd.get(key);
+      if (bucket) bucket.push(s);
+      else byCwd.set(key, [s]);
+    }
+    return Array.from(byCwd.entries()).map(([cwd, items]) => ({
+      cwd,
+      name: deleteGroupName(cwd),
+      sessions: items,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regularSessions, lang]);
+
+  /** 整组删除：删除该目录下的全部会话 */
+  const handleDeleteGroup = useCallback((group: { name: string; sessions: { value: string }[] }) => {
+    if (!window.confirm(t(lang, 'delete_group_confirm')
+      .replace('{name}', group.name)
+      .replace('{count}', String(group.sessions.length)))) {
+      return;
+    }
+    session.deleteSessions(group.sessions.map((s) => s.value));
+    setDeleteModalOpen(false);
+    setDeleteSelected(new Set());
+  }, [session.deleteSessions, lang]);
+
   /**
    * 处理权限响应
    *
@@ -644,12 +690,13 @@ export default function App() {
       <TitleBar lang={lang} />
       <div className="flex flex-1 min-h-0">
       <Sidebar lang={lang} connected={session.connected} sessions={session.sessions}
+        workspaces={session.workspaces} activeWorkspaceCwd={session.activeWorkspaceCwd}
         onNewSession={handleNewSession} onSelectSession={handleSelectSession}
         onListSessions={handleListSessions}
         onDeleteSessions={handleDeleteSessions}
         collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         width={sidebarWidth} restoringSessionId={session.restoringSessionId}
-        onOpenSettings={() => setShowSetupForm(true)} />
+        onOpenSettings={() => { setSetupInitialTab('settings'); setShowSetupForm(true); }} />
       {!sidebarCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
@@ -673,7 +720,12 @@ export default function App() {
               )}
               commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
               inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
-              btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}>
+              btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}
+              workspaces={session.workspaces} activeCwd={session.activeWorkspaceCwd}
+              welcomeVisible={welcomeVisible}
+              onPickWorkspace={(cwd) => handleNewSession(cwd)}
+              onAddWorkspace={(path) => session.addWorkspace(path)}
+              onManageWorkspaces={() => { setSetupInitialTab('workspaces'); setShowSetupForm(true); }}>
               <Toolbar lang={lang} status={session.status}
                 modelOptions={session.modelOptions}
                 onSetSetting={(key, value) => {
@@ -693,40 +745,45 @@ export default function App() {
       <RightPanel lang={lang} status={session.status}
         connected={session.connected} busy={session.busy}
         collapsed={rightPanelCollapsed} onToggle={() => {
-          if (rightPanelCollapsed) session.sendRequest({ type: 'web_request_resources' });
+          if (rightPanelCollapsed) session.requestResources();
           setRightPanelCollapsed(!rightPanelCollapsed);
         }}
-        onRefreshResources={() => session.sendRequest({ type: 'web_request_resources' })}
+        onRefreshResources={() => session.requestResources()}
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
       </div>
 
-      {/* 删除会话弹窗（仅 sidebar 触发） */}
+      {/* 删除会话弹窗（仅 sidebar 触发；按目录分组查看，支持整组删除） */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/35 backdrop-blur-md animate-fade-in" onClick={handleCloseDeleteModal} />
-          <div className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[420px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
+          <div className="relative bg-surface-card rounded-2xl border border-border-light shadow-card w-[460px] max-h-[70vh] flex flex-col animate-scale-in modal-origin-center">
             <div className="px-6 py-4 border-b border-border-light">
               <h3 className="text-lg font-semibold text-content-primary">{t(lang, 'delete_session')}</h3>
             </div>
             <div className="flex-1 overflow-y-auto py-2">
               {regularSessions.length === 0 ? (
                 <div className="px-6 py-8 text-center text-sm text-content-disabled">{t(lang, 'no_sessions')}</div>
-              ) : regularSessions.map((s) => (
-                <label key={s.value} className="flex items-center gap-3 px-6 py-3 cursor-pointer glass-option-hover transition-colors rounded-lg mx-1">
-                  <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => toggleDeleteItem(s.value)} className="w-4 h-4 rounded accent-danger" />
-                  <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
-                </label>
+              ) : deleteGroups.map((group, gi) => (
+                <DeleteGroupSection
+                  key={group.cwd || `__unknown_${gi}`}
+                  group={group}
+                  deleteSelected={deleteSelected}
+                  onToggleItem={toggleDeleteItem}
+                  onDeleteGroup={handleDeleteGroup}
+                  lang={lang}
+                />
               ))}
             </div>
             <div className="px-6 py-4 border-t border-border-light flex items-center justify-between">
               <div>{hasAllOption && (
                 <button onClick={() => {
-                  // 直接删除全部；后端会原子化地新建空会话，避免两阶段竞态
-                  session.deleteSessions([], true);
+                  // 删除全部限定在当前活跃工作区目录（多目录空间下互不影响）；
+                  // 后端会原子化地新建空会话，避免两阶段竞态
+                  session.deleteSessions([], true, session.activeWorkspaceCwd ?? undefined);
                   setDeleteModalOpen(false); setDeleteSelected(new Set());
-                }} className="danger-action px-4 py-2 text-sm text-danger rounded-lg cursor-pointer">{t(lang, 'delete_all')}</button>
+                }} className="danger-action px-4 py-2 text-sm text-danger rounded-lg cursor-pointer">{t(lang, 'delete_all_workspace')}</button>
               )}</div>
               <div className="flex gap-2">
                 <button onClick={handleCloseDeleteModal} className="px-4 py-2 text-sm text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer border border-white/40">{t(lang, 'cancel')}</button>
@@ -846,6 +903,17 @@ export default function App() {
         <SetupForm
           lang={lang}
           firstLogin={session.firstLogin}
+          initialTab={setupInitialTab}
+          workspaces={session.workspaces}
+          onAddWorkspace={session.addWorkspace}
+          onRemoveWorkspace={session.removeWorkspace}
+          onRequestWorkspaces={session.requestWorkspaces}
+          onSetDefaultWorkspace={(path) => {
+            // 默认目录 = settings.working_directory（REST PATCH，语义保留）
+            settingsApi.updateWorkingDirectory(path)
+              .then(() => session.requestWorkspaces())
+              .catch(() => undefined);
+          }}
           onSetUiLanguage={handleSetUiLanguage}
           onSaved={handleSetupSaved}
           onClose={handleCloseSetupForm}
@@ -884,6 +952,62 @@ export default function App() {
       {!session.connected && <ConnectingOverlay lang={lang} />}
       {/* 应用内图片预览（Lightbox）：点击 markdown 图片/图片链接时打开 */}
       <ImagePreview lang={lang} />
+    </div>
+  );
+}
+
+/** 删除弹窗中的单个目录分组（可展开/关闭；会话项保持缩进；右侧整组删除） */
+function DeleteGroupSection({ group, deleteSelected, onToggleItem, onDeleteGroup, lang }: {
+  group: { cwd: string; name: string; sessions: { value: string; label: string }[] };
+  deleteSelected: Set<string>;
+  onToggleItem: (v: string) => void;
+  onDeleteGroup: (g: { cwd: string; name: string; sessions: { value: string; label: string }[] }) => void;
+  lang: UiLanguage;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className="mb-1">
+      {/* 组头：点击切换展开/关闭；右侧整组删除按钮独立（不触发展开）。
+          卡片尺寸（py-2）与会话项一致；文件图标起点 36px（px-4 + chevron 12px + gap-2 8px） */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+        className="flex items-center gap-2 px-4 py-2 cursor-pointer glass-option-hover transition-colors rounded-lg"
+        title={group.cwd}
+      >
+        {/* 展开指示（旋转） */}
+        <svg className={`w-3 h-3 shrink-0 text-content-secondary transition-transform duration-150 ${open ? 'rotate-90' : ''}`} viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 3l5 5-5 5" />
+        </svg>
+        {/* 文件夹图标（与侧栏组头/输入框目录按钮一致） */}
+        <svg className="w-3.5 h-3.5 shrink-0 text-content-secondary" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+        </svg>
+        <span className="text-sm text-content-secondary truncate flex-1">{group.name}</span>
+        <span className="text-[10px] text-content-disabled tabular-nums shrink-0">{group.sessions.length}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDeleteGroup(group); }}
+          className="text-[11px] text-danger hover:bg-danger/10 rounded-md px-2 py-0.5 transition-colors cursor-pointer shrink-0"
+        >
+          {t(lang, 'delete_group')}
+        </button>
+      </div>
+      {/* 组内会话 checkbox 列表：外层 pl-4（16px，与组头背景同起点），
+          label 内 pl-5（20px）→ checkbox 起点 36px 与组头文件夹图标对齐；
+          悬浮背景从 16px 起覆盖选中方框与缩进区，视觉与组头对齐 */}
+      {open && (
+        <div className="space-y-0.5 px-2 pl-4">
+          {group.sessions.map((s) => (
+            <label key={s.value} className="flex items-center gap-3 pl-5 pr-3 py-2 cursor-pointer glass-option-hover transition-colors rounded-lg">
+              <input type="checkbox" checked={deleteSelected.has(s.value)} onChange={() => onToggleItem(s.value)} className="w-4 h-4 rounded accent-danger" />
+              <span className="text-sm text-content-secondary truncate flex-1">{s.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

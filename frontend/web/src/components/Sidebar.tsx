@@ -3,17 +3,19 @@
  *
  * Web 前端的侧边栏组件，支持：
  * - 折叠/展开功能
- * - 新建会话
- * - 会话列表显示和选择（多会话并发）
+ * - 新建会话（在当前活跃目录创建；输入框目录按钮可选其他目录）
+ * - 会话列表按目录空间分组显示（多目录并发）
  * - 运行中/等待输入会话的视觉区分
  * - 删除会话功能
  * - 连接状态显示
+ * - 底部设置入口（含当前工作区指示）
  *
  * @module Sidebar
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import type { WebWorkspaceItem } from '../types/protocol';
 
 /**
  * 会话列表项（供侧边栏渲染的最小结构）
@@ -23,12 +25,28 @@ export interface SidebarSession {
   value: string;
   /** 会话显示标签 */
   label: string;
+  /** 会话所属工作区目录 */
+  cwd: string;
   /** 是否正在运行任务（彩色流动边框） */
   busy: boolean;
   /** 会话阶段：idle/thinking/tool_executing/awaiting_input */
   phase: string;
   /** 是否为活跃会话（左侧渐变指示条） */
   active: boolean;
+}
+
+/** 目录分组渲染结构 */
+interface WorkspaceGroup {
+  /** 目录绝对路径 */
+  cwd: string;
+  /** 显示名（目录 basename） */
+  name: string;
+  /** 是否为默认工作区 */
+  isDefault: boolean;
+  /** 该目录下的会话（按活跃度排序） */
+  sessions: SidebarSession[];
+  /** 组内是否有运行中的会话 */
+  busy: boolean;
 }
 
 /**
@@ -39,12 +57,16 @@ interface SidebarProps {
   lang: UiLanguage;
   /** 是否已连接 */
   connected: boolean;
-  /** 会话列表（含运行状态） */
+  /** 会话列表（含运行状态与所属目录） */
   sessions: SidebarSession[];
-  /** 新建会话回调 */
-  onNewSession: () => void;
-  /** 选择会话回调 */
-  onSelectSession: (sessionId: string) => void;
+  /** 注册的工作区列表（默认目录首位） */
+  workspaces: WebWorkspaceItem[];
+  /** 活跃会话所属工作区目录（null 表示未知，回退默认目录） */
+  activeWorkspaceCwd: string | null;
+  /** 新建会话回调（在指定目录创建；缺省 = 当前活跃目录） */
+  onNewSession: (cwd?: string) => void;
+  /** 选择会话回调（携带所属目录供恢复请求路由） */
+  onSelectSession: (sessionId: string, cwd?: string) => void;
   /** 列出会话回调 */
   onListSessions: () => void;
   /** 删除会话回调 */
@@ -61,6 +83,13 @@ interface SidebarProps {
   onOpenSettings: () => void;
 }
 
+/** 目录 basename 提取（路径分隔符兼容 Windows / POSIX） */
+function basenameOf(path: string): string {
+  if (!path) return '';
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
 /**
  * 会话列表项（带聚光灯悬停效果、活跃指示条与运行状态视觉）
  */
@@ -69,7 +98,7 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
   index: number;
   isRestoring: boolean;
   isActive: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, cwd?: string) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
 
@@ -85,8 +114,9 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
   // - 所有会话项预留 1px 透明边框（状态切换无布局跳动）
   // - 活跃（active）：主色淡背景 + 主色细边框（不再加重字重）
   // - 运行中（busy）：细边框 + 一小段主色系光束沿边框流动（BorderBeam 风格）
+  // - 无图标：缩进（pl-9 与组头文字起点对齐）表达所属目录关系
   const className = [
-    'session-item spotlight-hover w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up',
+    'session-item spotlight-hover relative w-full text-left pl-9 pr-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 animate-fade-in-up',
     isActive
       ? 'session-active text-content-primary'
       : 'text-content-secondary glass-option-hover hover:text-content-primary',
@@ -96,28 +126,139 @@ function SessionItem({ session, index, isRestoring, isActive, onSelect }: {
   return (
     <button
       ref={ref}
-      onClick={() => onSelect(session.value)}
+      onClick={() => onSelect(session.value, session.cwd || undefined)}
       onMouseMove={handleMouseMove}
       className={className}
       style={{ animationDelay: `${index * 30}ms` }}
       title={session.label}
     >
-      {isRestoring && (
-        <svg className="animate-spin w-3.5 h-3.5 text-primary shrink-0" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+      {/* 运行中/恢复中 spinner：绝对定位占用缩进空白，文字位置保持不动。
+          运行中（busy）复用恢复中的动画样式 */}
+      {(isRestoring || session.busy) && (
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 w-4 flex items-center justify-center">
+          <svg className="animate-spin w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </span>
       )}
-      <span className="line-clamp-2 leading-relaxed flex-1">{session.label}</span>
+      <span className="truncate flex-1">{session.label}</span>
     </button>
   );
 }
 
+/** 单个目录分组（组头 + 组内会话列表，支持折叠与前 5 条展开） */
+function WorkspaceGroupSection({ group, lang, index, collapsedByDefault, restoringSessionId, onSelectSession, onNewSession }: {
+  group: WorkspaceGroup;
+  lang: UiLanguage;
+  index: number;
+  collapsedByDefault: boolean;
+  restoringSessionId?: string | null;
+  onSelectSession: (id: string, cwd?: string) => void;
+  onNewSession: (cwd?: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(!collapsedByDefault);
+  const [listExpanded, setListExpanded] = useState(false);
+
+  // 折叠默认值变化时（如活跃目录切换导致展开）同步本地状态
+  useEffect(() => {
+    if (!collapsedByDefault) setExpanded(true);
+  }, [collapsedByDefault]);
+
+  const visible = listExpanded ? group.sessions : group.sessions.slice(0, 5);
+
+  return (
+    <div className="animate-fade-in-up" style={{ animationDelay: `${index * 40}ms` }}>
+      {/* 组头：目录名（无选中高光）；边框 + 文件夹图标使目录项与会话项
+          有明确视觉区分；右侧新建会话指示器（点击即在该目录新建） */}
+      <div className="w-full flex items-center rounded-lg border border-border-medium transition-colors cursor-pointer glass-option-hover hover:text-content-primary">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          title={group.cwd}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left px-3 py-2.5 text-sm text-content-secondary"
+        >
+          {/* 16px 图标槽位：文件夹图标（与输入框工作目录按钮一致） */}
+          <span className="w-4 h-4 shrink-0 flex items-center justify-center text-content-secondary">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+            </svg>
+          </span>
+          <span className="truncate flex-1 text-left">{group.name}</span>
+        </button>
+        {/* 新建会话指示器：点击在该目录新建会话（目录自动切换为该目录，输入框可再改） */}
+        <button
+          onClick={() => onNewSession(group.cwd)}
+          title={`${t(lang, 'workspace_new_in')} · ${group.name}`}
+          className="shrink-0 mr-1.5 w-6 h-6 flex items-center justify-center rounded-md text-content-secondary hover:text-primary transition-colors cursor-pointer"
+        >
+          {/* 与顶部"新建会话"按钮同款图标 */}
+          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2.5" y="2.5" width="11" height="11" rx="3" />
+            <path d="M8 5.5v5M5.5 8h5" />
+          </svg>
+        </button>
+      </div>
+      {expanded && (
+        <div className="space-y-0.5">
+          {visible.map((s, idx) => (
+            <SessionItem
+              key={s.value}
+              session={s}
+              index={idx}
+              isRestoring={restoringSessionId === s.value}
+              isActive={s.active}
+              onSelect={onSelectSession}
+            />
+          ))}
+          {group.sessions.length > 5 && (
+            <button
+              onClick={() => setListExpanded(!listExpanded)}
+              className="w-full flex items-center justify-center py-1.5 text-content-disabled hover:text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer mt-1"
+              title={listExpanded ? t(lang, 'collapse_messages') : t(lang, 'show_earlier').replace('{count}', String(group.sessions.length - 5))}
+            >
+              <svg className={`w-3.5 h-3.5 transition-transform duration-150 ${listExpanded ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 4.5L6 7.5L9 4.5" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Sidebar({
-  lang, connected, sessions, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId, onOpenSettings,
+  lang, connected, sessions, workspaces, activeWorkspaceCwd, onNewSession, onSelectSession, onListSessions, onDeleteSessions, collapsed, onToggle, width = 280, restoringSessionId, onOpenSettings,
 }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [listExpanded, setListExpanded] = useState(false);
+
+  // 按目录分组：分组顺序 = 注册表顺序（默认目录首位）。
+  // 仅展示已知工作区的会话：被移除目录的会话后端不再推送，
+  // 前端也不渲染未知目录组（避免残留会话以"未知目录"形式出现）
+  const groups = useMemo<WorkspaceGroup[]>(() => {
+    const byCwd = new Map<string, SidebarSession[]>();
+    for (const s of sessions) {
+      const key = s.cwd || '';
+      const bucket = byCwd.get(key);
+      if (bucket) bucket.push(s);
+      else byCwd.set(key, [s]);
+    }
+    const ordered: WorkspaceGroup[] = [];
+    for (const ws of workspaces) {
+      const bucket = byCwd.get(ws.path);
+      ordered.push({
+        cwd: ws.path,
+        name: ws.name || basenameOf(ws.path),
+        isDefault: ws.is_default,
+        sessions: bucket ?? [],
+        busy: (bucket ?? []).some((s) => s.busy),
+      });
+    }
+    return ordered;
+  }, [sessions, workspaces, lang]);
+
+  const activeCwd = activeWorkspaceCwd ?? workspaces.find((w) => w.is_default)?.path ?? '';
+  const activeGroupName = basenameOf(activeCwd);
 
   if (collapsed) {
     return (
@@ -129,6 +270,29 @@ export default function Sidebar({
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
+        {/* 折叠态快捷键：新建会话 / 删除会话 */}
+        <button
+          onClick={() => onNewSession()}
+          disabled={!connected}
+          className="mt-2 w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          title={t(lang, 'new_session')}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+        </button>
+        <button
+          onClick={onDeleteSessions}
+          className="mt-1 w-9 h-9 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-danger transition-colors cursor-pointer"
+          title={t(lang, 'delete_session')}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" />
+            <line x1="14" y1="11" x2="14" y2="17" />
           </svg>
         </button>
         <button
@@ -192,8 +356,9 @@ export default function Sidebar({
       </div>
       <div className="px-4 py-3">
         <button
-          onClick={onNewSession}
+          onClick={() => onNewSession()}
           disabled={!connected}
+          title={activeCwd ? `${t(lang, 'new_session')} · ${activeGroupName}` : t(lang, 'new_session')}
           className="pill-badge w-full px-3 py-2.5 rounded-lg text-sm leading-4 text-content-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-center"
         >
           {/* 新建会话图标 */}
@@ -208,32 +373,21 @@ export default function Sidebar({
         <div className="py-2 text-[11px] text-content-disabled font-semibold px-1 uppercase tracking-widest">
           {t(lang, 'resume_session')}
         </div>
-        {sessions.length > 0 ? (
-          <>
-            <div className="space-y-0.5">
-              {(listExpanded ? sessions : sessions.slice(0, 5)).map((s, idx) => (
-                <SessionItem
-                  key={s.value}
-                  session={s}
-                  index={idx}
-                  isRestoring={restoringSessionId === s.value}
-                  isActive={s.active}
-                  onSelect={onSelectSession}
-                />
-              ))}
-            </div>
-            {sessions.length > 5 && (
-              <button
-                onClick={() => setListExpanded(!listExpanded)}
-                className="w-full flex items-center justify-center py-1.5 text-content-disabled hover:text-content-secondary glass-option-hover rounded-lg transition-colors cursor-pointer mt-1"
-                title={listExpanded ? t(lang, 'collapse_messages') : t(lang, 'show_earlier').replace('{count}', String(sessions.length - 5))}
-              >
-                <svg className={`w-3.5 h-3.5 transition-transform duration-150 ${listExpanded ? 'rotate-180' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 4.5L6 7.5L9 4.5" />
-                </svg>
-              </button>
-            )}
-          </>
+        {groups.some((g) => g.sessions.length > 0) ? (
+          <div className="space-y-1">
+            {groups.filter((g) => g.sessions.length > 0).map((g, idx) => (
+              <WorkspaceGroupSection
+                key={g.cwd || `__unknown_${idx}`}
+                group={g}
+                lang={lang}
+                index={idx}
+                collapsedByDefault={g.cwd !== activeCwd}
+                restoringSessionId={restoringSessionId}
+                onSelectSession={onSelectSession}
+                onNewSession={onNewSession}
+              />
+            ))}
+          </div>
         ) : (
           <button
             onClick={onListSessions}
@@ -244,17 +398,18 @@ export default function Sidebar({
           </button>
         )}
       </div>
+      {/* 底部设置区 */}
       <div className="px-4 py-3 border-t border-border-light">
         <button
           onClick={onOpenSettings}
           title={t(lang, 'sidebarSettingsTooltip')}
-          className="w-full flex items-center justify-center gap-2 text-xs text-content-secondary hover:text-content-primary glass-option-hover rounded-lg px-2 py-1.5 transition-colors cursor-pointer"
+          className="pill-badge w-full flex items-center justify-center gap-2 text-xs text-content-secondary hover:text-content-primary rounded-lg px-2 py-2 transition-colors cursor-pointer"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
-          <span className="text-[11px]">{t(lang, 'settings')}</span>
+          <span className="text-[11px] font-medium">{t(lang, 'settings')}</span>
         </button>
       </div>
     </aside>

@@ -31,6 +31,7 @@ import type {
   TaskSnapshot,
   TodoItemSnapshot,
   TranscriptItem,
+  WebWorkspaceItem,
 } from '../types/protocol';
 
 /**
@@ -144,6 +145,8 @@ interface SessionViewState {
   id: string;
   /** 会话显示标签 */
   label: string;
+  /** 会话所属工作区目录（多目录空间，侧边栏分组与目录按钮展示依据） */
+  cwd: string;
   /** 是否正在运行任务 */
   busy: boolean;
   /** 会话阶段：idle/thinking/tool_executing/awaiting_input */
@@ -239,14 +242,28 @@ export interface WebSocketSessionState {
   /** 设置模型切换状态 */
   setModelSwitching: (v: boolean) => void;
   // === 多会话管理 ===
-  /** 会话列表（含 busy/phase/active 状态，供侧边栏渲染） */
-  sessions: { value: string; label: string; busy: boolean; phase: string; active: boolean }[];
+  /** 会话列表（含 busy/phase/active/cwd 状态，供侧边栏按目录分组渲染） */
+  sessions: { value: string; label: string; busy: boolean; phase: string; active: boolean; cwd: string }[];
+  /** 注册的工作区列表（默认目录恒在首位，web_workspaces 事件驱动） */
+  workspaces: WebWorkspaceItem[];
+  /** 当前资源快照所属的工作区目录（null 表示尚未收到） */
+  resourcesCwd: string | null;
+  /** 活跃会话所属工作区目录（无活跃会话时为 null） */
+  activeWorkspaceCwd: string | null;
   /** 当前活跃会话 ID（null 表示尚未建立） */
   activeSessionId: string | null;
-  /** 切换活跃会话：视图已就绪时纯本地切换；未恢复的会话自动请求恢复 */
-  activateSession: (id: string) => void;
-  /** 新建会话（后端创建后自动切换为活跃） */
-  newSession: () => void;
+  /** 切换活跃会话：视图已就绪时纯本地切换；未恢复的会话自动请求恢复；cwd 为会话所属目录（恢复请求携带） */
+  activateSession: (id: string, cwd?: string) => void;
+  /** 新建会话（后端创建后自动切换为活跃）；cwd 指定目标工作区（缺省 = 默认工作区） */
+  newSession: (cwd?: string) => void;
+  /** 拉取工作区列表（web_request_workspaces） */
+  requestWorkspaces: () => void;
+  /** 注册新目录空间（web_add_workspace） */
+  addWorkspace: (path: string) => void;
+  /** 移除已注册目录空间（web_remove_workspace） */
+  removeWorkspace: (path: string) => void;
+  /** 拉取资源快照（web_request_resources，可指定会话/工作区；缺省 = 活跃会话） */
+  requestResources: (sessionId?: string, cwd?: string) => void;
   /** 会话级内联选项（活跃视图） */
   inlineOptions: SelectRequestPayload | null;
   /** 设置活跃会话的内联选项（/language 等前端本地弹出的选择框） */
@@ -289,7 +306,7 @@ export interface WebSocketSessionState {
   clearAgentWizardState: () => void;
   /** 首次登录配置保存后清除 firstLogin 状态 */
   clearFirstLogin: () => void;
-  deleteSessions: (sessionIds: string[], deleteAll?: boolean) => void;
+  deleteSessions: (sessionIds: string[], deleteAll?: boolean, cwd?: string) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
   requestSelectCommand: (command: string) => void;
@@ -316,10 +333,11 @@ export interface WebSocketSessionState {
  * @param id - 会话 ID
  * @returns 初始会话视图
  */
-function createSessionView(id: string): SessionViewState {
+function createSessionView(id: string, cwd: string = ''): SessionViewState {
   return {
     id,
     label: '',
+    cwd,
     busy: false,
     phase: 'idle',
     materialized: false,
@@ -377,9 +395,12 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   // === 会话视图状态 ===
   const [sessionViews, setSessionViews] = useState<Record<string, SessionViewState>>({});
   const [sessionList, setSessionList] = useState<
-    { value: string; label: string; busy: boolean; phase: string; active: boolean }[]
+    { value: string; label: string; busy: boolean; phase: string; active: boolean; cwd: string }[]
   >([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // === 工作区（目录空间）状态 ===
+  const [workspaces, setWorkspaces] = useState<WebWorkspaceItem[]>([]);
+  const [resourcesCwd, setResourcesCwd] = useState<string | null>(null);
   // 视图最新引用：事件处理器（WS 闭包）与回调中读取，避免陈旧闭包
   const viewsRef = useRef<Record<string, SessionViewState>>({});
   const activeSessionIdRef = useRef<string | null>(null);
@@ -543,7 +564,11 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     pendingToolCallsRef.current[sid] = [];
   }, [clearAssistantDelta, patchView]);
 
-  const deleteSessions = useCallback((sessionIds: string[], deleteAll: boolean = false): void => {
+  const deleteSessions = useCallback((
+    sessionIds: string[],
+    deleteAll: boolean = false,
+    cwd?: string,
+  ): void => {
     // 立即从本地状态中移除（视图与列表），后端推送 web_sessions 兜底同步
     const removed = deleteAll
       ? Object.keys(viewsRef.current)
@@ -569,16 +594,18 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       setSessionViews(next);
     }
     if (deleteAll) {
-      setSessionList([]);
+      // delete_all 限定在指定目录（多目录空间下互不影响）：仅清该目录的本地列表
+      setSessionList((prev) => (cwd ? prev.filter((s) => s.cwd !== cwd) : []));
     } else {
       setSessionList((prev) => prev.filter((s) => !sessionIds.includes(s.value)));
     }
 
-    // 发送删除请求到后端
+    // 发送删除请求到后端（携带目录限定 delete_all 范围）
     sendRaw({
       type: 'web_delete_sessions',
       session_ids: sessionIds,
       delete_all: deleteAll,
+      ...(cwd ? { cwd } : {}),
     });
   }, [sendRaw]);
 
@@ -607,7 +634,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const pendingActivateRef = useRef<string | null>(null);
 
   /** 切换活跃会话：视图已就绪时纯本地切换；未恢复或已被后端淘汰的会话自动请求恢复 */
-  const activateSession = useCallback((id: string) => {
+  const activateSession = useCallback((id: string, cwd?: string) => {
     const view = viewsRef.current[id];
     if (!view || !view.materialized || !view.inMemory) {
       // 视图未就绪或后端已淘汰运行时（in_memory=false）：
@@ -615,8 +642,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       pendingActivateRef.current = id;
       activeSessionIdRef.current = id;
       setActiveSessionId(id);
+      if (cwd) patchView(id, { cwd });
       patchView(id, { restoring: true });
-      sendRaw({ type: 'web_restore_session', session_id: id });
+      sendRaw({ type: 'web_restore_session', session_id: id, ...(cwd ? { cwd } : {}) });
       // 恢复响应兜底：restore_completed 丢失/后端异常时 10s 后清除加载态，
       // 避免"正在恢复"动画永久挂起导致无法进入其他会话
       const prev = restoreTimersRef.current[id];
@@ -630,18 +658,45 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       pendingActivateRef.current = null;
       activeSessionIdRef.current = id;
       setActiveSessionId(id);
+      if (cwd) patchView(id, { cwd });
       const prev = restoreTimersRef.current[id];
       if (prev) {
         clearTimeout(prev);
         delete restoreTimersRef.current[id];
       }
+      // 本地切换跨目录时右栏资源联动：按目标会话请求其工作区资源快照
+      sendRaw({ type: 'web_request_resources', session_id: id });
     }
   }, [patchView, sendRaw]);
 
-  /** 新建会话：后端创建后通过 web_restore_completed 自动切换为活跃 */
-  const newSession = useCallback(() => {
+  /** 新建会话：后端创建后通过 web_restore_completed 自动切换为活跃；cwd 指定目标工作区 */
+  const newSession = useCallback((cwd?: string) => {
     pendingActivateRef.current = '__new__';
-    sendRaw({ type: 'web_new_session' });
+    sendRaw({ type: 'web_new_session', ...(cwd ? { cwd } : {}) });
+  }, [sendRaw]);
+
+  /** 拉取工作区列表 */
+  const requestWorkspaces = useCallback((): void => {
+    sendRaw({ type: 'web_request_workspaces' });
+  }, [sendRaw]);
+
+  /** 注册新目录空间（后端校验并推送 web_workspaces + web_sessions） */
+  const addWorkspace = useCallback((path: string): void => {
+    sendRaw({ type: 'web_add_workspace', path });
+  }, [sendRaw]);
+
+  /** 移除已注册目录空间（默认目录不可移除） */
+  const removeWorkspace = useCallback((path: string): void => {
+    sendRaw({ type: 'web_remove_workspace', path });
+  }, [sendRaw]);
+
+  /** 拉取资源快照（缺省 = 活跃会话所在工作区） */
+  const requestResources = useCallback((sessionId?: string, cwd?: string): void => {
+    sendRaw({
+      type: 'web_request_resources',
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(cwd ? { cwd } : {}),
+    });
   }, [sendRaw]);
 
   const setInlineOptions = useCallback((payload: SelectRequestPayload | null) => {
@@ -1002,6 +1057,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             materialized: true,
             restoring: false,
             status: sessionStatus,
+            // 恢复载荷携带会话所属工作区目录（多目录分组与目录按钮展示依据）
+            ...(typeof restoreState.cwd === 'string' && restoreState.cwd ? { cwd: restoreState.cwd } : {}),
           });
           // 恢复完成：清除超时兜底定时器
           const restoreTimer = restoreTimersRef.current[sid];
@@ -1073,7 +1130,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       // === 全局事件（无会话路由）===
 
       if (evt.type === 'web_sessions') {
-        // 列表基础信息（value/label）以后端推送为准；
+        // 列表基础信息（value/label/cwd）以后端推送为准；
         // busy/phase/active 由前端本地实时驱动（见下方 sessions 暴露），
         // 此处仅存储原始列表供 label 同步与视图兜底初始化。
         const items = (evt.web_sessions ?? []).map((o) => ({
@@ -1082,6 +1139,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           busy: o.busy === true,
           phase: o.phase ?? 'idle',
           active: o.active === true,
+          cwd: String(o.cwd ?? ''),
         }));
         setSessionList(items);
         // 同步各会话视图的静态信息：busy 不覆盖本地实时状态
@@ -1099,6 +1157,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
             view.phase = item.phase ?? view.phase;
             view.inMemory = item.in_memory !== false;
             view.label = item.label ?? view.label;
+            if (item.cwd) view.cwd = item.cwd;
             // 会话级上下文/用量数据（行任务结束时随列表推送，右栏实时展示）
             const statusPatch: Record<string, unknown> = {};
             for (const field of SESSION_STATUS_FIELDS) {
@@ -1147,14 +1206,26 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'web_resources') {
-        // 后端推送的资源快照，结构化更新（废弃旧的文本正则解析）
+        // 后端推送的资源快照，结构化更新（废弃旧的文本正则解析）；
+        // cwd 标记资源所属工作区（右栏按目录联动的依据）
         const res = evt.web_resources;
         if (res) {
           setSkills((res.skills as SkillSnapshot[]) ?? []);
           setPlugins((res.plugins as PluginSnapshot[]) ?? []);
           setRules((res.rules as RuleSnapshot[]) ?? []);
           setMcpServers((res.mcp_servers as McpServerSnapshot[]) ?? []);
+          setResourcesCwd(evt.cwd ?? null);
         }
+        return;
+      }
+      if (evt.type === 'web_workspaces') {
+        // 工作区列表（默认目录在首位；available=false 表示目录已不存在）
+        setWorkspaces((evt.web_workspaces ?? []).map((w) => ({
+          path: String(w.path ?? ''),
+          name: String(w.name ?? ''),
+          is_default: w.is_default === true,
+          available: w.available !== false,
+        })));
         return;
       }
       if (evt.type === 'web_query_result') {
@@ -1277,11 +1348,19 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           busy: v?.busy ?? s.busy,
           phase: v?.phase ?? s.phase,
           active: s.value === activeSessionId,
+          cwd: v?.cwd || s.cwd,
         };
       }),
+      workspaces,
+      resourcesCwd,
+      activeWorkspaceCwd: view?.cwd || null,
       activeSessionId,
       activateSession,
       newSession,
+      requestWorkspaces,
+      addWorkspace,
+      removeWorkspace,
+      requestResources,
       inlineOptions: view?.inlineOptions ?? null,
       setInlineOptions,
       // btw（活跃视图）
@@ -1305,7 +1384,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     status, tasks, commands, mcpServers, skills, plugins, rules, modelOptions,
     ready, firstLogin, showThinking, swarmTeammates, swarmNotifications,
     bgAgentLabel, connected, sessionViews, sessionList, activeSessionId,
+    workspaces, resourcesCwd,
     activateSession, newSession, setInlineOptions, patchView,
+    requestWorkspaces, addWorkspace, removeWorkspace, requestResources,
     sendBtwRequest, sendBtwCancel, clearBtwState,
     agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
     agentGenerateError, agentWizardResult,

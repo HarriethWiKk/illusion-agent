@@ -239,14 +239,17 @@ export type FrontendRequest =
   | { type: 'apply_select_command'; command: string; value: string; session_id?: string }
   | { type: 'shutdown' }
   // === Web 前端专属通道（web_* 命名空间）===
-  | { type: 'web_new_session' }
-  | { type: 'web_restore_session'; session_id: string }
-  | { type: 'web_delete_sessions'; session_ids?: string[]; delete_all?: boolean }
+  | { type: 'web_new_session'; cwd?: string }
+  | { type: 'web_restore_session'; session_id: string; cwd?: string }
+  | { type: 'web_delete_sessions'; session_ids?: string[]; delete_all?: boolean; cwd?: string }
   | { type: 'web_set_setting'; setting_key: string; setting_value: string | number | boolean }
   | { type: 'web_request_sessions'; limit?: number; offset?: number }
   | { type: 'web_request_models' }
-  | { type: 'web_request_resources' }
+  | { type: 'web_request_resources'; session_id?: string; cwd?: string }
   | { type: 'web_query'; command: string; args?: string; request_id: string; session_id?: string }
+  | { type: 'web_request_workspaces' }
+  | { type: 'web_add_workspace'; path: string }
+  | { type: 'web_remove_workspace'; path: string }
   // === btw 侧问（terminal + web 共用）===
   | { type: 'btw_request'; question: string; request_id: string; session_id?: string }
   | { type: 'btw_cancel'; request_id: string; session_id?: string }
@@ -326,6 +329,10 @@ export interface BackendEvent {
   web_sessions?: WebSessionItem[];
   /** web_sessions 携带的活跃会话 ID（可选） */
   active_session_id?: string;
+  /** web_workspaces 推送的工作区列表（可选，默认目录恒在首位） */
+  web_workspaces?: WebWorkspaceItem[];
+  /** web_resources 携带的所属工作区目录（可选） */
+  cwd?: string;
   /** web_resources 推送的资源快照（可选） */
   web_resources?: {
     skills: SkillSnapshot[];
@@ -391,6 +398,8 @@ export interface WebSessionItem {
   id: string;
   /** 会话显示标签 */
   label: string;
+  /** 会话所属工作区目录（可选，侧边栏按目录分组的依据） */
+  cwd?: string;
   /** 创建时间戳（可选） */
   created_at?: number;
   /** 消息数量（可选） */
@@ -427,6 +436,22 @@ export interface WebSessionItem {
   context_input?: number;
   /** 最后一次 API 调用的输出 tokens（可选） */
   context_output?: number;
+}
+
+/**
+ * Web 工作区（目录空间）项接口
+ *
+ * web_workspaces 推送事件中的单个工作区条目。
+ */
+export interface WebWorkspaceItem {
+  /** 工作区规范化绝对路径 */
+  path: string;
+  /** 显示名（目录 basename） */
+  name: string;
+  /** 是否为默认工作区（settings.working_directory，不可移除） */
+  is_default: boolean;
+  /** 目录当前是否可用（存在且为文件夹） */
+  available: boolean;
 }
 
 /**

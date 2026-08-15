@@ -13,6 +13,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import type { WebWorkspaceItem } from '../types/protocol';
 
 /**
  * Web 端允许的 B 类指令集合（自动补全只显示这些）
@@ -84,6 +85,18 @@ interface PromptInputProps {
   btwLoading?: boolean;
   /** 侧问提交回调（可选） */
   onBtwSubmit?: (question: string) => void;
+  /** 注册的工作区列表（目录按钮弹层数据源） */
+  workspaces?: WebWorkspaceItem[];
+  /** 当前活跃会话所属工作区目录（null 表示未知） */
+  activeCwd?: string | null;
+  /** 欢迎界面可见（无任何会话内容）：目录按钮常显，可直接选目录新建 */
+  welcomeVisible?: boolean;
+  /** 选择目录：立即在该目录新建会话并切换（选目录即新建） */
+  onPickWorkspace?: (cwd: string) => void;
+  /** 添加目录（弹层内联输入，后端校验并注册） */
+  onAddWorkspace?: (path: string) => void;
+  /** 打开设置弹窗的目录空间管理页 */
+  onManageWorkspaces?: () => void;
   /** 底部工具行注入内容（Mode/Model/Effort 下拉，右对齐由发送/侧问按钮区隔离） */
   children?: React.ReactNode;
 }
@@ -101,10 +114,15 @@ export interface PromptInputHandle {
   setDraft: (text: string) => void;
 }
 
-const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, children }, ref) {
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children }, ref) {
   const [value, setValue] = useState('');
   // + 号快捷指令菜单开关（与斜杠共用同一弹窗，展示全部 WEB_COMMANDS）
   const [plusOpen, setPlusOpen] = useState(false);
+  // 目录选择弹层（选目录即新建会话）状态
+  const [wsOpen, setWsOpen] = useState(false);
+  const [wsAddMode, setWsAddMode] = useState(false);
+  const [wsAddValue, setWsAddValue] = useState('');
+  const wsInputRef = useRef<HTMLInputElement>(null);
 
   useImperativeHandle(ref, () => ({
     setDraft: (text: string) => {
@@ -155,18 +173,20 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     return () => document.removeEventListener('mousedown', handler);
   }, [inlineOptions, onInlineClose]);
 
-  // 点击外部关闭命令补全（含 + 号菜单）
+  // 点击外部关闭命令补全（含 + 号菜单与目录弹层）
   useEffect(() => {
-    if (!showCommands && !plusOpen) return;
+    if (!showCommands && !plusOpen && !wsOpen) return;
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowCommands(false);
         setPlusOpen(false);
+        setWsOpen(false);
+        setWsAddMode(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showCommands, plusOpen]);
+  }, [showCommands, plusOpen, wsOpen]);
 
   // 自动补全仅显示 B 类指令（与后端 ready 推送的完整命令列表取交集，无交集则用静态集合）
   const webCommands = useMemo(() => {
@@ -463,12 +483,12 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         />
       </div>
 
-      {/* 底部工具行：+ 号 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-4 与输入区留出视觉空白行 */}
+      {/* 底部工具行：+ 号 + 目录选择 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-4 与输入区留出视觉空白行 */}
       <div className="flex items-center justify-between gap-2 px-1 pt-4 pb-2">
         <div className="flex items-center gap-2 min-w-0">
           {/* + 号：打开快捷指令菜单（与斜杠同一弹窗） */}
           <button
-            onClick={() => { setPlusOpen((o) => !o); setShowCommands(false); }}
+            onClick={() => { setPlusOpen((o) => !o); setShowCommands(false); setWsOpen(false); }}
             title="Commands"
             aria-label="Commands"
             className={`pill-badge w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
@@ -479,6 +499,110 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
               <path d="M8 3v10M3 8h10" />
             </svg>
           </button>
+          {/* 目录选择：欢迎界面可见（点选目录即在该目录新建会话）；无三角指示器。
+              弹层标题与 ToolBar 下拉（Mode/Model/Effort）同风格：英文、uppercase */}
+          {welcomeVisible && (
+          <div className="relative shrink-0">
+            <button
+              onClick={() => { setWsOpen((o) => !o); setPlusOpen(false); setShowCommands(false); setWsAddMode(false); }}
+              disabled={!connected || !onPickWorkspace}
+              title={activeCwd ? `${t(lang, 'workspace_new_in')}\n${activeCwd}` : t(lang, 'workspace_select')}
+              className={`pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                wsOpen ? 'text-primary' : 'text-content-secondary hover:text-content-primary'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+              </svg>
+              <span className={`max-w-[110px] truncate ${activeCwd ? '' : 'text-content-disabled'}`}>
+                {activeCwd ? (workspaces?.find((w) => w.path === activeCwd)?.name || activeCwd.split(/[\\/]/).filter(Boolean).pop() || activeCwd) : t(lang, 'workspace_label')}
+              </span>
+            </button>
+            {wsOpen && (
+              <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-2xl z-20 min-w-[260px] max-w-[380px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
+                {/* 标题与 ToolBar 下拉一致：英文、10px、uppercase、居中，无截断 */}
+                <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest text-center border-b border-border-light mb-1">New session in</div>
+                {(workspaces ?? []).map((ws) => {
+                  const isActive = ws.path === activeCwd;
+                  return (
+                    <button
+                      key={ws.path}
+                      onClick={() => { setWsOpen(false); onPickWorkspace?.(ws.path); }}
+                      title={ws.path}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer rounded-md ${
+                        isActive ? 'text-primary font-medium' : 'text-content-secondary glass-option-hover'
+                      } ${!ws.available ? 'opacity-50' : ''}`}
+                    >
+                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+                      </svg>
+                      <span className="truncate flex-1 text-left">{ws.name}</span>
+                      {ws.is_default && <span className="text-[10px] text-content-disabled shrink-0">{t(lang, 'workspace_default_badge')}</span>}
+                      {isActive && (
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3.5 8.5l3 3 6-7" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
+                {wsAddMode ? (
+                  <div className="px-2.5 py-2 border-t border-border-light mt-1">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        ref={wsInputRef}
+                        type="text"
+                        value={wsAddValue}
+                        onChange={(e) => setWsAddValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const v = wsAddValue.trim();
+                            if (v) { onAddWorkspace?.(v); setWsAddValue(''); setWsAddMode(false); }
+                          } else if (e.key === 'Escape') {
+                            setWsAddMode(false); setWsAddValue('');
+                          }
+                        }}
+                        autoFocus
+                        placeholder={t(lang, 'workspace_add_placeholder')}
+                        className="flex-1 min-w-0 bg-transparent text-sm text-content-primary placeholder-content-disabled outline-none border border-border-light rounded-md px-2 py-1.5 focus:border-primary/40"
+                      />
+                      <button
+                        onClick={() => { const v = wsAddValue.trim(); if (v) { onAddWorkspace?.(v); setWsAddValue(''); setWsAddMode(false); } }}
+                        disabled={!wsAddValue.trim()}
+                        className="shrink-0 px-2.5 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {t(lang, 'workspace_add_confirm')}
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-content-disabled mt-1.5 px-0.5">{t(lang, 'workspace_add_hint')}</div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setWsAddMode(true); requestAnimationFrame(() => wsInputRef.current?.focus()); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content-secondary glass-option-hover transition-colors cursor-pointer rounded-md border-t border-border-light mt-1"
+                  >
+                    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 3v10M3 8h10" />
+                    </svg>
+                    <span>{t(lang, 'workspace_add')}</span>
+                  </button>
+                )}
+                {onManageWorkspaces && (
+                  <button
+                    onClick={() => { setWsOpen(false); onManageWorkspaces(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content-secondary glass-option-hover transition-colors cursor-pointer rounded-md"
+                  >
+                    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span>{t(lang, 'workspace_manage')}</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          )}
           {children}
         </div>
         <div className="flex items-center gap-1 shrink-0">

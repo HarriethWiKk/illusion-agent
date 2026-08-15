@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import { GlassDropdown, type DropdownOption } from './GlassDropdown';
 import { CronTab } from './CronTab';
+import type { WebWorkspaceItem } from '../types/protocol';
 import {
   envApi, oauthApi, settingsApi, channelsApi,
   type EnvInfo, type SettingsResponse, type CreateEnvPayload,
@@ -108,15 +109,18 @@ interface FeishuCfg {
   enabled: boolean; app_id: string; app_secret: string; domain: string;
   require_mention: boolean; allow_bots: boolean; group_sessions_per_user: boolean;
   show_reasoning: boolean; group_policy: GroupPolicy;
+  working_directory?: string;
 }
 interface WeixinCfg {
   enabled: boolean; account_id: string; token: string; base_url: string;
   cdn_base_url: string; user_id: string; allow_bots: boolean;
+  working_directory?: string;
 }
 interface QQCfg {
   enabled: boolean; app_id: string; client_secret: string; markdown_support: boolean;
   allow_bots: boolean; group_sessions_per_user: boolean; require_mention: boolean;
   show_reasoning: boolean; group_policy: GroupPolicy;
+  working_directory?: string;
 }
 interface ChannelsCfg {
   feishu: FeishuCfg; weixin: WeixinCfg; qq: QQCfg;
@@ -140,6 +144,18 @@ interface SetupFormProps {
   lang: UiLanguage;
   /** 是否首次登录模式（true 时 env 必填，标题为初始配置） */
   firstLogin: boolean;
+  /** 初始打开的 Tab（目录按钮"管理目录…"直达目录空间页） */
+  initialTab?: 'settings' | 'workspaces' | 'channels' | 'cron' | 'sandbox';
+  /** 注册的工作区列表（web_workspaces 驱动） */
+  workspaces: WebWorkspaceItem[];
+  /** 注册新目录空间（WS web_add_workspace，后端校验） */
+  onAddWorkspace: (path: string) => void;
+  /** 移除已注册目录空间（WS web_remove_workspace） */
+  onRemoveWorkspace: (path: string) => void;
+  /** 拉取工作区列表（WS web_request_workspaces） */
+  onRequestWorkspaces: () => void;
+  /** 设置默认工作区（写 settings.working_directory） */
+  onSetDefaultWorkspace: (path: string) => void;
   /** ui_language 改动回调（走 WebSocket web_set_setting 即时同步） */
   onSetUiLanguage: (lang: 'zh-CN' | 'en-US') => void;
   /** 保存成功后回调（App 可据此刷新 / 重连） */
@@ -159,9 +175,9 @@ const labelClass = 'text-xs font-medium text-content-secondary mb-1.5';
  * @param props - 组件属性
  * @returns 表单 JSX
  */
-export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose }: SetupFormProps) {
+export function SetupForm({ lang, firstLogin, initialTab, workspaces, onAddWorkspace, onRemoveWorkspace, onRequestWorkspaces, onSetDefaultWorkspace, onSetUiLanguage, onSaved, onClose }: SetupFormProps) {
   /** 当前 Tab */
-  const [tab, setTab] = useState<'settings' | 'channels' | 'cron' | 'sandbox'>('settings');
+  const [tab, setTab] = useState<'settings' | 'workspaces' | 'channels' | 'cron' | 'sandbox'>(initialTab ?? 'settings');
   /** 加载状态 */
   const [loading, setLoading] = useState(true);
   /** 加载错误 */
@@ -362,8 +378,24 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
           directory: memDir.trim(),
         });
       }
-      // 4. 渠道配置
-      await channelsApi.update(channels as unknown as Parameters<typeof channelsApi.update>[0]);
+      // 4. 渠道配置（兼容旧配置：enabled 但无运行目录的渠道自动填充默认工作区，
+      //    避免后端启用校验（enabled 必填目录）拒绝整个保存；其余清空为 null）
+      const defaultWs = workspaces.find((w) => w.is_default)?.path;
+      const normalizeChannelWd = (ch: { enabled: boolean; working_directory?: string | null }): Record<string, unknown> => {
+        const merged = { ...ch };
+        if (merged.enabled && !merged.working_directory) {
+          merged.working_directory = defaultWs ?? null;
+        } else if (!merged.working_directory) {
+          merged.working_directory = null;
+        }
+        return merged;
+      };
+      const channelsPayload = {
+        feishu: normalizeChannelWd(channels.feishu),
+        weixin: normalizeChannelWd(channels.weixin),
+        qq: normalizeChannelWd(channels.qq),
+      };
+      await channelsApi.update(channelsPayload as unknown as Parameters<typeof channelsApi.update>[0]);
       // 5. 沙箱配置
       if (sandbox) {
         try {
@@ -465,9 +497,10 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
         <div className="flex flex-1 min-h-0">
           {/* 左侧 Tab 导航栏（垂直） */}
           <div className="w-fit shrink-0 border-r border-border-light px-3 py-3 flex flex-col gap-1 overflow-y-auto">
-            {(['settings', 'channels', 'cron', 'sandbox'] as const).map((tabKey) => {
+            {(['settings', 'workspaces', 'channels', 'cron', 'sandbox'] as const).map((tabKey) => {
               const isActive = tab === tabKey;
               const labelKey = tabKey === 'settings' ? 'setupFormSettingsTitle'
+                : tabKey === 'workspaces' ? 'setupFormWorkspacesTitle'
                 : tabKey === 'channels' ? 'setupFormChannelsTitle'
                 : tabKey === 'cron' ? 'setupFormCronTitle'
                 : 'setupFormSandboxTitle';
@@ -487,10 +520,19 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
             })}
           </div>
 
-          {/* 内容区：cron Tab 独立加载数据，不依赖 settings/envs/channels 主加载流程 */}
+          {/* 内容区：cron/目录空间 Tab 独立加载数据，不依赖 settings/envs/channels 主加载流程 */}
           <div className="flex-1 min-w-0 overflow-y-auto px-6 py-4 [scrollbar-gutter:stable]">
           {tab === 'cron' ? (
-            <CronTab lang={lang} />
+            <CronTab lang={lang} workspaces={workspaces} />
+          ) : tab === 'workspaces' ? (
+            <WorkspacesTab
+              lang={lang}
+              workspaces={workspaces}
+              onAdd={onAddWorkspace}
+              onRemove={onRemoveWorkspace}
+              onRefresh={onRequestWorkspaces}
+              onSetDefault={onSetDefaultWorkspace}
+            />
           ) : loading ? (
             <div className="flex items-center justify-center py-12 text-sm text-content-disabled">
               <svg className="w-4 h-4 animate-spin mr-2" viewBox="0 0 16 16" fill="none">
@@ -509,6 +551,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
               onPickUiLang={handlePickUiLang}
               workDir={workDir}
               onWorkDirChange={setWorkDir}
+              onManageWorkspaces={() => setTab('workspaces')}
               memEnabled={memEnabled}
               onMemEnabledChange={setMemEnabled}
               memAutoExtract={memAutoExtract}
@@ -545,7 +588,7 @@ export function SetupForm({ lang, firstLogin, onSetUiLanguage, onSaved, onClose 
               permission={permission}
             />
           ) : (
-            <ChannelsTab lang={lang} channels={channels} onChannelsChange={setChannels} />
+            <ChannelsTab lang={lang} channels={channels} onChannelsChange={setChannels} workspaces={workspaces} />
           )}
           </div>
         </div>
@@ -733,6 +776,8 @@ interface SettingsTabProps {
   onPickUiLang: (v: 'zh-CN' | 'en-US') => void;
   workDir: string;
   onWorkDirChange: (v: string) => void;
+  /** 跳转到目录空间管理页 */
+  onManageWorkspaces: () => void;
   /** 记忆功能启用开关 */
   memEnabled: boolean;
   onMemEnabledChange: (v: boolean) => void;
@@ -768,11 +813,120 @@ interface SettingsTabProps {
   opError: string | null;
 }
 
+/** 目录空间 Tab：注册目录列表（默认标记/设为默认/移除）+ 新增入口 */
+function WorkspacesTab({ lang, workspaces, onAdd, onRemove, onRefresh, onSetDefault }: {
+  lang: UiLanguage;
+  workspaces: WebWorkspaceItem[];
+  onAdd: (path: string) => void;
+  onRemove: (path: string) => void;
+  onRefresh: () => void;
+  onSetDefault: (path: string) => void;
+}) {
+  const [addMode, setAddMode] = useState(false);
+  const [addValue, setAddValue] = useState('');
+  const addInputRef = useRef<HTMLInputElement>(null);
+
+  // 进入添加模式时自动聚焦
+  useEffect(() => {
+    if (addMode) requestAnimationFrame(() => addInputRef.current?.focus());
+  }, [addMode]);
+
+  const submitAdd = () => {
+    const v = addValue.trim();
+    if (v) { onAdd(v); setAddValue(''); setAddMode(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs text-content-disabled leading-relaxed">{t(lang, 'workspace_desc')}</div>
+      <div className="space-y-1.5">
+        {workspaces.length === 0 && (
+          <div className="text-sm text-content-disabled py-4 text-center">{t(lang, 'workspace_empty')}</div>
+        )}
+        {workspaces.map((ws) => (
+          <div key={ws.path} className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border ${
+            ws.is_default ? 'border-primary/40 bg-primary-light/40' : 'border-border-light bg-surface-card-alt/50'
+          } ${!ws.available ? 'opacity-50' : ''}`} title={ws.path}>
+            <svg className="w-4 h-4 text-content-secondary shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-content-primary truncate font-medium">{ws.name}</span>
+                {ws.is_default && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium shrink-0">{t(lang, 'workspace_default_badge')}</span>
+                )}
+              </div>
+              <div className="text-[11px] text-content-disabled truncate font-mono">{ws.path}</div>
+            </div>
+            {!ws.available && <span className="text-[10px] text-danger shrink-0">{t(lang, 'workspace_unavailable')}</span>}
+            <div className="flex items-center gap-1 shrink-0">
+              {!ws.is_default && (
+                <>
+                  <button
+                    onClick={() => onSetDefault(ws.path)}
+                    title={t(lang, 'workspace_set_default')}
+                    className="px-2 py-1 text-[11px] text-content-secondary hover:text-content-primary glass-option-hover rounded-md transition-colors cursor-pointer"
+                  >
+                    {t(lang, 'workspace_set_default')}
+                  </button>
+                  <button
+                    onClick={() => onRemove(ws.path)}
+                    title={t(lang, 'workspace_remove')}
+                    className="px-2 py-1 text-[11px] text-danger hover:bg-danger/10 rounded-md transition-colors cursor-pointer"
+                  >
+                    {t(lang, 'workspace_remove')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {addMode ? (
+        <div className="flex items-center gap-2">
+          <input
+            ref={addInputRef}
+            type="text"
+            value={addValue}
+            onChange={(e) => setAddValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitAdd();
+              else if (e.key === 'Escape') { setAddMode(false); setAddValue(''); }
+            }}
+            placeholder={t(lang, 'workspace_add_placeholder')}
+            className={inputClass}
+          />
+          <button onClick={submitAdd} disabled={!addValue.trim()}
+            className="shrink-0 px-3 py-2 text-sm text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+            {t(lang, 'workspace_add_confirm')}
+          </button>
+          <button onClick={() => { setAddMode(false); setAddValue(''); }}
+            className="shrink-0 px-3 py-2 text-sm text-content-secondary glass-option-hover rounded-md transition-colors cursor-pointer">
+            {t(lang, 'cancel')}
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <button onClick={() => setAddMode(true)}
+            className="px-3 py-1.5 rounded-md text-sm border border-border-light text-content-secondary hover:bg-surface-hover transition-colors cursor-pointer">
+            + {t(lang, 'workspace_add')}
+          </button>
+          <button onClick={onRefresh}
+            className="px-3 py-1.5 rounded-md text-sm border border-border-light text-content-secondary hover:bg-surface-hover transition-colors cursor-pointer">
+            {t(lang, 'refresh')}
+          </button>
+        </div>
+      )}
+      <div className="text-[11px] text-content-disabled">{t(lang, 'workspace_add_hint')}</div>
+    </div>
+  );
+}
+
 /** 基础配置 Tab：界面语言 + 环境配置 + 工作目录 */
 function SettingsTab(p: SettingsTabProps) {
   const { lang } = p;
-  return (
-    <div className="space-y-5">
+  return (    <div className="space-y-5">
       {/* 界面语言（优先填写） */}
       <div>
         <div className={labelClass}>{t(lang, 'setupFieldUiLanguage')}</div>
@@ -840,16 +994,25 @@ function SettingsTab(p: SettingsTabProps) {
         <div className="text-xs text-content-disabled">{t(lang, 'setupEnvAtLeastOne')}</div>
       )}
 
-      {/* 工作目录 */}
+      {/* 工作目录（多目录空间改造：输入框收敛到目录空间页管理，此处展示当前值 + 跳转） */}
       <div>
         <div className={labelClass}>{t(lang, 'setupFieldWorkingDirectory')}</div>
-        <input
-          type="text"
-          value={p.workDir}
-          onChange={(e) => p.onWorkDirChange(e.target.value)}
-          className={inputClass}
-          placeholder={t(lang, 'setupFieldWorkingDirectoryHint')}
-        />
+        <div className="flex gap-2">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md bg-surface-card-alt border border-border-light min-w-0">
+            <svg className="w-3.5 h-3.5 text-content-disabled shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1.5 4.5v7a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6.5a1.5 1.5 0 00-1.5-1.5H8L6.4 3.1a1.5 1.5 0 00-1.1-.6H3a1.5 1.5 0 00-1.5 1.5v.5z" />
+            </svg>
+            <span className={`text-sm truncate ${p.workDir ? 'text-content-primary' : 'text-content-disabled'}`}>
+              {p.workDir || t(lang, 'workspace_default_hint')}
+            </span>
+          </div>
+          <button
+            onClick={p.onManageWorkspaces}
+            className="shrink-0 px-3 py-2 rounded-md text-sm border border-border-light text-content-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            {t(lang, 'workspace_manage')}
+          </button>
+        </div>
         <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldWorkingDirectoryHint')}</div>
       </div>
 
@@ -1115,10 +1278,12 @@ interface ChannelsTabProps {
   lang: UiLanguage;
   channels: ChannelsCfg;
   onChannelsChange: (c: ChannelsCfg) => void;
+  /** 注册的工作区列表（渠道运行目录选择数据源） */
+  workspaces: WebWorkspaceItem[];
 }
 
 /** 渠道配置 Tab：飞书 / 微信 / QQ */
-function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
+function ChannelsTab({ lang, channels, onChannelsChange, workspaces }: ChannelsTabProps) {
   /** 各渠道运行时状态（守护进程内 runner 活跃情况） */
   const [runtimeStatus, setRuntimeStatus] = useState<ChannelsRuntimeStatus>({});
   /** 状态加载中 */
@@ -1173,17 +1338,23 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
 
   /** 启动渠道 runner
    *
+   * 多目录空间：启动时携带渠道配置的运行目录（未配置时用默认工作区），
+   * 后端先落盘再按需拉起守护进程——web 端不再自动启动渠道守护进程。
    * 守护进程收到 start_channel 后通过 call_soon_threadsafe 异步调度
    * _start_channel_internal 创建 runner，前端立即查询状态可能尚未创建完。
    * 故启动成功后延迟 600ms 再刷新状态，避免偶发显示"已停止"。
    */
   const handleStart = useCallback(async (name: string) => {
     try {
-      await channelsApi.start(name);
+      // 渠道配置的运行目录（working_directory）或默认工作区
+      const cfg = channels[name as 'feishu' | 'weixin' | 'qq'];
+      const wd = (cfg?.working_directory as string | undefined)
+        || workspaces.find((w) => w.is_default)?.path;
+      await channelsApi.start(name, wd);
       await new Promise((r) => setTimeout(r, 600));
       await refreshStatus();
     } catch { /* 静默 */ }
-  }, [refreshStatus]);
+  }, [refreshStatus, channels, workspaces]);
 
   /** 停止渠道 runner */
   const handleStop = useCallback(async (name: string) => {
@@ -1193,21 +1364,35 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
     } catch { /* 静默 */ }
   }, [refreshStatus]);
 
+  /** 启用渠道时的目录缺失错误（本地即时提示，后端 PATCH 亦校验兜底） */
+  const [enableError, setEnableError] = useState<string | null>(null);
+
   /** 切换渠道 enabled 配置（即时保存到后端，不依赖保存按钮）
    *
+   * 多目录空间：启用渠道（v=true）必须已配置运行目录（working_directory），
+   * 未配置时阻止并提示——渠道 agent 需要锚定工作区。
    * 停用（v=false）时先通过 IPC 停止运行中的 runner，再保存 enabled=false。
    * 启用（v=true）时只保存配置，不自动启动 runner（由用户通过 toggle 手动启动）。
    */
   const handleToggleEnabled = useCallback(async (name: 'feishu' | 'weixin' | 'qq', v: boolean) => {
+    setEnableError(null);
+    if (v && !channels[name].working_directory) {
+      const channelLabel = name === 'feishu' ? t(lang, 'setupChannelFeishu')
+        : name === 'weixin' ? t(lang, 'setupChannelWeixin')
+        : t(lang, 'setupChannelQQ');
+      setEnableError(t(lang, 'setupChannelNeedWorkDir').replace('{channel}', channelLabel));
+      return;
+    }
     if (!v) {
       try { await channelsApi.stop(name); } catch { /* 静默 */ }
     }
     onChannelsChange({ ...channels, [name]: { ...channels[name], enabled: v } });
     channelsApi.update({ [name]: { enabled: v } } as Partial<{ feishu: { enabled: boolean }; weixin: { enabled: boolean }; qq: { enabled: boolean } }>).catch(() => { /* 静默 */ });
-  }, [channels, onChannelsChange]);
+  }, [channels, onChannelsChange, lang]);
 
   return (
     <div className="space-y-4">
+      {enableError && <div className="text-xs text-danger">{enableError}</div>}
       <ChannelSection
         lang={lang}
         channelName="feishu"
@@ -1231,6 +1416,12 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
           />
         }
       >
+        <ChannelWorkDirField
+          lang={lang}
+          workspaces={workspaces}
+          value={channels.feishu.working_directory ?? ''}
+          onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, working_directory: v } })}
+        />
         <TextField lang={lang} labelKey="setupChannelAppId" value={channels.feishu.app_id} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, app_id: v } })} />
         <TextField lang={lang} labelKey="setupChannelAppSecret" value={channels.feishu.app_secret} onChange={(v) => onChannelsChange({ ...channels, feishu: { ...channels.feishu, app_secret: v } })} />
         <SelectField lang={lang} labelKey="setupChannelDomain" value={channels.feishu.domain}
@@ -1270,6 +1461,12 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
           />
         }
       >
+        <ChannelWorkDirField
+          lang={lang}
+          workspaces={workspaces}
+          value={channels.weixin.working_directory ?? ''}
+          onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, working_directory: v } })}
+        />
         <TextField lang={lang} labelKey="setupChannelAccountId" value={channels.weixin.account_id} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, account_id: v } })} />
         <TextField lang={lang} labelKey="setupChannelToken" value={channels.weixin.token} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, token: v } })} />
         <TextField lang={lang} labelKey="setupChannelBaseUrl" value={channels.weixin.base_url} onChange={(v) => onChannelsChange({ ...channels, weixin: { ...channels.weixin, base_url: v } })} />
@@ -1300,6 +1497,12 @@ function ChannelsTab({ lang, channels, onChannelsChange }: ChannelsTabProps) {
           />
         }
       >
+        <ChannelWorkDirField
+          lang={lang}
+          workspaces={workspaces}
+          value={channels.qq.working_directory ?? ''}
+          onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, working_directory: v } })}
+        />
         <TextField lang={lang} labelKey="setupChannelAppId" value={channels.qq.app_id} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, app_id: v } })} />
         <TextField lang={lang} labelKey="setupChannelClientSecret" value={channels.qq.client_secret} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, client_secret: v } })} />
         <BoolField lang={lang} labelKey="setupChannelMarkdownSupport" checked={channels.qq.markdown_support} onChange={(v) => onChannelsChange({ ...channels, qq: { ...channels.qq, markdown_support: v } })} />
@@ -1779,9 +1982,39 @@ function ChannelSection({ lang, channelName, title, enabled, onToggle, runtimeSt
   );
 }
 
-/** 文本字段行 */
-function TextField({ lang, labelKey, value, onChange }: { lang: UiLanguage; labelKey: string; value: string; onChange: (v: string) => void; }) {
+/** 渠道运行目录选择行（多目录空间：渠道 agent 固定在该目录运行） */
+function ChannelWorkDirField({ lang, workspaces, value, onChange }: {
+  lang: UiLanguage;
+  workspaces: WebWorkspaceItem[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const options: DropdownOption[] = [
+    // 当前值未在注册表中时保留（兼容外部设置）
+    ...(value && !workspaces.some((w) => w.path === value)
+      ? [{ value, label: value.split(/[\\/]/).filter(Boolean).pop() || value }]
+      : []),
+    ...workspaces.map((w) => ({
+      value: w.path,
+      label: w.is_default ? `${w.name} · ${t(lang, 'workspace_default_badge')}` : w.name,
+    })),
+  ];
   return (
+    <div>
+      <div className={labelClass}>{t(lang, 'setupChannelWorkDir')}</div>
+      <GlassDropdown
+        value={value}
+        placeholder={t(lang, 'setupChannelWorkDirPlaceholder')}
+        options={options}
+        onChange={onChange}
+      />
+      <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupChannelWorkDirHint')}</div>
+    </div>
+  );
+}
+
+/** 文本字段行 */
+function TextField({ lang, labelKey, value, onChange }: { lang: UiLanguage; labelKey: string; value: string; onChange: (v: string) => void; }) {  return (
     <div>
       <div className={labelClass}>{t(lang, labelKey)}</div>
       <input type="text" value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} />

@@ -284,6 +284,8 @@ export interface CreateCronJobPayload {
   deliver_to?: string[];
   /** 指定会话执行：目标会话 ID（可选；缺省 = 独立新会话） */
   session_id?: string;
+  /** 任务执行的工作区目录（可选；缺省 = 默认工作区，须为已注册目录） */
+  cwd?: string;
 }
 
 /** 更新 cron 任务请求体（仅提供需要修改的字段） */
@@ -485,10 +487,11 @@ export const channelsApi = {
     }),
   /** 查询各渠道运行时状态（守护进程内 runner 活跃情况） */
   getStatus: () => request<ChannelsRuntimeStatus>('/api/channels/status'),
-  /** 启动指定渠道 runner（通过 IPC 通知守护进程） */
-  start: (name: string) =>
+  /** 启动指定渠道 runner（通过 IPC 通知守护进程；可携带运行目录） */
+  start: (name: string, workingDirectory?: string) =>
     request<{ ok: boolean; daemon_running: boolean }>(`/api/channels/${encodeURIComponent(name)}/start`, {
       method: 'POST',
+      body: JSON.stringify(workingDirectory ? { working_directory: workingDirectory } : {}),
     }),
   /** 停止指定渠道 runner（通过 IPC 通知守护进程） */
   stop: (name: string) =>
@@ -540,8 +543,11 @@ export const cronApi = {
     request<CronRunResult>(`/api/cron/jobs/${encodeURIComponent(identifier)}/run`, {
       method: 'POST',
     }),
-  /** 列出项目会话（session_id dropdown 数据源） */
-  sessions: () => request<{ sessions: CronSessionSummary[] }>('/api/cron/sessions'),
+  /** 列出项目会话（session_id dropdown 数据源；可按工作区目录过滤） */
+  sessions: (cwd?: string) => {
+    const params = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+    return request<{ sessions: CronSessionSummary[] }>(`/api/cron/sessions${params}`);
+  },
   /** 列出各渠道活跃会话（deliver_to dropdown 数据源） */
   channelSessions: () => request<{ channels: Record<string, CronChannelSession[]> }>('/api/cron/channel_sessions'),
 };

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
 import { cronApi, type CronJob, type CronSchedulerStatus, type CronSessionSummary, type CronChannelSession } from '../api';
 import { GlassDropdown } from './GlassDropdown';
+import type { WebWorkspaceItem } from '../types/protocol';
 
 /** 输入框通用样式（聚焦散光，与 SetupForm 保持一致） */
 const inputClass = 'w-full px-3 py-2 rounded-md bg-surface-card-alt border border-border-light text-content-primary text-sm focus:outline-none focus:border-primary focus:shadow-glow transition-all duration-200';
@@ -47,6 +48,7 @@ interface JobDraft {
   delete_after_run: boolean;
   deliver_to: string[];
   session_id: string;
+  cwd: string;
 }
 
 /** 空表单草稿初始值 */
@@ -60,6 +62,7 @@ function makeEmptyDraft(): JobDraft {
     delete_after_run: false,
     deliver_to: [],
     session_id: '',
+    cwd: '',
   };
 }
 
@@ -74,6 +77,7 @@ function draftFromJob(job: CronJob): JobDraft {
     delete_after_run: job.delete_after_run,
     deliver_to: [...job.deliver_to],
     session_id: job.session_id ?? '',
+    cwd: job.cwd ?? '',
   };
 }
 
@@ -83,6 +87,8 @@ function draftFromJob(job: CronJob): JobDraft {
 interface CronTabProps {
   /** 当前 UI 语言 */
   lang: UiLanguage;
+  /** 注册的工作区列表（任务执行目录选择 + 会话按目录过滤） */
+  workspaces: WebWorkspaceItem[];
 }
 
 /**
@@ -91,7 +97,7 @@ interface CronTabProps {
  * @param props - 组件属性
  * @returns Tab JSX
  */
-export function CronTab({ lang }: CronTabProps) {
+export function CronTab({ lang, workspaces }: CronTabProps) {
   /** 任务列表 */
   const [jobs, setJobs] = useState<CronJob[]>([]);
   /** 调度器状态 */
@@ -114,10 +120,20 @@ export function CronTab({ lang }: CronTabProps) {
   const [draft, setDraft] = useState<JobDraft>(makeEmptyDraft);
   /** 表单提交错误 */
   const [formError, setFormError] = useState<string | null>(null);
-  /** 项目会话列表（session_id dropdown 数据源） */
+  /** 项目会话列表（session_id dropdown 数据源，按任务执行目录过滤） */
   const [sessions, setSessions] = useState<CronSessionSummary[]>([]);
   /** 各渠道活跃会话（deliver_to dropdown 数据源） */
   const [channelSessions, setChannelSessions] = useState<Record<string, CronChannelSession[]>>({});
+
+  /** 加载指定目录的项目会话（cronApi.sessions 按 cwd 过滤） */
+  const loadSessions = useCallback(async (cwd?: string) => {
+    try {
+      const res = await cronApi.sessions(cwd || undefined);
+      setSessions(res.sessions);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
 
   /** 加载调度器状态 + 任务列表
    *
@@ -147,17 +163,15 @@ export function CronTab({ lang }: CronTabProps) {
     let cancelled = false;
     (async () => {
       try {
-        const [s, j, sess, chSess] = await Promise.all([
+        const [s, j, chSess] = await Promise.all([
           cronApi.status(),
           cronApi.list(),
-          cronApi.sessions().catch(() => ({ sessions: [] })),
           cronApi.channelSessions().catch(() => ({ channels: {} })),
         ]);
         if (cancelled) return;
         setStatus(s);
         setJobs(j.jobs);
         setRunningIds(j.running_jobs ?? []);
-        setSessions(sess.sessions);
         setChannelSessions(chSess.channels);
       } catch (err) {
         if (cancelled) return;
@@ -167,7 +181,15 @@ export function CronTab({ lang }: CronTabProps) {
       }
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // workspaces 异步到达（web_workspaces 事件晚于 ready）：默认目录就绪后
+  // 加载会话下拉；默认目录变化（设置中修改）时同样刷新
+  useEffect(() => {
+    const defaultCwd = workspaces.find((w) => w.is_default)?.path;
+    if (defaultCwd) loadSessions(defaultCwd);
+  }, [workspaces, loadSessions]);
 
   /** 切换任务启用状态（即时 API + 静默刷新） */
   const handleToggleEnabled = useCallback(async (job: CronJob, enabled: boolean) => {
@@ -216,13 +238,15 @@ export function CronTab({ lang }: CronTabProps) {
     }
   }, [lang, loadAll]);
 
-  /** 打开新建表单 */
+  /** 打开新建表单（执行目录必选：初始预选默认工作区，用户可改） */
   const openCreate = useCallback(() => {
     setEditingJob(null);
-    setDraft(makeEmptyDraft());
+    const defaultCwd = workspaces.find((w) => w.is_default)?.path ?? '';
+    setDraft({ ...makeEmptyDraft(), cwd: defaultCwd });
     setFormError(null);
     setFormVisible(true);
-  }, []);
+    if (defaultCwd) loadSessions(defaultCwd);
+  }, [workspaces, loadSessions]);
 
   /** 打开编辑表单（预填任务字段） */
   const openEdit = useCallback((job: CronJob) => {
@@ -244,9 +268,16 @@ export function CronTab({ lang }: CronTabProps) {
       setFormError(t(lang, 'cronPromptRequired'));
       return;
     }
+    // 执行目录必选（任务运行的工作区锚点，缺省会落到不可预期的目录）
+    if (!draft.cwd.trim()) {
+      setFormError(t(lang, 'cronFieldCwdRequired'));
+      return;
+    }
     const deliverTo = draft.deliver_to;
     // 指定会话（可选）：编辑时清空传空串显式清除（后端据此移除 session_id）
     const sessionId = draft.session_id.trim();
+    // 任务执行目录（可选；空 = 后端默认工作区）
+    const cwd = draft.cwd.trim() || undefined;
     try {
       if (editingJob) {
         await cronApi.update(editingJob.id, {
@@ -258,6 +289,7 @@ export function CronTab({ lang }: CronTabProps) {
           delete_after_run: draft.delete_after_run,
           deliver_to: deliverTo,
           session_id: sessionId,
+          cwd,
         });
       } else {
         await cronApi.create({
@@ -269,6 +301,7 @@ export function CronTab({ lang }: CronTabProps) {
           delete_after_run: draft.delete_after_run,
           deliver_to: deliverTo,
           session_id: sessionId || undefined,
+          cwd,
         });
       }
       setFormVisible(false);
@@ -333,6 +366,7 @@ export function CronTab({ lang }: CronTabProps) {
               key={job.id}
               lang={lang}
               job={job}
+              workspaces={workspaces}
               expanded={expandedId === job.id}
               onToggleExpand={() => setExpandedId((cur) => (cur === job.id ? null : job.id))}
               running={runningIds.includes(job.id)}
@@ -389,6 +423,27 @@ export function CronTab({ lang }: CronTabProps) {
             <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldPromptHint')}</div>
           </div>
 
+          {/* 执行目录（必选）：任务运行的目录空间，会话下拉随其过滤；
+              与渠道运行目录一致：直接显示所选目录，无"跟随默认工作区"选项 */}
+          <div>
+            <div className={labelClass}>{t(lang, 'cronFieldCwd')}</div>
+            <GlassDropdown
+              value={draft.cwd}
+              placeholder={t(lang, 'cronFieldCwdPlaceholder')}
+              options={workspaces.map((w) => ({
+                value: w.path,
+                label: w.is_default
+                  ? `${w.name} · ${t(lang, 'workspace_default_badge')}`
+                  : w.name,
+              }))}
+              onChange={(v) => {
+                setDraft({ ...draft, cwd: v, session_id: '' });
+                loadSessions(v || undefined);
+              }}
+            />
+            <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldCwdHint')}</div>
+          </div>
+
           {/* 重复执行 / 启用 / 执行后自动删除 */}
           <div className="space-y-2.5 pt-1">
             <BoolFieldRow lang={lang} labelKey="cronFieldRecurring" checked={draft.recurring} onChange={(v) => setDraft({ ...draft, recurring: v })} />
@@ -408,7 +463,7 @@ export function CronTab({ lang }: CronTabProps) {
             <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'cronFieldDeliverToHint')}</div>
           </div>
 
-          {/* 指定会话（可选）：项目会话下拉 */}
+          {/* 指定会话（可选）：项目会话下拉（随执行目录过滤） */}
           <div>
             <div className={labelClass}>{t(lang, 'cronFieldSession')}</div>
             <GlassDropdown
@@ -462,6 +517,8 @@ export function CronTab({ lang }: CronTabProps) {
 interface CronJobCardProps {
   lang: UiLanguage;
   job: CronJob;
+  /** 注册的工作区列表（非默认目录徽标展示） */
+  workspaces: WebWorkspaceItem[];
   /** 是否展开 */
   expanded: boolean;
   /** 展开/收起回调 */
@@ -479,8 +536,13 @@ interface CronJobCardProps {
 }
 
 /** 单个任务折叠卡片：折叠头显示名称/表达式/标签，展开显示详情与操作 */
-function CronJobCard({ lang, job, expanded, onToggleExpand, running, onToggleEnabled, onRun, onEdit, onDelete }: CronJobCardProps) {
+function CronJobCard({ lang, job, workspaces, expanded, onToggleExpand, running, onToggleEnabled, onRun, onEdit, onDelete }: CronJobCardProps) {
   const enabled = job.enabled;
+  /** 任务执行目录是否非默认（多目录空间下显示目录徽标） */
+  const defaultCwd = workspaces.find((w) => w.is_default)?.path;
+  const cwdName = job.cwd
+    ? (workspaces.find((w) => w.path === job.cwd)?.name ?? job.cwd.split(/[\\/]/).filter(Boolean).pop() ?? job.cwd)
+    : '';
   const lastStatusLabel = job.last_status
     ? ({
         success: t(lang, 'cronStatusSuccess'),
@@ -510,6 +572,11 @@ function CronJobCard({ lang, job, expanded, onToggleExpand, running, onToggleEna
         {job.session_id && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-content-secondary shrink-0 font-mono max-w-[120px] truncate" title={job.session_id}>
             {t(lang, 'cronSessionTag')}: {job.session_id.slice(0, 8)}
+          </span>
+        )}
+        {job.cwd && job.cwd !== defaultCwd && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-content-secondary shrink-0 max-w-[110px] truncate" title={job.cwd}>
+            {cwdName}
           </span>
         )}
         <svg className={`w-3 h-3 shrink-0 transition-transform text-content-disabled ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 3L7.5 6L4.5 9" /></svg>

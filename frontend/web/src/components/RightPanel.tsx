@@ -164,6 +164,11 @@ export default function RightPanel({
           subtitle={projectSkills.length > 0 ? `${projectSkills.length} ${t(lang, 'project_label')}` : undefined}
           defaultCollapsed={true}
           onExpand={onRefreshResources}
+          icon={
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 1.5l1.8 4.2 4.2 1.8-4.2 1.8L8 13.5 6.2 9.3 2 7.5l4.2-1.8L8 1.5z" />
+            </svg>
+          }
         >
           {skills.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.description} tag={s.source === 'project' ? 'P' : undefined} />
@@ -178,6 +183,11 @@ export default function RightPanel({
           count={mcpServers.length}
           subtitle={mcpServers.some((s) => s.state === 'connected') ? `${mcpServers.filter((s) => s.state === 'connected').length} ${t(lang, 'connected_label')}` : undefined}
           onExpand={onRefreshResources}
+          icon={
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4.5 1.5v4M11.5 1.5v4M3.5 5.5h9a1 1 0 011 1v7a1 1 0 01-1 1h-9a1 1 0 01-1-1v-7a1 1 0 011-1z" />
+            </svg>
+          }
         >
           {mcpServers.map((s) => (
             <ItemRow key={s.name} name={s.name} description={s.state} tag={s.tool_count != null ? `${s.tool_count}t` : undefined} />
@@ -192,6 +202,11 @@ export default function RightPanel({
           count={plugins.length}
           subtitle={enabledPlugins.length > 0 ? `${enabledPlugins.length} ${t(lang, 'enabled_label')}` : undefined}
           onExpand={onRefreshResources}
+          icon={
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 3a2 2 0 00-4 0v4a2 2 0 004 0v-1h2v6a1 1 0 001 1h1a2 2 0 000-4h-1V8h4a2 2 0 000-4H8V3a2 2 0 00-2-2z" />
+            </svg>
+          }
         >
           {plugins.map((p) => (
             <ItemRow key={p.name} name={p.name} description={p.description} tag={p.enabled ? undefined : t(lang, 'off_label')} />
@@ -206,6 +221,12 @@ export default function RightPanel({
           count={rules.length}
           subtitle={projectRules.length > 0 ? `${projectRules.length} ${t(lang, 'project_label')}` : undefined}
           onExpand={onRefreshResources}
+          icon={
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 2.5h10a0 0 0 010 0V14a0 0 0 010 0H3a0 0 0 010 0V2.5z" />
+              <path d="M5.5 6h5M5.5 9h5M5.5 12h3" />
+            </svg>
+          }
         >
           {rules.map((r) => (
             <ItemRow key={`${r.source}-${r.name}`} name={r.name} description="" tag={r.source === 'project' ? 'P' : undefined} />
@@ -286,11 +307,13 @@ export default function RightPanel({
 // ---- 可折叠区域 ----
 
 function CollapsibleSection({
-  title, count, subtitle, children, defaultCollapsed = true, onExpand,
+  title, count, subtitle, icon, children, defaultCollapsed = true, onExpand,
 }: {
   title: string;
   count: number;
   subtitle?: string;
+  /** 分组类型图标（16px，hover 时与 chevron 交叉淡入淡出，dsh 风格） */
+  icon?: React.ReactNode;
   children: React.ReactNode;
   defaultCollapsed?: boolean;
   /** 折叠→展开时触发（用于刷新数据） */
@@ -308,14 +331,22 @@ function CollapsibleSection({
     <div className="border-t border-border-light">
       <button
         onClick={handleToggle}
-        className="w-full px-5 py-2.5 flex items-center gap-2 glass-option-hover transition-colors cursor-pointer"
+        className="group w-full px-5 py-2.5 flex items-center gap-2 glass-option-hover transition-colors cursor-pointer"
       >
-        <svg
-          className={`w-3 h-3 text-content-disabled shrink-0 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
-          viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <path d="M6 3l5 5-5 5" />
-        </svg>
+        {/* 16px 图标槽位：常显类型图标；hover 时图标淡出、chevron 淡入（dsh DisclosureRow 风格） */}
+        <span className="relative w-4 h-4 shrink-0 flex items-center justify-center">
+          {icon && (
+            <span className="absolute inset-0 flex items-center justify-center text-content-secondary transition-opacity duration-100 group-hover:opacity-0">
+              {icon}
+            </span>
+          )}
+          <svg
+            className={`absolute inset-0 m-auto w-3 h-3 text-content-secondary opacity-0 group-hover:opacity-100 transition-[opacity,transform] duration-100 group-hover:duration-150 ${collapsed ? '' : 'rotate-90'}`}
+            viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d="M6 3l5 5-5 5" />
+          </svg>
+        </span>
         <span className="text-xs font-semibold text-content-primary tracking-wide">{title}</span>
         <span className="text-[10px] text-content-secondary bg-[var(--badge-bg)] px-1.5 py-0.5 rounded-full tabular-nums">{count}</span>
         {subtitle && <span className="text-xs text-content-disabled ml-auto">{subtitle}</span>}
