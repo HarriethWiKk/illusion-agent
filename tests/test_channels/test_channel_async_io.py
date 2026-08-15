@@ -2,7 +2,7 @@
 
 覆盖 4 个修复模式：
     1. 飞书 SDK 专用 executor 模块级定义且命名正确
-    2. 飞书 WS 客户端专用 executor 模块级定义且 max_workers=1
+    2. 飞书 WS 客户端 executor 每连接独立（取代旧模块级单 worker 单例）
     3. except BaseException 拆分后 CancelledError 正确上抛
     4. 大文件 I/O 通过 asyncio.to_thread 异步化（不阻塞事件循环）
 """
@@ -35,16 +35,24 @@ def test_feishu_sdk_executor_is_module_level():
     assert _feishu_executor._thread_name_prefix == "feishu-sdk"
 
 
-def test_feishu_ws_executor_is_module_level():
-    """_ws_executor 在 feishu.adapter 模块级定义且 max_workers=1。
+def test_feishu_ws_executor_is_per_connection():
+    """_ws_executor 改为每连接独立实例，不再模块级单例。
 
-    WS 客户端 start() 是无限阻塞的，必须独占一个线程。
+    connect() 每次创建新 ThreadPoolExecutor(max_workers=1)，
+    _cleanup_resources() 中 shutdown(wait=False) 释放。
+    验证：源码中 _ws_executor 是实例属性而非模块级变量。
     """
-    from illusion.channels.feishu.adapter import _ws_executor
+    from illusion.channels.feishu.adapter import FeishuChannel
 
-    assert isinstance(_ws_executor, ThreadPoolExecutor)
-    assert _ws_executor._max_workers == 1
-    assert _ws_executor._thread_name_prefix == "feishu-ws"
+    source = inspect.getsource(FeishuChannel)
+    assert "self._ws_executor = ThreadPoolExecutor" in source, (
+        "connect() 必须创建每连接 executor"
+    )
+    # 模块级不应再有 _ws_executor
+    import illusion.channels.feishu.adapter as adapter_module
+    assert not hasattr(adapter_module, "_ws_executor"), (
+        "不得保留模块级 _ws_executor，应使用每连接实例属性"
+    )
 
 
 def test_messaging_imports_feishu_executor():
@@ -309,34 +317,51 @@ def test_feishu_executor_runs_callable_in_thread():
         loop.close()
 
 
-def test_ws_executor_max_workers_one():
-    """_ws_executor 只有一个线程，串行执行（WS start 独占）。"""
-    import threading
+def test_ws_executor_per_connection_max_workers_one():
+    """每次 connect() 创建每连接 executor（max_workers=1），cleanup 后释放。
 
-    from illusion.channels.feishu.adapter import _ws_executor
+    取代旧模块级单 worker 单例测试：每个连接独立 executor 保证
+    断网时被卡死的 WS 线程不会阻塞后续重连。
+    """
+    from unittest import mock
 
-    loop = asyncio.new_event_loop()
-    try:
+    from illusion.channels.config import FeishuChannelConfig
+    from illusion.channels.feishu.adapter import FeishuChannel
 
-        async def _run():
-            threads: list[int] = []
+    cfg = FeishuChannelConfig(enabled=True, app_id="cli_test", app_secret="s")
 
-            def _record_thread() -> int:
-                threads.append(threading.get_ident())
-                return threading.get_ident()
+    async def _run():
+        ch = FeishuChannel.__new__(FeishuChannel)  # 跳过 __init__ 避免真实连接
+        ch.config = cfg
+        # __new__ 不执行 __init__，补齐 connect/_cleanup 引用的实例属性
+        ch._client = None
+        ch._ws = None
+        ch._queue = None
+        ch._loop = None
+        ch._bot_open_id = ""
+        ch._stop_event = None
+        ch._ws_future = None
+        ch._ws_executor = None
 
-            # 并发提交 3 个任务
-            await asyncio.gather(
-                loop.run_in_executor(_ws_executor, _record_thread),
-                loop.run_in_executor(_ws_executor, _record_thread),
-                loop.run_in_executor(_ws_executor, _record_thread),
-            )
-            return threads
+        fake_ws = mock.Mock()
+        with mock.patch(
+            "illusion.channels.feishu.messaging.build_lark_client",
+            return_value=mock.Mock(),
+        ), mock.patch(
+            "illusion.channels.feishu.ws_client.FeishuWSClient",
+            return_value=fake_ws,
+        ), mock.patch.object(ch, "_hydrate_bot_id", new=mock.AsyncMock()):
+            await ch.connect()
 
-        threads = loop.run_until_complete(_run())
-        # 所有任务在同一个线程上执行（max_workers=1 串行化）
-        assert len(set(threads)) == 1, (
-            f"_ws_executor 应只有 1 个线程，实际 {len(set(threads))}"
-        )
-    finally:
-        loop.close()
+        assert ch._ws_executor is not None
+        # _max_workers 是 ThreadPoolExecutor 私有属性，CPython 稳定接口
+        assert ch._ws_executor._max_workers == 1
+        assert ch._ws_executor._thread_name_prefix == "feishu-ws"
+        first_executor = ch._ws_executor
+
+        # cleanup 后 executor 置回 None 且已 shutdown（wait=False 不等卡死线程）
+        await ch._cleanup_resources()
+        assert ch._ws_executor is None
+        assert first_executor._shutdown
+
+    asyncio.run(_run())

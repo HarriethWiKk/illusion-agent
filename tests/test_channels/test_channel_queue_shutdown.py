@@ -27,6 +27,7 @@ def test_feishu_listen_exits_on_shutdown():
         ch._client = None
         ch._ws = None
         ch._ws_future = None
+        ch._ws_executor = None
 
         # 启动 listen async generator，取首个 __anext__
         gen = ch.listen()
@@ -90,6 +91,7 @@ def test_feishu_listen_yields_then_exits_on_shutdown():
         ch._client = None
         ch._ws = None
         ch._ws_future = None
+        ch._ws_executor = None
 
         # 预先放入一条消息
         msg = InboundMessage(

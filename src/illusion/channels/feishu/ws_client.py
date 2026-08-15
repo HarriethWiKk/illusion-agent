@@ -29,6 +29,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)  # 日志器
 
+# lark SDK WS 端点请求（requests.post）注入的超时：(connect, read) 秒。
+# SDK 未设 timeout，断网时同步请求可无限卡死使 WS 线程滞留；注入超时后
+# 卡死窗口有限，卡死线程能在数十秒内自回收，避免持续断网期线程累积。
+_WS_HTTP_TIMEOUT: tuple[float, float] = (3.0, 10.0)
+
 
 class _DuplicateLogFilter(logging.Filter):
     """重复日志抑制 filter
@@ -185,6 +190,18 @@ class FeishuWSClient:
             domain=self._domain,
         )
         self._running = True
+        # 给 lark SDK 的阻塞 requests.post 注入超时：lark 的 _get_conn_url 用
+        # requests.post(...) 同步获取 WS 端点 URL，且**未设 timeout**。断网时
+        # 该同步请求可无限卡死（DNS/connect 挂起），令 WS 线程长期滞留、断网期
+        # 线程累积。参照 hermes-agent 在 WS 线程内 monkeypatch 的模式，仅在本
+        # 连接期间生效，finally 恢复。requests timeout 元组为 (connect, read)。
+        original_post = lark_ws_module.requests.post
+
+        def _post_with_timeout(*args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("timeout", _WS_HTTP_TIMEOUT)
+            return original_post(*args, **kwargs)
+
+        lark_ws_module.requests.post = _post_with_timeout
         try:
             # 阻塞运行（在 lark_loop 上，由 stop() 的 loop.stop() 中断 _select()）
             self._client.start()
@@ -194,6 +211,7 @@ class FeishuWSClient:
         except Exception:
             logger.debug("飞书 WS start() 异常退出", exc_info=True)
         finally:
+            lark_ws_module.requests.post = original_post
             # 清理 pending tasks + stop + close loop（参照 hermes-agent）
             self._running = False
             self._cleanup_loop(lark_loop)
@@ -235,12 +253,28 @@ class FeishuWSClient:
         """停止 WS 客户端（线程安全，非阻塞）
 
         参照 hermes-agent disconnect() 模式：
-        通过 call_soon_threadsafe 在 lark_loop 上调度 _shutdown_loop，
-        取消所有 pending tasks 并停止 loop，让阻塞的 run_until_complete(_select()) 返回。
+        先禁用 lark SDK 的自动重连，再通过 call_soon_threadsafe 在 lark_loop
+        上调度 _shutdown_loop，取消所有 pending tasks 并停止 loop，让阻塞的
+        run_until_complete(_select()) 返回。
+
+        禁用自动重连是关键：被 _supervise 重启放弃的旧客户端线程，若留着
+        auto_reconnect=True，会在网络恢复后自行重连。此时旧线程重读 lark SDK
+        模块级共享 loop（已被新连接覆盖为新 loop），把自己的 ping/接收任务
+        建到新 loop 上，而连接仍挂在旧 loop 上，导致
+        "Future attached to a different loop" / "Event loop is closed" 错误，
+        把新连接搞坏。禁用后旧客户端不再重连，仅由 _shutdown_loop 收尾退出。
 
         调用方应随后 await executor future（adapter.shutdown 负责等待线程退出）。
         """
         self._running = False
+        # 禁用 lark SDK 自动重连，避免被放弃的旧客户端在网络恢复后自行重连
+        # 与新建连接争抢共享的模块级 loop（导致 "attached to a different loop"）
+        client = getattr(self, "_client", None)
+        if client is not None:
+            try:
+                client._auto_reconnect = False
+            except Exception:
+                logger.debug("禁用飞书 WS 自动重连失败", exc_info=True)
         lark_loop = self._lark_loop
         if lark_loop is None or lark_loop.is_closed():
             # start() 未调用或已退出

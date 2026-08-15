@@ -38,14 +38,6 @@ _feishu_executor = ThreadPoolExecutor(
     max_workers=8, thread_name_prefix="feishu-sdk",
 )
 
-# 飞书 WS 客户端专用 executor：lark-oapi 的 WsClient.start() 是无限阻塞的，
-# 必须独占一个线程（max_workers=1），避免与其他 SDK 调用线程争抢。
-# daemon 线程：进程退出时自动回收，无需显式 shutdown。
-_ws_executor = ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="feishu-ws",
-)
-
-
 class FeishuChannel(Channel):
     """飞书渠道实现
 
@@ -72,6 +64,7 @@ class FeishuChannel(Channel):
         self._bot_open_id: str = ""  # bot 自身 open_id（hydrate 后赋值）
         self._stop_event = asyncio.Event()  # 停止信号
         self._ws_future: Any = None  # executor future（run_in_executor 返回，shutdown 等待用）
+        self._ws_executor: ThreadPoolExecutor | None = None  # 本连接专用 WS executor
 
     def _get_domain(self) -> str:
         """获取飞书 API 域名
@@ -97,6 +90,15 @@ class FeishuChannel(Channel):
         # 先清理旧资源（_supervise 重启时复用 adapter 实例，避免多个 lark_loop 冲突）
         await self._cleanup_resources()
 
+        # 重建入站队列：shutdown() 会永久关闭队列（aioqueue 哨兵不可逆）。
+        # 若不重建，_supervise 重启后 listen() 会立即抛 QueueShutDown，令
+        # runner.run() 立刻正常返回，_supervise 无退避地无限快速重启——
+        # 表现为日志反复 hydrate→stop→connected，断网恢复后仍不断失败。
+        self._queue = Queue()
+        # 重置停止信号：飞书 listen() 实际走队列哨兵唤醒，未读 _stop_event，
+        # 但保留并重建它，与 qq/weixin 保持统一的三渠道停止信号接口。
+        self._stop_event = asyncio.Event()
+
         # 构造 lark 客户端
         self._client = build_lark_client(self.config)
         # 获取 bot 自身 open_id（用于自回显检测和 @提及识别）
@@ -112,9 +114,14 @@ class FeishuChannel(Channel):
         # 保存当前事件循环引用（WS 回调线程需要用它跨线程投递消息）
         # 用 get_running_loop() 替代已弃用的 get_event_loop()（Python 3.10+）
         self._loop = asyncio.get_running_loop()
-        # 在专用 executor 线程跑阻塞的 start()，保存 future 供 shutdown 等待线程退出
-        # 用 _ws_executor（max_workers=1）而非默认 executor，避免与其他 SDK 调用线程争抢
-        self._ws_future = self._loop.run_in_executor(_ws_executor, self._ws.start)
+        # 每个连接使用独立 executor（max_workers=1）跑阻塞的 start()。
+        # 复用模块级单 worker executor 会在断网时被 lark SDK 的阻塞 requests.post
+        # 卡死唯一 worker，导致后续重连永远排队无法执行（断网后飞书无法恢复的根因）。
+        # 独立 executor + 卡死时 shutdown(wait=False) 放弃，保证下次 connect 总能新建连接。
+        self._ws_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="feishu-ws",
+        )
+        self._ws_future = self._loop.run_in_executor(self._ws_executor, self._ws.start)
         print(t("channel_feishu_connected", bot=self._bot_open_id or "illusion"))
 
     async def _cleanup_resources(self) -> None:
@@ -122,6 +129,10 @@ class FeishuChannel(Channel):
 
         参照 hermes-agent disconnect() 模式：调用 ws.stop() 跨线程中断 lark_loop，
         等待 future 退出，避免多个 lark_loop 并存导致 "attached to a different loop" 错误。
+
+        资源清理放在最外层 finally：即使等待 ws_future 被外层 task 取消
+        （CancelledError 上抛），executor 与 _ws 也会被释放，避免状态残留
+        导致下次 connect() 误判。
         """
         # 先停止 WS 客户端（跨线程中断 lark_loop）
         old_lark_loop = None
@@ -137,7 +148,10 @@ class FeishuChannel(Channel):
             try:
                 await asyncio.wait_for(asyncio.shield(ws_future), timeout=10.0)
             except TimeoutError:
-                logger.warning("飞书 WS 线程 10s 内未退出，可能卡死")
+                # 线程卡死在 lark SDK 无超时 requests.post / DNS 时，10s 内未退出。
+                # 已通过 stop() 排队 _shutdown_loop，阻塞调用返回后线程自会退出；
+                # 配合 ws_client.start() 对 requests.post 注入的超时，卡死窗口有限。
+                logger.warning("飞书 WS 线程 10s 内未退出，可能卡死，等待其自回收")
                 # 强制关闭旧 lark_loop，防止残留导致 "attached to a different loop"
                 if old_lark_loop is not None and not old_lark_loop.is_closed():
                     try:
@@ -146,13 +160,25 @@ class FeishuChannel(Channel):
                         logger.warning("强制停止旧 lark_loop 失败", exc_info=True)
             except asyncio.CancelledError:
                 # ws_client.start() 被 stop() 取消时可能传播 CancelledError，
-                # 属正常关闭路径，不应中断 shutdown 流程
+                # 属正常关闭路径；状态清理交给最外层 finally
                 raise
             except Exception:
                 # 其他异常属正常关闭路径，不应中断 shutdown 流程
                 logger.debug("飞书 WS 清理过程中出现异常", exc_info=True)
-            self._ws_future = None
-        self._ws = None
+            finally:
+                self._ws_future = None
+        # 释放本连接专用 executor（wait=False：不等待可能卡死的 WS 线程）。
+        # 卡死的线程已通过 stop() 排队 _shutdown_loop，其阻塞调用返回后自会退出；
+        # 下次 connect() 用全新 executor，避免单 worker executor 被卡死线程永久占用
+        # 导致后续重连永远无法执行（断网后飞书无法恢复的根因）。
+        try:
+            if self._ws_executor is not None:
+                self._ws_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            logger.debug("关闭飞书 WS executor 失败", exc_info=True)
+        finally:
+            self._ws_executor = None
+            self._ws = None
 
     async def _hydrate_bot_id(self) -> None:
         """从飞书 API 获取 bot 自身 open_id
@@ -239,7 +265,16 @@ class FeishuChannel(Channel):
                 if loop is None or loop.is_closed():
                     logger.warning("事件循环不可用，丢弃飞书消息")
                     return
-                loop.call_soon_threadsafe(self._queue.put_nowait, msg)
+
+                def _deliver() -> None:
+                    # 重连瞬间旧线程可能仍投递陈旧消息：若队列已被 shutdown()
+                    # 关闭，put_nowait 抛 QueueShutDown，属正常关闭期信号，静默丢弃
+                    try:
+                        self._queue.put_nowait(msg)
+                    except QueueShutDown:
+                        pass
+
+                loop.call_soon_threadsafe(_deliver)
         except Exception:
             logger.exception("处理飞书事件异常")
 
