@@ -33,8 +33,9 @@ import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -97,6 +98,47 @@ log = logging.getLogger(__name__)
 def _now_local() -> datetime:
     """返回本地时间（无时区信息）。"""
     return datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
+
+
+def _cwd_key(cwd: str | Path) -> str:
+    """返回工作区目录的索引键（规范化 + 大小写归一，Windows 兼容）。"""
+    return os.path.normcase(os.path.normpath(str(cwd)))
+
+
+# 空闲工作区 bundle 的最短保留时长：刚构建的 bundle 在此期限内不被驱逐，
+# 避免用户在目录间快速切换时反复重建（MCP 连接等初始化开销大）
+_WORKSPACE_BUNDLE_GRACE_SECONDS = 60.0
+
+
+async def _close_bundle_quietly(bundle: RuntimeBundle) -> None:
+    """关闭 bundle 并吞掉异常（驱逐/同步路径的 fire-and-forget 清理）。"""
+    try:
+        await close_runtime(bundle)
+    except Exception:
+        log.exception("关闭工作区 bundle 失败: cwd=%s", bundle.cwd)
+
+
+@dataclass
+class _WorkspaceState:
+    """单个工作区（目录空间）的宿主侧状态。
+
+    bundle 懒构建：仅当该目录首次新建/恢复会话时才 build_runtime；
+    该目录无物化会话且非活跃目录时关闭 bundle 释放资源（注册表条目保留，
+    下次进入重新构建）。building 任务用于并发请求共享同一次构建。
+
+    Attributes:
+        cwd: 规范化后的工作区绝对路径
+        bundle: 该工作区的共享运行时 bundle（None 表示未物化）
+        building: 进行中的构建任务（防止并发重复构建）
+        bundle_built_at: bundle 构建完成时间戳（驱逐宽限期判定）
+        last_used: 最近一次被会话使用的 时间戳
+    """
+
+    cwd: str
+    bundle: RuntimeBundle | None = None
+    building: asyncio.Task[RuntimeBundle] | None = None
+    bundle_built_at: float = 0.0
+    last_used: float = field(default_factory=time.time)
 
 # 版本检查进程级缓存：{"latest": 最新版本号或 None, "at": 检查时间戳}，1 小时内不重复查询
 _update_check: dict[str, Any] | None = None
@@ -203,6 +245,11 @@ class WebBackendHost:
         self._bundle: RuntimeBundle | None = None
         self._sessions: dict[str, SessionRuntime] = {}
         self._active_session_id: str | None = None
+        # 多工作区（目录空间）：_cwd_key(cwd) -> _WorkspaceState。
+        # 默认工作区 bundle 即 self._bundle；其余工作区懒构建、空闲驱逐。
+        # 默认工作区路径不缓存——用户可随时修改 settings.working_directory，
+        # 一律通过 workspace_registry.get_default_workspace() 动态解析。
+        self._workspaces: dict[str, _WorkspaceState] = {}
         self._write_queue: Queue[BackendEvent] = (
             Queue()
         )  # 替代 _write_lock，串行化所有 WebSocket 写入
@@ -231,8 +278,11 @@ class WebBackendHost:
     async def run(self) -> int:
         """运行后端主机主循环。"""
         # 构建运行时环境
+        from illusion.services import workspace_registry
+
+        default_cwd = workspace_registry.get_default_workspace()
+        initial_sid = self._config.restore_session_id or uuid4().hex[:12]
         try:
-            initial_sid = self._config.restore_session_id or uuid4().hex[:12]
             self._bundle = await build_runtime(
                 model=self._config.model,
                 max_turns=self._config.max_turns,
@@ -249,6 +299,7 @@ class WebBackendHost:
                 effort=self._config.effort,
                 channel_hint=self._config.channel_hint,
                 channel_tools=self._config.channel_tools,
+                cwd=default_cwd,
             )
         except Exception as exc:
             log.exception("Failed to build runtime")
@@ -258,11 +309,14 @@ class WebBackendHost:
         await start_runtime(self._bundle)
         # 首次进入主动 sync，避免 context_window 为 0
         sync_app_state(self._bundle)
+        # 初始化多工作区状态（默认工作区挂接已构建 bundle，其余懒构建）
+        self._init_workspace_states()
         # 初始会话：共享 bundle 直接作为其会话级 bundle（引擎即初始引擎），
         # 后续新建/恢复的会话通过 build_session_engine 构建独立引擎
         initial_session = SessionRuntime(
             session_id=self._bundle.session_id,
             bundle=self._bundle,
+            workspace_cwd=self._bundle.cwd,
         )
         self._sessions[initial_session.session_id] = initial_session
         self._active_session_id = initial_session.session_id
@@ -314,6 +368,8 @@ class WebBackendHost:
         await self._emit(self._status_snapshot())
         # Web 前端专属：ready 后推送会话列表（含内存会话与活跃标记）
         await self._push_sessions()
+        # Web 前端专属：ready 后推送工作区列表（默认 + 注册目录）
+        await self._push_workspaces()
         # Web 前端专属：ready 后推送活跃会话的转录与状态（前端据此
         # materialize 当前会话视图；若为全新会话则为空转录）
         assert self._active_session_id is not None
@@ -327,9 +383,11 @@ class WebBackendHost:
             ),
             session_id=active_session.session_id,
         )
-        # Web 前端专属：ready 后推送资源与模型选项（替代旧 setTimeout 串行发指令 hack）
-        await self._web_api._push_resources(self._bundle)
-        await self._web_api._push_models(self._bundle)
+        # Web 前端专属：ready 后推送资源与模型选项（替代旧 setTimeout 串行发指令 hack）；
+        # 资源随活跃会话所属工作区（初始为默认工作区）
+        _ready_bundle = self._active_bundle() or self._bundle
+        await self._web_api._push_resources(_ready_bundle)
+        await self._web_api._push_models(_ready_bundle)
 
         # 版本更新检查：ready 后异步查询 PyPI（to_thread 不阻塞连接流程），
         # 有新版本则通过 update_available 事件推送
@@ -389,8 +447,8 @@ class WebBackendHost:
             except Exception:
                 log.exception("读取任务关闭异常")
             await self._shutdown()
-            if self._bundle is not None:
-                await close_runtime(self._bundle)
+            # 关闭所有工作区 bundle（含默认 bundle，去重后逐个 close_runtime）
+            await self._close_workspace_bundles()
         return 0
 
     async def _dispatch_request(self, request: FrontendRequest) -> bool:
@@ -745,10 +803,9 @@ class WebBackendHost:
                 # 计划相关工具完成时发送 plan_mode_change 事件
                 # （仅 enter_plan_mode / exit_plan_mode 两个工具存在）
                 if event.tool_name in ("enter_plan_mode", "exit_plan_mode"):
-                    assert self._bundle is not None
-                    raw_mode = self._bundle.current_settings().permission.mode.value
+                    raw_mode = session.bundle.current_settings().permission.mode.value
                     formatted_mode = format_permission_mode(raw_mode)
-                    self._bundle.app_state.set(permission_mode=raw_mode)
+                    session.bundle.app_state.set(permission_mode=raw_mode)
                     await self._emit(
                         BackendEvent(type="plan_mode_change", plan_mode=formatted_mode),
                         session_id=session_id,
@@ -1037,28 +1094,32 @@ class WebBackendHost:
                 log.exception("cron 委托拉取/执行异常")
             await asyncio.sleep(3.0)
 
-    async def _materialize_session(self, session_id: str) -> SessionRuntime | None:
+    async def _materialize_session(self, session_id: str, cwd: str | None = None) -> SessionRuntime | None:
         """从磁盘惰性恢复会话运行时（web_restore_session 同一创建路径）。
 
         会话在内存中则直接返回；磁盘上不存在（meta 缺失）返回 None。
+        目标工作区由 cwd 指定（前端会话条目携带），缺省时按内存/注册表
+        扫描定位；定位到的工作区 bundle 不存在时懒构建。
 
         Args:
             session_id: 目标会话 ID
+            cwd: 会话所属工作区目录（可选，优先信任前端携带值）
 
         Returns:
             SessionRuntime | None: 会话运行时；不存在时返回 None
         """
-        bundle = self._bundle
-        if bundle is None:
-            return None
         cached = self._sessions.get(session_id)
         if cached is not None:
             return cached
         from illusion.services.session_storage import read_meta
 
-        meta = read_meta(bundle.cwd, session_id)
+        target_cwd = cwd or self._locate_session_workspace(session_id)
+        if target_cwd is None:
+            return None
+        meta = read_meta(target_cwd, session_id)
         if not meta:
             return None
+        bundle = await self._get_or_build_bundle(target_cwd)
         engine = build_session_engine(
             bundle,
             session_id,
@@ -1071,6 +1132,7 @@ class WebBackendHost:
         session = SessionRuntime(
             session_id=session_id,
             bundle=build_session_bundle(bundle, session_id, engine),
+            workspace_cwd=bundle.cwd,
         )
         self._sessions[session_id] = session
         self._maybe_evict_sessions()
@@ -1079,9 +1141,10 @@ class WebBackendHost:
     async def _run_delegated_cron_job(self, job: dict[str, Any]) -> None:
         """在目标会话中执行委托的 cron 任务。
 
-        - cwd 与当前 Web 工作目录不一致时回报 not_supported（守护进程重新
-          入队或回退子进程）
-        - 目标会话不在内存时从磁盘惰性恢复；磁盘不存在回报 error
+        - 目标会话所属工作区与 job.cwd 不一致时回报 not_supported（守护
+          进程重新入队或回退子进程）；多目录空间下按会话实际所属工作区
+          匹配，而非 Web 进程的全局工作目录
+        - 目标会话不在内存时从磁盘惰性恢复（跨工作区定位）；不存在回报 error
         - 会话 busy（用户正在使用）时等待空闲（上限 60s）
         - 执行走 _run_session_line（busy 转化 + 完成清理 + _push_sessions
           列表刷新），执行完上报结果
@@ -1091,26 +1154,36 @@ class WebBackendHost:
         """
         from illusion.services.cron_delegation import report_delegated_result
 
-        bundle = self._bundle
-        job_id = str(job.get("id", ""))
-        if bundle is None:
+        if self._bundle is None:
             return
+        job_id = str(job.get("id", ""))
         job_cwd = os.path.normcase(os.path.normpath(str(job.get("cwd") or "")))
-        local_cwd = os.path.normcase(os.path.normpath(bundle.cwd))
         target_sid = str(job.get("session_id") or "").strip()
         prompt = str(job.get("prompt") or "").strip()
         started_at = _now_local()
-        if job_cwd != local_cwd:
+
+        # 定位目标会话所属工作区（内存优先，注册表磁盘扫描兜底）
+        owner_cwd = self._locate_session_workspace(target_sid)
+        if owner_cwd is None:
+            log.warning("cron 委托目标会话不存在: id=%s session=%s", job_id, target_sid)
+            await report_delegated_result(job_id, {
+                "status": "error",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": f"Session not found: {target_sid}",
+            })
+            return
+        if job_cwd != os.path.normcase(os.path.normpath(owner_cwd)):
             log.info(
-                "cron 委托任务与 Web 工作目录不匹配，回报 not_supported: id=%s target=%s local=%s",
-                job_id, job_cwd, local_cwd,
+                "cron 委托任务与会话所属工作区不匹配，回报 not_supported: id=%s target=%s owner=%s",
+                job_id, job_cwd, owner_cwd,
             )
             await report_delegated_result(job_id, {"status": "not_supported"})
             return
 
-        session = await self._materialize_session(target_sid)
+        session = await self._materialize_session(target_sid, owner_cwd)
         if session is None:
-            log.warning("cron 委托目标会话不存在: id=%s session=%s", job_id, target_sid)
+            log.warning("cron 委托目标会话物化失败: id=%s session=%s", job_id, target_sid)
             await report_delegated_result(job_id, {
                 "status": "error",
                 "returncode": -1,
@@ -1248,7 +1321,7 @@ class WebBackendHost:
         except ValueError:
             return True
         session.rewind_target_idx = target_idx
-        state = self._bundle.app_state.get()
+        state = session.bundle.app_state.get()
         zh = str(state.ui_language or "zh-CN").lower().startswith("zh")
         options = [
             {
@@ -1407,14 +1480,18 @@ class WebBackendHost:
     def _status_snapshot(self) -> BackendEvent:
         """生成全局状态快照事件（工具栏级：model/effort/language 等）。
 
+        多工作区：快照取自当前活跃会话所在 bundle（cwd/mcp 状态等随
+        活跃目录切换），无活跃会话时回退默认 bundle。
+
         会话专属字段（上下文用量/输入输出/缓存分项）从全局快照中剔除，
         由 web_sessions / web_restore_completed 按会话推送，避免多会话
         并发时把某会话的上下文数据张冠李戴到其他会话。
         """
         assert self._bundle is not None
+        bundle = self._active_bundle() or self._bundle
         from illusion.ui.protocol import _state_payload
 
-        payload = _state_payload(self._bundle.app_state.get())
+        payload = _state_payload(bundle.app_state.get())
         for key in _SESSION_SCOPED_STATE_KEYS:
             payload.pop(key, None)
         return BackendEvent(
@@ -1430,15 +1507,15 @@ class WebBackendHost:
                     "tool_count": len(server.tools),
                     "resource_count": len(server.resources),
                 }
-                for server in self._bundle.mcp_manager.list_statuses()
+                for server in bundle.mcp_manager.list_statuses()
             ],
         )
 
     def _session_state_payload(self, session: SessionRuntime) -> dict[str, Any]:
         """生成会话级状态载荷。
 
-        在全局 app_state 载荷基础上，用会话引擎的实时数据覆盖
-        session_id / phase / context_tokens / usage 等会话专属字段，
+        在会话所在 bundle 的 app_state 载荷基础上，用会话引擎的实时数据
+        覆盖 session_id / phase / context_tokens / usage 等会话专属字段，
         避免多会话并发时共享 app_state 的字段互相污染。
 
         Args:
@@ -1447,10 +1524,9 @@ class WebBackendHost:
         Returns:
             dict[str, Any]: 会话状态载荷
         """
-        assert self._bundle is not None
         from illusion.ui.protocol import _state_payload
 
-        payload = _state_payload(self._bundle.app_state.get())
+        payload = _state_payload(session.bundle.app_state.get())
         payload["session_id"] = session.session_id
         payload["phase"] = session.phase
         engine = session.engine
@@ -1485,7 +1561,7 @@ class WebBackendHost:
         from illusion.services.session_storage import read_meta
 
         zh = str(
-            self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language
+            session.bundle.app_state.get().ui_language or session.bundle.current_settings().ui_language
         ).lower().startswith("zh")
         engine = session.engine
         messages = engine.messages
@@ -1508,10 +1584,11 @@ class WebBackendHost:
             and not is_task_notification(m.text)
         )
         message_count = len(messages)
-        # 读取磁盘 meta 获取自定义 title（rename 写入的名称）
+        # 读取磁盘 meta 获取自定义 title（rename 写入的名称）——
+        # 按会话所属工作区读取（多目录空间下各目录会话分区存储）
         meta = None
         try:
-            meta = read_meta(self._bundle.cwd, session.session_id)
+            meta = read_meta(session.bundle.cwd, session.session_id)
         except (OSError, ValueError):
             meta = None
         title = (meta or {}).get("title") or ""
@@ -1531,26 +1608,230 @@ class WebBackendHost:
         else:
             session.label = "新会话" if zh else "New session"
 
+    # === 工作区（目录空间）管理 ===
+
+    def _init_workspace_states(self) -> None:
+        """按注册表初始化工作区状态（默认工作区挂接已构建的 bundle）。"""
+        from illusion.services import workspace_registry
+
+        self._workspaces.clear()
+        default_key = _cwd_key(self._bundle.cwd) if self._bundle is not None else ""
+        for view in workspace_registry.resolve_workspace_views():
+            cwd = view["path"]
+            state = _WorkspaceState(cwd=cwd)
+            if default_key and _cwd_key(cwd) == default_key:
+                state.bundle = self._bundle
+                state.bundle_built_at = time.time()
+            self._workspaces[_cwd_key(cwd)] = state
+
+    def _sync_workspace_states_from_registry(self) -> None:
+        """注册表变更后同步工作区状态。
+
+        新增条目懒建（bundle=None）；被移除的条目丢弃状态并异步关闭其
+        bundle（若已构建）。默认工作区恒在注册表视图中，不会被移除。
+        """
+        from illusion.services import workspace_registry
+
+        views = workspace_registry.resolve_workspace_views()
+        valid_keys: set[str] = set()
+        for view in views:
+            cwd = view["path"]
+            key = _cwd_key(cwd)
+            valid_keys.add(key)
+            if key not in self._workspaces:
+                self._workspaces[key] = _WorkspaceState(cwd=cwd)
+        for key in list(self._workspaces):
+            if key in valid_keys:
+                continue
+            state = self._workspaces.pop(key)
+            if state.bundle is not None and state.bundle is not self._bundle:
+                self._create_background_task(_close_bundle_quietly(state.bundle))
+
+    def _resolve_workspace_cwd(self, cwd: str | None) -> str:
+        """把请求携带的 cwd 归一化到已知工作区；未知/缺省回退默认工作区。
+
+        默认工作区动态解析（不缓存）：用户可在设置中随时修改
+        working_directory（PATCH /api/settings/working_directory 不通知
+        host），缓存会与实际配置分叉。
+        """
+        if cwd:
+            state = self._workspaces.get(_cwd_key(cwd))
+            if state is not None:
+                return state.cwd
+        from illusion.services import workspace_registry
+
+        default = workspace_registry.get_default_workspace()
+        if default:
+            return default
+        if self._bundle is not None:
+            return self._bundle.cwd
+        return os.getcwd()
+
+    def _workspace_bundle_for(self, cwd: str | None) -> RuntimeBundle | None:
+        """返回指定工作区已构建的 bundle（未构建/未知返回 None）。"""
+        if not cwd:
+            return None
+        state = self._workspaces.get(_cwd_key(cwd))
+        return state.bundle if state is not None else None
+
+    def _locate_session_workspace(self, session_id: str) -> str | None:
+        """定位会话所属的工作区目录（内存会话优先，磁盘 meta 兜底扫描）。"""
+        session = self._sessions.get(session_id)
+        if session is not None:
+            return session.bundle.cwd
+        from illusion.services.session_storage import read_meta
+
+        for state in self._workspaces.values():
+            if read_meta(state.cwd, session_id):
+                return state.cwd
+        return None
+
+    async def _get_or_build_bundle(self, cwd: str) -> RuntimeBundle:
+        """获取工作区 bundle，未构建时懒构建（并发调用共享同一构建任务）。"""
+        key = _cwd_key(cwd)
+        state = self._workspaces.get(key)
+        if state is None:
+            state = _WorkspaceState(cwd=cwd)
+            self._workspaces[key] = state
+        state.last_used = time.time()
+        if state.bundle is not None:
+            return state.bundle
+        if state.building is not None and not state.building.done():
+            return await asyncio.shield(state.building)
+
+        async def _build() -> RuntimeBundle:
+            bundle = await build_runtime(
+                model=self._config.model,
+                max_turns=self._config.max_turns,
+                base_url=self._config.base_url,
+                system_prompt=self._config.system_prompt,
+                api_key=self._config.api_key,
+                api_format=self._config.api_format,
+                api_client=self._config.api_client,
+                effort=self._config.effort,
+                channel_hint=self._config.channel_hint,
+                channel_tools=self._config.channel_tools,
+                cwd=state.cwd,
+            )
+            await start_runtime(bundle)
+            sync_app_state(bundle)
+            # 同步 UI 语言：全局设置在所有 bundle 的 app_state 间保持一致
+            if self._bundle is not None:
+                lang = self._bundle.app_state.get().ui_language
+                if lang:
+                    bundle.app_state.set(ui_language=lang)
+            return bundle
+
+        state.building = asyncio.create_task(_build(), name="workspace-bundle-build")
+        try:
+            bundle = await state.building
+        finally:
+            state.building = None
+        state.bundle = bundle
+        state.bundle_built_at = time.time()
+        return bundle
+
+    def _active_bundle(self) -> RuntimeBundle | None:
+        """当前活跃会话所在的 bundle（无活跃会话时回退默认 bundle）。"""
+        session = self._active_session()
+        if session is not None:
+            return session.bundle
+        return self._bundle
+
+    def _workspace_bundles(self) -> list[RuntimeBundle]:
+        """所有已构建的工作区 bundle（按对象去重）。"""
+        bundles: list[RuntimeBundle] = []
+        seen: set[int] = set()
+        for state in self._workspaces.values():
+            if state.bundle is not None and id(state.bundle) not in seen:
+                seen.add(id(state.bundle))
+                bundles.append(state.bundle)
+        if self._bundle is not None and id(self._bundle) not in seen:
+            seen.add(id(self._bundle))
+            bundles.append(self._bundle)
+        return bundles
+
+    async def _close_workspace_bundles(self) -> None:
+        """关闭所有已构建的工作区 bundle（连接生命周期结束时调用）。"""
+        bundles = self._workspace_bundles()
+        for state in self._workspaces.values():
+            state.bundle = None
+        if bundles:
+            await asyncio.gather(*(_close_bundle_quietly(b) for b in bundles))
+
+    def _evict_idle_workspace_bundles(self) -> None:
+        """关闭空闲工作区的 bundle（无物化会话且非活跃目录且过宽限期）。"""
+        active_key: str | None = None
+        session = self._active_session()
+        if session is not None:
+            active_key = _cwd_key(session.bundle.cwd)
+        now = time.time()
+        used_keys = {_cwd_key(sr.bundle.cwd) for sr in self._sessions.values()}
+        for state in list(self._workspaces.values()):
+            bundle = state.bundle
+            if bundle is None or state.building is not None:
+                continue
+            if bundle is self._bundle:
+                continue  # 默认 bundle 由 run() 生命周期管理
+            key = _cwd_key(state.cwd)
+            if key == active_key or key in used_keys:
+                continue
+            if now - state.bundle_built_at < _WORKSPACE_BUNDLE_GRACE_SECONDS:
+                continue
+            state.bundle = None
+            self._create_background_task(_close_bundle_quietly(bundle))
+
+    async def _push_workspaces(self) -> None:
+        """推送工作区列表（默认 + 注册目录，含可用性与默认标记）。
+
+        推送前重新同步工作区状态：默认工作区可能已被设置修改
+        （settings.working_directory PATCH），新默认目录需建立 state，
+        被替换的旧默认目录（未注册）需移除并关闭其 bundle。
+        """
+        from illusion.services import workspace_registry
+
+        self._sync_workspace_states_from_registry()
+        views = await asyncio.to_thread(workspace_registry.resolve_workspace_views)
+        await self._emit(BackendEvent(type="web_workspaces", web_workspaces=views))
+
     async def _push_sessions(self) -> None:
-        """推送会话列表（磁盘快照 + 内存运行时合并）。
+        """推送会话列表（全部工作区：磁盘快照 + 内存运行时合并）。
 
         内存会话（含空会话）始终显示且携带 busy/phase/active 等实时状态；
         未 materialized 的磁盘会话标记 in_memory=False，由前端惰性恢复。
+        每个条目携带 cwd（所属工作区目录），供前端按目录分组渲染。
         """
         bundle = self._bundle
         if bundle is None:
             return
         from illusion.services.session_storage import list_session_snapshots
 
-        locale = str(bundle.app_state.get().ui_language or bundle.current_settings().ui_language)
+        lang_bundle = self._active_bundle() or bundle
+        locale = str(lang_bundle.app_state.get().ui_language or lang_bundle.current_settings().ui_language)
         zh = locale.lower().startswith("zh")
         # 磁盘扫描（iterdir + 解析 meta.json）移到线程池，避免阻塞事件循环
-        # （_push_sessions 在每次行任务结束/模态等待时调用，频率较高）
-        disk_snapshots = await asyncio.to_thread(list_session_snapshots, bundle.cwd, 50)
-        disk = {s["session_id"]: s for s in disk_snapshots}
+        # （_push_sessions 在每次行任务结束/模态等待时调用，频率较高）；
+        # 多工作区并行扫描，任一目录缺失/损坏只影响该目录（返回空列表）
+        cwds = [state.cwd for state in self._workspaces.values()] or [bundle.cwd]
+        snapshots_lists = await asyncio.gather(
+            *(asyncio.to_thread(list_session_snapshots, cwd, 50) for cwd in cwds)
+        )
+        disk: dict[str, dict[str, Any]] = {}
+        disk_cwd: dict[str, str] = {}
+        for cwd, snapshots in zip(cwds, snapshots_lists):
+            for s in snapshots:
+                sid = s["session_id"]
+                if sid not in disk:
+                    disk[sid] = s
+                    disk_cwd[sid] = cwd
         options: list[dict[str, Any]] = []
         seen: set[str] = set()
+        # 已移除工作区的内存会话不再展示：其目录不在 _workspaces 中，
+        # 会话列表应随之消失（磁盘会话本就只按 _workspaces 扫描）
+        known_keys = set(self._workspaces.keys())
         for sr in sorted(self._sessions.values(), key=lambda s: s.created_at, reverse=True):
+            if _cwd_key(sr.bundle.cwd) not in known_keys:
+                continue
             # 跳过无内容的纯内存空会话：列表只展示有内容的会话，
             # 空会话（未发消息）由主区域承载，避免出现"新会话"占位条目
             if sr.message_count == 0 and sr.session_id not in disk:
@@ -1573,6 +1854,7 @@ class WebBackendHost:
                 "phase": sr.phase,
                 "active": sr.session_id == self._active_session_id,
                 "in_memory": True,
+                "cwd": sr.bundle.cwd,
                 "context_tokens": sr.context_tokens,
                 "input_tokens": total.input_tokens,
                 "output_tokens": total.output_tokens,
@@ -1603,6 +1885,7 @@ class WebBackendHost:
                 "phase": "idle",
                 "active": False,
                 "in_memory": False,
+                "cwd": disk_cwd.get(sid, ""),
                 "context_tokens": 0,
             })
         await self._emit(BackendEvent(
@@ -1653,20 +1936,31 @@ class WebBackendHost:
     def _set_active_session(self, session_id: str) -> None:
         """切换活跃会话（仅改指针，不触碰任何引擎状态）。"""
         self._active_session_id = session_id
-        # 同步 app_state 的 session_id（全局状态快照展示用）
-        if self._bundle is not None:
+        # 同步会话所在 bundle 的 app_state session_id（状态快照来源 bundle）
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.bundle.app_state.set(session_id=session_id)
+            state = self._workspaces.get(_cwd_key(session.bundle.cwd))
+            if state is not None:
+                state.last_used = time.time()
+        elif self._bundle is not None:
             self._bundle.app_state.set(session_id=session_id)
 
-    async def _create_session(self) -> SessionRuntime:
+    async def _create_session(self, cwd: str | None = None) -> SessionRuntime:
         """创建一个全新的会话运行时（独立引擎 + 独立 CheckpointStore）。
+
+        Args:
+            cwd: 目标工作区目录（None 时使用默认工作区）；工作区 bundle
+                不存在时懒构建（MCP/插件按该目录的项目级配置初始化）
 
         Returns:
             SessionRuntime: 新建的会话运行时
         """
-        assert self._bundle is not None
+        target_cwd = self._resolve_workspace_cwd(cwd)
+        ws_bundle = await self._get_or_build_bundle(target_cwd)
         session_id = uuid4().hex[:12]
         engine = build_session_engine(
-            self._bundle,
+            ws_bundle,
             session_id,
             permission_prompt=self._make_permission_prompt(session_id),
             ask_user_prompt=self._make_ask_user_prompt(session_id),
@@ -1674,7 +1968,8 @@ class WebBackendHost:
         )
         session = SessionRuntime(
             session_id=session_id,
-            bundle=build_session_bundle(self._bundle, session_id, engine),
+            bundle=build_session_bundle(ws_bundle, session_id, engine),
+            workspace_cwd=ws_bundle.cwd,
         )
         self._sessions[session_id] = session
         self._maybe_evict_sessions()
@@ -1702,6 +1997,8 @@ class WebBackendHost:
             await engine.aclose()
         except Exception:
             log.exception("关闭会话 %s 引擎失败", session_id)
+        # 会话删除可能腾空其工作区：驱动空闲 bundle 驱逐
+        self._evict_idle_workspace_bundles()
 
     def _maybe_evict_sessions(self) -> None:
         """超过内存上限时淘汰最旧的非 busy 非 active 会话运行时。
@@ -1724,6 +2021,8 @@ class WebBackendHost:
         # 避免用户点击时走纯本地切换导致提交请求静默丢失
         if excess > 0:
             self._create_background_task(self._push_sessions())
+        # 会话淘汰可能腾空某个工作区：顺带驱逐空闲工作区 bundle
+        self._evict_idle_workspace_bundles()
 
     def _spawn_session_line(self, session: SessionRuntime, coro: Coroutine[Any, Any, bool]) -> None:
         """以独立任务启动会话行处理（fire-and-forget，不阻塞主循环）。
@@ -1812,18 +2111,19 @@ class WebBackendHost:
             )
         )
 
-    async def _handle_list_sessions(self) -> None:
-        """处理列出会话请求。"""
+    async def _handle_list_sessions(self, session: SessionRuntime | None = None) -> None:
+        """处理列出会话请求（多工作区：按发起会话所属目录列出）。"""
         import time as _time
 
         from illusion.services.session_storage import list_session_snapshots
 
         assert self._bundle is not None
+        scope_bundle = session.bundle if session is not None else (self._active_bundle() or self._bundle)
         locale = str(
-            self._bundle.app_state.get().ui_language or self._bundle.current_settings().ui_language
+            scope_bundle.app_state.get().ui_language or scope_bundle.current_settings().ui_language
         )
         zh = locale.lower().startswith("zh")
-        sessions = list_session_snapshots(self._bundle.cwd, limit=10)
+        sessions = list_session_snapshots(scope_bundle.cwd, limit=10)
         options = []
         for s in sessions:
             ts = _time.strftime("%m/%d %H:%M", _time.localtime(s["created_at"]))
@@ -1851,11 +2151,11 @@ class WebBackendHost:
         assert self._bundle is not None
         command = command_name.strip().lstrip("/").lower()
         if command == "resume":
-            await self._handle_list_sessions()
+            await self._handle_list_sessions(session)
             return
 
-        settings = self._bundle.current_settings()
-        state = self._bundle.app_state.get()
+        settings = session.bundle.current_settings()
+        state = session.bundle.app_state.get()
         locale = str(state.ui_language or settings.ui_language)
         zh = locale.lower().startswith("zh")
         current_model = settings.active_model_name
@@ -2265,7 +2565,7 @@ class WebBackendHost:
 
             from illusion.services.session_storage import list_session_snapshots
 
-            sessions = list_session_snapshots(self._bundle.cwd, limit=10)
+            sessions = list_session_snapshots(session.bundle.cwd, limit=10)
             if not sessions:
                 await self._emit(
                     BackendEvent(
@@ -2317,7 +2617,7 @@ class WebBackendHost:
             )
             from illusion.skills.loader import get_project_rules_dir
 
-            project_permissions = load_project_permissions(self._bundle.cwd)
+            project_permissions = load_project_permissions(session.bundle.cwd)
 
             # 检查是否禁用所有 rules
             if is_rules_disabled(project_permissions):
@@ -2330,7 +2630,7 @@ class WebBackendHost:
                 )
                 return
 
-            rules_dir = get_project_rules_dir(self._bundle.cwd)
+            rules_dir = get_project_rules_dir(session.bundle.cwd)
             all_rule_files = sorted(rules_dir.glob("*.md"))
             if not all_rule_files:
                 await self._emit(
@@ -2388,7 +2688,7 @@ class WebBackendHost:
         if command == "skills":
             from illusion.skills.loader import load_skill_registry
 
-            skill_registry = load_skill_registry(self._bundle.cwd)
+            skill_registry = load_skill_registry(session.bundle.cwd)
             skills = skill_registry.list_skills()
 
             if not skills:
@@ -2817,7 +3117,8 @@ class WebBackendHost:
         """
         assert self._bundle is not None
         session.phase = phase
-        self._bundle.app_state.set(phase=phase)
+        # 阶段写入会话所在 bundle 的 app_state（多工作区各 bundle 独立）
+        session.bundle.app_state.set(phase=phase)
 
     async def _write_loop(self) -> None:
         """单一消费者：串行化所有 WebSocket 写入。
@@ -2908,21 +3209,23 @@ class WebBackendHost:
     async def _handle_agent_wizard_init(self, req: FrontendRequest) -> None:
         """处理 agent_wizard_init：返回可用工具/模型列表。"""
         assert self._bundle is not None
-        tools = list_available_tools(self._bundle.tool_registry)
-        models = list_available_models(self._bundle.app_state)
+        bundle = self._active_bundle() or self._bundle
+        tools = list_available_tools(bundle.tool_registry)
+        models = list_available_models(bundle.app_state)
         await self._emit(BackendEvent(type="agent_wizard_init_response", tools=tools, models=models))
 
     async def _handle_agent_wizard_submit(self, req: FrontendRequest) -> None:
         """处理 agent_wizard_submit：校验并写入 agent 定义文件。"""
         assert self._bundle is not None
+        bundle = self._active_bundle() or self._bundle
         fields = req.fields or {}
         scope = req.scope or "user"
-        errors = validate_agent_definition(fields, self._bundle.cwd)
+        errors = validate_agent_definition(fields, bundle.cwd)
         if errors:
             await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors=errors))
             return
         try:
-            path = write_agent_definition(fields, scope, self._bundle.cwd)
+            path = write_agent_definition(fields, scope, bundle.cwd)
         except OSError as exc:
             await self._emit(BackendEvent(type="agent_wizard_result", success=False, errors={"_": str(exc)}))
             return

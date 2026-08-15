@@ -38,9 +38,6 @@ from illusion.config.settings import (
 )
 from illusion.permissions import PermissionMode
 from illusion.services.file_history import (
-    cleanup_all_file_histories as _cleanup_all_file_histories,
-)
-from illusion.services.file_history import (
     cleanup_file_history as _cleanup_file_history,
 )
 from illusion.services.session_storage import (
@@ -191,6 +188,9 @@ class WebApiDispatcher:
             "web_request_models": self.handle_web_request_models,
             "web_request_resources": self.handle_web_request_resources,
             "web_query": self.handle_web_query,
+            "web_request_workspaces": self.handle_web_request_workspaces,
+            "web_add_workspace": self.handle_web_add_workspace,
+            "web_remove_workspace": self.handle_web_remove_workspace,
         }
 
     # === emit 辅助：委托给 host ===
@@ -206,20 +206,27 @@ class WebApiDispatcher:
     # === 以下方法在后续 Task 中实现，骨架阶段先返回 error 占位 ===
 
     async def handle_web_new_session(self, request: FrontendRequest) -> None:
-        """新建会话（多会话并发）。
+        """新建会话（多会话并发，多工作区支持）。
 
         创建全新的会话运行时（独立引擎 + 独立 CheckpointStore），
-        设为活跃会话。旧会话的运行时与行任务不受影响，可继续运行。
+        设为活跃会话。目标工作区由 request.cwd 指定（缺省默认工作区）；
+        工作区 bundle 未构建时懒构建（按该目录的项目级配置初始化）。
+        旧会话的运行时与行任务不受影响，可继续运行。
 
         Args:
-            request: 前端请求（无额外载荷）
+            request: 前端请求（cwd 可选：目标工作区目录）
         """
         host = self._host
         bundle = host._bundle
         if bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
-        session = await host._create_session()
+        try:
+            session = await host._create_session(request.cwd)
+        except Exception as exc:
+            log.exception("新建会话失败: cwd=%s", request.cwd)
+            await self._emit(BackendEvent(type="error", message=f"新建会话失败: {exc}"))
+            return
         host._set_active_session(session.session_id)
         # 发送空 transcript 的恢复完成事件，前端据此切换到新会话视图
         await self._emit(BackendEvent(
@@ -229,10 +236,13 @@ class WebApiDispatcher:
             state=host._session_state_payload(session),
         ), session_id=session.session_id)
         await host._push_sessions()
+        # 新会话所在工作区的资源/模型选项随激活同步刷新（右栏配置联动）
+        await self._push_resources(session.bundle)
+        await self._push_models(session.bundle)
         await self._emit(host._status_snapshot())
 
     async def handle_web_restore_session(self, request: FrontendRequest) -> None:
-        """恢复指定会话（多会话并发）。
+        """恢复指定会话（多会话并发，跨工作区）。
 
         直接调用 resume_handler，不经过 handle_line，避免触发
         select_request/command_result/transcript_item 等 terminal 副作用。
@@ -242,12 +252,15 @@ class WebApiDispatcher:
         不触碰磁盘；否则创建独立引擎并载入会话历史。恢复操作只影响目标
         会话，其他会话的运行时与行任务不受影响。
 
+        多工作区：request.cwd 指定会话所属目录（缺省时按内存/注册表扫描
+        定位），目标工作区 bundle 懒构建。
+
         每个 emit 调用前检查 _ws_closed——WebSocket 已关闭时 _emit 静默返回
         不抛异常，导致 handle() 的 try/except 不触发，前端永远收不到
         web_restore_completed，restoringSessionId 不被清除，页面白屏。
 
         Args:
-            request: 前端请求（session_id 必填）
+            request: 前端请求（session_id 必填，cwd 可选：会话所属工作区）
         """
         host = self._host
         bundle = host._bundle
@@ -278,10 +291,18 @@ class WebApiDispatcher:
                 log.exception("重建内存会话 %s 转录失败", session_id)
                 error_msg = str(exc)
         else:
-            # 2'. 运行时不存在：创建独立引擎并载入会话历史
+            # 2'. 运行时不存在：定位所属工作区并创建独立引擎载入会话历史
             try:
+                target_cwd = request.cwd or host._locate_session_workspace(session_id)
+                if target_cwd is None:
+                    raise FileNotFoundError(f"Session not found: {session_id}")
+                from illusion.services.session_storage import read_meta as _read_meta
+
+                if not _read_meta(target_cwd, session_id):
+                    raise FileNotFoundError(f"Session not found: {session_id}")
+                ws_bundle = await host._get_or_build_bundle(target_cwd)
                 engine = build_session_engine(
-                    bundle,
+                    ws_bundle,
                     session_id,
                     permission_prompt=host._make_permission_prompt(session_id),
                     ask_user_prompt=host._make_ask_user_prompt(session_id),
@@ -290,7 +311,8 @@ class WebApiDispatcher:
                 from illusion.ui.runtime import build_session_bundle
                 session = SessionRuntime(
                     session_id=session_id,
-                    bundle=build_session_bundle(bundle, session_id, engine),
+                    bundle=build_session_bundle(ws_bundle, session_id, engine),
+                    workspace_cwd=ws_bundle.cwd,
                 )
                 host._sessions[session_id] = session
                 host._maybe_evict_sessions()
@@ -346,7 +368,11 @@ class WebApiDispatcher:
         ), session_id=session_id)
         # 6. 推送会话列表刷新
         await host._push_sessions()
-        # 7. 发送任务快照与状态快照
+        # 7. 活跃工作区资源联动刷新（右栏项目配置随目录切换）
+        if error_msg is None and session is not None:
+            await self._push_resources(session.bundle)
+            await self._push_models(session.bundle)
+        # 8. 发送任务快照与状态快照
         from illusion.tasks import get_task_manager
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(self._host._status_snapshot())
@@ -370,43 +396,91 @@ class WebApiDispatcher:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
         deleted_ids: set[str] = set()
+        # 运行中的会话（busy）不删除：整组删除/清除全部时保留进行中的任务，
+        # 仅清理其余会话
+        busy_ids = {sr.session_id for sr in host._sessions.values() if sr.busy}
+        # 删除范围的目标工作区：优先请求携带 cwd（delete_all 限定该目录），
+        # 缺省回退活跃会话所属目录，再回退默认工作区
+        active_session = host._active_session()
+        scope_cwd = host._resolve_workspace_cwd(
+            request.cwd or (active_session.bundle.cwd if active_session is not None else None)
+        )
         if request.delete_all:
-            sessions = _list_session_snapshots(bundle.cwd, limit=1000)
+            # delete_all 限定在单个工作区内（多目录空间下互不影响）
+            sessions = await asyncio.to_thread(_list_session_snapshots, scope_cwd, 1000)
+            sessions = [s for s in sessions if s["session_id"] not in busy_ids]
             # 并行删除：每个 _delete_session_by_id 是同步文件 I/O，用 to_thread 隔离，
             # return_exceptions=True 吞掉单个删除失败，避免一次失败导致整批回滚
             await asyncio.gather(
                 *(
-                    asyncio.to_thread(_delete_session_by_id, bundle.cwd, s["session_id"])
+                    asyncio.to_thread(_delete_session_by_id, scope_cwd, s["session_id"])
                     for s in sessions
                 ),
                 return_exceptions=True,
             )
             deleted_ids = {s["session_id"] for s in sessions}
-            # 清理全部文件历史备份目录（file-history 独立于会话目录树，需显式删除）
-            await asyncio.to_thread(_cleanup_all_file_histories)
+            # 按本工作区会话逐个清理文件历史备份（file-history 独立于会话目录树，
+            # 需显式删除；不能调 _cleanup_all_file_histories——它会清掉所有
+            # 工作区的撤销/恢复历史，误伤其他目录）
+            await asyncio.gather(
+                *(asyncio.to_thread(_cleanup_file_history, sid) for sid in deleted_ids),
+                return_exceptions=True,
+            )
         elif request.session_ids:
-            await asyncio.gather(
-                *(
-                    asyncio.to_thread(_delete_session_by_id, bundle.cwd, sid)
-                    for sid in request.session_ids
-                ),
-                return_exceptions=True,
-            )
-            deleted_ids = set(request.session_ids)
-            # 逐个清理对应会话的文件历史备份目录（独立于会话目录树，需显式删除）
-            await asyncio.gather(
-                *(asyncio.to_thread(_cleanup_file_history, sid) for sid in request.session_ids),
-                return_exceptions=True,
-            )
+            # 运行中的会话跳过，仅删除其余
+            target_ids = [sid for sid in request.session_ids if sid not in busy_ids]
+            if not target_ids:
+                deleted_ids = set()
+            else:
+                # 逐会话定位所属工作区（跨目录删除时各归各区）；
+                # 定位涉及磁盘 meta 读取，移入线程池避免阻塞事件循环。
+                # 线程内使用快照：_sessions/_workspaces 会被事件循环并发修改
+                # （materialize/registry 同步），直接迭代可能在遍历中抛 RuntimeError。
+                def _locate_all(sids: list[str]) -> dict[str, str]:
+                    from illusion.services.session_storage import read_meta
+
+                    sessions_snapshot = dict(host._sessions)
+                    workspaces_snapshot = list(host._workspaces.values())
+                    result: dict[str, str] = {}
+                    for sid in sids:
+                        session = sessions_snapshot.get(sid)
+                        if session is not None:
+                            result[sid] = session.bundle.cwd
+                            continue
+                        for state in workspaces_snapshot:
+                            if read_meta(state.cwd, sid):
+                                result[sid] = state.cwd
+                                break
+                        result.setdefault(sid, scope_cwd)
+                    return result
+
+                sid_cwds: dict[str, str] = await asyncio.to_thread(
+                    _locate_all, target_ids
+                )
+                await asyncio.gather(
+                    *(
+                        asyncio.to_thread(_delete_session_by_id, sid_cwds[sid], sid)
+                        for sid in target_ids
+                    ),
+                    return_exceptions=True,
+                )
+                deleted_ids = set(target_ids)
+                # 逐个清理对应会话的文件历史备份目录（独立于会话目录树，需显式删除）
+                await asyncio.gather(
+                    *(asyncio.to_thread(_cleanup_file_history, sid) for sid in target_ids),
+                    return_exceptions=True,
+                )
         # 释放被删会话的运行时（取消行任务、关闭引擎）；若删除了活跃会话，
         # 后端原子化地新建一个空会话并推送 web_restore_completed（空转录），
         # 使前端主区域即时进入新会话，无需前端编排两阶段删除。
+        # 新会话建在被删活跃会话的同目录（保持用户所在工作区不跳走）。
         active_deleted = host._active_session_id in deleted_ids
+        fallback_cwd = scope_cwd if active_session is None else active_session.bundle.cwd
         for sid in list(deleted_ids):
             if sid in host._sessions:
                 await host._dispose_session(sid)
         if active_deleted:
-            session = await host._create_session()
+            session = await host._create_session(fallback_cwd)
             host._set_active_session(session.session_id)
             await self._emit(BackendEvent(
                 type="web_restore_completed",
@@ -425,19 +499,31 @@ class WebApiDispatcher:
         设置成功后发送 web_setting_changed + state_snapshot 强同步事件。
         若 key == model 额外发送 web_models 推送。
 
+        多工作区：设置写入全局 settings.json；app_state/引擎侧变更同步到
+        所有已构建工作区 bundle（各 bundle 的 app_state 独立）。
+
         Args:
             request: 前端请求（setting_key/setting_value 必填）
         """
-        bundle = self._host._bundle
-        if bundle is None:
+        host = self._host
+        if host._bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
+        bundle = host._active_bundle() or host._bundle
         key = request.setting_key or ""
         value = request.setting_value
         ok, error = await self._apply_setting(bundle, key, value)
         if not ok:
             await self._emit(BackendEvent(type="error", message=error or f"设置 {key} 失败"))
             return
+        # 全局标量同步到所有工作区 bundle 的 app_state（语言等 UI 态）
+        if key in ("ui_language", "output_style", "context_window", "effort", "permission_mode"):
+            for ws_bundle in host._workspace_bundles():
+                if ws_bundle is not bundle:
+                    try:
+                        ws_bundle.app_state.set(**{key: value})
+                    except Exception:
+                        log.exception("同步设置 %s 到工作区 %s 失败", key, ws_bundle.cwd)
         # 1. 发送单项变更事件（前端工具栏即时更新）
         await self._emit(BackendEvent(
             type="web_setting_changed",
@@ -452,16 +538,16 @@ class WebApiDispatcher:
             await self._push_models(bundle)
             try:
                 from illusion.ui.runtime import _rebuild_api_client
-                _rebuild_api_client(bundle, _load_settings())
-                # 修复：同时更新所有会话引擎的 model 与 api_client，
-                # 确保后续请求使用正确的模型名与客户端（多会话下仅更新
-                # 初始引擎会让其他会话继续使用旧模型/旧凭据）
                 new_settings = _load_settings()
-                new_client = bundle.api_client
-                def _sync_engine(e: Any) -> None:
-                    e.set_api_client(new_client)
-                    e.set_model(new_settings.active_model_name)
-                self._apply_engine_setting(_sync_engine)
+                # 多工作区：每个已构建 bundle 各自重建客户端并同步其会话引擎
+                for ws_bundle in host._workspace_bundles():
+                    _rebuild_api_client(ws_bundle, new_settings)
+                    new_client = ws_bundle.api_client
+
+                    def _sync_engine(e: Any, _client: Any = new_client) -> None:
+                        e.set_api_client(_client)
+                        e.set_model(new_settings.active_model_name)
+                    self._apply_engine_setting_for_bundle(ws_bundle, _sync_engine)
             except Exception as exc:
                 log.exception("重建 API 客户端失败")
                 await self._emit(BackendEvent(
@@ -470,7 +556,7 @@ class WebApiDispatcher:
                 ))
 
     def _apply_engine_setting(self, fn: Callable[[Any], None]) -> None:
-        """将引擎级设置应用到所有会话引擎（含初始引擎）。
+        """将引擎级设置应用到所有会话引擎（含各工作区初始引擎）。
 
         多会话架构下每个会话持有独立引擎；设置类变更（权限检查器/模型/
         effort）必须广播到全部引擎，否则只对初始会话生效——例如切换到
@@ -481,10 +567,28 @@ class WebApiDispatcher:
             fn: 对单个引擎执行的设置回调
         """
         host = self._host
-        if host._bundle is not None:
-            fn(host._bundle.engine)
+        seen: set[int] = set()
+        for ws_bundle in host._workspace_bundles():
+            fn(ws_bundle.engine)
+            seen.add(id(ws_bundle.engine))
         for session in host._sessions.values():
-            fn(session.engine)
+            if id(session.engine) not in seen:
+                fn(session.engine)
+                seen.add(id(session.engine))
+
+    def _apply_engine_setting_for_bundle(
+        self, bundle: RuntimeBundle, fn: Callable[[Any], None]
+    ) -> None:
+        """将引擎级设置应用到单个工作区 bundle 的初始引擎及其会话引擎。"""
+        # 延迟导入避免与 ws_host（模块级导入 build_replay_items）循环导入
+        from illusion.ui.web.ws_host import _cwd_key as _ws_cwd_key
+
+        host = self._host
+        fn(bundle.engine)
+        bundle_key = _ws_cwd_key(bundle.cwd)
+        for session in host._sessions.values():
+            if _ws_cwd_key(session.bundle.cwd) == bundle_key:
+                fn(session.engine)
 
     async def _apply_setting(self, bundle: RuntimeBundle, key: str, value: Any) -> tuple[bool, str | None]:
         """应用设置到 settings 与 app_state（A/B 通道共用）。
@@ -517,13 +621,18 @@ class WebApiDispatcher:
                 bundle.app_state.set(permission_mode=settings.permission.mode.value)
                 # 更新所有会话引擎的权限检查器——引擎初始化时创建的 PermissionChecker
                 # 持有旧的 PermissionSettings 引用，必须重建并注入，否则计划模式等
-                # 权限限制不生效（多会话下仅更新初始引擎会绕过其他会话的权限限制）
+                # 权限限制不生效（多会话下仅更新初始引擎会绕过其他会话的权限限制）。
+                # 多工作区：沙箱限制按引擎所属工作区目录分别锚定
                 from illusion.permissions import PermissionChecker
-                checker = PermissionChecker(settings.permission)
-                checker.sync_sandbox_restrictions(
-                    settings.sandbox, working_directory=settings.working_directory
-                )
-                self._apply_engine_setting(lambda e: e.set_permission_checker(checker))
+
+                def _rebuild_checker(e: Any) -> None:
+                    engine_cwd = getattr(e, "_cwd", None)
+                    anchor = str(engine_cwd) if engine_cwd else (settings.working_directory or bundle.cwd)
+                    checker = PermissionChecker(settings.permission)
+                    checker.sync_sandbox_restrictions(settings.sandbox, working_directory=anchor)
+                    e.set_permission_checker(checker)
+
+                self._apply_engine_setting(_rebuild_checker)
             elif key == "turns":
                 # turns: unlimited → None，否则 int；影响 engine.max_turns
                 turns_val: int | None
@@ -604,25 +713,154 @@ class WebApiDispatcher:
     async def handle_web_request_resources(self, request: FrontendRequest) -> None:
         """拉取右侧栏资源快照并发送 web_resources 事件。
 
+        多工作区：资源随目标会话/工作区切换（skills/mcp/plugins/rules
+        为"用户全局 + 该目录项目级"的合并视图）。
+
         Args:
-            request: 前端请求（无额外载荷）
+            request: 前端请求（session_id/cwd 可选：目标会话或工作区；
+                缺省为活跃会话所在工作区）
         """
-        bundle = self._host._bundle
-        if bundle is None:
+        host = self._host
+        if host._bundle is None:
             return
+        bundle = self._resolve_resource_bundle(request)
         await self._push_resources(bundle)
+
+    def _resolve_resource_bundle(self, request: FrontendRequest) -> RuntimeBundle:
+        """解析资源推送的目标 bundle（会话优先，其次 cwd，最后活跃/默认）。"""
+        host = self._host
+        assert host._bundle is not None
+        if request.session_id:
+            session = host._sessions.get(request.session_id)
+            if session is not None:
+                return session.bundle
+        if request.cwd:
+            bundle = host._workspace_bundle_for(request.cwd)
+            if bundle is not None:
+                return bundle
+        return host._active_bundle() or host._bundle
 
     async def _push_resources(self, bundle: RuntimeBundle) -> None:
         """推送资源快照（供多处复用）。
 
         复用 _collect_resources 收集 skills/plugins/rules/mcp_servers，
         废弃旧的命令文本正则解析（_parseSkillsResult 等）。
+        事件携带 cwd，前端据此判断资源所属工作区。
 
         Args:
             bundle: 运行时 bundle
         """
         resources = _collect_resources(bundle)
-        await self._emit(BackendEvent(type="web_resources", web_resources=resources))
+        await self._emit(BackendEvent(
+            type="web_resources",
+            web_resources=resources,
+            cwd=bundle.cwd,
+        ))
+
+    # === 工作区（目录空间）管理 ===
+
+    async def handle_web_request_workspaces(self, request: FrontendRequest) -> None:
+        """拉取工作区列表并推送 web_workspaces 事件。"""
+        host = self._host
+        if host._bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        await host._push_workspaces()
+
+    async def handle_web_add_workspace(self, request: FrontendRequest) -> None:
+        """注册一个新的目录空间。
+
+        校验与 working_directory 设置一致（expanduser、Windows 非法字符、
+        缺失目录自动创建），注册成功后同步宿主工作区状态并推送
+        web_workspaces + web_sessions（新目录的磁盘会话立即可见）。
+
+        Args:
+            request: 前端请求（path 必填：目录路径）
+        """
+        from illusion.services import workspace_registry
+
+        host = self._host
+        if host._bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        raw = (request.path or "").strip()
+        if not raw:
+            await self._emit(BackendEvent(type="error", message="目录路径不能为空"))
+            return
+
+        def _register() -> tuple[Any, str | None]:
+            from illusion.cli.workspace import validate_and_normalize
+
+            resolved, err = validate_and_normalize(raw)
+            if resolved is None:
+                return None, err or "目录路径非法"
+            return workspace_registry.register_workspace(str(resolved))
+
+        entry, err = await asyncio.to_thread(_register)
+        if entry is None or err:
+            await self._emit(BackendEvent(type="error", message=err or "注册目录失败"))
+            return
+        host._sync_workspace_states_from_registry()
+        await host._push_workspaces()
+        await host._push_sessions()
+
+    async def handle_web_remove_workspace(self, request: FrontendRequest) -> None:
+        """移除一个已注册的目录空间（默认工作区不可移除，由设置管理）。
+
+        移除即连带删除该目录的全部会话（磁盘快照 + 内存运行时 + 文件历史），
+        会话列表随之清空——符合"移除目录"的语义。
+        目录存在运行中的会话（busy）时拒绝移除，避免中断进行中的任务。
+
+        Args:
+            request: 前端请求（path 必填：目录路径）
+        """
+        from illusion.services import workspace_registry
+
+        host = self._host
+        if host._bundle is None:
+            await self._emit(BackendEvent(type="error", message="运行时未就绪"))
+            return
+        raw = (request.path or "").strip()
+        if not raw:
+            await self._emit(BackendEvent(type="error", message="目录路径不能为空"))
+            return
+
+        def _do_remove() -> tuple[bool, str | None]:
+            from illusion.services.workspace_registry import normalize_workspace_path
+            from illusion.ui.web.ws_host import _cwd_key as _ws_cwd_key
+
+            target_cwd = normalize_workspace_path(raw)
+            # 运行中的会话禁删：目录有 busy 会话时拒绝移除
+            busy_sessions = [
+                sr for sr in host._sessions.values()
+                if _ws_cwd_key(sr.bundle.cwd) == _ws_cwd_key(target_cwd) and sr.busy
+            ]
+            if busy_sessions:
+                return False, "目录存在运行中的会话，无法移除（请先停止任务）"
+            removed = workspace_registry.unregister_workspace(raw)
+            if not removed:
+                return False, "该目录未注册（或为默认目录）"
+            # 连带删除该目录的全部会话（磁盘 + 文件历史）
+            sessions = _list_session_snapshots(target_cwd, limit=1000)
+            for s in sessions:
+                _delete_session_by_id(target_cwd, s["session_id"])
+                _cleanup_file_history(s["session_id"])
+            return True, None
+
+        ok, err = await asyncio.to_thread(_do_remove)
+        if not ok:
+            await self._emit(BackendEvent(type="error", message=err or "移除目录失败"))
+            return
+        # 释放该目录的内存会话运行时（含活跃会话；目录已删除，会话随之清理）
+        from illusion.ui.web.ws_host import _cwd_key as _ws_cwd_key
+
+        target_key = _ws_cwd_key(await asyncio.to_thread(workspace_registry.normalize_workspace_path, raw))
+        for sr in list(host._sessions.values()):
+            if _ws_cwd_key(sr.bundle.cwd) == target_key:
+                await host._dispose_session(sr.session_id)
+        host._sync_workspace_states_from_registry()
+        await host._push_workspaces()
+        await host._push_sessions()
 
     async def handle_web_query(self, request: FrontendRequest) -> None:
         """B 通道精细化指令处理。
@@ -640,13 +878,13 @@ class WebApiDispatcher:
             request: 前端请求（command/args/request_id 必填）
         """
         host = self._host
-        bundle = host._bundle
-        if bundle is None:
+        if host._bundle is None:
             await self._emit(BackendEvent(type="error", message="运行时未就绪"))
             return
         session = host._resolve_session(request.session_id)
         if session is None:
             return
+        bundle = session.bundle
         command = request.command or ""
         args = request.args or ""
         request_id = request.request_id or ""

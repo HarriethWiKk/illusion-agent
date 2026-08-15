@@ -253,7 +253,13 @@ def _find_first_backup(state: FileHistoryState, tracking_key: str) -> FileBackup
 
 
 def cleanup_file_history(session_id: str) -> None:
-    """删除指定会话的文件历史目录。"""
+    """删除指定会话的文件历史目录。
+
+    防御性校验 session_id 合法性：拒绝路径分隔符/``..``/``~``，
+    防止非法 ID 触发路径穿越删除到 file-history 目录之外。
+    """
+    if not session_id or ".." in session_id or "/" in session_id or "\\" in session_id or "~" in session_id:
+        return
     d = _backup_dir(session_id)
     if d.exists():
         shutil.rmtree(d, ignore_errors=True)

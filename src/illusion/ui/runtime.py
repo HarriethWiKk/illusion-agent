@@ -393,6 +393,7 @@ async def build_runtime(
     disallowed_tools: list[str] | None = None,
     mcp_config: list[str] | None = None,
     name: str | None = None,
+    cwd: str | None = None,
 ) -> RuntimeBundle:
     """构建 IllusionAgent 会话的共享运行时。
 
@@ -418,6 +419,8 @@ async def build_runtime(
         disallowed_tools: 工具黑名单，移除指定名称的工具（CLI --disallowed-tools）
         mcp_config: 额外 MCP 服务器配置（JSON 字符串或文件路径列表，CLI --mcp-config）
         name: 会话显示名称，存入 tool_metadata（CLI --name）
+        cwd: 工作目录（Web 多工作区场景按目录传入；缺省取进程当前目录，
+            terminal/print 模式行为不变）
 
     Returns:
         RuntimeBundle: 运行时数据 bundle
@@ -456,8 +459,8 @@ async def build_runtime(
                 f"Invalid permission_mode: {permission_mode}, ignoring"
             )
     session_id = restore_session_id or uuid4().hex[:12]
-    # 获取当前工作目录
-    cwd = str(Path.cwd())
+    # 获取工作目录（Web 多工作区显式传入；缺省取进程当前目录）
+    cwd = str(Path(str(cwd)).expanduser().resolve()) if cwd else str(Path.cwd())
     # 加载插件（--bare 模式跳过）
     if not bare:
         plugins = load_plugins(settings, cwd)

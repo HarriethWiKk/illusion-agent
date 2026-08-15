@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -61,6 +60,7 @@ class CreateCronJobRequest(BaseModel):
         delete_after_run: 一次性任务执行后是否自动删除
         deliver_to: 投递目标列表（channel:chat_id 格式，可选）
         session_id: 指定会话执行（可选；缺省 = 独立新会话）
+        cwd: 任务执行的工作区目录（可选；缺省 = 默认工作区，需已注册）
     """
 
     name: str | None = None
@@ -71,6 +71,7 @@ class CreateCronJobRequest(BaseModel):
     delete_after_run: bool = False
     deliver_to: list[str] = []
     session_id: str | None = None
+    cwd: str | None = None
 
 
 class UpdateCronJobRequest(BaseModel):
@@ -85,6 +86,7 @@ class UpdateCronJobRequest(BaseModel):
         delete_after_run: 一次性任务执行后是否自动删除
         deliver_to: 投递目标列表
         session_id: 指定会话执行（None 显式清除）
+        cwd: 任务执行的工作区目录（须为已注册工作区；None 保留原值）
     """
 
     name: str | None = None
@@ -94,6 +96,7 @@ class UpdateCronJobRequest(BaseModel):
     enabled: bool | None = None
     delete_after_run: bool | None = None
     deliver_to: list[str] | None = None
+    cwd: str | None = None
     session_id: str | None = None
 
 
@@ -135,15 +138,24 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
         }
 
     @app.get("/api/cron/sessions")
-    async def list_cron_sessions() -> dict[str, Any]:
-        """列出当前工作目录下的项目会话（前端 dropdown 数据源）。
+    async def list_cron_sessions(cwd: str | None = None) -> dict[str, Any]:
+        """列出指定工作区目录下的项目会话（前端 dropdown 数据源）。
+
+        Args:
+            cwd: 工作区目录（可选；缺省 = 默认工作区，未知目录回退默认）
 
         Returns:
             dict: {"sessions": [{session_id, summary, message_count, updated_at}, ...]}
         """
         from illusion.services.session_storage import list_session_snapshots
+        from illusion.services.workspace_registry import (
+            get_default_workspace,
+            is_known_workspace,
+            normalize_workspace_path,
+        )
 
-        return {"sessions": list_session_snapshots(os.getcwd(), limit=100)}
+        target_cwd = normalize_workspace_path(cwd) if cwd and is_known_workspace(cwd) else get_default_workspace()
+        return {"sessions": await asyncio.to_thread(list_session_snapshots, target_cwd, 100)}
 
     @app.get("/api/cron/channel_sessions")
     async def list_cron_channel_sessions() -> dict[str, Any]:
@@ -202,13 +214,29 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt is required")
 
+        # 任务执行目录：优先请求指定（须为已注册工作区，未知目录 400 与
+        # update 语义一致），缺省默认工作区。多目录空间下任务的 cwd 决定
+        # 其会话归属目录与 web 端委托匹配。
+        from illusion.services.workspace_registry import (
+            get_default_workspace,
+            is_known_workspace,
+            normalize_workspace_path,
+        )
+
+        if req.cwd:
+            if not is_known_workspace(req.cwd):
+                raise HTTPException(status_code=400, detail=f"Unknown workspace: {req.cwd}")
+            job_cwd = normalize_workspace_path(req.cwd)
+        else:
+            job_cwd = get_default_workspace()
+
         job_data: dict[str, Any] = {
             "schedule": schedule,
             "prompt": prompt,
             "recurring": req.recurring,
             "enabled": req.enabled,
             "delete_after_run": req.delete_after_run,
-            "cwd": os.getcwd(),
+            "cwd": job_cwd,
             "deliver_to": req.deliver_to,
         }
         if req.name is not None and req.name.strip():
@@ -296,6 +324,18 @@ def register_cron_routes(app: FastAPI, host_config: Any | None = None) -> None:
                 job["session_id"] = new_session_id
             else:
                 job.pop("session_id", None)
+
+        # 任务执行目录：仅当请求显式提供时才更新（须为已注册工作区）
+        if "cwd" in req.model_fields_set and req.cwd:
+            from illusion.services.workspace_registry import (
+                is_known_workspace,
+                normalize_workspace_path,
+            )
+
+            if is_known_workspace(req.cwd):
+                job["cwd"] = normalize_workspace_path(req.cwd)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unknown workspace: {req.cwd}")
 
         upsert_cron_job(job)
         return {"success": True, "job": get_cron_job(identifier)}

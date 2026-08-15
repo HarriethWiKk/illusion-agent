@@ -49,10 +49,13 @@ class SessionRuntime:
         created_at: 运行时创建时间戳
         label / summary / turn_count / message_count: 列表展示字段
         context_tokens: 实时上下文占用（列表展示）
+        workspace_cwd: 会话所属工作区目录（多目录空间场景，初始为所在
+            bundle 的 cwd；用于会话列表按目录分组与 cron 委托匹配）
     """
 
     session_id: str
     bundle: RuntimeBundle
+    workspace_cwd: str = ""
     busy: bool = False
     active_line_task: asyncio.Task[None] | None = None
     phase: str = "idle"

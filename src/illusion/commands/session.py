@@ -386,7 +386,7 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
 
 async def delete_handler(args: str, context: CommandContext) -> CommandResult:
     """删除已保存的会话（rmtree 整个 {sid}/ 目录）"""
-    from illusion.services.file_history import cleanup_all_file_histories, cleanup_file_history
+    from illusion.services.file_history import cleanup_file_history
     from illusion.services.session_storage import (
         delete_all_sessions,
         delete_session_by_id,
@@ -414,8 +414,14 @@ async def delete_handler(args: str, context: CommandContext) -> CommandResult:
 
     # /delete all
     if tokens[0] in ("all", "__all__"):
+        sessions = list_session_snapshots(context.cwd, limit=1000)
         count = delete_all_sessions(context.cwd)
-        cleanup_all_file_histories()
+        # 仅清理当前工作目录下各会话的文件历史（file-history 按 session_id
+        # 隔离存储；不能调 cleanup_all_file_histories，那会清掉其他目录的
+        # 撤销/恢复历史）
+        from illusion.services.file_history import cleanup_file_history
+        for s in sessions:
+            cleanup_file_history(s["session_id"])
         context.engine.full_reset()
         return CommandResult(
             message=f"Deleted {count} session(s).",

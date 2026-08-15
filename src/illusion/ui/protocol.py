@@ -62,6 +62,9 @@ class FrontendRequest(BaseModel):
         setting_value: 设置值（web_set_setting 用）
         limit: 拉取数量上限（web_request_sessions 用）
         offset: 拉取偏移量（web_request_sessions 用）
+        cwd: 工作区目录（web_new_session/web_restore_session/web_delete_sessions/
+            web_request_resources 指定目标工作区）
+        path: 目录路径（web_add_workspace/web_remove_workspace 用）
     """
 
     type: Literal[
@@ -82,6 +85,9 @@ class FrontendRequest(BaseModel):
         "web_request_models",
         "web_request_resources",
         "web_query",
+        "web_request_workspaces",
+        "web_add_workspace",
+        "web_remove_workspace",
         # === btw / agent 向导（terminal + web 共用）===
         "btw_request",
         "btw_cancel",
@@ -108,6 +114,9 @@ class FrontendRequest(BaseModel):
     limit: int | None = None
     offset: int | None = None
     args: str | None = None
+    # === 工作区（多目录空间）专属字段 ===
+    cwd: str | None = None
+    path: str | None = None
     # submit_line 专属：为 True 时跳过命令注册表，直接当 user 消息提交给 LLM
     treat_as_text: bool | None = None
     # === btw / agent 向导专属字段 ===
@@ -248,6 +257,7 @@ class BackendEvent(BaseModel):
         "web_restore_started",
         "web_restore_completed",
         "web_query_result",
+        "web_workspaces",
         "shutdown",
         # === btw / agent 向导响应（terminal + web 共用）===
         "btw_response",
@@ -301,6 +311,8 @@ class BackendEvent(BaseModel):
     active_session_id: str | None = None                # web_sessions 携带的活跃会话 ID
     web_resources: dict[str, Any] | None = None         # web_resources 推送的资源快照
     web_models: list[dict[str, Any]] | None = None      # web_models 推送的模型选项
+    web_workspaces: list[dict[str, Any]] | None = None  # web_workspaces 推送的工作区列表
+    cwd: str | None = None                              # web_resources 携带的所属工作区目录
     setting_key: str | None = None                      # web_setting_changed 的键名
     setting_value: Any = None                           # web_setting_changed 的值
     web_query_kind: str | None = None                   # web_query_result 的结果类型（text/transcript_replace/download）
