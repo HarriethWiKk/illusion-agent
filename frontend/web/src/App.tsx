@@ -64,6 +64,9 @@ export default function App() {
     [session.status?.ui_language],
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // 输入框与工具栏展开的唯一下拉标识（plus/ws/mode/model/effort），null 表示全部收起；
+  // 提升到 App 统一管理，保证点击其中一个时自动收起其他下拉
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
@@ -563,6 +566,7 @@ export default function App() {
    *  目录选择由欢迎界面常显的输入框目录按钮承担，不再弹出选择弹窗 */
   const handleNewSession = (cwd?: string) => {
     setRewindDraft(null); // 新建会话清空持久化回退草稿
+    setActiveMenu(null); // 切换会话收起所有下拉，避免残留展开态
     session.newSession(cwd);
   };
 
@@ -580,6 +584,7 @@ export default function App() {
     // 视图已就绪的会话纯本地切换（瞬时，无加载态）；未恢复的会话由
     // hook 自动发送 web_restore_session 并显示加载动画
     setRewindDraft(null); // 切换会话清空持久化回退草稿
+    setActiveMenu(null); // 切换会话收起所有下拉，避免残留展开态
     session.activateSession(id, cwd);
   }, [session.activateSession]);
 
@@ -726,7 +731,8 @@ export default function App() {
         onAddWorkspace={(path) => session.addWorkspace(path)}
         onManageWorkspaces={() => { setSetupInitialTab('workspaces'); setShowSetupForm(true); }}
         initialDraft={rewindDraft ?? undefined}
-        onConsumeInitialDraft={() => setRewindDraft(null)}>
+        onConsumeInitialDraft={() => setRewindDraft(null)}
+        activeMenu={activeMenu} onMenuOpen={setActiveMenu}>
         <Toolbar lang={lang} status={session.status}
           modelOptions={session.modelOptions}
           onSetSetting={(key, value) => {
@@ -734,7 +740,8 @@ export default function App() {
             session.sendRequest({ type: 'web_set_setting', setting_key: key, setting_value: value });
           }}
           onRequestModels={() => session.sendRequest({ type: 'web_request_models' })}
-          modelSwitching={session.modelSwitching} />
+          modelSwitching={session.modelSwitching}
+          activeMenu={activeMenu} onMenuOpen={setActiveMenu} />
       </PromptInput>
     </div>
   );

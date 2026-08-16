@@ -12,7 +12,7 @@
  * @module Toolbar
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { t, type UiLanguage } from '../i18n';
 
 /**
@@ -36,6 +36,10 @@ interface ToolbarProps {
   onRequestModels: () => void;
   /** 模型是否正在切换中（用于显示加载动画） */
   modelSwitching?: boolean;
+  /** 当前展开的唯一下拉标识（mode/model/effort），null 表示全部收起；与 PromptInput 的 plus/ws 互斥 */
+  activeMenu: string | null;
+  /** 下拉展开/收起回调（打开时传 key，收起时传 null），用于跨组件互斥收起 */
+  onMenuOpen: (key: string | null) => void;
 }
 
 /**
@@ -55,6 +59,7 @@ const MODE_ENUM_VALUES = ['default', 'plan', 'full_auto', 'yolo'];
  * 下拉选择组件
  *
  * 通用的下拉选择器组件，选中项在右侧显示对钩。
+ * open / onOpenChange 为受控状态：由父组件统一管理，保证多个下拉互斥展开。
  *
  * @param props - 组件属性
  * @param props.value - 当前显示值
@@ -63,22 +68,38 @@ const MODE_ENUM_VALUES = ['default', 'plan', 'full_auto', 'yolo'];
  * @param props.options - 选项列表
  * @param props.onChange - 变更回调
  * @param props.onOpen - 展开回调（可选）
+ * @param props.open - 是否展开（受控）
+ * @param props.onOpenChange - 展开状态变更回调
  */
-function Dropdown({ value, matchValue, placeholder, options, onChange, onOpen, loading, title }: {
+function Dropdown({ value, matchValue, placeholder, options, onChange, onOpen, loading, title, open, onOpenChange }: {
   value: string; matchValue?: string; placeholder?: string; options: Option[];
   onChange: (v: string) => void; onOpen?: () => void; loading?: boolean; title?: string;
+  open: boolean; onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const displayValue = value || placeholder || '-';
   const match = matchValue !== undefined ? matchValue : value;
   // 选中项：优先后端标记的 active，否则按匹配值比对（大小写不敏感）
   const isActive = (opt: Option) =>
     opt.active === true || String(opt.value).toLowerCase() === String(match).toLowerCase();
 
+  // 点击弹层外部时收起（用 document mousedown 而非全屏遮罩层，避免拦截其他触发器按钮的点击；
+  // 保证"点击另一按钮→另一按钮展开、当前收起"一次点击即可完成）
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        onOpenChange(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, onOpenChange]);
+
   return (
-    <div className="relative" onBlur={(e) => { if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); } }}>
-      <button onClick={() => { if (!open && onOpen) onOpen(); setOpen(!open); }}
-        className="pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm text-content-secondary hover:text-content-primary rounded-full cursor-pointer">
+    <div ref={wrapRef} className="relative select-none" onBlur={(e) => { if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget as Node)) { onOpenChange(false); } }}>
+      <button onClick={() => { if (!open && onOpen) onOpen(); onOpenChange(!open); }}
+        className={`pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full cursor-pointer transition-colors ${open ? 'text-primary' : 'text-content-secondary hover:text-content-primary'}`}>
         {loading ? (
           <svg className="animate-spin w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -89,33 +110,29 @@ function Dropdown({ value, matchValue, placeholder, options, onChange, onOpen, l
         )}
       </button>
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-2xl z-20 min-w-[160px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
-            {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
-            {options.map((opt, idx) => {
-              const active = isActive(opt);
-              return (
-                <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm glass-option-hover transition-colors cursor-pointer animate-fade-in-up ${active ? 'text-primary font-medium' : 'text-content-secondary'}`}
-                  style={{ animationDelay: `${idx * 30}ms` }}>
-                  <span className="truncate">{opt.label}</span>
-                  {active && (
-                    <svg className="w-4 h-4 text-primary shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3.5 8.5l3 3 6-7" />
-                    </svg>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </>
+        <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-2xl z-20 min-w-[160px] py-1.5 max-h-[40vh] overflow-y-auto dropdown-scroll">
+          {title && <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest border-b border-border-light mb-1 text-center">{title}</div>}
+          {options.map((opt) => {
+            const active = isActive(opt);
+            return (
+              <button key={opt.value} onClick={() => { onChange(opt.value); onOpenChange(false); }}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm glass-option-hover transition-colors cursor-pointer animate-fade ${active ? 'text-primary font-medium' : 'text-content-secondary'}`}>
+                <span className="truncate">{opt.label}</span>
+                {active && (
+                  <svg className="w-4 h-4 text-primary shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3.5 8.5l3 3 6-7" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRequestModels, modelSwitching }: ToolbarProps) {
+export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRequestModels, modelSwitching, activeMenu, onMenuOpen }: ToolbarProps) {
   // 权限模式选项为前端静态常量（固定枚举，无需从后端拉取）
   const modeOptions = useMemo(() => [
     { value: 'default', label: t(lang, 'mode_default') },
@@ -152,9 +169,9 @@ export default function Toolbar({ lang, status, modelOptions, onSetSetting, onRe
 
   return (
     <div className="flex items-center gap-2 min-w-0 select-none">
-      <Dropdown value={currentMode} matchValue={currentModeEnum} title="Mode" options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} />
-      <Dropdown value={currentModelLabel} matchValue={currentModel} title="Model" placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} />
-      <Dropdown value={currentEffortLabel} matchValue={currentEffort} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} />
+      <Dropdown value={currentMode} matchValue={currentModeEnum} title="Mode" options={modeOptions} onChange={(v) => onSetSetting('permission_mode', v)} open={activeMenu === 'mode'} onOpenChange={(o) => onMenuOpen(o ? 'mode' : null)} />
+      <Dropdown value={currentModelLabel} matchValue={currentModel} title="Model" placeholder="Model" options={modelOpts} onChange={(v) => onSetSetting('model', v)} onOpen={onRequestModels} loading={modelSwitching} open={activeMenu === 'model'} onOpenChange={(o) => onMenuOpen(o ? 'model' : null)} />
+      <Dropdown value={currentEffortLabel} matchValue={currentEffort} title="Effort" placeholder={t(lang, 'effort_default')} options={effortOpts} onChange={(v) => onSetSetting('effort', v)} open={activeMenu === 'effort'} onOpenChange={(o) => onMenuOpen(o ? 'effort' : null)} />
     </div>
   );
 }

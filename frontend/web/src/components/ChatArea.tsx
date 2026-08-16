@@ -407,7 +407,7 @@ export default function ChatArea({
     onRewindToTurnRef.current?.(turnsToRewind);
   }, []);
 
-  /** 滚动事件处理（对齐 kimi-code 的弱跟随）：
+  /** 滚动事件处理：
    *  向上滚动 → 停止跟随并立即显示"回到底部"按钮（跟随消失即显现）；
    *  向下滚动到接近底部（≤ BOTTOM_THRESHOLD_PX）→ 恢复跟随并隐藏按钮。
    *  程序滚动（auto-scroll 赋值）与平滑滚动（按钮触发）派生的事件忽略。 */
@@ -419,7 +419,7 @@ export default function ChatArea({
       lastScrollTopRef.current = el.scrollTop;
       return;
     }
-    // 平滑滚动动画中的事件不参与跟随判定（参考 kimi-code）
+    // 平滑滚动动画中的事件不参与跟随判定
     if (performance.now() - lastSmoothScrollAtRef.current < SMOOTH_EVENT_IGNORE_MS) return;
     const top = el.scrollTop;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -448,7 +448,7 @@ export default function ChatArea({
     lastScrollTopRef.current = el.scrollHeight;
   }, []);
 
-  // 内容变化时自动滚动到底部（对齐 kimi-code 的弱跟随）：
+  // 内容变化时自动滚动到底部：
   // 仅当 following 时才跟随（用户向上滚过即不打扰，不会因内容更新被拉回）；
   // 恢复跟随只能通过用户向下滚回底部附近或点击"回到底部"按钮。
   // 卡片弹出时强制回到底部：模态卡片是交互元素，必须保证卡片可见。
@@ -497,6 +497,8 @@ export default function ChatArea({
   useEffect(() => {
     setExpanded(false);
     followingRef.current = true;
+    // 回到空会话（欢迎界面）时无可滚动内容，收起"回到底部"按钮
+    setShowScrollDown(false);
   }, [staticItems.length === 0]);
 
   const hasContent = staticItems.length > 0 || assistantBuffer || streamingReasoning || pendingToolCalls.length > 0 || !!modal;
@@ -518,7 +520,8 @@ export default function ChatArea({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef} onScroll={handleScroll} style={{ scrollbarGutter: 'stable' }}>
+    <div className="flex-1 min-h-0 relative flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollRef} onScroll={handleScroll} style={{ scrollbarGutter: 'stable' }}>
       {!connected && !hasContent && (
         <div className="flex items-center justify-center h-full text-content-disabled text-sm font-medium">
           {t(lang, 'connecting')}
@@ -587,11 +590,13 @@ export default function ChatArea({
       </div>
       )}
 
-      {/* 一键回到底部浮动按钮 */}
+      </div>
+      {/* 一键回到底部浮动按钮：绝对定位于外层（非滚动）包装底部，紧贴输入框上方，
+          随输入框高度自动调整；不硬编码视口 bottom 偏移 */}
       {showScrollDown && (
         <button
           onClick={scrollToBottom}
-          className="fixed bottom-44 left-1/2 -translate-x-1/2 z-30 w-9 h-9 flex items-center justify-center rounded-full glass-surface text-content-secondary hover:text-content-primary shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer animate-fade-in-up"
+          className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 w-9 h-9 flex items-center justify-center rounded-full glass-surface text-content-secondary hover:text-content-primary shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer animate-fade-in-up"
           title={t(lang, 'scroll_to_bottom')}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -103,6 +103,10 @@ interface PromptInputProps {
   initialDraft?: string;
   /** 消费初始草稿后的回调（父组件据此清空持久化草稿，避免残留影响下次会话） */
   onConsumeInitialDraft?: (draft: string) => void;
+  /** 当前展开的唯一下拉标识（plus/ws 或 Toolbar 的 mode/model/effort），null 表示全部收起 */
+  activeMenu: string | null;
+  /** 菜单展开/收起回调（打开时传 key，收起时传 null），用于和 Toolbar 下拉互斥收起 */
+  onMenuOpen: (key: string | null) => void;
 }
 
 /**
@@ -118,7 +122,7 @@ export interface PromptInputHandle {
   setDraft: (text: string) => void;
 }
 
-const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children, initialDraft, onConsumeInitialDraft }, ref) {
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children, initialDraft, onConsumeInitialDraft, activeMenu, onMenuOpen }, ref) {
   const [value, setValue] = useState(initialDraft ?? '');
 
   // 挂载时若携带初始草稿（欢迎界面重挂载回填），通知父组件消费清空，避免残留
@@ -126,10 +130,10 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     if (initialDraft) onConsumeInitialDraft?.(initialDraft);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // + 号快捷指令菜单开关（与斜杠共用同一弹窗，展示全部 WEB_COMMANDS）
-  const [plusOpen, setPlusOpen] = useState(false);
+  // + 号与目录弹层开关：由父组件 activeMenu 统一管理（与 Toolbar 下拉互斥展开）
+  const plusOpen = activeMenu === 'plus';
+  const wsOpen = activeMenu === 'ws';
   // 目录选择弹层（选目录即新建会话）状态
-  const [wsOpen, setWsOpen] = useState(false);
   const [wsAddMode, setWsAddMode] = useState(false);
   const [wsAddValue, setWsAddValue] = useState('');
   const wsInputRef = useRef<HTMLInputElement>(null);
@@ -189,14 +193,13 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowCommands(false);
-        setPlusOpen(false);
-        setWsOpen(false);
+        onMenuOpen(null);
         setWsAddMode(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showCommands, plusOpen, wsOpen]);
+  }, [showCommands, plusOpen, wsOpen, onMenuOpen]);
 
   // 自动补全仅显示 B 类指令（与后端 ready 推送的完整命令列表取交集，无交集则用静态集合）
   const webCommands = useMemo(() => {
@@ -220,16 +223,16 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setValue(newValue);
-    setPlusOpen(false);
+    onMenuOpen(null);
     setShowCommands(newValue.startsWith('/') && newValue.length > 0 && filteredCommands.length > 0 && !inlineOptions);
-  }, [filteredCommands.length, inlineOptions]);
+  }, [filteredCommands.length, inlineOptions, onMenuOpen]);
 
   const selectCommand = useCallback((cmd: string) => {
     setValue('');
     setShowCommands(false);
-    setPlusOpen(false);
+    onMenuOpen(null);
     onSubmit(cmd);
-  }, [onSubmit]);
+  }, [onSubmit, onMenuOpen]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -316,10 +319,10 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         // 始终清空输入框（包括 B 指令触发 inline popup 的情况）
         setValue('');
         setShowCommands(false);
-        setPlusOpen(false);
+        onMenuOpen(null);
       }
     },
-    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose],
+    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose, onMenuOpen],
   );
 
   const handleSend = () => {
@@ -334,7 +337,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     onSubmit(line);
     setValue('');
     setShowCommands(false);
-    setPlusOpen(false);
+    onMenuOpen(null);
   };
 
   /**
@@ -429,17 +432,16 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
       {showMenu && (
         <div
           ref={listRef}
-          className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl max-h-56 overflow-y-auto py-1.5 z-20 animate-fade-in-up scrollbar-hidden"
+          className="absolute bottom-full left-0 right-0 mb-1 glass-surface rounded-3xl max-h-56 overflow-y-auto py-1.5 z-20 scrollbar-hidden"
         >
           <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest">Commands</div>
           {menuCommands.map((cmd, idx) => (
             <button
               key={cmd}
               onClick={() => selectCommand(cmd)}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer animate-fade-in-up rounded-md ${
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer animate-fade rounded-md ${
                 (!plusOpen && idx === selectedIndex) ? 'glass-option-active text-content-primary' : 'text-content-secondary glass-option-hover'
               }`}
-              style={{ animationDelay: `${idx * 30}ms` }}
             >
               <span className="font-mono shrink-0">{cmd}</span>
               <span className="text-xs text-content-disabled truncate flex-1 text-left">{t(lang, `cmd_${cmd.slice(1).replace(/-/g, '_')}`)}</span>
@@ -450,7 +452,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
 
       {/* 侧问内联输入框（textarea 上方），busy 时隐藏 */}
       {btwEnabled && !busy && showBtwInput && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl px-3 py-2 z-20 animate-fade-in-up flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
+        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl px-3 py-2 z-20 animate-fade flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
           <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
           <input
             ref={btwInputRef}
@@ -498,10 +500,10 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         <div className="flex items-center gap-2 min-w-0">
           {/* + 号：打开快捷指令菜单（与斜杠同一弹窗） */}
           <button
-            onClick={() => { setPlusOpen((o) => !o); setShowCommands(false); setWsOpen(false); }}
+            onClick={() => { onMenuOpen(plusOpen ? null : 'plus'); setShowCommands(false); setWsAddMode(false); }}
             title="Commands"
             aria-label="Commands"
-            className={`pill-badge w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
+            className={`pill-badge w-8 h-8 flex items-center justify-center rounded-full transition-colors cursor-pointer select-none ${
               plusOpen ? 'text-primary' : 'text-content-secondary hover:text-content-primary'
             }`}
           >
@@ -514,10 +516,10 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           {welcomeVisible && (
           <div className="relative shrink-0">
             <button
-              onClick={() => { setWsOpen((o) => !o); setPlusOpen(false); setShowCommands(false); setWsAddMode(false); }}
+              onClick={() => { onMenuOpen(wsOpen ? null : 'ws'); setShowCommands(false); setWsAddMode(false); }}
               disabled={!connected || !onPickWorkspace}
               title={activeCwd ? `${t(lang, 'workspace_new_in')}\n${activeCwd}` : t(lang, 'workspace_select')}
-              className={`pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              className={`pill-badge flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed select-none ${
                 wsOpen ? 'text-primary' : 'text-content-secondary hover:text-content-primary'
               }`}
             >
@@ -529,7 +531,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
               </span>
             </button>
             {wsOpen && (
-              <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-2xl z-20 min-w-[260px] max-w-[380px] py-1.5 max-h-[40vh] overflow-y-auto animate-scale-in dropdown-origin-bottom-left dropdown-scroll">
+              <div className="absolute bottom-full left-0 mb-1 glass-surface rounded-2xl z-20 min-w-[260px] max-w-[380px] py-1.5 max-h-[40vh] overflow-y-auto dropdown-scroll">
                 {/* 标题与 ToolBar 下拉一致：英文、10px、uppercase、居中，无截断 */}
                 <div className="px-3 py-1.5 text-[10px] text-content-disabled font-semibold uppercase tracking-widest text-center border-b border-border-light mb-1">New session in</div>
                 {(workspaces ?? []).map((ws) => {
@@ -537,9 +539,9 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
                   return (
                     <button
                       key={ws.path}
-                      onClick={() => { setWsOpen(false); onPickWorkspace?.(ws.path); }}
+                      onClick={() => { onMenuOpen(null); onPickWorkspace?.(ws.path); }}
                       title={ws.path}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer rounded-md ${
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors cursor-pointer rounded-md animate-fade ${
                         isActive ? 'text-primary font-medium' : 'text-content-secondary glass-option-hover'
                       } ${!ws.available ? 'opacity-50' : ''}`}
                     >
@@ -598,7 +600,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
                 )}
                 {onManageWorkspaces && (
                   <button
-                    onClick={() => { setWsOpen(false); onManageWorkspaces(); }}
+                    onClick={() => { onMenuOpen(null); onManageWorkspaces(); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content-secondary glass-option-hover transition-colors cursor-pointer rounded-md"
                   >
                     <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
