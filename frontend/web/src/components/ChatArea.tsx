@@ -532,7 +532,7 @@ export default function ChatArea({
       )}
 
       {(hasContent || busy) && (
-      <div className="mx-auto max-w-[var(--chat-content-width)] px-6 md:px-10 lg:px-16 pt-6 pb-0">
+      <div className="mx-auto max-w-[var(--chat-content-width)] px-6 md:px-10 lg:px-16 pt-6 pb-6">
         {/* 折叠的更早消息入口 */}
         {hiddenCount > 0 && (
           <div className="flex justify-center mb-6">
