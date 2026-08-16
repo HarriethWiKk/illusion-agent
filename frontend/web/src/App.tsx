@@ -777,7 +777,7 @@ export default function App() {
         {/* 非欢迎态或会话恢复中：输入框 + 工具栏恢复到底部；宽度比主聊天区每边宽 17px（--composer-card-max-width）。
             恢复中 ChatArea 提前返回加载卡不渲染欢迎态 composer，故不会重复渲染 */}
         {(!welcomeVisible || session.restoringSessionId) && (
-          <div className="mx-auto max-w-[var(--composer-card-max-width)] w-full min-w-0 px-6 md:px-10 lg:px-16 pt-4 pb-4 shrink-0">
+          <div className="mx-auto max-w-[var(--composer-card-max-width)] w-full min-w-0 px-6 md:px-10 lg:px-16 pt-0 pb-4 shrink-0">
             {composer}
           </div>
         )}
