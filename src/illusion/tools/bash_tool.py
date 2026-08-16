@@ -19,7 +19,6 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +40,6 @@ class BashToolInput(BaseModel):
         cwd: 可选的工作目录覆盖
         timeout_ms: 超时毫秒数（1000-600000）
         run_in_background: 是否在后台运行
-        dangerouslyDisableSandbox: 是否绕过沙箱
     """
 
     command: str = Field(description="Shell command to execute")
@@ -51,14 +49,10 @@ class BashToolInput(BaseModel):
         default=False,
         description="Set to true to run this command in the background",
     )
-    dangerouslyDisableSandbox: bool = Field(
-        default=False,
-        description="Set to true to bypass sandbox restrictions for this command",
-    )
 
 
 # ---------------------------------------------------------------------------
-# 提示词生成（从 claude-code-sourcemap BashTool/prompt.ts 移植）
+# 提示词生成
 # ---------------------------------------------------------------------------
 
 _DEFAULT_TIMEOUT_MS = 120_000  # 默认超时 2 分钟
@@ -102,71 +96,6 @@ def _get_sleep_guidance() -> str | None:
         "rather than sleeping first.\n"
         "    - If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."
     )
-
-
-def _get_sandbox_section() -> str:
-    """生成沙箱提示词段（包含实际沙箱配置）。"""
-    sandbox_config_text = _build_sandbox_config_text()
-
-    return f"""\
-## Command sandbox
-
-By default, your command will be run in a sandbox. This sandbox controls which directories and network hosts commands may access or modify without an explicit override.
-
-{sandbox_config_text}
- - You should always default to running commands within the sandbox. Do NOT attempt to set `dangerouslyDisableSandbox: true` unless:
-   - The user *explicitly* asks you to bypass sandbox
-   - A specific command just failed and you see evidence of sandbox restrictions causing the failure.
- - Evidence of sandbox-caused failures includes:
-   - "Operation not permitted" errors for file/network operations
-   - Access denied to specific paths outside allowed directories
-   - Network connection failures to non-whitelisted hosts
-   - Unix socket connection errors
- - When you see evidence of sandbox-caused failure:
-   - Immediately retry with `dangerouslyDisableSandbox: true` (don't ask, just do it)
-   - Briefly explain what sandbox restriction likely caused the failure.
-   - This will prompt the user for permission
- - Treat each command you execute with `dangerouslyDisableSandbox: true` individually.
- - Do not suggest adding sensitive paths like ~/.bashrc, ~/.zshrc, ~/.ssh/*, or credential files to the sandbox allowlist.
- - For temporary files, always use the `$TMPDIR` environment variable. TMPDIR is automatically set to the correct sandbox-writable directory in sandbox mode. Do NOT use `/tmp` directly - use `$TMPDIR` instead."""
-
-
-def _build_sandbox_config_text() -> str:
-    """构建沙箱配置的描述文本，用于提示词中展示。"""
-    try:
-        from illusion.config import load_settings
-        from illusion.sandbox import build_sandbox_runtime_config, get_sandbox_availability
-
-        settings = load_settings()
-        availability = get_sandbox_availability(settings)
-
-        if not availability.active:
-            return (
-                f"Sandbox is enabled but not currently available: {availability.reason}\n"
-                "Commands will run without OS-level sandbox isolation, but permission confirmation still applies.\n"
-            )
-
-        config = build_sandbox_runtime_config(settings)
-        fs = config.get("filesystem", {})
-        net = config.get("network", {})
-        parts = ["The sandbox has the following restrictions:"]
-        if fs:
-            parts.append(f"  Filesystem: {_format_sandbox_dict(fs)}")
-        if net:
-            parts.append(f"  Network: {_format_sandbox_dict(net)}")
-        return "\n".join(parts) + "\n"
-    except (OSError, ValueError, ImportError, KeyError) as exc:
-        logger.warning("Failed to load sandbox configuration: %s", exc)
-        return "Sandbox configuration is not available.\n"
-
-
-def _format_sandbox_dict(d: dict[str, Any]) -> str:
-    """格式化沙箱配置字典为简洁文本。"""
-    items = []
-    for key, values in d.items():
-        if isinstance(values, list) and values:
-            items.append(f"{key}: {values}")
-    return ", ".join(items) if items else "no restrictions"
 
 
 def _get_commit_and_pr_instructions() -> str:
@@ -356,7 +285,6 @@ def _build_bash_description() -> str:
 
     sections.extend(instruction_lines)
 
-    sections.append(_get_sandbox_section())
     sections.append("")
     sections.append(_get_commit_and_pr_instructions())
 
@@ -389,13 +317,12 @@ class BashTool(BaseTool[BashToolInput]):
 
         # 解析工作目录
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
-        # YOLO 模式：绕过沙箱完全运行。即使未显式声明 dangerouslyDisableSandbox，
-        # 也强制以无沙箱方式执行（权限检查器在 YOLO 模式下已放行，此处关闭 OS 级沙箱）。
-        disable_sandbox = arguments.dangerouslyDisableSandbox
-        if not disable_sandbox:
-            checker = (context.metadata or {}).get("permission_checker")
-            if checker is not None and getattr(checker, "current_mode", None) == PermissionMode.YOLO:
-                disable_sandbox = True
+        # YOLO 模式：绕过沙箱完全运行。权限检查器在 YOLO 模式下已放行，
+        # 此处关闭 OS 级沙箱。dangerouslyDisableSandbox 已移除，不再由模型指定。
+        disable_sandbox = False
+        checker = (context.metadata or {}).get("permission_checker")
+        if checker is not None and getattr(checker, "current_mode", None) == PermissionMode.YOLO:
+            disable_sandbox = True
         try:
             # 创建 shell 子进程
             process = await create_shell_subprocess(

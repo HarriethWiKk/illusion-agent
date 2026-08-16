@@ -297,7 +297,6 @@ class PermissionChecker:
         is_read_only: bool,
         file_path: str | None = None,
         command: str | None = None,
-        disable_sandbox: bool = False,
     ) -> PermissionDecision:
         """评估工具是否允许执行
         
@@ -308,9 +307,6 @@ class PermissionChecker:
             is_read_only: 是否为只读工具
             file_path: 相关的文件路径
             command: 执行的命令字符串
-            disable_sandbox: 是否请求解除沙箱（dangerouslyDisableSandbox）。
-                解除沙箱是独立的安全边界，即使 full_auto 自动放行也须请求
-                用户确认（对齐 Claude Code 文档意图），避免被静默绕过。
         
         Returns:
             PermissionDecision: 权限决策结果
@@ -435,18 +431,6 @@ class PermissionChecker:
                     )
                 # 高危但白名单项仅为普通前缀（如 git push）：不豁免，继续走后续确认流程
                 break
-
-        # 解除沙箱是独立的安全边界：即使 full_auto 自动放行，也须请求用户确认
-        #（对齐 Claude Code 文档意图，避免 dangerouslyDisableSandbox 被静默绕过）。
-        # YOLO 模式已在上方直接放行，此处不重复处理。
-        if disable_sandbox:
-            return PermissionDecision(
-                allowed=False,
-                requires_confirmation=True,
-                reason="Bypassing the sandbox requires user confirmation",
-                high_risk=high_risk,
-                risk=risk,
-            )
 
         # 完全自动模式：受沙箱限制（上方已检查）且拦高危（内置 HIGH 规则需确认）。
         # 与 YOLO 的区别恒定：auto 永远拦高危，yolo 全部绕过。

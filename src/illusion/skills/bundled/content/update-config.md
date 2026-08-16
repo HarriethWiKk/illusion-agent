@@ -111,7 +111,6 @@ Located at `~/.illusion/settings.json`. Loaded by `load_settings()`.
     "dream_min_sessions": 5
   },
   "sandbox": {
-    "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {
@@ -388,12 +387,11 @@ Command hooks can output JSON to control behavior:
 
 ### Sandbox (Global)
 
-The sandbox provides OS-level isolation for shell commands. Supports Linux (bubblewrap), macOS (seatbelt), and Windows (Job Objects).
+The sandbox provides OS-level isolation for shell commands. Supports Linux (bubblewrap) and macOS (seatbelt). Native Windows does not support OS-level sandboxing (bwrap/sandbox-exec are POSIX-only); Windows isolation relies on the permission layer (risk levels + filesystem allowlist).
 
 ```json
 {
   "sandbox": {
-    "allow_unsandboxed_commands": true,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {

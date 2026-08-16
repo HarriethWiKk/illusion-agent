@@ -110,14 +110,12 @@ class SandboxManager:
         self,
         command: str,
         *,
-        dangerously_disable: bool = False,
         settings: Any = None,
     ) -> bool:
         """判断命令是否应该使用沙箱
 
         Args:
             command: 命令字符串
-            dangerously_disable: 是否禁用沙箱
             settings: Settings 对象（可选）
 
         Returns:
@@ -129,9 +127,6 @@ class SandboxManager:
 
         sandbox_settings = settings.sandbox
         if not self._runtime.is_enabled():
-            return False
-
-        if dangerously_disable and sandbox_settings.allow_unsandboxed_commands:
             return False
 
         if not command:
@@ -181,7 +176,6 @@ class SandboxManager:
     def _settings_to_config(self, sandbox_settings: Any) -> dict[str, Any]:
         """将 SandboxSettings 转换为运行时配置字典"""
         return {
-            "allow_unsandboxed_commands": sandbox_settings.allow_unsandboxed_commands,
             "enabled_platforms": sandbox_settings.enabled_platforms,
             "excluded_commands": sandbox_settings.excluded_commands,
             "ignore_violations": sandbox_settings.ignore_violations,
@@ -249,36 +243,3 @@ class SandboxManager:
                     if cleaned == prefix or cleaned.startswith(prefix + " "):
                         return True
         return False
-
-
-# --- 向后兼容的旧 API ---
-
-def build_sandbox_runtime_config(settings: Any) -> dict[str, Any]:
-    """将 IllusionAgent 设置转换为沙箱运行时配置（向后兼容）"""
-    manager = SandboxManager()
-    return manager._settings_to_config(settings.sandbox)
-
-
-def get_sandbox_availability(settings: Any = None) -> SandboxAvailability:
-    """获取沙箱可用性（向后兼容）"""
-    manager = SandboxManager()
-    return manager.get_availability(settings)
-
-
-def wrap_command_for_sandbox(
-    command: list[str],
-    *,
-    settings: Any = None,
-) -> tuple[list[str], Any | None]:
-    """包装命令用于沙箱执行（向后兼容）"""
-    if settings is None:
-        from ..config import load_settings
-        settings = load_settings()
-
-    manager = SandboxManager()
-    if not manager.should_use_sandbox(" ".join(command), settings=settings):
-        # 沙箱不可用时自动降级：不包装命令，直接原样执行
-        return command, None
-
-    wrapped = manager.wrap_command(command)
-    return wrapped, None

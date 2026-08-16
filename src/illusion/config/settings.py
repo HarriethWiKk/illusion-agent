@@ -178,8 +178,7 @@ class SandboxFilesystemSettings(BaseModel):
 class SandboxRipgrepSettings(BaseModel):
     """沙箱内置 ripgrep 配置
 
-    自定义沙箱内使用的 ripgrep 命令与参数（对齐 claude-code-sourcemap 的
-    sandbox.ripgrep 配置）。
+    自定义沙箱内使用的 ripgrep 命令与参数。
 
     Attributes:
         command: ripgrep 可执行命令路径
@@ -196,7 +195,6 @@ class SandboxSettings(BaseModel):
     配置与沙箱运行时的集成选项。
 
     Attributes:
-        allow_unsandboxed_commands: 允许 dangerouslyDisableSandbox
         enabled_platforms: 启用的平台列表
         excluded_commands: 排除沙箱的命令模式列表
         network: 网络限制配置
@@ -209,7 +207,6 @@ class SandboxSettings(BaseModel):
         ripgrep: 沙箱内置 ripgrep 配置
     """
 
-    allow_unsandboxed_commands: bool = False  # 允许 dangerouslyDisableSandbox（默认禁用，防止绕过沙箱）
     enabled_platforms: list[str] = Field(default_factory=list)  # 启用的平台
     excluded_commands: list[str] = Field(default_factory=list)  # 排除沙箱的命令模式
     network: SandboxNetworkSettings = Field(default_factory=SandboxNetworkSettings)  # 网络配置
@@ -610,13 +607,12 @@ class Settings(BaseModel):
 
 
 def _default_sandbox_config() -> dict[str, Any]:
-    """返回默认沙箱配置（对齐 claude-code-sourcemap 的 sandbox schema）。
+    """返回默认沙箱配置。
 
     作为显式默认配置写入 settings.json，使用户可直接查看/修改，
     而非仅在内存中按默认值加载运行。
     """
     return {
-        "allow_unsandboxed_commands": False,
         "enabled_platforms": [],
         "excluded_commands": [],
         "network": {

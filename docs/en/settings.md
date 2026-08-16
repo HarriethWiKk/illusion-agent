@@ -114,7 +114,6 @@ Uses `env_N` grouped format. Each `env_N` is an independent environment config (
     "max_entrypoint_lines": 200
   },
   "sandbox": {
-    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {
@@ -407,20 +406,20 @@ LongCat uses `Authorization: Bearer` authentication, configured via the `auth_to
 
 ### Sandbox Configuration
 
-The sandbox system provides OS-level isolation for shell commands. Supports three platforms:
+The sandbox system provides OS-level isolation for shell commands. Supports two platforms:
 
 | Platform | Mechanism | Dependencies |
 |----------|-----------|--------------|
 | Linux / WSL | bubblewrap (bwrap) + optional seccomp | `bwrap`, `socat` |
 | macOS | Apple Seatbelt (sandbox-exec) | Built-in |
-| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+**Native Windows does not support OS-level sandboxing** (bwrap/sandbox-exec are POSIX-only; commands on Windows always run unsandboxed). Windows isolation relies on the permission layer: command risk levels (high-risk interception/confirmation) plus the filesystem allowlist (`filesystem.allow_write`, etc.) — both apply consistently on every platform.
 
 #### Basic Configuration
 
 ```json
 {
   "sandbox": {
-    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": []
   }
@@ -538,7 +537,7 @@ The `sandbox` config and the built-in risk levels (LOW/MEDIUM/HIGH) are **two in
 | Sandbox config (`sandbox.*`) | Runtime isolation | "Which paths/domains a command may touch" | The `sandbox` section of `settings.json` |
 | Risk levels | Decision classification | "How dangerous this operation is, whether to prompt" | Built-in (`risk.py`), read-only |
 
-- **Sandbox config** (`filesystem.*`, `network.*`, `excluded_commands`, `allow_unsandboxed_commands`) constrains the OS sandbox's actual behavior; it does not directly decide whether to prompt.
+- **Sandbox config** (`filesystem.*`, `network.*`, `excluded_commands`) constrains the OS sandbox's actual behavior; it does not directly decide whether to prompt.
 - **Risk levels** (`dangerous_bash_patterns` / `read_only_commands` / `medium_risk_tools`) decide whether to prompt for confirmation.
 - **Execution order**: sandbox path restrictions (`filesystem`) are checked first, then risk levels. Hitting a sandbox deny or HIGH triggers confirmation.
 - **Key overlap**: a high-risk operation (HIGH) re-prompts for confirmation even if the path was already session-allowed, preventing "allowed access" from being used as a delete/restore pass.
@@ -547,7 +546,7 @@ The `sandbox` config and the built-in risk levels (LOW/MEDIUM/HIGH) are **two in
 
 | Mode | Sandbox config | Risk levels |
 |------|----------------|-------------|
-| `default` | Fully applied (filesystem/network/excluded/allow_unsandboxed) | Fully consumed: LOW allowed / MEDIUM confirm / HIGH must-confirm |
+| `default` | Fully applied (filesystem/network/excluded) | Fully consumed: LOW allowed / MEDIUM confirm / HIGH must-confirm |
 | `full_auto` | Subject to sandbox filesystem restrictions | Only HIGH is blocked; everything else allowed |
 | `plan` | Plan file exempt; other mutations blocked | Not by level; blocked by "is it a mutation tool" |
 | `yolo` | Bypassed entirely | Ignored; only explicit tool/path denies remain |

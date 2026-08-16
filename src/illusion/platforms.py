@@ -135,7 +135,7 @@ def get_platform_capabilities(platform_name: PlatformName | None = None) -> Plat
             supports_native_windows_shell=True,  # 支持原生 Windows shell
             supports_tmux=False,  # 不支持 tmux
             supports_swarm_mailbox=False,  # 不支持 swarm 邮箱
-            supports_sandbox_runtime=True,  # 支持沙箱运行时（Job Objects + Restricted Tokens）
+            supports_sandbox_runtime=False,  # 不支持 OS 级沙箱（bwrap/sandbox-exec 为 POSIX 专属）
         )
     # 未知平台
     return PlatformCapabilities(

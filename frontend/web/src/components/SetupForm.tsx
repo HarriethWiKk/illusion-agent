@@ -1541,17 +1541,6 @@ function SandboxTab({ lang, sandbox, onSandboxChange, error, saved, permission }
       {error && <div className="text-xs text-danger">{t(lang, 'setupSandboxSaveFailed')}: {error}</div>}
       {saved && <div className="text-xs text-success">{t(lang, 'setupSandboxSaveSuccess')}</div>}
 
-      {/* 沙箱行为（沙箱强制开启，无需开关） */}
-      <SandboxSection lang={lang} titleKey="setupFieldSandboxBehavior" >
-        <BoolWithHint
-          lang={lang}
-          labelKey="setupFieldSandboxAllowUnsandboxed"
-          hintKey="setupFieldSandboxAllowUnsandboxedHint"
-          checked={sandbox.allow_unsandboxed_commands}
-          onChange={(v) => update({ allow_unsandboxed_commands: v })}
-        />
-      </SandboxSection>
-
       {/* 平台与排除命令 */}
       <SandboxSection lang={lang} titleKey="setupFieldSandboxPlatform" >
         <TextFieldWithHint

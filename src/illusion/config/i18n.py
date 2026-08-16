@@ -637,8 +637,6 @@ _COMMAND_EXACT: dict[str, str] = {
     "- storage: local files under ~/.illusion and project .illusion": "- 存储：本地文件位于 ~/.illusion 和项目 .illusion",
     # 沙箱
     "Sandbox status: enabled": "沙箱状态：已启用",
-    "  Allow unsandboxed: yes": "  允许禁用沙箱：是",
-    "  Allow unsandboxed: no": "  允许禁用沙箱：否",
     "  Enabled platforms: all": "  限制平台：无（全部平台）",
     "  Excluded commands: none": "  排除命令：无",
 }

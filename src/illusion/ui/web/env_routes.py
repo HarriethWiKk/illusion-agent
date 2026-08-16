@@ -102,7 +102,6 @@ class UpdateSandboxRequest(BaseModel):
     illusion.config.settings.SandboxSettings 对齐（snake_case）。
     """
 
-    allow_unsandboxed_commands: bool | None = None
     enabled_platforms: list[str] | None = None
     excluded_commands: list[str] | None = None
     network: dict[str, Any] | None = None
@@ -133,7 +132,6 @@ class UpdatePermissionRiskRequest(BaseModel):
 def _sandbox_settings_payload(sandbox: Any) -> dict[str, Any]:
     """将 SandboxSettings 序列化为前端可读的字典。"""
     return {
-        "allow_unsandboxed_commands": sandbox.allow_unsandboxed_commands,
         "enabled_platforms": list(sandbox.enabled_platforms),
         "excluded_commands": list(sandbox.excluded_commands),
         "network": {

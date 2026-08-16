@@ -27,6 +27,32 @@ def test_runtime_initializes_with_config():
         assert runtime.is_enabled() is True
 
 
+def test_runtime_windows_platform_disabled():
+    """Windows 原生不支持 OS 级沙箱，初始化后沙箱禁用"""
+    runtime = SandboxRuntime()
+    config = {
+        "enabled_platforms": [],
+        "filesystem": {"allow_write": ["."], "deny_write": [], "deny_read": [], "allow_read": []},
+        "network": {"allowed_domains": [], "denied_domains": []},
+    }
+    with patch("illusion.sandbox.runtime._detect_platform", return_value="windows"):
+        runtime.initialize(config)
+        assert runtime.is_enabled() is False
+
+
+def test_runtime_unknown_platform_disabled():
+    """未知平台自动降级，初始化后沙箱禁用"""
+    runtime = SandboxRuntime()
+    config = {
+        "enabled_platforms": [],
+        "filesystem": {"allow_write": ["."], "deny_write": [], "deny_read": [], "allow_read": []},
+        "network": {"allowed_domains": [], "denied_domains": []},
+    }
+    with patch("illusion.sandbox.runtime._detect_platform", return_value="unknown"):
+        runtime.initialize(config)
+        assert runtime.is_enabled() is False
+
+
 def test_runtime_wrap_command_disabled():
     runtime = SandboxRuntime()
     result = runtime.wrap_command(["bash", "-lc", "echo"], shell="bash")

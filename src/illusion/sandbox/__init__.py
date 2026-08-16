@@ -11,9 +11,6 @@ from illusion.sandbox.adapter import (
     SandboxAvailability,
     SandboxManager,
     SandboxUnavailableError,
-    build_sandbox_runtime_config,
-    get_sandbox_availability,
-    wrap_command_for_sandbox,
 )
 from illusion.sandbox.runtime import SandboxRuntime
 from illusion.sandbox.violation_store import SandboxViolation, SandboxViolationStore
@@ -25,8 +22,4 @@ __all__ = [
     "SandboxUnavailableError",
     "SandboxViolation",
     "SandboxViolationStore",
-    # 向后兼容
-    "build_sandbox_runtime_config",
-    "get_sandbox_availability",
-    "wrap_command_for_sandbox",
 ]

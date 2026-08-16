@@ -67,8 +67,6 @@ def _format_status(sandbox: Any) -> CommandResult:
 
     lines.append("Sandbox status: enabled")
 
-    lines.append(f"  Allow unsandboxed: {'yes' if sandbox.allow_unsandboxed_commands else 'no'}")
-
     if sandbox.enabled_platforms:
         lines.append(f"  Enabled platforms: {', '.join(sandbox.enabled_platforms)}")
     else:

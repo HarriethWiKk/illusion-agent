@@ -62,16 +62,6 @@ def test_should_use_sandbox_enabled():
         assert manager.should_use_sandbox("echo hello", settings=settings) is True
 
 
-def test_should_use_sandbox_dangerously_disable():
-    """dangerously_disable=True 时跳过沙箱"""
-    manager = SandboxManager()
-    manager.reset()
-    settings = Settings(sandbox=SandboxSettings(allow_unsandboxed_commands=True))
-    with patch.object(manager, "_runtime") as mock_runtime:
-        mock_runtime.is_enabled.return_value = True
-        assert manager.should_use_sandbox("echo hello", dangerously_disable=True, settings=settings) is False
-
-
 def test_excluded_command_matching():
     """排除命令匹配"""
     manager = SandboxManager()
@@ -111,7 +101,7 @@ def test_excluded_command_compound():
         assert manager.should_use_sandbox("echo safe && rm -rf /", settings=settings) is False
 
 
-def test_build_sandbox_runtime_config():
+def test_settings_to_config():
     """配置转换正确性"""
     manager = SandboxManager()
     settings = Settings(sandbox=SandboxSettings(

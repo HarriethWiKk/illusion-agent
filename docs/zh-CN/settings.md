@@ -115,7 +115,6 @@
     "max_entrypoint_lines": 200
   },
   "sandbox": {
-    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": [],
     "network": {
@@ -408,20 +407,20 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 
 ### 沙箱配置
 
-沙箱系统为 shell 命令提供操作系统级隔离。支持三平台：
+沙箱系统为 shell 命令提供操作系统级隔离。支持两平台：
 
 | 平台 | 机制 | 依赖 |
 |------|------|------|
 | Linux / WSL | bubblewrap (bwrap) + 可选 seccomp | `bwrap`、`socat` |
 | macOS | Apple Seatbelt (sandbox-exec) | 内置 |
-| Windows | Job Objects + Restricted Tokens + Low Integrity | `pywin32` |
+
+**Windows 原生不支持 OS 级沙箱**（bwrap/sandbox-exec 均为 POSIX 专属，Windows 上命令一律无沙箱运行）。Windows 的隔离依赖**权限层**：命令风险分级（高危拦截/确认）+ 文件系统白名单（`filesystem.allow_write` 等），这两层对所有平台一致生效。
 
 #### 基础配置
 
 ```json
 {
   "sandbox": {
-    "allow_unsandboxed_commands": false,
     "enabled_platforms": [],
     "excluded_commands": []
   }
@@ -539,7 +538,7 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 | 沙箱配置（`sandbox.*`） | 运行时隔离 | "命令能碰哪些路径/域名" | `settings.json` 的 `sandbox` 段 |
 | 风险分级 | 决策分类 | "这个操作多危险，是否弹窗确认" | 内置（`risk.py`），只读 |
 
-- **沙箱配置**（`filesystem.*`、`network.*`、`excluded_commands`、`allow_unsandboxed_commands`）约束 OS 沙箱实际行为，不直接决定是否弹窗。
+- **沙箱配置**（`filesystem.*`、`network.*`、`excluded_commands`）约束 OS 沙箱实际行为，不直接决定是否弹窗。
 - **风险分级**（`dangerous_bash_patterns` / `read_only_commands` / `medium_risk_tools`）决定是否弹窗确认。
 - **串联顺序**：先查沙箱路径限制（`filesystem`），再算风险分级。命中沙箱 deny 或 HIGH 都会触发确认。
 - **关键交集**：高危操作（HIGH）即使路径已被会话级允许，仍会重新请求确认，防止"已放开访问"被当作删除通行证。
@@ -548,7 +547,7 @@ LongCat 使用 `Authorization: Bearer` 认证方式，需要通过 `auth_token` 
 
 | 模式 | 消费沙箱配置 | 消费风险分级 |
 |------|--------------|--------------|
-| `default` | 全量生效（filesystem/network/excluded/allow_unsandboxed） | 完整消费：LOW 放行 / MEDIUM 确认 / HIGH 必问 |
+| `default` | 全量生效（filesystem/network/excluded） | 完整消费：LOW 放行 / MEDIUM 确认 / HIGH 必问 |
 | `full_auto` | 受沙箱文件系统限制 | 只拦 HIGH，其余放行 |
 | `plan` | 计划文件豁免，其余变更被挡 | 不按分级，按"是否变更工具"拦截 |
 | `yolo` | 全部绕过 | 忽略，仅保留显式工具/路径 deny |

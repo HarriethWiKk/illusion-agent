@@ -103,7 +103,6 @@ export interface SandboxRipgrepSettings {
 
 /** 沙箱配置（与后端 SandboxSettings 对齐，snake_case） */
 export interface SandboxSettings {
-  allow_unsandboxed_commands: boolean;
   enabled_platforms: string[];
   excluded_commands: string[];
   network: SandboxNetworkSettings;
@@ -118,7 +117,6 @@ export interface SandboxSettings {
 
 /** PATCH /api/settings/sandbox 请求体（字段可选，只更新提供的字段） */
 export interface UpdateSandboxPayload {
-  allow_unsandboxed_commands?: boolean;
   enabled_platforms?: string[];
   excluded_commands?: string[];
   network?: Partial<SandboxNetworkSettings>;

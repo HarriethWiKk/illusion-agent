@@ -48,9 +48,6 @@ def _get_platform_impl(platform_name: str) -> SandboxPlatform:
     elif platform_name == "macos":
         from .platforms.macos import MacOSSandboxPlatform
         return MacOSSandboxPlatform()
-    elif platform_name == "windows":
-        from .platforms.windows import WindowsSandboxPlatform
-        return WindowsSandboxPlatform()
     else:
         raise ValueError(f"不支持的沙箱平台: {platform_name}")
 
@@ -92,9 +89,11 @@ class SandboxRuntime:
             self._enabled = False
             return
 
-        # 未知平台：自动降级（禁用沙箱），不影响命令执行
-        if self._platform_name == "unknown":
-            logger.warning("沙箱平台不可识别，沙箱已禁用")
+        # 未知平台与 Windows：自动降级（禁用沙箱），不影响命令执行。
+        # Windows 原生不支持 OS 级沙箱（bwrap/sandbox-exec 均为 POSIX 专属），
+        # Windows 的隔离依赖权限层（风险分级 + 文件系统白名单）。
+        if self._platform_name in ("unknown", "windows"):
+            logger.info("沙箱平台 %s 不支持 OS 级沙箱，已禁用", self._platform_name)
             self._enabled = False
             return
 

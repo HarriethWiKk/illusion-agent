@@ -11,8 +11,6 @@ from illusion.config.settings import (
 def test_sandbox_settings_has_new_fields():
     """验证 SandboxSettings 包含所有新字段"""
     s = SandboxSettings()
-    assert hasattr(s, 'allow_unsandboxed_commands')
-    assert s.allow_unsandboxed_commands is False
     assert hasattr(s, 'excluded_commands')
     assert s.excluded_commands == []
     assert hasattr(s, 'ignore_violations')

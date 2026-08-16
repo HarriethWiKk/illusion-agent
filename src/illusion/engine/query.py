@@ -1012,14 +1012,12 @@ async def _execute_tool_call(
     # 在权限检查前规范化通用工具输入，以便路径规则一致地应用于使用 `file_path` 或 `path` 的内置工具
     _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
     _command = _extract_permission_command(tool_input, parsed_input)
-    _disable_sandbox = _extract_permission_disable_sandbox(tool_input, parsed_input)
     # 评估权限
     decision = context.permission_checker.evaluate(
         tool_name,
         is_read_only=tool.is_read_only(parsed_input),
         file_path=_file_path,
         command=_command,
-        disable_sandbox=_disable_sandbox,
     )
     if not decision.allowed:
         # 系统自动阻止（如计划模式）：返回错误结果给模型，不终止查询循环
@@ -1242,30 +1240,6 @@ def _extract_permission_command(
         return value
 
     return None
-
-
-def _extract_permission_disable_sandbox(
-    raw_input: dict[str, object],
-    parsed_input: object,
-) -> bool:
-    """提取权限检查所需的 dangerouslyDisableSandbox 标记。
-
-    用于判断本次调用是否请求解除沙箱。此标记是独立的安全边界：
-    即使权限模式自动放行，解除沙箱的命令也应请求用户确认
-    （对齐 Claude Code 文档意图）。
-
-    Args:
-        raw_input: 原始工具输入
-        parsed_input: 解析后的工具输入
-
-    Returns:
-        bool: 是否请求解除沙箱
-    """
-    value = raw_input.get("dangerouslyDisableSandbox")
-    if isinstance(value, bool) and value:
-        return True
-    value = getattr(parsed_input, "dangerouslyDisableSandbox", None)
-    return bool(isinstance(value, bool) and value)
 
 
 def _wrap_in_system_reminder(content: str) -> str:
