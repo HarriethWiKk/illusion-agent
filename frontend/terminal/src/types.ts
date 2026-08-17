@@ -164,6 +164,30 @@ export type TodoItemSnapshot = {
 };
 
 /**
+ * Goal 快照类型
+ *
+ * 后端 goal 域视图（state_snapshot.state.goal），GoalStatusLine 的数据源。
+ */
+export type GoalStatus = {
+	/** goal ID（goal-<uuid>，CAS 标识） */
+	id: string;
+	/** CAS revision */
+	revision: number;
+	/** 完成目标文本 */
+	objective: string;
+	/** 相位：active | paused | blocked | complete */
+	phase: 'active' | 'paused' | 'blocked' | 'complete';
+	/** 已准入的 goal 轮数 */
+	roundsStarted: number;
+	/** 轮次上限 */
+	maxGoalRounds: number;
+	/** 进程内激活状态：armed | disarmed */
+	activation: 'armed' | 'disarmed';
+	/** 受阻原因（仅 blocked 时存在） */
+	blockedReason?: {code: string; message: string};
+};
+
+/**
  * 群体协作者快照类型
  *
  * 表示群体协作模式中的一个协作者（teammate）的当前状态。
@@ -262,6 +286,11 @@ export type BackendEvent = {
 		/** 结果类型：'success'（成功）、'error'（错误）、'info'（信息） */
 		type: 'success' | 'error' | 'info';
 	} | null;
+	// ---- goal 快捷键操作回执（goal_action_result 携带；成功与否见 success 字段） ----
+	/** 回执的操作名（pause/resume/edit/clear） */
+	goal_action?: string | null;
+	/** 失败原因（code + message） */
+	goal_error?: {code: string; message: string} | null;
 	/** 转录项列表（可选，用于批量更新） */
 	items?: TranscriptItem[] | null;
 	// ---- btw 侧问相关字段 ----
@@ -328,6 +357,8 @@ export type StatusPayload = {
 	mcp_connected?: number;
 	/** 活动代理数 */
 	agent_count?: number;
+	/** 会话 goal 快照（GoalStatusLine 数据源；null 表示无目标） */
+	goal?: GoalStatus | null;
 	/** 其他未知字段索引签名 */
 	[key: string]: unknown;
 };

@@ -24,6 +24,7 @@ import {enterPlanModeTool, exitPlanModeTool} from './implementations/PlanTool.js
 import {enterWorktreeTool, exitWorktreeTool} from './implementations/WorktreeTool.js';
 import {cronTool} from './implementations/CronTool.js';
 import {mcpTool, listMcpResourcesTool, readMcpResourceTool} from './implementations/McpTool.js';
+import {getGoalTool, createGoalTool, updateGoalTool} from './implementations/GoalTool.js';
 
 /** 全局工具注册表实例 */
 const registry: ToolRegistry = new Map();
@@ -114,6 +115,11 @@ function ensureInitialized(): void {
 	register(createGenericTool('team_create', 'TeamCreate'));
 	register(createGenericTool('team_delete', 'TeamDelete'));
 	register(createGenericTool('mcp_auth', 'McpAuth'));
+
+	// Goal 工具（get_goal / create_goal / update_goal）
+	register(getGoalTool);
+	register(createGoalTool);
+	register(updateGoalTool);
 
 	// 渠道媒体工具（当前渠道内发/收文件）
 	register(createGenericTool('send_media', 'SendMedia'));

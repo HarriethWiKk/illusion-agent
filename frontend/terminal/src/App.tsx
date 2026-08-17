@@ -24,6 +24,9 @@ import {ModalHost} from './components/ModalHost.js';
 import {PromptInput} from './components/PromptInput.js';
 import {SelectModal, type SelectOption} from './components/SelectModal.js';
 import {Spinner} from './components/Spinner.js';
+import {GoalStatusLine} from './components/GoalStatusLine.js';
+import {GoalEditBox} from './components/GoalEditBox.js';
+import type {GoalStatus} from './types.js';
 import {StatusBar} from './components/StatusBar.js';
 import {SwarmPanel} from './components/SwarmPanel.js';
 import {TodoPanel} from './components/TodoPanel.js';
@@ -142,9 +145,16 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [stopping, setStopping] = useState(false);
 	/** /agent create 触发的分步创建向导是否可见 */
 	const [showAgentWizard, setShowAgentWizard] = useState(false);
+	/** Ctrl+G 两段式第二段：等待 p/r/e/c 操作键 */
+	const [goalKeyMode, setGoalKeyMode] = useState(false);
+	/** goal 快捷键编辑弹窗（预填当前 objective） */
+	const [goalEditModal, setGoalEditModal] = useState(false);
 	const session = useBackendSession(config, () => exit(), (text) => setInput(text));
 	const isPermissionModal = session.modal?.kind === 'permission';
 	const language = normalizeLanguage(session.status.ui_language);
+	// 当前 goal（Ctrl+G 热键与快捷键提示的显示依据；complete 后不可操作）
+	const currentGoal = session.status.goal as GoalStatus | null | undefined;
+	const hasGoal = !!currentGoal && currentGoal.phase !== 'complete';
 	// 上下文窗口占比（用于 idle 提示行末尾展示，保留一位小数）
 	const contextWindow = Number(session.status.context_window ?? 0);
 	const contextTokens = Number(session.status.context_tokens ?? 0);
@@ -547,6 +557,39 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		if (showAgentWizard) {
 			return;
 		}
+		// --- Ctrl+G → goal 操作模式（两段式第一段；有 goal 且无任何模态时进入） ---
+		if (key.ctrl && chunk.toLowerCase() === 'g') {
+			if (hasGoal && !session.modal && !selectModal && !customInputModal && !goalEditModal && !pendingPermissionAck) {
+				setGoalKeyMode(true);
+			}
+			return;
+		}
+		// --- goal 操作模式（两段式第二段）：Ctrl+P/R/E/D 执行（裸字符不可靠：
+		// 中文 IME 拦截且会串入主输入框草稿，Ctrl 组合直达 raw mode），Esc 退出 ---
+		if (goalKeyMode) {
+			if (key.escape) {
+				setGoalKeyMode(false);
+				return;
+			}
+			if (!key.ctrl) {
+				return;
+			}
+			const k = chunk.toLowerCase();
+			if (k === 'p') {
+				setGoalKeyMode(false);
+				sendGoalAction('pause');
+			} else if (k === 'r') {
+				setGoalKeyMode(false);
+				sendGoalAction('resume');
+			} else if (k === 'd') {
+				setGoalKeyMode(false);
+				sendGoalAction('clear');
+			} else if (k === 'e') {
+				setGoalKeyMode(false);
+				setGoalEditModal(true);
+			}
+			return;
+		}
 		// --- btw 回复面板激活时，按键交由其内部 useInput 处理 ---
 		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
 		if (session.btwReply !== null || session.btwError !== null) {
@@ -714,6 +757,22 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	 *
 	 * @param value - 用户输入的字符串值
 	 */
+	// goal 快捷键操作（Ctrl+G 两段式）：CAS ref 从当前会话 goal 状态读取，
+	// 经 stdin 即时分发绕过 busy 串行，goal 自动续跑期间也能立即生效
+	const sendGoalAction = (action: 'pause' | 'resume' | 'edit' | 'clear', objective?: string): void => {
+		const goal = session.status.goal as GoalStatus | null | undefined;
+		if (!goal || goal.phase === 'complete') {
+			return;
+		}
+		session.sendRequest({
+			type: 'goal_action',
+			goal_action: action,
+			goal_id: goal.id,
+			revision: goal.revision,
+			objective,
+		});
+	};
+
 	const onSubmit = (value: string): void => {
 		if (session.modal?.kind === 'question') {
 			session.sendRequest({
@@ -834,6 +893,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			/>
 		) : null}
 
+		{/* goal 操作模式提示行（Ctrl+G 两段式第二段；风格同底部快捷键提示） */}
+		{goalKeyMode ? (
+			<Box marginTop={1}>
+				<Text dimColor>{t(language, 'goalKeyModeHint')}</Text>
+			</Box>
+		) : null}
+
 		{/* 命令选择器 */}
 			{showPicker ? (
 				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} totalCommands={session.commands.length} />
@@ -890,17 +956,44 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					setShowAgentWizard(false);
 				}}
 			/>
-		) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : session.busy ? (
+		) : session.modal || selectModal || customInputModal || pendingPermissionAck ? null : goalEditModal && currentGoal ? (
+		// goal 编辑框（Ctrl+G → e）：占据 busy 区替换 Shimmer/Goal 状态行，
+		// busy（goal 自动续跑）中也可编辑
+		<GoalEditBox
+			initialValue={currentGoal.objective}
+			language={language}
+			onSubmit={(value) => {
+				setGoalEditModal(false);
+				sendGoalAction('edit', value);
+			}}
+			onCancel={() => setGoalEditModal(false)}
+		/>
+	) : session.busy ? (
 		<Box marginTop={1}>
-			<Spinner
-				label={session.bgAgentLabel ?? undefined}
-				todoItems={session.todoItems}
-				language={language}
-				toolName={currentToolName}
-				sessionId={String(session.status.session_id ?? '')}
-			/>
-		</Box>
-	) : (
+			{(() => {
+				// Goal 存在且未完成时，以 Goal 状态行替代底部 Shimmer（Spinner）：
+				// 相位标签 + 目标 + round 计数；complete/无目标回退原 Spinner
+				if (currentGoal && currentGoal.phase !== 'complete') {
+					return (
+						<GoalStatusLine
+							goal={currentGoal}
+							language={language}
+							sessionId={String(session.status.session_id ?? '')}
+						/>
+					);
+				}
+					return (
+						<Spinner
+							label={session.bgAgentLabel ?? undefined}
+							todoItems={session.todoItems}
+							language={language}
+							toolName={currentToolName}
+							sessionId={String(session.status.session_id ?? '')}
+						/>
+					);
+				})()}
+			</Box>
+		) : (
 		<PromptInput
 			busy={session.busy}
 			stopping={stopping}
@@ -908,15 +1001,24 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			setInput={setInput}
 			onSubmit={onSubmit}
 			toolName={session.busy ? currentToolName : undefined}
-			suppressSubmit={showPicker}
+			suppressSubmit={showPicker || goalKeyMode}
+			inputFocus={!goalKeyMode}
 			cursorReset={cursorReset}
 			language={language}
 			todoItems={session.todoItems}
 		/>
 	)}
 
-			{/* 键盘快捷键提示（仅在后端就绪后显示） */}
-			{session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck && !showAgentWizard ? (
+			{/* 键盘快捷键提示（仅在后端就绪后显示）；goal 编辑期间替换为编辑操作提示 */}
+			{session.ready && goalEditModal ? (
+				<Box marginTop={1}>
+					<Text dimColor>
+						{t(language, 'questionHintCancel')}
+						<Text> {theme.icons.middleDot} </Text>
+						{t(language, 'questionHintSubmit')}
+					</Text>
+				</Box>
+			) : session.ready && !session.modal && !session.busy && !selectModal && !pendingPermissionAck && !showAgentWizard ? (
 				<Box>
 					<Text dimColor>
 						<Text color={theme.colors.muted}>ctrl+a</Text> {t(language, 'lineStart')}
@@ -930,26 +1032,38 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
 						<Text> {theme.icons.middleDot} </Text>
 						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
-						{contextWindow > 0 ? (
-							<>
-								<Text> {theme.icons.middleDot} </Text>
-								{t(language, 'contextUsageSummary')
-									.replace('{used}', fmtTokens(contextTokens))
-									.replace('{window}', fmtTokens(contextWindow))
-									.replace('{pct}', contextPct.toFixed(1))}
-							</>
-						) : null}
-					</Text>
-				</Box>
-			) : session.ready && session.busy && !session.modal && !selectModal && !showAgentWizard ? (
-				<Box marginTop={1}>
-					<Text dimColor>
-						<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
-						<Text> {theme.icons.middleDot} </Text>
-						<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
-					</Text>
-				</Box>
-			) : null}
+					{hasGoal ? (
+						<>
+							<Text> {theme.icons.middleDot} </Text>
+							<Text color={theme.colors.muted}>ctrl+g</Text> {t(language, 'goalHotkeyLabel')}
+						</>
+					) : null}
+					{contextWindow > 0 ? (
+						<>
+							<Text> {theme.icons.middleDot} </Text>
+							{t(language, 'contextUsageSummary')
+								.replace('{used}', fmtTokens(contextTokens))
+								.replace('{window}', fmtTokens(contextWindow))
+								.replace('{pct}', contextPct.toFixed(1))}
+						</>
+					) : null}
+				</Text>
+			</Box>
+		) : session.ready && session.busy && !session.modal && !selectModal && !showAgentWizard ? (
+			<Box marginTop={1}>
+				<Text dimColor>
+					<Text color={theme.colors.muted}>ctrl+c</Text> {t(language, 'exitProgram')}
+					<Text> {theme.icons.middleDot} </Text>
+					<Text color={theme.colors.muted}>ctrl+x</Text> {t(language, 'stopCurrentTask')}
+					{hasGoal ? (
+						<>
+							<Text> {theme.icons.middleDot} </Text>
+							<Text color={theme.colors.muted}>ctrl+g</Text> {t(language, 'goalHotkeyLabel')}
+						</>
+					) : null}
+				</Text>
+			</Box>
+		) : null}
 
 			{/* btw 侧问面板：reply / error / loading 任一存在时显示，Esc 关闭并取消请求 */}
 		{(session.btwReply !== null || session.btwError !== null || session.btwLoading) && !showAgentWizard ? (

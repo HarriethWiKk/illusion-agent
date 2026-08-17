@@ -37,6 +37,7 @@ function noop(): void {}
  * @param props.onSubmit - 提交回调
  * @param props.toolName - 当前工具名称（可选，用于加载动画显示）
  * @param props.suppressSubmit - 是否禁用提交（可选，用于命令选择器打开时）
+ * @param props.inputFocus - 输入框是否聚焦（可选，默认 true；goal 操作模式时失焦防串键）
  * @param props.cursorReset - 光标重置计数器（可选，用于重置光标位置）
  * @param props.language - 当前 UI 语言
  * @param props.todoItems - 待办事项列表（可选，用于加载动画显示）
@@ -50,6 +51,7 @@ export function PromptInput({
 	onSubmit,
 	toolName,
 	suppressSubmit,
+	inputFocus = true,
 	cursorReset,
 	language,
 	todoItems,
@@ -61,6 +63,7 @@ export function PromptInput({
 	onSubmit: (value: string) => void;
 	toolName?: string;
 	suppressSubmit?: boolean;
+	inputFocus?: boolean;
 	cursorReset?: number;
 	language: UiLanguage;
 	todoItems?: TodoItemSnapshot[];
@@ -84,16 +87,16 @@ export function PromptInput({
 				</Box>
 			) : null}
 			<Box borderStyle="round" borderColor={theme.colors.promptBorder} paddingLeft={1} paddingRight={1}>
-				<MultilineTextInput
-					key={cursorReset ?? 0}
-					value={input}
-					onChange={setInput}
-					onSubmit={suppressSubmit ? noop : onSubmit}
-					placeholder={t(language, 'longTextHint')}
-					focus={!busy}
-					columns={inputColumns}
-				/>
-			</Box>
+			<MultilineTextInput
+				key={cursorReset ?? 0}
+				value={input}
+				onChange={setInput}
+				onSubmit={suppressSubmit ? noop : onSubmit}
+				placeholder={t(language, 'longTextHint')}
+				focus={!busy && inputFocus}
+				columns={inputColumns}
+			/>
+		</Box>
 		</Box>
 	);
 }

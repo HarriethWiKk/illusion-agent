@@ -123,6 +123,30 @@ function AgentIndicator({count}: {count: number}): React.JSX.Element {
 	);
 }
 
+/**
+ * Goal 轮次指示器
+ *
+ * 显示当前 goal 的轮次进度（round N/M），置于状态栏最末（agent 之后），
+ * 与 Shell/Agent 指示器同款闪烁动画；off 阶段保留宽度占位避免布局跳动。
+ * 无 goal 或 goal 已完成时不渲染。
+ */
+function GoalIndicator({goal}: {goal: {roundsStarted: number; maxGoalRounds: number; phase: string} | null}): React.JSX.Element | null {
+	const theme = useTheme();
+	const visible = useBlink(true);
+	if (!goal || goal.phase === 'complete') return null;
+	const text = ` · round ${goal.roundsStarted}/${goal.maxGoalRounds}`;
+
+	if (!visible) {
+		return <Box><Text>{' '.repeat(stringWidth(text))}</Text></Box>;
+	}
+
+	return (
+		<Box>
+			<Text color={theme.colors.illusion}>{text}</Text>
+		</Box>
+	);
+}
+
 /** 后台 agent 任务的 type 集合（in_process_agent/local_agent/remote_agent/in_process_teammate） */
 const AGENT_TASK_TYPES = new Set(['in_process_agent', 'local_agent', 'remote_agent', 'in_process_teammate']);
 
@@ -162,6 +186,8 @@ export function StatusBar({
 	const cacheCreationTokens = Number(status.context_cache_creation ?? 0);
 	const inputTokens = Number(status.context_input ?? 0);
 	const outputTokens = Number(status.context_output ?? 0);
+	// goal 视图（roundsStarted/maxGoalRounds/phase；无目标或未加载为 null）
+	const goalStatus = (status.goal as { roundsStarted: number; maxGoalRounds: number; phase: string } | null | undefined) ?? null;
 
 	return (
 		<Box flexDirection="column" marginTop={noMarginTop ? 0 : 1}>
@@ -199,6 +225,7 @@ export function StatusBar({
 				) : null}
 				{shellCount > 0 ? <ShellIndicator count={shellCount} /> : null}
 				{agentCount > 0 ? <AgentIndicator count={agentCount} /> : null}
+				<GoalIndicator goal={goalStatus} />
 			</Box>
 		</Box>
 	);

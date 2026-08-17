@@ -46,6 +46,14 @@ const ZH: Dict = {
 	deny: '拒绝',
 	spinnerVerbs: '思考,分析,推理,生成,处理,计算,检索,整合,优化,验证,解析,构建',
 	spinnerToolAction: '正在着手',
+	// Goal 相位标签
+	goalPhaseActive: '进行中的目标',
+	goalPhasePaused: '已暂停的目标',
+	goalPhaseBlocked: '受阻的目标',
+	// Goal 快捷键提示（Ctrl+G 两段式；第二段 Ctrl 组合，裸字符会被 IME/输入框拦截）
+	goalHotkeyLabel: '目标',
+	goalKeyModeHint: 'ctrl+p 暂停 · ctrl+r 恢复 · ctrl+e 编辑 · ctrl+d 清除 · esc 取消',
+	goalEditPrompt: '编辑目标',
 	longTextHint: '尽情输入吧，多行、粘贴代码都不在话下，输入 "/" 开启更多玩法',
 	clearInput: '删行',
 	lineStart: '行首',
@@ -167,6 +175,14 @@ const EN: Dict = {
 	deny: 'Deny',
 	spinnerVerbs: 'Thinking,Processing,Analyzing,Reasoning,Generating,Computing,Refining,Synthesizing,Optimizing,Validating,Parsing,Building',
 	spinnerToolAction: 'Wielding tool',
+	// Goal phase labels
+	goalPhaseActive: 'Ongoing Goal',
+	goalPhasePaused: 'Paused Goal',
+	goalPhaseBlocked: 'Blocked Goal',
+	// Goal hotkey hints (Ctrl+G two-step; second step uses Ctrl combos — bare keys are swallowed by IME/input)
+	goalHotkeyLabel: 'goal',
+	goalKeyModeHint: 'ctrl+p pause · ctrl+r resume · ctrl+e edit · ctrl+d clear · esc cancel',
+	goalEditPrompt: 'Edit goal',
 	longTextHint: 'Type away — multi-line & code paste all work! Type "/" for more possibilities',
 	clearInput: 'delete line',
 	lineStart: 'start',
