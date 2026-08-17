@@ -163,7 +163,6 @@ illusion update --deps           # 同时更新项目依赖
 | 插件扩展 | `/skills`, `/hooks`, `/mcp`, `/plugin` | 管理扩展功能 |
 | 项目初始化 | `/init` | 初始化项目 IllusionAgent 文件 |
 | 多智能体 | `/continue`, `/agent` | Agent 协作与管理 |
-| 侧问与查看 | `/btw` | 不中断主对话的侧问 |
 
 ### 非交互模式（打印模式）可用参数
 

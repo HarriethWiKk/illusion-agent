@@ -176,9 +176,6 @@ def create_default_command_registry() -> CommandRegistry:
     # --- 认证 ---
     from illusion.commands.auth import login_handler, logout_handler
 
-    # --- 侧问 ---
-    from illusion.commands.btw import btw_handler
-
     # --- Goal ---
     from illusion.commands.goal import goal_handler
 
@@ -261,7 +258,6 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("copy", "Copy the latest response or provided text", copy_handler))
     registry.register(SlashCommand("rewind", "Remove the latest conversation turn(s)", rewind_handler, usage="/rewind [TURNS] [both|conversation]"))
     registry.register(SlashCommand("init", "Initialize project IllusionAgent files", _init_handler))
-    registry.register(SlashCommand("btw", "Ask a side question without interrupting the conversation", btw_handler, usage="/btw <question>"))
     registry.register(SlashCommand("agent", "View completed agent summary or create a new agent", agent_handler, usage="/agent [list|create|<task_id>]"))
     registry.register(SlashCommand("login", "Show auth status or store an API key", login_handler))
     registry.register(SlashCommand("logout", "Clear the stored API key", logout_handler))

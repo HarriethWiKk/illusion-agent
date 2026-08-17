@@ -26,7 +26,6 @@ import TitleBar from './components/TitleBar';
 import ConnectingOverlay from './components/ConnectingOverlay';
 import ImagePreview from './components/ImagePreview';
 import { CustomInputModal } from './components/CustomInputModal';
-import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
 import { SetupForm } from './components/SetupForm';
 import { GoalBar } from './components/GoalBar';
@@ -86,7 +85,7 @@ export default function App() {
     targetSessionId?: string;
   } | null>(null);
 
-  // Agent 摘要浮动卡片：查看已完成 agent 时以卡片形式展示（与 BtwCard 同尺寸）
+  // Agent 摘要浮动卡片：查看已完成 agent 时以卡片形式展示
   const [agentResult, setAgentResult] = useState<string | null>(null);
   const agentRequestIdRef = useRef<string | null>(null); // 当前等待的 agent 请求 ID
 
@@ -242,13 +241,6 @@ export default function App() {
             { value: 'set en', label: 'English', description: 'English UI', active: current === 'en' },
           ],
         });
-        return;
-      }
-      // /btw <question> → 走 btw 侧问通道（不走 web_query）
-      // question 为空时静默忽略，避免发送空请求
-      // busy 时不支持 btw
-      if (cmdName === 'btw' && !session.busy) {
-        if (args) session.sendBtwRequest(args);
         return;
       }
       // /agent create | /agent new → 打开 agent 创建向导
@@ -453,20 +445,6 @@ export default function App() {
       setShowSetupForm(true);
     }
   }, [session.ready, session.firstLogin]);
-
-  /**
-   * 处理关闭侧问卡片
-   *
-   * 若仍在 loading 中，先发送 btw_cancel 取消后端请求，再清空本地状态；
-   * 否则仅清空本地展示状态。
-   */
-  const handleCloseBtw = useCallback(() => {
-    if (session.btwLoading && session.btwRequestId) {
-      session.sendBtwCancel(session.btwRequestId);
-    } else {
-      session.clearBtwState();
-    }
-  }, [session.btwLoading, session.btwRequestId, session.sendBtwCancel, session.clearBtwState]);
 
   /**
    * 处理关闭 agent 创建向导
@@ -741,7 +719,6 @@ export default function App() {
         )}
         commands={session.commands} onSubmit={handleSubmit} onStop={handleStop} stopping={session.stopping}
         inlineOptions={session.inlineOptions} onInlineSelect={handleInlineSelect} onInlineClose={handleInlineClose}
-        btwLoading={session.btwLoading} onBtwSubmit={session.sendBtwRequest}
         workspaces={session.workspaces} activeCwd={session.activeWorkspaceCwd}
         welcomeVisible={welcomeVisible}
         onPickWorkspace={(cwd) => handleNewSession(cwd)}
@@ -931,18 +908,7 @@ export default function App() {
         />
       )}
 
-      {/* 侧问浮动卡片（loading / reply / error 任一非空时显示） */}
-      {(session.btwLoading || session.btwReply != null || session.btwError != null) && (
-        <BtwCard
-          lang={lang}
-          loading={session.btwLoading}
-          reply={session.btwReply}
-          error={session.btwError}
-          onClose={handleCloseBtw}
-        />
-      )}
-
-      {/* Agent 摘要浮动卡片（查看已完成 agent 时展示，与 BtwCard 同尺寸） */}
+      {/* Agent 摘要浮动卡片（查看已完成 agent 时展示） */}
       {agentResult != null && (
         <div className="fixed bottom-24 right-6 z-40 w-[420px] max-w-[calc(100vw-3rem)] animate-fade-in-up">
           <div className="glass-surface rounded-2xl overflow-hidden flex flex-col shadow-glow">

@@ -61,7 +61,6 @@ from illusion.services.agent_creator import (
     validate_agent_definition,
     write_agent_definition,
 )
-from illusion.services.side_question import SideQuestionError, run_side_question
 from illusion.tasks import TaskRecord, get_task_manager
 from illusion.tasks.types import is_task_notification
 from illusion.ui.protocol import (
@@ -195,8 +194,6 @@ class ReactBackendHost:
         # 第一个 future 永不 resolve。所有 modal 请求（permission/question/plan）
         # 必须串行执行，前一个完成释放锁后下一个才能发送 modal_request。
         self._modal_lock: asyncio.Lock = asyncio.Lock()
-        # btw 侧问任务映射：request_id -> asyncio.Task，支持 btw_cancel 取消
-        self._btw_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def run(self) -> int:
         """运行后端主机主循环。
@@ -487,13 +484,6 @@ class ReactBackendHost:
             if not should_continue:
                 await self._emit(BackendEvent(type="shutdown"))
                 self._running = False
-            return
-        # btw 侧问请求
-        if req.type == "btw_request":
-            await self._handle_btw_request(req)
-            return
-        if req.type == "btw_cancel":
-            await self._handle_btw_cancel(req)
             return
         if req.type == "agent_wizard_init":
             await self._handle_agent_wizard_init(req)
@@ -2156,47 +2146,6 @@ class ReactBackendHost:
         await self._emit(self._status_snapshot())
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
-
-    async def _handle_btw_request(self, req: FrontendRequest) -> None:
-        """处理 btw_request：发起侧问并返回 btw_response。
-
-        将 side_question 调用包装为后台任务，存入 _btw_tasks 以支持
-        btw_cancel 中途取消。任务完成后（无论成功/失败）自动从映射移除。
-        """
-        assert self._bundle is not None
-        request_id = req.request_id or ""
-        engine = self._bundle.engine
-        question = req.question or ""
-
-        async def _run() -> None:
-            try:
-                reply = await run_side_question(question, engine)
-                await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, reply=reply)
-                )
-            except SideQuestionError as exc:
-                await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
-                )
-            except Exception as exc:  # noqa: BLE001
-                await self._emit(
-                    BackendEvent(type="btw_response", request_id=request_id, error=str(exc))
-                )
-            finally:
-                self._btw_tasks.pop(request_id, None)
-
-        task = self._create_background_task(_run())
-        self._btw_tasks[request_id] = task
-
-    async def _handle_btw_cancel(self, req: FrontendRequest) -> None:
-        """处理 btw_cancel：取消进行中的侧问任务并回复 cancelled。"""
-        request_id = req.request_id or ""
-        task = self._btw_tasks.pop(request_id, None)
-        if task is not None:
-            task.cancel()
-        await self._emit(
-            BackendEvent(type="btw_response", request_id=request_id, error="cancelled")
-        )
 
     async def _handle_agent_wizard_init(self, req: FrontendRequest) -> None:
         """处理 agent_wizard_init：返回可用工具/模型列表。"""

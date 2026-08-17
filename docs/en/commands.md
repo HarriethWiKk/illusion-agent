@@ -161,7 +161,6 @@ In interactive sessions, you can use the following commands:
 | Plugin Extensions | `/skills`, `/hooks`, `/mcp`, `/plugin` | Manage extension features |
 | Project Init | `/init` | Initialize project IllusionAgent files |
 | Multi-Agent | `/continue`, `/agent` | Agent collaboration and management |
-| Side Question | `/btw` | Ask side questions without interrupting main conversation |
 
 ### Non-Interactive Mode (Print Mode) Available Parameters
 

@@ -83,10 +83,6 @@ const ZH: Dict = {
 	questionHintSubmit: 'Enter 提交',
 	questionHintCancel: 'Esc 取消',
 	questionHintQuickSelect: '数字键快捷选择',
-	// ---- btw 侧问（仅空闲时可用）----
-	btwSideQuestion: '侧问',
-	btwPlaceholder: '输入侧问...',
-	btwHint: '侧问',
 	// ---- max-tokens / 自定义输入模态框 ----
 	maxTokensCustomPrompt: '输入自定义最大令牌数:',
 	maxTokensInvalid: '请输入有效的正整数',
@@ -212,10 +208,6 @@ const EN: Dict = {
 	questionHintSubmit: 'Enter to submit',
 	questionHintCancel: 'Esc to cancel',
 	questionHintQuickSelect: '1-N quick select',
-	// ---- btw side question (idle only) ----
-	btwSideQuestion: 'Side question',
-	btwPlaceholder: 'Ask a side question...',
-	btwHint: 'btw',
 	// ---- max-tokens / custom input modal ----
 	maxTokensCustomPrompt: 'Enter custom max tokens:',
 	maxTokensInvalid: 'Please enter a valid positive integer',

@@ -16,7 +16,6 @@ import {Box, Text, useApp, useInput} from 'ink';
 
 import {getActivityDescription} from './tools/registry.js';
 import {AgentWizard} from './components/AgentWizard.js';
-import {BtwPanel} from './components/BtwPanel.js';
 import {CommandPicker} from './components/CommandPicker.js';
 import {ConversationView} from './components/ConversationView.js';
 import {CustomInputModal} from './components/CustomInputModal.js';
@@ -309,15 +308,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setPendingPermissionAck(false);
 	}, [permissionRequestId, isPermissionModal]);
 
-	// 用户在普通输入框开始输入时，自动关闭残留的 btw 回复面板
-	// 场景：btw 回复到达后用户未按 Esc 关闭，直接在输入框打字 →
-	// btwReply 仍不为 null → useInput guard 拦截斜杠指令的回车和箭头键
-	useEffect(() => {
-		if (input && (session.btwReply !== null || session.btwError !== null)) {
-			session.resetBtwState();
-		}
-	}, [input, session.btwReply, session.btwError, session.resetBtwState]);
-
 	// 后端确认终止（busy→false）后清除 stopping 状态，提示符恢复输入态
 	const prevBusyForStopRef = useRef(session.busy);
 	useEffect(() => {
@@ -462,15 +452,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			return true;
 		}
 
-		// /btw <question> → 发起侧问（仅空闲时可用）
-		if (trimmed.startsWith('/btw ') && !session.busy) {
-			const question = trimmed.slice('/btw '.length).trim();
-			if (question) {
-				session.sendBtwRequest(question);
-				return true;
-			}
-		}
-
 		// /effort 无参数时 → 弹出选择框
 		if (trimmed === '/effort') {
 			session.sendRequest({type: 'select_command', command: 'effort'});
@@ -588,11 +569,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				setGoalKeyMode(false);
 				setGoalEditModal(true);
 			}
-			return;
-		}
-		// --- btw 回复面板激活时，按键交由其内部 useInput 处理 ---
-		// 此 guard 确保箭头键/Esc/回车等不被 App 重复消费
-		if (session.btwReply !== null || session.btwError !== null) {
 			return;
 		}
 		// Ctrl+O → 将完整结果内容显示在对话中（不发送到 AI）
@@ -796,8 +772,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		session.sendRequest({type: 'submit_line', line: trimmed});
 		setInput('');
 		session.setBusy(true);
-		// 清除上一轮残留的 btw 侧问状态，避免 BtwPanel 在新一轮 busy 中显示旧内容
-		session.resetBtwState();
 	};
 
 	// 指令结果自动消失：3 秒后清除
@@ -1065,21 +1039,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			</Box>
 		) : null}
 
-			{/* btw 侧问面板：reply / error / loading 任一存在时显示，Esc 关闭并取消请求 */}
-		{(session.btwReply !== null || session.btwError !== null || session.btwLoading) && !showAgentWizard ? (
-			<Box marginTop={1}>
-				<BtwPanel
-					reply={session.btwReply}
-					error={session.btwError}
-					loading={session.btwLoading}
-					language={language}
-					onDismiss={() => {
-						// sendBtwCancel 内部已处理 requestId 为空时仅清空本地状态
-						session.sendBtwCancel(session.btwRequestId ?? '');
-					}}
-				/>
-			</Box>
-		) : null}
 		</Box>
 	</Box>
 	);

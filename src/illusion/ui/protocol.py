@@ -88,9 +88,7 @@ class FrontendRequest(BaseModel):
         "web_request_workspaces",
         "web_add_workspace",
         "web_remove_workspace",
-        # === btw / agent 向导（terminal + web 共用）===
-        "btw_request",
-        "btw_cancel",
+        # === agent 向导（terminal + web 共用）===
         "agent_wizard_init",
         "agent_generate_request",
         "agent_generate_cancel",
@@ -121,8 +119,7 @@ class FrontendRequest(BaseModel):
     path: str | None = None
     # submit_line 专属：为 True 时跳过命令注册表，直接当 user 消息提交给 LLM
     treat_as_text: bool | None = None
-    # === btw / agent 向导专属字段 ===
-    question: str | None = None  # btw_request 的侧问内容
+    # === agent 向导专属字段 ===
     prompt: str | None = None  # agent_generate_request 的自然语言描述
     model: str | None = None  # agent_generate_request 使用的模型
     fields: dict[str, Any] | None = None  # agent_wizard_submit 的字段
@@ -266,8 +263,7 @@ class BackendEvent(BaseModel):
         "web_query_result",
         "web_workspaces",
         "shutdown",
-        # === btw / agent 向导响应（terminal + web 共用）===
-        "btw_response",
+        # === agent 向导响应（terminal + web 共用）===
         "agent_wizard_init_response",
         "agent_generate_response",
         "agent_wizard_result",
@@ -331,9 +327,8 @@ class BackendEvent(BaseModel):
     web_request_id: str | None = None                   # web_query_result 关联的请求 ID
     web_command: str | None = None                      # web_query_result 关联的命令名
     web_error: str | None = None                        # web_restore_completed 等事件的错误信息（非空表示操作失败）
-    # === btw / agent 向导响应专属字段 ===
+    # === agent 向导响应专属字段 ===
     request_id: str | None = None
-    reply: str | None = None
     error: str | None = None
     agent: dict[str, Any] | None = None
     tools: list[dict[str, Any]] | None = None

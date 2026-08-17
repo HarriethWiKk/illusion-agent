@@ -83,10 +83,6 @@ interface PromptInputProps {
   onInlineSelect?: (command: string, value: string) => void;
   /** 内联选项关闭回调（可选） */
   onInlineClose?: () => void;
-  /** 侧问请求进行中（可选） */
-  btwLoading?: boolean;
-  /** 侧问提交回调（可选） */
-  onBtwSubmit?: (question: string) => void;
   /** 注册的工作区列表（目录按钮弹层数据源） */
   workspaces?: WebWorkspaceItem[];
   /** 当前活跃会话所属工作区目录（null 表示未知） */
@@ -99,7 +95,7 @@ interface PromptInputProps {
   onAddWorkspace?: (path: string) => void;
   /** 打开设置弹窗的目录空间管理页 */
   onManageWorkspaces?: () => void;
-  /** 底部工具行注入内容（Mode/Model/Effort 下拉，右对齐由发送/侧问按钮区隔离） */
+  /** 底部工具行注入内容（Mode/Model/Effort 下拉，右对齐由发送按钮区隔离） */
   children?: React.ReactNode;
   /** 挂载时的初始草稿（rewind 回退到欢迎界面时输入框重挂载，用此回填被回退的 user 消息） */
   initialDraft?: string;
@@ -124,7 +120,7 @@ export interface PromptInputHandle {
   setDraft: (text: string) => void;
 }
 
-const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, btwLoading, onBtwSubmit, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children, initialDraft, onConsumeInitialDraft, activeMenu, onMenuOpen }, ref) {
+const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function PromptInput({ lang, busy, stopping, hasActiveTasks, connected, commands, onSubmit, onStop, inlineOptions, onInlineSelect, onInlineClose, workspaces, activeCwd, welcomeVisible, onPickWorkspace, onAddWorkspace, onManageWorkspaces, children, initialDraft, onConsumeInitialDraft, activeMenu, onMenuOpen }, ref) {
   const [value, setValue] = useState(initialDraft ?? '');
 
   // 挂载时若携带初始草稿（欢迎界面重挂载回填），通知父组件消费清空，避免残留
@@ -163,12 +159,6 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   const listRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // 侧问内联输入框状态
-  const [showBtwInput, setShowBtwInput] = useState(false);
-  const [btwValue, setBtwValue] = useState('');
-  const btwInputRef = useRef<HTMLInputElement>(null);
-  const btwLoadingActive = btwLoading === true;
-  const btwEnabled = typeof onBtwSubmit === 'function';
   // 欢迎界面目录为空：必须先在目录按钮中选定目录（新建会话）才能开始对话，
   // 此时禁用发送，避免在未指定工作区时发空会话消息（handleKeyDown/发送按钮共用）
   const noWorkspaceOnWelcome = welcomeVisible === true && !activeCwd;
@@ -354,64 +344,6 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     onMenuOpen(null);
   };
 
-  /**
-   * 提交侧问问题
-   *
-   * 校验非空且未在 loading 中后调用 onBtwSubmit 回调，并关闭内联输入框。
-   */
-  const handleBtwSubmit = () => {
-    if (btwLoadingActive) return;
-    const q = btwValue.trim();
-    if (!q) return;
-    onBtwSubmit?.(q);
-    setBtwValue('');
-    setShowBtwInput(false);
-  };
-
-  /**
-   * 切换侧问输入框显示
-   *
-   * 关闭时清空已输入内容；打开时延迟聚焦输入框。
-   * loading 进行中禁止再次打开/关闭以避免状态错乱。
-   */
-  const toggleBtwInput = () => {
-    if (btwLoadingActive) return;
-    setShowBtwInput((prev) => {
-      const next = !prev;
-      if (!next) setBtwValue('');
-      if (next) setTimeout(() => btwInputRef.current?.focus(), 0);
-      return next;
-    });
-  };
-
-  /**
-   * 侧问输入框键盘事件处理
-   *
-   * - Enter：提交（与按钮点击等效）
-   * - Esc：取消并关闭输入框
-   * - Ctrl+B：也触发提交（与点击按钮等效，兼容任务约定）
-   *
-   * @param e - 键盘事件
-   */
-  const handleBtwKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleBtwSubmit();
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setBtwValue('');
-      setShowBtwInput(false);
-      return;
-    }
-    // Ctrl+B / Cmd+B：与点击侧问按钮等效，触发提交
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
-      e.preventDefault();
-      handleBtwSubmit();
-    }
-  };
-
   const showInline = inlineOptions && inlineOptions.options.length > 0;
   const showAutocomplete = showCommands && filteredCommands.length > 0 && !showInline;
   // + 号与斜杠共用同一命令弹窗（+ 展示全部 WEB_COMMANDS，斜杠展示过滤结果）
@@ -464,31 +396,6 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         </div>
       )}
 
-      {/* 侧问内联输入框（textarea 上方），busy 时隐藏 */}
-      {btwEnabled && !busy && showBtwInput && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface rounded-2xl px-3 py-2 z-20 animate-fade flex items-center gap-2 transition-all duration-200 focus-within:shadow-glow focus-within:border-primary/40">
-          <span className="text-[10px] text-content-disabled font-semibold uppercase tracking-widest shrink-0">{t(lang, 'btw_button')}</span>
-          <input
-            ref={btwInputRef}
-            type="text"
-            value={btwValue}
-            onChange={(e) => setBtwValue(e.target.value)}
-            onKeyDown={handleBtwKeyDown}
-            placeholder={t(lang, 'btw_placeholder')}
-            disabled={btwLoadingActive}
-            className="flex-1 min-w-0 bg-transparent text-sm text-content-primary placeholder-content-disabled outline-none border-none disabled:opacity-50"
-          />
-          <button
-            onClick={handleBtwSubmit}
-            disabled={btwLoadingActive || !btwValue.trim()}
-            title={t(lang, 'send')}
-            className="shrink-0 px-2 py-1 text-xs font-medium text-white bg-primary hover:bg-primary-hover rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {t(lang, 'send')}
-          </button>
-        </div>
-      )}
-
       {/* 输入区：仅 textarea（字体与主聊天区普通 text 一致） */}
       <div className="flex items-end">
         <textarea
@@ -509,7 +416,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         />
       </div>
 
-      {/* 底部工具行：+ 号 + 目录选择 + Mode/Model/Effort（左），侧问/发送按钮（右）；pt-8 与输入区留出更高视觉空白行 */}
+      {/* 底部工具行：+ 号 + 目录选择 + Mode/Model/Effort（左），发送按钮（右）；pt-8 与输入区留出更高视觉空白行 */}
       <div className="flex items-center justify-between gap-2 px-1 pt-8 pb-2">
         <div className="flex items-center gap-2 min-w-0">
           {/* + 号：打开快捷指令菜单（与斜杠同一弹窗） */}
@@ -631,31 +538,6 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           {children}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {/* 侧问按钮：发送按钮左侧，仅在 btwEnabled 且非 busy 时显示 */}
-          {btwEnabled && !busy && (
-            <button
-              onClick={toggleBtwInput}
-              disabled={btwLoadingActive}
-              title={t(lang, 'btw_button')}
-              className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                showBtwInput
-                  ? 'bg-primary-light text-primary border border-primary/30'
-                  : 'text-content-secondary glass-option-hover hover:text-primary'
-              }`}
-            >
-              {btwLoadingActive ? (
-                <svg className="w-4 h-4 animate-spin text-primary" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
-                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 4.5v5A1.5 1.5 0 0 1 12.5 11H7l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5z" />
-                  <path d="M5.5 7h5M5.5 5.5h3" />
-                </svg>
-              )}
-            </button>
-          )}
           <button
             onClick={handleSend}
             disabled={(!connected && !busy) || stopping || noWorkspaceOnWelcome}

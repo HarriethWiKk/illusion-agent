@@ -147,15 +147,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		text: string;
 		type: 'success' | 'error' | 'info';
 	} | null>(null);
-	// ---- btw 侧问相关状态 ----
-	/** 是否正在等待 btw 回复 */
-	const [btwLoading, setBtwLoading] = useState(false);
-	/** btw 回复文本 */
-	const [btwReply, setBtwReply] = useState<string | null>(null);
-	/** btw 错误文本 */
-	const [btwError, setBtwError] = useState<string | null>(null);
-	/** 当前活跃的 btw 请求 ID（用于取消） */
-	const [btwRequestId, setBtwRequestId] = useState<string | null>(null);
 	// ---- agent 向导相关状态（Task 12 消费） ----
 	/** agent 向导可选工具列表 */
 	const [agentWizardTools, setAgentWizardTools] = useState<{name: string; description: string}[] | null>(null);
@@ -268,64 +259,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	}, []);
 
 	/**
-	 * 发送 btw 侧问请求
-	 *
-	 * 生成唯一 request_id 并写入本地状态，触发 BtwPanel 进入"回答中"态。
-	 *
-	 * @param question - 用户输入的侧问问题文本
-	 */
-	/** btw 待处理队列：活跃请求完成后再依次发送 */
-	const btwQueueRef = useRef<string[]>([]);
-
-	const sendBtwRequest = useCallback((question: string): void => {
-		// 已有活跃请求：排队等待，完成后自动发送
-		if (btwRequestId) {
-			btwQueueRef.current.push(question);
-			return;
-		}
-		const requestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-			? crypto.randomUUID()
-			: `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		setBtwLoading(true);
-		setBtwReply(null);
-		setBtwError(null);
-		setBtwRequestId(requestId);
-		sendRequest({type: 'btw_request', question, request_id: requestId});
-	}, [btwRequestId, sendRequest]);
-
-	/**
-	 * 取消进行中的 btw 请求
-	 *
-	 * 向后端发送 btw_cancel 并清空本地 btw 状态。
-	 * 当 request_id 为空（无活跃请求）时静默忽略，避免无意义请求。
-	 *
-	 * @param requestId - 要取消的 btw 请求 ID；若为空则仅清空本地状态
-	 */
-	const sendBtwCancel = useCallback((requestId: string): void => {
-		if (requestId) {
-			sendRequest({type: 'btw_cancel', request_id: requestId});
-		}
-		// 检查队列：若有待处理的 btw 请求，自动发送下一个
-		const nextQuestion = btwQueueRef.current.shift();
-		if (nextQuestion) {
-			const nextRequestId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-				? crypto.randomUUID()
-				: `btw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-			// 清空旧回复/错误，保留 loading=true 进入下一个请求
-			setBtwReply(null);
-			setBtwError(null);
-			setBtwRequestId(nextRequestId);
-			setBtwLoading(true);
-			sendRequest({type: 'btw_request', question: nextQuestion, request_id: nextRequestId});
-			return;
-		}
-		setBtwLoading(false);
-		setBtwReply(null);
-		setBtwError(null);
-		setBtwRequestId(null);
-	}, [sendRequest]);
-
-	/**
 	 * 请求初始化 agent 向导
 	 * 触发后端返回 agent_wizard_init_response（工具列表 + 模型列表）。
 	 */
@@ -372,20 +305,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		setAgentWizardResult(null);
 		setAgentGenerateLoading(false);
 		setAgentGenerateError(null);
-	}, []);
-
-	/**
-	 * 清空 btw 侧问相关状态（reply / error / loading / requestId）
-	 *
-	 * 用于新会话轮次开始时清除上一轮残留的侧问面板，
-	 * 避免 BtwPanel 在新一轮 busy 中继续显示旧内容。
-	 */
-	const resetBtwState = useCallback((): void => {
-		setBtwLoading(false);
-		setBtwReply(null);
-		setBtwError(null);
-		setBtwRequestId(null);
-		btwQueueRef.current = [];
 	}, []);
 
 	/**
@@ -827,21 +746,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setBgAgentLabel(event.message ?? null);
 			return;
 		}
-		if (event.type === 'btw_response') {
-			// 收到侧问回复：清空 loading；根据 error 设置回复或错误文本
-			setBtwLoading(false);
-			if (event.error === 'cancelled') {
-				// 用户主动取消，不显示 cancelled 错误
-				setBtwReply(null);
-				setBtwError(null);
-			} else if (event.error) {
-				setBtwError(event.error);
-			} else if (event.reply != null) {
-				setBtwReply(event.reply);
-			}
-			// 保留 btwRequestId 以便后续取消 / 关闭面板时回送 btw_cancel
-			return;
-		}
 		if (event.type === 'agent_wizard_init_response') {
 			setAgentWizardTools(event.tools ?? null);
 			setAgentWizardModels(event.models ?? null);
@@ -911,14 +815,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			sendRequest,
 			clearStaticItems,
 			pushStatic,
-			// ---- btw 侧问 ----
-		btwLoading,
-		btwReply,
-		btwError,
-		btwRequestId,
-		sendBtwRequest,
-		sendBtwCancel,
-		resetBtwState,
 		// ---- agent 向导（Task 12 消费） ----
 		agentWizardTools,
 		agentWizardModels,
@@ -939,7 +835,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			exited, mcpServers, modal, pendingToolCalls, ready, selectRequest,
 			showThinking, staticItems, status, swarmNotifications, swarmTeammates,
 			tasks, todoItems, bgAgentLabel,
-			btwLoading, btwReply, btwError, btwRequestId,
 		]
 	);
 }

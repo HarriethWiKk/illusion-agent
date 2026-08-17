@@ -164,12 +164,6 @@ const ZH: Record<string, string> = {
   inputUncachedLabel: '输入（未缓存）',
   cacheHitRate: '缓存命中率',
   pendingMeasurement: '待实测',
-  // btw 侧问相关
-  btw_card_title: '侧问',
-  btw_answering: '回答中...',
-  btw_placeholder: '输入侧问问题...',
-  btw_button: '侧问',
-  btw_close: '关闭',
   // agent 向导相关
   agentBranchTitle: 'Agent 操作',
   agentBranchView: '查看已完成的 agent',
@@ -605,12 +599,6 @@ const EN: Record<string, string> = {
   inputUncachedLabel: 'Input (Uncached)',
   cacheHitRate: 'Cache Hit Rate',
   pendingMeasurement: 'pending',
-  // btw side question
-  btw_card_title: 'Side Question',
-  btw_answering: 'Answering...',
-  btw_placeholder: 'Ask a side question...',
-  btw_button: 'Side Question',
-  btw_close: 'Close',
   // agent wizard
   agentBranchTitle: 'Agent Actions',
   agentBranchView: 'View completed agents',

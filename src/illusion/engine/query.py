@@ -471,9 +471,6 @@ class QueryContext:
     # 退出时的消息列表：run_query 在退出前设置，供 query_engine 同步到 self._messages
     # 解决 full compact 后 messages 指向新列表而 self._messages 仍指向旧列表的问题
     final_messages: list[ConversationMessage] | None = None
-    # 侧问模式：拒绝所有工具调用（返回友好错误消息而非执行）
-    # 用于 /btw 侧问，防止工具调用污染工作区或返回空内容
-    deny_all_tools: bool = False
     # run_query 内发生过压缩（手动 /compact 之外的自动压缩）。
     # query_engine 在 finally 中据此重建 checkpoint，保证
     # resume/rewind 恢复的是压缩后的对话而非压缩前的完整历史。
@@ -735,29 +732,6 @@ async def run_query(
         # 之间，否则会破坏 tool_use→tool_result 紧邻不变量，导致 DeepSeek 等
         # strict provider 返回 400 "tool_use ids were found without tool_result"。
         all_hook_ctxs: list[str] = []
-
-        # 侧问模式：拒绝所有工具调用，返回友好错误消息（英文提示词给 LLM）
-        if context.deny_all_tools:
-            denied_msg = "Side questions cannot use any tools. Answer directly based on conversation context."
-            for tc in tool_calls:
-                yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_use_id=tc.id), None
-                result = ToolResultBlock(
-                    tool_use_id=tc.id,
-                    content=denied_msg,
-                    is_error=True,
-                )
-                yield ToolExecutionCompleted(
-                    tool_name=tc.name,
-                    output=result.text_content,
-                    is_error=True,
-                    tool_use_id=tc.id,
-                ), None
-                tool_results_list.append(result)
-            # 将工具结果合并为一条 user 消息
-            merged = _synthesize_pending_tool_results(tool_calls, tool_results_list, lambda name: denied_msg)  # noqa: B023
-            messages.append(ConversationMessage(role="user", content=merged))
-            yield ToolChainCompleted(results_summary=[]), None
-            continue
 
         try:
             if len(tool_calls) == 1:

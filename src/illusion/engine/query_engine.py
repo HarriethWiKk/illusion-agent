@@ -280,7 +280,7 @@ class QueryEngine:
     def tool_registry(self) -> ToolRegistry:
         """返回工具注册表（只读）。
 
-        供侧问等外部服务复用 engine 的工具集，无需重复构建。
+        供外部服务复用 engine 的工具集，无需重复构建。
         """
         return self._tool_registry
 
@@ -288,7 +288,7 @@ class QueryEngine:
     def permission_checker(self) -> PermissionChecker:
         """返回权限检查器（只读）。
 
-        供侧问等外部服务复用 engine 的权限配置。
+        供外部服务复用 engine 的权限配置。
         """
         return self._permission_checker
 

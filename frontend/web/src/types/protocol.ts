@@ -250,9 +250,6 @@ export type FrontendRequest =
   | { type: 'web_request_workspaces' }
   | { type: 'web_add_workspace'; path: string }
   | { type: 'web_remove_workspace'; path: string }
-  // === btw 侧问（terminal + web 共用）===
-  | { type: 'btw_request'; question: string; request_id: string; session_id?: string }
-  | { type: 'btw_cancel'; request_id: string; session_id?: string }
   // === agent 向导（terminal + web 共用）===
   | { type: 'agent_wizard_init' }
   | { type: 'agent_generate_request'; prompt: string; model: string; request_id: string; session_id?: string }
@@ -358,14 +355,11 @@ export interface BackendEvent {
   web_command?: string;
   /** web_restore_completed 等事件的错误信息（非空表示操作失败）（可选） */
   web_error?: string;
-  // === btw 侧问响应专属字段 ===
-  /** btw_response 关联的请求 ID（可选） */
-  request_id?: string;
-  /** btw_response 的回复文本（可选，非 null 表示成功回复） */
-  reply?: string | null;
-  /** btw_response 的错误文本（可选，非空表示请求失败）（与布尔 is_error 区分） */
-  error?: string | null;
   // === agent 向导响应专属字段 ===
+  /** 关联的请求 ID（可选，agent_generate_response 携带） */
+  request_id?: string;
+  /** agent_generate_response 等的错误文本（可选，非空表示请求失败）（与布尔 is_error 区分） */
+  error?: string | null;
   /** agent_wizard_init_response 推送的工具列表（可选） */
   tools?: { name: string; description: string }[];
   /** agent_wizard_init_response 推送的模型列表（可选，后端返回 name 字段） */

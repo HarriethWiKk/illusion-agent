@@ -177,11 +177,6 @@ interface SessionViewState {
   inlineOptions: SelectRequestPayload | null;
   /** reasoning 是否正在流式（大脑脉冲动画跟随：流完即停，text 继续流不影响） */
   reasoningStreaming: boolean;
-  /** 会话级侧问状态 */
-  btwLoading: boolean;
-  btwReply: string | null;
-  btwError: string | null;
-  btwRequestId: string | null;
   /** 停止请求已发送、等待后端确认 */
   stopping: boolean;
 }
@@ -270,21 +265,6 @@ export interface WebSocketSessionState {
   inlineOptions: SelectRequestPayload | null;
   /** 设置活跃会话的内联选项（/language 等前端本地弹出的选择框） */
   setInlineOptions: (payload: SelectRequestPayload | null) => void;
-  // ---- btw 侧问相关（活跃视图）----
-  /** 侧问请求进行中 */
-  btwLoading: boolean;
-  /** 侧问回复文本（非 null 表示成功回复） */
-  btwReply: string | null;
-  /** 侧问错误文本（非空表示失败） */
-  btwError: string | null;
-  /** 当前活跃的 btw 请求 ID */
-  btwRequestId: string | null;
-  /** 发送侧问请求：生成 request_id 并发 btw_request */
-  sendBtwRequest: (question: string) => void;
-  /** 取消侧问请求：发 btw_cancel 并清空本地 btw 状态 */
-  sendBtwCancel: (requestId: string) => void;
-  /** 清空所有 btw 状态（关闭卡片时调用） */
-  clearBtwState: () => void;
   // ---- agent 向导相关（全局）----
   /** agent 向导可选工具列表（来自 agent_wizard_init_response） */
   agentWizardTools: { name: string; description: string }[] | null;
@@ -363,16 +343,12 @@ function createSessionView(id: string, cwd: string = ''): SessionViewState {
     todoItems: [],
     inlineOptions: null,
     reasoningStreaming: false,
-    btwLoading: false,
-    btwReply: null,
-    btwError: null,
-    btwRequestId: null,
     stopping: false,
   };
 }
 
 /**
- * 生成唯一请求 ID（btw / agent generate 用）
+ * 生成唯一请求 ID（agent generate 用）
  *
  * 优先使用 crypto.randomUUID，不可用时回退到时间戳+随机串兜底。
  */
@@ -746,30 +722,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const setInlineOptions = useCallback((payload: SelectRequestPayload | null) => {
     const sid = activeSessionIdRef.current;
     if (sid) patchView(sid, { inlineOptions: payload });
-  }, [patchView]);
-
-  /** 发送 btw 侧问请求（针对活跃会话） */
-  const sendBtwRequest = useCallback((question: string): void => {
-    const sid = activeSessionIdRef.current;
-    if (!sid) return;
-    const requestId = genRequestId('btw');
-    patchView(sid, { btwLoading: true, btwReply: null, btwError: null, btwRequestId: requestId });
-    sendRequest({ type: 'btw_request', question, request_id: requestId });
-  }, [patchView, sendRequest]);
-
-  /** 取消进行中的 btw 请求（针对活跃会话） */
-  const sendBtwCancel = useCallback((requestId: string): void => {
-    if (requestId) {
-      sendRequest({ type: 'btw_cancel', request_id: requestId });
-    }
-    const sid = activeSessionIdRef.current;
-    if (sid) patchView(sid, { btwLoading: false, btwReply: null, btwError: null, btwRequestId: null });
-  }, [patchView, sendRequest]);
-
-  /** 清空活跃会话所有 btw 状态（关闭卡片时调用） */
-  const clearBtwState = useCallback((): void => {
-    const sid = activeSessionIdRef.current;
-    if (sid) patchView(sid, { btwLoading: false, btwReply: null, btwError: null, btwRequestId: null });
   }, [patchView]);
 
   /** 发送 GoalBar 操作（CAS ref 从当前会话 goal 状态调用时读取） */
@@ -1194,26 +1146,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           return;
         }
 
-        // btw 侧问响应（按会话路由，request_id 匹配）
-        if (evt.type === 'btw_response') {
-          const viewNow = viewsRef.current[sid];
-          if (!viewNow || !viewNow.btwRequestId) {
-            // 无活跃请求时（用户已取消/关闭卡片）忽略所有迟到响应
-            return;
-          }
-          // 仅处理与当前活跃 request_id 匹配的响应，避免过期响应覆盖新请求状态
-          if (evt.request_id && evt.request_id !== viewNow.btwRequestId) {
-            return;
-          }
-          if (evt.error) {
-            patchView(sid, { btwLoading: false, btwError: evt.error });
-          } else if (evt.reply != null) {
-            patchView(sid, { btwLoading: false, btwReply: evt.reply });
-          }
-          // 保留 btwRequestId 以便后续关闭卡片时仍可发 btw_cancel
-          return;
-        }
-
         // 会话级错误 → 转录
         if (evt.type === 'error') {
           pushStatic(sid, { role: 'system', text: `error: ${evt.message ?? 'unknown error'}` });
@@ -1491,12 +1423,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       requestResources,
       inlineOptions: view?.inlineOptions ?? null,
       setInlineOptions,
-      // btw（活跃视图）
-      btwLoading: view?.btwLoading ?? false,
-      btwReply: view?.btwReply ?? null,
-      btwError: view?.btwError ?? null,
-      btwRequestId: view?.btwRequestId ?? null,
-      sendBtwRequest, sendBtwCancel, clearBtwState,
       // agent 向导（全局）
       agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
       agentGenerateError, agentWizardResult,
@@ -1517,7 +1443,6 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     workspaces, resourcesCwd,
     activateSession, newSession, setInlineOptions, patchView,
     requestWorkspaces, addWorkspace, removeWorkspace, requestResources,
-    sendBtwRequest, sendBtwCancel, clearBtwState,
     agentWizardTools, agentWizardModels, agentGenerated, agentGenerateLoading,
     agentGenerateError, agentWizardResult,
     sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
