@@ -173,6 +173,12 @@ def build_runtime_system_prompt(
             "Adjust depth and iteration count to match this setting while still completing the task."
         )
 
+    # Goal 章节（settings.goal.enabled 时注入）
+    if settings.goal.enabled:
+        from illusion.goal.prompts import goal_guidance
+
+        sections.append(f"# Goal\n\n{goal_guidance(settings.goal.blocked_after_consecutive_rounds)}")
+
     # 技能章节
     skills_section = _build_skills_section(cwd)
     if skills_section:

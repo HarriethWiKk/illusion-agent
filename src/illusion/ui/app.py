@@ -390,6 +390,7 @@ async def run_print_mode(
         AssistantTextDelta,
         AssistantTurnComplete,
         ErrorEvent,
+        GoalStatusEvent,
         StatusEvent,
         ToolExecutionCompleted,
         ToolExecutionStarted,
@@ -723,6 +724,38 @@ async def run_print_mode(
                     print(event.message, file=sys.stderr)
                 elif output_format == "stream-json":
                     obj = {"type": "status", "message": event.message}
+                    print(json.dumps(obj), flush=True)
+                    events_list.append(obj)
+            # goal 轮次生命周期（print 模式本地化提示；stream-json 结构化透传）
+            elif isinstance(event, GoalStatusEvent):
+                if event.kind == "round" and event.round is not None:
+                    message = _t(
+                        "goal_status_round",
+                        round=event.round,
+                        max=event.max_rounds or 0,
+                    )
+                elif event.kind == "wrapup":
+                    message = _t(
+                        "goal_status_wrapup_complete"
+                        if event.phase == "complete"
+                        else "goal_status_wrapup_blocked"
+                    )
+                elif event.kind == "limit":
+                    message = _t("goal_status_limit", max=event.max_rounds or 0)
+                else:
+                    message = _t("goal_status_disarmed")
+                if output_format == "text":
+                    print(message, file=sys.stderr)
+                elif output_format == "stream-json":
+                    obj = {
+                        "type": "goal_status",
+                        "goal_status": {
+                            "kind": event.kind,
+                            "round": event.round,
+                            "max_rounds": event.max_rounds,
+                            "phase": event.phase,
+                        },
+                    }
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
 

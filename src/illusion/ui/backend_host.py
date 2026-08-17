@@ -43,6 +43,7 @@ from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
     ErrorEvent,
+    GoalStatusEvent,
     StatusEvent,
     StreamEvent,
     ToolChainCompleted,
@@ -51,6 +52,7 @@ from illusion.engine.stream_events import (
     ToolExecutionStarted,
     ToolProgressEvent,
 )
+from illusion.goal.prompts import is_goal_system_message
 from illusion.output_styles import load_output_styles
 from illusion.services.agent_creator import (
     generate_agent_from_description,
@@ -419,6 +421,12 @@ class ReactBackendHost:
         while self._running:
             await asyncio.sleep(1.0)
             if self._running and self._bundle is not None:
+                # goal 状态从引擎实时刷新（goal 轮次期间 rounds/phase 持续变化，
+                # 仅靠行结束后的 sync_app_state 会停留在运行前的旧值）
+                bundle = self._bundle
+                goal = bundle.engine.goal_status_payload()
+                if bundle.app_state.get().goal != goal:
+                    bundle.app_state.set(goal=goal)
                 await self._emit(self._status_snapshot())
 
     async def _process_request(self, req: FrontendRequest) -> None:
@@ -578,6 +586,12 @@ class ReactBackendHost:
             # 它会 cancel self._active_line_task 解除主循环阻塞（原版 _read_requests 也是
             # 在独立 task 中直接 await self._stop_active_line）。
             self._create_background_task(self._stop_active_line())
+            return
+        if req.type == "goal_action":
+            # goal 快捷键操作（Ctrl+G 两段式）也必须即时处理：goal 自动续跑
+            # 期间主循环阻塞在行任务，入队会被扣到全部轮次结束才消费，
+            # 无法实现 busy 中暂停/编辑/清除
+            self._create_background_task(self._handle_goal_action(req))
             return
 
         # 其他请求入队
@@ -809,6 +823,21 @@ class ReactBackendHost:
                         BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
                     )
                 return
+            # goal 轮次生命周期：结构化事件（TUI 的轮次经 StatusBar/Shimmer
+            # 状态呈现，此处仅转发；前端按需忽略）
+            if isinstance(event, GoalStatusEvent):
+                await self._emit(
+                    BackendEvent(
+                        type="goal_status",
+                        goal_status={
+                            "kind": event.kind,
+                            "round": event.round,
+                            "max_rounds": event.max_rounds,
+                            "phase": event.phase,
+                        },
+                    )
+                )
+                return
 
         return _render_event
 
@@ -880,6 +909,164 @@ class ReactBackendHost:
         await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
         await self._emit(BackendEvent(type="line_complete"))
         return should_continue
+
+    async def _handle_goal_action(self, req: FrontendRequest) -> None:
+        """处理 goal 快捷键操作（Ctrl+G 两段式的 pause/resume/edit/clear）。
+
+        与 /goal 命令同源的 human 权威操作，但经 stdin 即时分发绕过行任务
+        串行路径，busy 中（goal 自动续跑期间）立即生效：pause/clear 使
+        当前轮结束后停止续跑，edit 对下一轮生效，resume 空闲时立即驱动。
+
+        Args:
+            req: goal_action 请求（带 CAS goal_id/revision）
+        """
+        from illusion.config.i18n import t as _t
+        from illusion.goal.types import GoalError
+
+        _RESULT_KEYS = {
+            "pause": "goal_action_paused",
+            "resume": "goal_action_resumed",
+            "edit": "goal_action_edited",
+            "clear": "goal_action_cleared",
+        }
+
+        action = req.goal_action or ""
+        bundle = self._bundle
+        if bundle is None:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": "goal-disabled", "message": "goal feature is disabled"},
+            ))
+            return
+        manager = bundle.engine.goal_manager
+        if manager is None:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": "goal-disabled", "message": "goal feature is disabled"},
+            ))
+            return
+        # 快捷键是人类操作：权威来源切换为 human
+        manager.current_source = "human"
+        try:
+            if action == "clear":
+                manager.clear(req.goal_id, req.revision)
+            else:
+                # pause/resume/edit 需要精确 CAS（goal_id + revision）；缺失时拒绝
+                if (
+                    not req.goal_id
+                    or not isinstance(req.revision, int)
+                    or isinstance(req.revision, bool)
+                    or req.revision < 1
+                ):
+                    raise GoalError(
+                        "goal_id/revision are required for this goal action",
+                        code="GOAL_TOOL_INVALID_UPDATE",
+                    )
+                gid: str = req.goal_id
+                rev: int = req.revision
+                if action == "pause":
+                    manager.pause(gid, rev)
+                elif action == "resume":
+                    manager.resume(gid, rev)
+                elif action == "edit":
+                    objective = (req.objective or "").strip()
+                    if not objective:
+                        raise GoalError(
+                            "objective must be a non-empty string",
+                            code="GOAL_TOOL_INVALID_UPDATE",
+                        )
+                    manager.edit(gid, rev, objective=objective)
+                else:
+                    raise GoalError(
+                        f"unknown goal action: {action}",
+                        code="GOAL_TOOL_INVALID_UPDATE",
+                    )
+        except GoalError as exc:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": exc.code, "message": exc.message},
+            ))
+            await self._emit(BackendEvent(
+                type="command_result",
+                command_result_data={
+                    "message": _t("goal_action_failed", message=exc.message),
+                    "type": "error",
+                },
+            ))
+            return
+        # 成功：goal 状态落盘并立即推送（不等行任务边界）
+        store = bundle.engine.checkpoint_store
+        if store is not None and manager.dirty:
+            await store.append_goal(manager.persisted_state())
+        await self._emit(BackendEvent(
+            type="goal_action_result",
+            success=True,
+            goal_action=action,
+        ))
+        await self._emit(BackendEvent(
+            type="command_result",
+            command_result_data={
+                "message": _t(_RESULT_KEYS.get(action, "goal_action_edited")),
+                "type": "success",
+            },
+        ))
+        await self._emit(self._status_snapshot())
+        # resume 且空闲：立即驱动续跑（与 /goal resume 的 drive_goal 路径一致；
+        # busy 时当前轮结束的空闲边界自然续跑，不重复驱动）
+        # 已有活跃行任务时跳过：防止快速连按两次 resume 覆盖 _active_line_task
+        # 造成孤儿任务与 _busy 状态不一致
+        if (
+            action == "resume"
+            and not self._busy
+            and (self._active_line_task is None or self._active_line_task.done())
+        ):
+            self._busy = True
+            try:
+                self._active_line_task = asyncio.create_task(self._drive_goal_line())
+                await self._active_line_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._active_line_task = None
+                self._busy = False
+                self._create_background_task(self._check_post_idle_bg())
+
+    async def _drive_goal_line(self) -> bool:
+        """goal 快捷键 resume 后的驱动行任务。
+
+        与 runtime.handle_line 的 drive_goal 路径等价：消费引擎
+        drive_goal_rounds 事件流并渲染，结束后按 _process_line 同款收尾。
+
+        Returns:
+            bool: 是否继续会话（始终 True）
+        """
+        from illusion.engine.query import MaxTurnsExceeded
+
+        assert self._bundle is not None
+        await self._update_phase("thinking")
+        _render_event = await self._make_render_event()
+        try:
+            async for event in self._bundle.engine.drive_goal_rounds():
+                await _render_event(event)
+        except MaxTurnsExceeded as exc:
+            await self._emit(BackendEvent(
+                type="transcript_item",
+                item=TranscriptItem(
+                    role="system",
+                    text=f"Stopped after {exc.max_turns} turns (max_turns).",
+                ),
+            ))
+        await self._update_phase("idle")
+        await self._emit(self._status_snapshot())
+        await self._emit(BackendEvent.tasks_snapshot(get_task_manager().list_tasks()))
+        await self._emit(BackendEvent(type="line_complete"))
+        return True
 
     async def _process_line(
         self,
@@ -1111,12 +1298,13 @@ class ReactBackendHost:
         if mode not in ("both", "conversation"):
             return True
         messages = self._bundle.engine.messages
-        # 计算 target 之后需回退的真实用户轮次（排除 / 命令与后台任务完成通知）
+        # 计算 target 之后需回退的真实用户轮次（排除 / 命令、后台任务完成通知与 goal 注入消息）
         turns = sum(
             1 for i, msg in enumerate(messages)
             if i >= target_idx and msg.role == "user" and msg.text.strip()
             and not msg.text.strip().startswith("/")
             and not is_task_notification(msg.text)
+            and not is_goal_system_message(msg.text)
         )
         if turns <= 0:
             return True
@@ -1439,12 +1627,13 @@ class ReactBackendHost:
 
         if command == "rewind":
             messages = self._bundle.engine.messages
-            # 过滤后台任务完成通知（<task-notification>），它们不应出现在回退选项中
+            # 过滤后台任务完成通知与 goal harness 注入消息，它们不应出现在回退选项中
             user_msgs = [
                 (i, msg) for i, msg in enumerate(messages)
                 if msg.role == "user" and msg.text.strip()
                 and not msg.text.strip().startswith("/")
                 and not is_task_notification(msg.text)
+                and not is_goal_system_message(msg.text)
             ]
             if not user_msgs:
                 await self._emit(BackendEvent(

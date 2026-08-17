@@ -72,3 +72,4 @@ class AppState:
     output_tokens: int = 0  # 累积 API output tokens
     cache_read_input_tokens: int = 0  # 累积缓存命中 tokens
     cache_creation_input_tokens: int = 0  # 累积缓存写入 tokens
+    goal: dict[str, object] | None = None  # goal 视图（phase/objective/rounds 等；无目标为 None）

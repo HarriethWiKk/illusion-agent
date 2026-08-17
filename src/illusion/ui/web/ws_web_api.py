@@ -69,14 +69,16 @@ def build_replay_items(replay_messages: list[Any] | None) -> list[dict[str, Any]
     if not replay_messages:
         return []
     from illusion.engine.messages import ToolResultBlock, ToolUseBlock
+    from illusion.goal.prompts import is_goal_system_message
     from illusion.tasks.types import is_task_notification
     items: list[dict[str, Any]] = []
     # 保存 tool_use_id -> tool_name 的映射
     tool_name_map: dict[str, str] = {}
     for msg in replay_messages:
         if msg.role == "user":
-            # 跳过后台任务完成通知：仅注入 LLM，不参与前端重放渲染
-            if msg.text.strip() and not is_task_notification(msg.text):
+            # 跳过后台任务完成通知与 goal harness 注入消息：仅注入 LLM，
+            # 不参与前端重放渲染
+            if msg.text.strip() and not is_task_notification(msg.text) and not is_goal_system_message(msg.text):
                 items.append({"role": "user", "text": msg.text})
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):

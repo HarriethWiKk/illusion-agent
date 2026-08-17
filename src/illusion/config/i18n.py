@@ -390,6 +390,49 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh-CN": "已达到最大轮次 ({max_turns})，停止执行",
         "en-US": "Stopped after {max_turns} turns (max_turns)",
     },
+    # goal 轮次生命周期提示（print 模式 / web toast 共用文案）
+    "goal_status_round": {
+        "zh-CN": "目标轮次 {round}/{max}",
+        "en-US": "Goal round {round}/{max}",
+    },
+    "goal_status_wrapup_complete": {
+        "zh-CN": "目标完成 — 正在写收尾消息",
+        "en-US": "Goal complete — writing closing message",
+    },
+    "goal_status_wrapup_blocked": {
+        "zh-CN": "目标受阻 — 正在写收尾消息",
+        "en-US": "Goal blocked — writing closing message",
+    },
+    "goal_status_limit": {
+        "zh-CN": "已达到轮次上限（{max}），目标自动暂停",
+        "en-US": "Goal round limit reached ({max}); goal auto-paused",
+    },
+    "goal_status_disarmed": {
+        "zh-CN": "单轮达到最大轮次，目标已解除武装；要求继续可恢复",
+        "en-US": "Goal round hit max turns; goal disarmed. Ask to resume to continue",
+    },
+    # goal 快捷键操作回执（terminal Ctrl+G 两段式；command_result 显示）
+    # pause 不打断当前轮：跑完自然停在边界，故文案区分"已暂停"与"续跑已停止"
+    "goal_action_paused": {
+        "zh-CN": "目标已暂停：当前轮完成后停止，不再自动续跑",
+        "en-US": "Goal paused: stops after the current round finishes; no further auto rounds",
+    },
+    "goal_action_resumed": {
+        "zh-CN": "目标已恢复：从停止点继续自动轮次",
+        "en-US": "Goal resumed: continuing autonomous rounds from where it stopped",
+    },
+    "goal_action_edited": {
+        "zh-CN": "目标已更新：当前轮完成后按新目标续跑",
+        "en-US": "Goal updated: next round continues with the new objective",
+    },
+    "goal_action_cleared": {
+        "zh-CN": "目标已清除：当前轮完成后停止",
+        "en-US": "Goal cleared: stops after the current round finishes",
+    },
+    "goal_action_failed": {
+        "zh-CN": "目标操作失败：{message}",
+        "en-US": "Goal action failed: {message}",
+    },
     # 会话摘要缺失时的回退文本
     "session_summary_fallback": {
         "zh-CN": "(无摘要)",
@@ -541,6 +584,7 @@ COMMAND_DESCRIPTIONS_ZH: dict[str, str] = {
     "update": "检查并更新 IllusionAgent",
     "btw": "在不中断主对话的情况下提出侧问",
     "agent": "查看已完成 agent 摘要或创建新 agent",
+    "goal": "设置或查看长任务的完成目标",
 }
 
 # --- 斜杠命令输出翻译 ---
@@ -561,6 +605,13 @@ _COMMAND_EXACT: dict[str, str] = {
     "No saved sessions found for this project.": "当前项目未找到已保存会话。",
     "Nothing to copy.": "没有可复制的内容。",
     "Deleted current session:": "已删除当前会话：",
+    # Goal
+    "No goal is currently set.": "当前未设置目标。",
+    "Goal cleared.": "目标已清除。",
+    "Goal paused.": "目标已暂停。",
+    "Goal resumed. Continuing autonomous rounds…": "目标已恢复。继续自动轮次…",
+    "Goal objective updated.": "目标内容已更新。",
+    "Goal set. Starting autonomous rounds…": "目标已设置。开始自动轮次…",
     # 记忆与 hooks
     "No memory files.": "没有记忆文件。",
     "No hooks configured.": "未配置 hooks。",

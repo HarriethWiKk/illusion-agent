@@ -179,6 +179,9 @@ def create_default_command_registry() -> CommandRegistry:
     # --- 侧问 ---
     from illusion.commands.btw import btw_handler
 
+    # --- Goal ---
+    from illusion.commands.goal import goal_handler
+
     # --- Init ---
     from illusion.commands.init import run_init
 
@@ -283,6 +286,12 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("rename", "Rename a session", rename_handler, usage="/rename [name|#N name|session_id name|--clear]"))
     registry.register(SlashCommand("rules", "View project rules", rules_handler))
     registry.register(SlashCommand("sandbox", "Show sandbox status or manage excluded commands", sandbox_handler))
+    registry.register(SlashCommand(
+        "goal",
+        "set or view the goal for a long-running task",
+        goal_handler,
+        usage="[<objective>|clear|edit <objective>|pause|resume]",
+    ))
 
     # /help 需要引用 registry 实例
     help_handler = make_help_handler(registry)

@@ -95,6 +95,8 @@ class FrontendRequest(BaseModel):
         "agent_generate_request",
         "agent_generate_cancel",
         "agent_wizard_submit",
+        # === Goal 状态栏操作（web GoalBar；terminal 用 /goal 命令）===
+        "goal_action",
     ]
     line: str | None = None
     command: str | None = None
@@ -125,6 +127,11 @@ class FrontendRequest(BaseModel):
     model: str | None = None  # agent_generate_request 使用的模型
     fields: dict[str, Any] | None = None  # agent_wizard_submit 的字段
     scope: str | None = None  # agent_wizard_submit 的作用域（user/project）
+    # === goal_action 专属字段（web GoalBar 的 pause/resume/edit/clear）===
+    goal_action: str | None = None  # pause | resume | edit | clear
+    goal_id: str | None = None  # CAS：当前 goal 的精确 id
+    revision: int | None = None  # CAS：当前 goal 的精确 revision
+    objective: str | None = None  # edit 的替换目标文本
 
 
 class TranscriptItem(BaseModel):
@@ -264,6 +271,10 @@ class BackendEvent(BaseModel):
         "agent_wizard_init_response",
         "agent_generate_response",
         "agent_wizard_result",
+        # === Goal 状态栏操作结果（web GoalBar 内联错误显示）===
+        "goal_action_result",
+        # === Goal 轮次生命周期（web toast / terminal StatusBar，不进转录）===
+        "goal_status",
         # === 版本更新提醒 ===
         "update_available",
     ]
@@ -335,6 +346,11 @@ class BackendEvent(BaseModel):
     first_login: bool | None = None
     # === 版本更新提醒（update_available 事件携带）===
     latest_version: str | None = None
+    # === goal_action_result 专属字段 ===
+    goal_action: str | None = None          # 回执的操作名（pause/resume/edit/clear）
+    goal_error: dict[str, Any] | None = None  # 失败时的 {code, message}
+    # === goal_status 专属字段（结构化轮次生命周期，前端本地化）===
+    goal_status: dict[str, Any] | None = None  # {kind: round|wrapup|limit|disarmed, round?, max_rounds?, phase?}
 
     @classmethod
     def ready(
@@ -461,6 +477,7 @@ def _state_payload(state: AppState) -> dict[str, Any]:
         "output_tokens": state.output_tokens,
         "cache_read_input_tokens": state.cache_read_input_tokens,
         "cache_creation_input_tokens": state.cache_creation_input_tokens,
+        "goal": state.goal,
         "agent_count": len(list_active_agents()),
     }
 

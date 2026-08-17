@@ -110,6 +110,26 @@ class MemorySettings(BaseModel):
     dream_min_sessions: int = 5  # Auto Dream 最小会话数 5
 
 
+class GoalSettings(BaseModel):
+    """Goal 子系统配置
+
+    Attributes:
+        enabled: 是否启用 goal 功能（关闭时不注册 goal 工具/命令）
+        default_max_goal_rounds: 创建 goal 时的默认轮次上限（默认 256）
+        blocked_after_consecutive_rounds: 模型自报 blocked 前的最小轮次门槛
+            （默认 3）
+        verification_enabled: 完成声明是否经对抗性验证子代理复核
+        verification_max_attempts: 验证拒绝累计上限，达到后自动置为 blocked
+            （默认 10）
+    """
+
+    enabled: bool = True
+    default_max_goal_rounds: int = 256
+    blocked_after_consecutive_rounds: int = 3
+    verification_enabled: bool = True
+    verification_max_attempts: int = 10
+
+
 class SandboxNetworkSettings(BaseModel):
     """沙箱网络限制配置
     
@@ -283,6 +303,7 @@ class Settings(BaseModel):
     permission: PermissionSettings = Field(default_factory=PermissionSettings)
     hooks: dict[str, Any] = Field(default_factory=dict)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    goal: GoalSettings = Field(default_factory=GoalSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)

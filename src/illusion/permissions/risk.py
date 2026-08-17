@@ -41,7 +41,6 @@ _MUTATING_TOOLS_SOURCE: frozenset[str] = frozenset(
         "mcp_auth",
         "send_message",
         "cron",
-        "plan",
         "todo_write",
         "task_output",
         "agent",

@@ -47,6 +47,7 @@ class RestoreResult:
         last_usage: 最后一次 API 调用的单次用量（含缓存分项），无则 None
         last_usage_message_count: 最后一次 API 调用时的消息数快照
         checkpoint_count: _checkpoint 行数（用于 rewind 计数）
+        goal_state: 最后一个 _goal 行的状态（goal 域 last-wins 快照），无则 None
     """
     messages: list[ConversationMessage]
     usage_input: int
@@ -56,6 +57,7 @@ class RestoreResult:
     last_usage: UsageSnapshot | None
     last_usage_message_count: int
     checkpoint_count: int
+    goal_state: dict[str, Any] | None = None
 
 
 class CheckpointStore:
@@ -171,6 +173,15 @@ class CheckpointStore:
             "role": message.role,
             "message": message.model_dump(mode="json"),
         }
+        await self._append_line(record)
+
+    async def append_goal(self, state: dict[str, Any] | None) -> None:
+        """追加 _goal 行（goal 域 last-wins 快照；None 为 clear 墓碑）。
+
+        Args:
+            state: GoalManager.persisted_state() 的载荷，None 表示目标已清除
+        """
+        record: dict[str, Any] = {"role": "_goal", "state": state}
         await self._append_line(record)
 
     async def rewind_to(self, target_checkpoint_id: int) -> RestoreResult:
@@ -427,6 +438,7 @@ class CheckpointStore:
         last_usage: UsageSnapshot | None = None
         last_usage_message_count = 0
         checkpoint_count = 0
+        goal_state: dict[str, Any] | None = None
 
         for line in lines:
             try:
@@ -458,6 +470,10 @@ class CheckpointStore:
                         ),
                     )
                     last_usage_message_count = record.get("last_message_count", 0)
+            elif role == "_goal":
+                # goal 域 last-wins 快照：最后一个 _goal 行生效
+                # （state 为 None 表示 clear 墓碑——无目标）
+                goal_state = record.get("state")
             elif role in ("user", "assistant"):
                 msg_data = record.get("message")
                 if msg_data:
@@ -480,4 +496,5 @@ class CheckpointStore:
             last_usage=last_usage,
             last_usage_message_count=last_usage_message_count,
             checkpoint_count=checkpoint_count,
+            goal_state=goal_state,
         )

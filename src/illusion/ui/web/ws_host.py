@@ -49,6 +49,7 @@ from illusion.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
     ErrorEvent,
+    GoalStatusEvent,
     StatusEvent,
     StreamEvent,
     ToolChainCompleted,
@@ -57,6 +58,7 @@ from illusion.engine.stream_events import (
     ToolExecutionStarted,
     ToolProgressEvent,
 )
+from illusion.goal.prompts import is_goal_system_message
 from illusion.output_styles import load_output_styles
 from illusion.services.agent_creator import (
     generate_agent_from_description,
@@ -103,6 +105,33 @@ def _now_local() -> datetime:
 def _cwd_key(cwd: str | Path) -> str:
     """返回工作区目录的索引键（规范化 + 大小写归一，Windows 兼容）。"""
     return os.path.normcase(os.path.normpath(str(cwd)))
+
+
+def _goal_status_message(event: GoalStatusEvent) -> str:
+    """按后端 i18n（当前 ui_language）本地化 goal 轮次生命周期提示。
+
+    Web 端 toast 文案完全由后端生成，前端不再自行本地化，
+    避免浏览器语言/前端字符串副本影响显示。
+
+    Args:
+        event: goal 轮次生命周期事件
+
+    Returns:
+        str: 本地化后的提示文本
+    """
+    from illusion.config.i18n import t as _t
+
+    if event.kind == "round":
+        return _t("goal_status_round", round=event.round, max=event.max_rounds)
+    if event.kind == "wrapup":
+        return (
+            _t("goal_status_wrapup_complete")
+            if event.phase == "complete"
+            else _t("goal_status_wrapup_blocked")
+        )
+    if event.kind == "limit":
+        return _t("goal_status_limit", max=event.max_rounds)
+    return _t("goal_status_disarmed")
 
 
 # 空闲工作区 bundle 的最短保留时长：刚构建的 bundle 在此期限内不被驱逐，
@@ -160,6 +189,7 @@ _SESSION_SCOPED_STATE_KEYS = (
     "output_tokens",
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
+    "goal",
 )
 
 def _strip_tool_previews(text: str, tool_uses: list[Any] | None) -> str:
@@ -546,6 +576,10 @@ class WebBackendHost:
         if request.type == "agent_generate_request":
             await self._handle_agent_generate_request(request)
             return True
+        # GoalBar 状态栏操作（pause/resume/edit/clear；terminal 走 /goal 命令）
+        if request.type == "goal_action":
+            await self._handle_goal_action(request)
+            return True
         # 未知请求类型
         if request.type != "submit_line":
             await self._emit(
@@ -837,6 +871,24 @@ class WebBackendHost:
                         ),
                         session_id=session_id,
                     )
+                return
+            # goal 轮次生命周期：结构化事件（web 端 toast 呈现，不进转录）。
+            # 附带后端本地化的 message：toast 文案完全由后端 i18n 生成，
+            # 前端直接展示，避免浏览器语言/前端字符串副本影响显示。
+            if isinstance(event, GoalStatusEvent):
+                await self._emit(
+                    BackendEvent(
+                        type="goal_status",
+                        goal_status={
+                            "kind": event.kind,
+                            "round": event.round,
+                            "max_rounds": event.max_rounds,
+                            "phase": event.phase,
+                            "message": _goal_status_message(event),
+                        },
+                    ),
+                    session_id=session_id,
+                )
                 return
 
         return _render_event
@@ -1370,7 +1422,7 @@ class WebBackendHost:
         if mode not in ("both", "conversation", "code"):
             return True
         messages = session.engine.messages
-        # 计算 target 之后需回退的真实用户轮次（排除 / 命令与后台任务完成通知）
+        # 计算 target 之后需回退的真实用户轮次（排除 / 命令、后台任务完成通知与 goal 注入消息）
         turns = sum(
             1
             for i, msg in enumerate(messages)
@@ -1379,6 +1431,7 @@ class WebBackendHost:
             and msg.text.strip()
             and not msg.text.strip().startswith("/")
             and not is_task_notification(msg.text)
+            and not is_goal_system_message(msg.text)
         )
         if turns <= 0:
             return True
@@ -1530,6 +1583,7 @@ class WebBackendHost:
         payload["session_id"] = session.session_id
         payload["phase"] = session.phase
         engine = session.engine
+        payload["goal"] = engine.goal_status_payload()
         payload["context_tokens"] = engine.current_context_tokens()
         # 最后一次 API 调用的真实分项：引擎无调用记录时显式置 0。
         # 不能依赖 app_state 的值——全局 app_state 可能残留其他会话 sync 的
@@ -1565,14 +1619,20 @@ class WebBackendHost:
         ).lower().startswith("zh")
         engine = session.engine
         messages = engine.messages
-        # 摘要：第一条真实用户消息（排除 / 命令与后台任务完成通知）
+        # 摘要：第一条真实用户消息（排除 / 命令、后台任务完成通知与 goal 注入消息）
         summary = ""
         for msg in messages:
             if msg.role == "user" and msg.text.strip():
-                if msg.text.strip().startswith("/") or is_task_notification(msg.text):
+                if msg.text.strip().startswith("/") or is_task_notification(msg.text) or is_goal_system_message(msg.text):
                     continue
                 summary = msg.text.strip()[:80]
                 break
+        # 回退：首条消息为 /goal 命令时（命令与 goal 注入消息均被排除）摘要为空，
+        # 用当前 goal 的 objective 兜底，避免会话标题显示"新会话"
+        if not summary:
+            goal_manager = engine.goal_manager
+            if goal_manager is not None and goal_manager.snapshot is not None:
+                summary = goal_manager.snapshot.objective.strip()[:80]
         # 轮数：真正由用户输入的消息数（与 _update_session_meta 口径一致）
         turn_count = sum(
             1
@@ -1582,6 +1642,14 @@ class WebBackendHost:
             and m.text.strip()
             and not m.text.strip().startswith("/")
             and not is_task_notification(m.text)
+            and not is_goal_system_message(m.text)
+        )
+        # goal 自动续跑轮次计入轮数（<goal_round> 注入消息本身在上面被排除；
+        # 按消息计数而非 manager.rounds_started，clear/恢复后历史轮次仍准确）
+        turn_count += sum(
+            1
+            for m in messages
+            if m.role == "user" and m.text.strip().startswith("<goal_round>")
         )
         message_count = len(messages)
         # 读取磁盘 meta 获取自定义 title（rename 写入的名称）——
@@ -1864,6 +1932,7 @@ class WebBackendHost:
                 "context_cache_creation": last_usage.cache_creation_input_tokens if last_usage else 0,
                 "context_input": last_usage.input_tokens if last_usage else 0,
                 "context_output": last_usage.output_tokens if last_usage else 0,
+                "goal": sr.engine.goal_status_payload(),
             })
         # 磁盘上存在但未 materialized 的会话
         for sid, meta in disk.items():
@@ -1916,6 +1985,162 @@ class WebBackendHost:
         if self._active_session_id and self._active_session_id in self._sessions:
             return self._sessions[self._active_session_id]
         return None
+
+    async def _handle_goal_action(self, request: FrontendRequest) -> None:
+        """处理 GoalBar 的 pause/resume/edit/clear 操作。
+
+        这些是人类操作（human 权威），带 CAS（goal_id + revision，前端从
+        当前会话 goal 状态调用时读取）。成功后立即推送会话级 state_snapshot
+        与 goal_action_result；失败行内回执。成功/失败均补发 command_result
+        toast（文案与 terminal 的 goal_action_* 一致，明确不打断当前轮语义）。
+
+        Args:
+            request: goal_action 请求
+        """
+        from illusion.config.i18n import t as _t
+        from illusion.goal.types import GoalError
+
+        _RESULT_KEYS = {
+            "pause": "goal_action_paused",
+            "resume": "goal_action_resumed",
+            "edit": "goal_action_edited",
+            "clear": "goal_action_cleared",
+        }
+
+        action = request.goal_action or ""
+        session = self._resolve_session(request.session_id)
+        if session is None:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": "no-session", "message": "no active session"},
+            ))
+            return
+        engine = session.engine
+        manager = engine.goal_manager
+        if manager is None:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": "goal-disabled", "message": "goal feature is disabled"},
+            ), session_id=session.session_id)
+            return
+        # GoalBar 按钮是人类操作：权威来源切换为 human
+        manager.current_source = "human"
+        try:
+            if action == "clear":
+                manager.clear(request.goal_id, request.revision)
+            else:
+                # pause/resume/edit 需要精确 CAS（goal_id + revision）；缺失时拒绝
+                if (
+                    not request.goal_id
+                    or not isinstance(request.revision, int)
+                    or isinstance(request.revision, bool)
+                    or request.revision < 1
+                ):
+                    raise GoalError(
+                        "goal_id/revision are required for this goal action",
+                        code="GOAL_TOOL_INVALID_UPDATE",
+                    )
+                gid: str = request.goal_id
+                rev: int = request.revision
+                if action == "pause":
+                    manager.pause(gid, rev)
+                elif action == "resume":
+                    manager.resume(gid, rev)
+                elif action == "edit":
+                    objective = (request.objective or "").strip()
+                    if not objective:
+                        raise GoalError(
+                            "objective must be a non-empty string",
+                            code="GOAL_TOOL_INVALID_UPDATE",
+                        )
+                    manager.edit(gid, rev, objective=objective)
+                else:
+                    raise GoalError(
+                        f"unknown goal action: {action}",
+                        code="GOAL_TOOL_INVALID_UPDATE",
+                    )
+        except GoalError as exc:
+            await self._emit(BackendEvent(
+                type="goal_action_result",
+                success=False,
+                goal_action=action,
+                goal_error={"code": exc.code, "message": exc.message},
+            ), session_id=session.session_id)
+            await self._emit(BackendEvent(
+                type="command_result",
+                command_result_data={
+                    "message": _t("goal_action_failed", message=exc.message),
+                    "type": "error",
+                },
+            ), session_id=session.session_id)
+            return
+        # 成功：goal 状态落盘并立即推送（不等行任务边界）
+        store = engine.checkpoint_store
+        if store is not None and manager.dirty:
+            await store.append_goal(manager.persisted_state())
+        await self._emit(BackendEvent(
+            type="goal_action_result",
+            success=True,
+            goal_action=action,
+        ), session_id=session.session_id)
+        await self._emit(BackendEvent(
+            type="command_result",
+            command_result_data={
+                "message": _t(_RESULT_KEYS.get(action, "goal_action_edited")),
+                "type": "success",
+            },
+        ), session_id=session.session_id)
+        await self._emit(BackendEvent(
+            type="state_snapshot",
+            state=self._session_state_payload(session),
+        ), session_id=session.session_id)
+        # resume 且会话空闲：立即驱动续跑（与 /goal 命令的 drive_goal 路径
+        # 一致；busy 时当前轮结束的空闲边界自然续跑，不重复驱动）
+        # 已有活跃行任务时跳过：防止快速连按两次 resume 覆盖 active_line_task
+        # 造成孤儿任务与 busy 状态不一致
+        if (
+            action == "resume"
+            and not session.busy
+            and (session.active_line_task is None or session.active_line_task.done())
+        ):
+            session.busy = True
+            self._spawn_session_line(session, self._drive_goal_after_resume(session))
+
+    async def _drive_goal_after_resume(self, session: SessionRuntime) -> bool:
+        """GoalBar resume 后驱动 goal 轮次（fire-and-forget 行任务）。
+
+        与 /goal resume 的 drive_goal 路径（runtime.handle_line）等价：
+        消费引擎 drive_goal_rounds 事件流并渲染，结束后常规收尾。
+
+        Args:
+            session: 目标会话运行时
+
+        Returns:
+            bool: 是否继续会话（始终 True）
+        """
+        from illusion.engine.query import MaxTurnsExceeded
+
+        render_event = await self._make_render_event(session)
+        try:
+            async for event in session.engine.drive_goal_rounds():
+                await render_event(event)
+        except MaxTurnsExceeded as exc:
+            await self._emit(
+                BackendEvent(
+                    type="transcript_item",
+                    item=TranscriptItem(
+                        role="system",
+                        text=f"Stopped after {exc.max_turns} turns (max_turns).",
+                    ),
+                ),
+                session_id=session.session_id,
+            )
+        await self._finish_session_line(session)
+        return True
 
     def _route_task_completion(self, task: Any) -> SessionRuntime | None:
         """按任务归属路由后台任务完成通知到对应会话。
@@ -2517,13 +2742,14 @@ class WebBackendHost:
 
         if command == "rewind":
             messages = session.engine.messages
-            # 过滤后台任务完成通知（<task-notification>），它们不应出现在回退选项中
+            # 过滤后台任务完成通知与 goal harness 注入消息，它们不应出现在回退选项中
             user_msgs = [
                 (i, msg)
                 for i, msg in enumerate(messages)
                 if msg.role == "user" and msg.text.strip()
                 and not msg.text.strip().startswith("/")
                 and not is_task_notification(msg.text)
+                and not is_goal_system_message(msg.text)
             ]
             if not user_msgs:
                 await self._emit(

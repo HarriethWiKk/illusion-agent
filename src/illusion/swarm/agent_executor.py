@@ -402,6 +402,10 @@ _AGENT_DISALLOWED_TOOLS = frozenset({
     "exit_plan_mode",
     "ask_user_question",
     "task_stop",
+    # goal 属根会话（goal 工具拒绝子代理权威），同时杜绝验证者递归
+    "get_goal",
+    "create_goal",
+    "update_goal",
 })
 
 

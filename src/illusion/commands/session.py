@@ -12,6 +12,7 @@ from illusion.commands.types import CommandContext, CommandResult
 from illusion.config.i18n import t
 from illusion.config.settings import load_settings, save_settings
 from illusion.engine.messages import ConversationMessage
+from illusion.goal.prompts import is_goal_system_message
 from illusion.prompts import build_runtime_system_prompt
 from illusion.services import (
     estimate_conversation_tokens,
@@ -341,6 +342,7 @@ async def rewind_handler(args: str, context: CommandContext) -> CommandResult:
                 and msg.text.strip()
                 and not msg.text.strip().startswith("/")
                 and not is_task_notification(msg.text)
+                and not is_goal_system_message(msg.text)
             ):
                 removed_user_texts.append(msg.text.strip())
                 if len(removed_user_texts) >= turns:

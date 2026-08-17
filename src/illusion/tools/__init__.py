@@ -32,6 +32,7 @@ from illusion.tools.file_edit_tool import FileEditTool
 from illusion.tools.file_read_tool import FileReadTool
 from illusion.tools.file_write_tool import FileWriteTool
 from illusion.tools.glob_tool import GlobTool
+from illusion.tools.goal_tools import CreateGoalTool, GetGoalTool, UpdateGoalTool
 from illusion.tools.grep_tool import GrepTool
 from illusion.tools.list_mcp_resources_tool import ListMcpResourcesTool
 from illusion.tools.list_sessions_tool import ListSessionsTool
@@ -57,12 +58,15 @@ from illusion.tools.web_search_tool import WebSearchTool
 def create_default_tool_registry(
     mcp_manager: Any = None,
     channel_tools: list[BaseTool[Any]] | None = None,
+    goal_enabled: bool = False,
 ) -> ToolRegistry:
     """返回默认内置工具注册表
 
     Args:
         mcp_manager: MCP 管理器（可选）
         channel_tools: 渠道内置工具列表（可选，渠道启用时由调用方传入）
+        goal_enabled: 是否注册 goal 工具（settings.goal.enabled；goal 属根
+            会话，工具经引擎的 tool_metadata 拿到 GoalManager）
 
     Returns:
         ToolRegistry: 工具注册表
@@ -100,6 +104,9 @@ def create_default_tool_registry(
         TeamCreateTool(),
         TeamDeleteTool(),
     ]
+    if goal_enabled:
+        # goal 工具（get_goal/create_goal/update_goal）
+        tools.extend([GetGoalTool(), CreateGoalTool(), UpdateGoalTool()])
     for tool in tools:
         registry.register(tool)
     if mcp_manager is not None:

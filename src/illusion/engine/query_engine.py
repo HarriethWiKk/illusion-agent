@@ -47,12 +47,16 @@ from illusion.engine.messages import ConversationMessage, ToolResultBlock
 from illusion.engine.query import (
     AskUserPrompt,
     BackgroundAgentTracker,
+    MaxTurnsExceeded,
     PermissionPrompt,
     PlanApprovalPrompt,
     QueryContext,
     run_query,
 )
-from illusion.engine.stream_events import StreamEvent
+from illusion.engine.stream_events import GoalStatusEvent, StreamEvent
+from illusion.goal.manager import GoalManager
+from illusion.goal.prompts import render_goal_round_prompt, render_wrapup_context
+from illusion.goal.types import BLOCK_CODE_ROUND_LIMIT
 from illusion.hooks import HookEvent, HookExecutor
 from illusion.permissions.checker import PermissionChecker
 from illusion.services.compact import AutoCompactState, estimate_conversation_tokens
@@ -109,6 +113,7 @@ class QueryEngine:
         session_id: str = "",
         print_mode: bool = False,
         sandbox_permission_prompt: PermissionPrompt | None = None,
+        goal_manager: GoalManager | None = None,
     ) -> None:
         self._api_client = api_client  # API客户端
         self._tool_registry = tool_registry  # 工具注册表
@@ -138,6 +143,7 @@ class QueryEngine:
         self._sandbox_permission_prompt = sandbox_permission_prompt  # print 模式沙箱两选项回调
         self._file_state_cache = FileStateCache()  # 文件状态缓存（用于读写去重）
         self._checkpoint_store: CheckpointStore | None = None  # 持久化存储
+        self._goal_manager = goal_manager  # goal 域管理器（None = 未启用）
 
     @property
     def effort(self) -> EffortLevel | None:
@@ -296,6 +302,17 @@ class QueryEngine:
         """返回工具元数据（只读）。"""
         return self._tool_metadata
 
+    @property
+    def goal_manager(self) -> GoalManager | None:
+        """返回 goal 域管理器（未启用时 None）。"""
+        return self._goal_manager
+
+    def goal_status_payload(self) -> dict[str, Any] | None:
+        """返回前端状态栏的 goal 视图载荷（无目标时 None）。"""
+        if self._goal_manager is None:
+            return None
+        return self._goal_manager.status_payload()
+
     def clear(self) -> None:
         """清除内存中的对话历史。
 
@@ -338,6 +355,10 @@ class QueryEngine:
         self._checkpoint_store = store
         self._session_id = store.session_id
         self._file_history = None
+        # 新会话无 goal；持久化 goal 由后续 restore → apply_restore 恢复
+        # （恢复后 activation 恒为 disarmed，需人类授权 resume 重新武装）
+        if self._goal_manager is not None:
+            self._goal_manager.reset()
         # 同步 tool_metadata 中的 session_id，供工具上下文
         # （skill_tool / team_create_tool 等经 query.py 展开）读取
         self._tool_metadata["session_id"] = store.session_id
@@ -395,6 +416,8 @@ class QueryEngine:
         self._checkpoint_store = None
         self._dream_checked = False
         self._memory_extract_state = None
+        if self._goal_manager is not None:
+            self._goal_manager.reset()
 
     def apply_restore(self, result: RestoreResult) -> None:
         """从 CheckpointStore.restore() 结果恢复所有状态。
@@ -414,6 +437,10 @@ class QueryEngine:
         # （checkpoint 中无该数据时回退到 None → 纯估算）
         self._last_api_usage = result.last_usage
         self._last_api_usage_message_count = result.last_usage_message_count
+        # 恢复持久化 goal（恢复后 activation 恒为 disarmed，
+        # 人类以任何措辞要求继续时模型应调用 update_goal resume 重新武装）
+        if self._goal_manager is not None:
+            self._goal_manager.restore_from(result.goal_state)
 
     def load_file_history(self, checkpoint_count: int | None = None) -> None:
         """显式加载文件历史状态（用于 /resume 后）。
@@ -508,6 +535,33 @@ class QueryEngine:
         """返回文件历史状态。"""
         return self._file_history
 
+    def _ensure_file_history(self) -> None:
+        """懒初始化文件历史状态（load 优先，无则新建）。
+
+        会话目录以 checkpoint_store 为唯一权威（session_id/session_dir
+        均由 store 派生），file_history.json 与 context.jsonl 必然同目录。
+        submit_message 与 drive_goal_rounds（命令优先会话）共用。
+
+        session_id 为空时不初始化，避免写入随机 id 的孤立目录。
+        """
+        if self._file_history is not None:
+            return
+        store = self._checkpoint_store
+        sid = store.session_id if store is not None else self._session_id
+        session_dir = store.session_dir if store is not None else None
+        if not sid:
+            return
+        loaded = _file_history_load(str(self._cwd), sid, session_dir=session_dir)
+        self._file_history = (
+            loaded
+            if loaded is not None
+            else FileHistoryState(
+                session_id=sid,
+                cwd=str(self._cwd),
+                session_dir=session_dir,
+            )
+        )
+
     def on_before_tool_execute(self, tool_name: str, tool_input: dict[str, Any]) -> None:
         """工具执行前回调：备份即将被修改的文件（copy-on-write）。
 
@@ -588,28 +642,17 @@ class QueryEngine:
         # 会话目录以 checkpoint_store 为唯一权威（session_id/session_dir
         # 均由 store 派生），file_history.json 与 context.jsonl 必然同目录，
         # 不再依赖 runtime 手动同步 session_id。
-        if self._file_history is None:
-            store = self._checkpoint_store
-            sid = store.session_id if store is not None else self._session_id
-            session_dir = store.session_dir if store is not None else None
-            if sid:
-                loaded = _file_history_load(
-                    str(self._cwd), sid, session_dir=session_dir
-                )
-                if loaded is not None:
-                    self._file_history = loaded
-                else:
-                    self._file_history = FileHistoryState(
-                        session_id=sid,
-                        cwd=str(self._cwd),
-                        session_dir=session_dir,
-                    )
+        self._ensure_file_history()
 
         # 将用户文本转换为消息并添加到历史记录
         self._messages.append(ConversationMessage.from_user_text(prompt))
         # 持久化 user message
         if self._checkpoint_store is not None:
             await self._checkpoint_store.append_message(self._messages[-1])
+
+        # 人类直接输入：goal 权威来源切换为 human
+        if self._goal_manager is not None:
+            self._goal_manager.current_source = "human"
 
         # 执行 UserPromptSubmit 钩子
         if self._hook_executor is not None:
@@ -642,7 +685,43 @@ class QueryEngine:
             make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
 
         # 文件历史回调：工具执行前备份文件（使用方法，供子 agent 继承复用）
-        context = QueryContext(
+        context = self._build_query_context()
+        # 记录循环前的消息数量，用于循环结束后持久化新增消息
+        # run_query 内部会直接 append assistant/tool 消息到 self._messages，
+        # 这些消息必须持久化，否则 resume 后只看到用户消息，丢失 LLM 回复
+        messages_before = len(self._messages)
+        try:
+            async for event, usage in run_query(context, self._messages):
+                if usage is not None:
+                    await self._track_usage(usage)
+                yield event
+        finally:
+            await self._persist_checkpoint_after_run(context, messages_before)
+        # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
+        if context.cwd != self._cwd:
+            self._cwd = context.cwd
+
+        # Goal 轮次驱动（空闲边界自动续跑）
+        async for event in self.drive_goal_rounds():
+            yield event
+
+        # 记忆强化
+        # 1. 首次回合触发 Auto Dream 会话计数/整合检查
+        # 2. 每轮回合结束后调度后台记忆提取（不阻塞主循环）
+        try:
+            from illusion.memory.auto_dream import record_session_start
+            from illusion.memory.extract import maybe_schedule_extract
+
+            if not getattr(self, "_dream_checked", False):
+                self._dream_checked = True
+                record_session_start(self)
+            maybe_schedule_extract(self)
+        except Exception:
+            logger.exception("Memory reinforcement scheduling failed")
+
+    def _build_query_context(self, *, max_turns: int | None = None) -> QueryContext:
+        """以引擎当前状态构建 QueryContext（三条执行路径共享）。"""
+        return QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,
             permission_checker=self._permission_checker,
@@ -650,7 +729,7 @@ class QueryEngine:
             model=self._model,
             system_prompt=self._system_prompt,
             max_tokens=self._max_tokens,
-            max_turns=self._max_turns,
+            max_turns=max_turns if max_turns is not None else self._max_turns,
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
             plan_approval_prompt=self._plan_approval_prompt,
@@ -670,48 +749,150 @@ class QueryEngine:
             on_before_tool_execute=self.on_before_tool_execute,
             file_state_cache=self._file_state_cache,
         )
-        # 记录循环前的消息数量，用于循环结束后持久化新增消息
-        # run_query 内部会直接 append assistant/tool 消息到 self._messages，
-        # 这些消息必须持久化，否则 resume 后只看到用户消息，丢失 LLM 回复
-        messages_before = len(self._messages)
-        try:
-            async for event, usage in run_query(context, self._messages):
-                if usage is not None:
-                    self._cost_tracker.add(usage)  # 累加使用量
-                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
-                    self._last_api_usage = usage
-                    self._last_api_usage_message_count = len(self._messages)
-                    # 持久化累积 usage + 最后一次调用的单次分项
-                    # （单次分项用于 rewind/resume 后恢复 StatusBar 显示）
-                    if self._checkpoint_store is not None:
-                        await self._checkpoint_store.append_usage(
-                            input_tokens=self._cost_tracker.total.input_tokens,
-                            output_tokens=self._cost_tracker.total.output_tokens,
-                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
-                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
-                            last_usage=usage,
-                            last_message_count=len(self._messages),
-                        )
-                yield event
-        finally:
-            await self._persist_checkpoint_after_run(context, messages_before)
-        # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
-        if context.cwd != self._cwd:
-            self._cwd = context.cwd
 
-        # 记忆强化
-        # 1. 首次回合触发 Auto Dream 会话计数/整合检查
-        # 2. 每轮回合结束后调度后台记忆提取（不阻塞主循环）
-        try:
-            from illusion.memory.auto_dream import record_session_start
-            from illusion.memory.extract import maybe_schedule_extract
+    async def _track_usage(self, usage: UsageSnapshot) -> None:
+        """记录一次 API 调用用量：累加、快照、持久化。"""
+        self._cost_tracker.add(usage)
+        # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
+        self._last_api_usage = usage
+        self._last_api_usage_message_count = len(self._messages)
+        # 持久化累积 usage + 最后一次调用的单次分项
+        # （单次分项用于 rewind/resume 后恢复 StatusBar 显示）
+        if self._checkpoint_store is not None:
+            await self._checkpoint_store.append_usage(
+                input_tokens=self._cost_tracker.total.input_tokens,
+                output_tokens=self._cost_tracker.total.output_tokens,
+                cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
+                cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
+                last_usage=usage,
+                last_message_count=len(self._messages),
+            )
 
-            if not getattr(self, "_dream_checked", False):
-                self._dream_checked = True
-                record_session_start(self)
-            maybe_schedule_extract(self)
-        except Exception:
-            logger.exception("Memory reinforcement scheduling failed")
+    async def _append_injected_user_message(self, text: str) -> None:
+        """追加一条 harness 注入的 user 消息并持久化（goal round / wrap-up）。"""
+        message = ConversationMessage.from_user_text(text)
+        self._messages.append(message)
+        if self._checkpoint_store is not None:
+            await self._checkpoint_store.append_message(message)
+
+    async def _flush_goal_state(self, *, force: bool = False) -> None:
+        """将 goal 状态以 last-wins 行写入 checkpoint。
+
+        压缩会重建 context.jsonl（rebuild_after_compact 丢弃非消息行），
+        因此压缩后即使无变更也强制补写一次。
+        """
+        manager = self._goal_manager
+        if manager is None or self._checkpoint_store is None:
+            return
+        if manager.dirty or (force and manager.snapshot is not None):
+            await self._checkpoint_store.append_goal(manager.persisted_state())
+
+    async def drive_goal_rounds(self) -> AsyncIterator[StreamEvent]:
+        """Goal 轮次驱动器。
+
+        在空闲边界（每轮 run_query 结束后）检查 goal 状态：
+            1. 有待注入的终态 wrap-up → 注入 <goal_complete>/<goal_blocked>
+               消息跑一轮收尾，随后停止（终态）。
+            2. goal 为 active + armed 且未达轮次上限 → 准入下一轮，注入
+               <goal_round> 消息继续执行，回到 1。
+            3. 轮次耗尽 → block('round-limit') 并停止。
+            4. MaxTurnsExceeded / 异常 → disarm 并停止（max-tokens/错误
+               时驱动器停摆，等待人类 resume 重新武装）。
+        """
+        manager = self._goal_manager
+        if manager is None:
+            return
+        # 命令优先会话（如首条消息为 /goal）从未经过 submit_message 创建
+        # 快照边界：补齐 file_history 初始化与初始快照，保证 goal 轮次内的
+        # 文件修改可被 /rewind 跟踪，且 file_history.json 与会话目录同步生成。
+        # 已有快照（普通消息会话）时不重复创建。
+        self._ensure_file_history()
+        if self._file_history is not None and not self._file_history.snapshots:
+            checkpoint_id = 0
+            if self._checkpoint_store is not None:
+                checkpoint_id = await self._checkpoint_store.append_checkpoint()
+            make_snapshot(self._file_history, str(len(self._messages)), checkpoint_id)
+        while True:
+            # 1) 终态 wrap-up 优先注入
+            wrapup = manager.take_pending_wrapup()
+            if wrapup is not None:
+                text = render_wrapup_context(wrapup.objective, wrapup.blocked_reason)
+                yield GoalStatusEvent(kind="wrapup", phase=wrapup.kind)
+                await self._append_injected_user_message(text)
+                context = self._build_query_context()
+                messages_before = len(self._messages)
+                try:
+                    async for event, usage in run_query(context, self._messages):
+                        if usage is not None:
+                            await self._track_usage(usage)
+                        yield event
+                finally:
+                    await self._persist_checkpoint_after_run(context, messages_before)
+                if context.cwd != self._cwd:
+                    self._cwd = context.cwd
+                return
+
+            # 2) 轮次耗尽：block('round-limit') 并停止
+            snap = manager.snapshot
+            if (
+                snap is not None
+                and snap.phase == "active"
+                and manager.activation == "armed"
+                and manager.rounds_started >= snap.max_goal_rounds
+            ):
+                manager.block(
+                    None,
+                    None,
+                    code=BLOCK_CODE_ROUND_LIMIT,
+                    message=(
+                        f"Goal round limit reached (max {snap.max_goal_rounds} rounds); "
+                        "goal auto-paused"
+                    ),
+                )
+                await self._flush_goal_state()
+                yield GoalStatusEvent(kind="limit", max_rounds=snap.max_goal_rounds)
+                return
+
+            # 3) 轮次准入检查
+            if not manager.should_continue():
+                return
+            round_no = manager.admit_round()
+            if round_no is None:
+                # 并发路径下已被 block（admit_round 内部 round-limit）
+                await self._flush_goal_state()
+                yield GoalStatusEvent(
+                    kind="limit",
+                    max_rounds=snap.max_goal_rounds if snap else None,
+                )
+                return
+            snap = manager.snapshot
+            assert snap is not None  # admit_round 成功 implies 快照存在
+            prompt = render_goal_round_prompt(
+                snap.objective,
+                round_no,
+                snap.max_goal_rounds,
+                goal_id=snap.id,
+                revision=snap.revision,
+            )
+            manager.current_source = "goal"
+            await self._append_injected_user_message(prompt)
+            yield GoalStatusEvent(kind="round", round=round_no, max_rounds=snap.max_goal_rounds)
+            context = self._build_query_context()
+            messages_before = len(self._messages)
+            try:
+                async for event, usage in run_query(context, self._messages):
+                    if usage is not None:
+                        await self._track_usage(usage)
+                    yield event
+            except MaxTurnsExceeded:
+                manager.disarm()
+                yield GoalStatusEvent(kind="disarmed")
+                return
+            finally:
+                await self._persist_checkpoint_after_run(context, messages_before)
+            if context.cwd != self._cwd:
+                self._cwd = context.cwd
+            # 回到 1：检查 wrap-up / 下一轮
 
     async def _persist_checkpoint_after_run(
         self, context: QueryContext, messages_before: int
@@ -760,6 +941,8 @@ class QueryEngine:
             # 保存已生成的消息，避免 resume 后对话历史缺失。
             for msg in self._messages[messages_before:]:
                 await self._checkpoint_store.append_message(msg)
+        # goal 状态落盘：压缩重建会丢弃非消息行，需强制补写
+        await self._flush_goal_state(force=context.compacted)
 
     async def continue_pending(self, *, max_turns: int | None = None) -> AsyncIterator[StreamEvent]:
         """继续被中断的工具循环，而不追加新的用户消息。
@@ -767,36 +950,13 @@ class QueryEngine:
         用于恢复之前因工具执行而中断的对话。
 
         Args:
-            max_turns: 最大轮次数（可选，默认使用引擎设置）
+            max_turns: 轮次数（可选，默认使用引擎设置）
 
         Yields:
             StreamEvent: 流式事件
         """
-        context = QueryContext(
-            api_client=self._api_client,
-            tool_registry=self._tool_registry,
-            permission_checker=self._permission_checker,
-            cwd=self._cwd,
-            model=self._model,
-            system_prompt=self._system_prompt,
-            max_tokens=self._max_tokens,
-            max_turns=max_turns if max_turns is not None else self._max_turns,
-            permission_prompt=self._permission_prompt,
-            ask_user_prompt=self._ask_user_prompt,
-            plan_approval_prompt=self._plan_approval_prompt,
-            print_mode=self._print_mode,
-            sandbox_permission_prompt=self._sandbox_permission_prompt,
-            hook_executor=self._hook_executor,
-            tool_metadata=self._tool_metadata,
-            effort=self._effort,
-            bg_agent_tracker=self._bg_agent_tracker,
-            # idle 超时阈值（与 build_query_context 一致，详见上文说明）
-            bg_agent_wait_timeout=300.0,
-            compact_state=self._compact_state,
-            last_api_usage=self._last_api_usage,
-            last_api_usage_message_count=self._last_api_usage_message_count,
-            on_before_tool_execute=self.on_before_tool_execute,
-            file_state_cache=self._file_state_cache,
+        context = self._build_query_context(
+            max_turns=max_turns if max_turns is not None else self._max_turns
         )
         # 记录循环前的消息数量，用于循环结束后持久化新增消息
         # continue_pending 不 append checkpoint，但 run_query 内部仍会
@@ -805,27 +965,16 @@ class QueryEngine:
         try:
             async for event, usage in run_query(context, self._messages):
                 if usage is not None:
-                    self._cost_tracker.add(usage)  # 累加使用量
-                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
-                    self._last_api_usage = usage
-                    self._last_api_usage_message_count = len(self._messages)
-                    # 持久化累积 usage + 最后一次调用的单次分项
-                    # （continue_pending 不 append checkpoint）
-                    if self._checkpoint_store is not None:
-                        await self._checkpoint_store.append_usage(
-                            input_tokens=self._cost_tracker.total.input_tokens,
-                            output_tokens=self._cost_tracker.total.output_tokens,
-                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
-                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
-                            last_usage=usage,
-                            last_message_count=len(self._messages),
-                        )
+                    await self._track_usage(usage)
                 yield event
         finally:
             await self._persist_checkpoint_after_run(context, messages_before)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
+        # Goal 轮次驱动（被打断的 goal 轮恢复后继续）
+        async for event in self.drive_goal_rounds():
+            yield event
 
     async def process_background_completions(self) -> AsyncIterator[StreamEvent]:
         """处理积压的后台完成通知（自动进入 busy），不新增用户输入。
@@ -838,32 +987,7 @@ class QueryEngine:
         Yields:
             StreamEvent: 流式事件
         """
-        context = QueryContext(
-            api_client=self._api_client,
-            tool_registry=self._tool_registry,
-            permission_checker=self._permission_checker,
-            cwd=self._cwd,
-            model=self._model,
-            system_prompt=self._system_prompt,
-            max_tokens=self._max_tokens,
-            max_turns=self._max_turns,
-            permission_prompt=self._permission_prompt,
-            ask_user_prompt=self._ask_user_prompt,
-            plan_approval_prompt=self._plan_approval_prompt,
-            print_mode=self._print_mode,
-            sandbox_permission_prompt=self._sandbox_permission_prompt,
-            hook_executor=self._hook_executor,
-            tool_metadata=self._tool_metadata,
-            effort=self._effort,
-            bg_agent_tracker=self._bg_agent_tracker,
-            # idle 超时阈值（与 build_query_context 一致，详见上文说明）
-            bg_agent_wait_timeout=300.0,
-            compact_state=self._compact_state,
-            last_api_usage=self._last_api_usage,
-            last_api_usage_message_count=self._last_api_usage_message_count,
-            on_before_tool_execute=self.on_before_tool_execute,
-            file_state_cache=self._file_state_cache,
-        )
+        context = self._build_query_context()
         # 记录循环前的消息数量，用于循环结束后持久化新增消息
         # process_background_completions 不 append checkpoint，run_query 内部
         # 注入的通知与 assistant/tool 消息由 _persist_checkpoint_after_run 兜底持久化
@@ -871,23 +995,13 @@ class QueryEngine:
         try:
             async for event, usage in run_query(context, self._messages, bg_auto_drain=True):
                 if usage is not None:
-                    self._cost_tracker.add(usage)  # 累加使用量
-                    # 记录最后一次 API 调用的真实用量（含缓存分项）及消息数快照
-                    self._last_api_usage = usage
-                    self._last_api_usage_message_count = len(self._messages)
-                    # 持久化累积 usage + 最后一次调用的单次分项
-                    if self._checkpoint_store is not None:
-                        await self._checkpoint_store.append_usage(
-                            input_tokens=self._cost_tracker.total.input_tokens,
-                            output_tokens=self._cost_tracker.total.output_tokens,
-                            cache_read_input_tokens=self._cost_tracker.total.cache_read_input_tokens,
-                            cache_creation_input_tokens=self._cost_tracker.total.cache_creation_input_tokens,
-                            last_usage=usage,
-                            last_message_count=len(self._messages),
-                        )
+                    await self._track_usage(usage)
                 yield event
         finally:
             await self._persist_checkpoint_after_run(context, messages_before)
         # 同步工具导致的 CWD 变更（如 enter/exit_worktree）
         if context.cwd != self._cwd:
             self._cwd = context.cwd
+        # Goal 轮次驱动（后台通知处理完毕后，激活的 goal 继续续跑）
+        async for event in self.drive_goal_rounds():
+            yield event

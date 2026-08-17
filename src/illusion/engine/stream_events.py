@@ -139,6 +139,27 @@ class StatusEvent:
 
 
 @dataclass(frozen=True)
+class GoalStatusEvent:
+    """goal 轮次生命周期事件（round/wrapup/limit/disarmed）。
+
+    与 StatusEvent 不同：不进入转录（终端由 StatusBar/Shimmer 呈现轮次，
+    Web 端以 toast 呈现），前端按结构化字段本地化显示。
+
+    Attributes:
+        kind: 事件类别：round（轮次开始）| wrapup（终态收尾）| limit
+            （轮次耗尽自动受阻）| disarmed（单轮 max turns 解除武装）
+        round: 当前轮次编号（kind=round 时存在）
+        max_rounds: 轮次上限
+        phase: wrapup 的终态相位（complete/blocked）
+    """
+
+    kind: str
+    round: int | None = None
+    max_rounds: int | None = None
+    phase: str | None = None
+
+
+@dataclass(frozen=True)
 class ToolProgressEvent:
     """工具执行过程中的进度消息。
 
@@ -186,6 +207,7 @@ StreamEvent = (
     | ToolProgressEvent
     | ErrorEvent
     | StatusEvent
+    | GoalStatusEvent
     | ToolChainStarted
     | ToolChainCompleted
 )

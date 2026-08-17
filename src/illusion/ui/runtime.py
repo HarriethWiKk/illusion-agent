@@ -62,6 +62,8 @@ from illusion.engine import QueryEngine
 from illusion.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
 from illusion.engine.query import BackgroundAgentTracker, MaxTurnsExceeded
 from illusion.engine.stream_events import StreamEvent
+from illusion.goal.manager import GoalManager
+from illusion.goal.prompts import is_goal_system_message
 from illusion.hooks import HookEvent, HookExecutionContext, HookExecutor
 from illusion.hooks.loader import load_hook_registry
 from illusion.hooks.types import AggregatedHookResult
@@ -169,6 +171,29 @@ class RuntimeBundle:
         return "\n".join(lines)
 
 
+def _build_goal_manager(settings: Settings) -> GoalManager | None:
+    """按 settings.goal 构建 GoalManager（未启用时 None）。
+
+    Args:
+        settings: 当前 Settings
+
+    Returns:
+        GoalManager | None: goal 域管理器
+    """
+    goal = getattr(settings, "goal", None)
+    if goal is None or not goal.enabled:
+        return None
+    from illusion.goal.types import GoalSettings as _GoalRuntimeSettings
+
+    return GoalManager(_GoalRuntimeSettings(
+        enabled=goal.enabled,
+        default_max_goal_rounds=goal.default_max_goal_rounds,
+        blocked_after_consecutive_rounds=goal.blocked_after_consecutive_rounds,
+        verification_enabled=goal.verification_enabled,
+        verification_max_attempts=goal.verification_max_attempts,
+    ))
+
+
 def build_session_engine(
     bundle: RuntimeBundle,
     session_id: str,
@@ -222,10 +247,13 @@ def build_session_engine(
         effort=bundle.engine.effort,
         session_id=session_id,
         print_mode=print_mode,
+        goal_manager=_build_goal_manager(settings),
     )
     # 将引擎自身与后台代理追踪器加入工具元数据（与 build_runtime 同构）
     engine._tool_metadata["query_engine"] = engine
     engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
+    if engine.goal_manager is not None:
+        engine._tool_metadata["goal_manager"] = engine.goal_manager
     # 构造 CheckpointStore 并 attach（懒创建策略与 build_runtime 一致：
     # 不立即 mkdir，第一条用户消息提交时才落盘）
     from illusion.services.checkpoint_store import CheckpointStore
@@ -544,8 +572,12 @@ async def build_runtime(
     mcp_manager = McpClientManager(server_configs)
     if not bare or server_configs:
         await mcp_manager.connect_all()
-    # 创建工具注册器
-    tool_registry = create_default_tool_registry(mcp_manager, channel_tools=channel_tools)
+    # 创建工具注册器（goal 工具随 settings.goal.enabled 注册）
+    tool_registry = create_default_tool_registry(
+        mcp_manager,
+        channel_tools=channel_tools,
+        goal_enabled=settings.goal.enabled,
+    )
     # 应用 CLI 工具过滤（--allowed-tools / --disallowed-tools）
     if allowed_tools is not None or disallowed_tools is not None:
         filtered = ToolRegistry()
@@ -632,11 +664,15 @@ async def build_runtime(
         session_id=session_id,
         print_mode=print_mode,
         sandbox_permission_prompt=sandbox_permission_prompt,
+        goal_manager=_build_goal_manager(settings),
     )
     # 将引擎自身添加到工具元数据中，供子 agent 使用
     engine._tool_metadata["query_engine"] = engine
     # 将后台代理追踪器添加到工具元数据中，供 AgentTool 使用
     engine._tool_metadata["bg_agent_tracker"] = engine._bg_agent_tracker
+    # 将 goal 域管理器添加到工具元数据中，供 goal 工具使用
+    if engine.goal_manager is not None:
+        engine._tool_metadata["goal_manager"] = engine.goal_manager
 
     # 注册 on_task_complete 回调：后台任务完成后通知 bg_agent_tracker
     # 闭包仅捕获 engine._bg_agent_tracker，实际逻辑委托给模块级 _on_task_complete
@@ -876,6 +912,7 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
         output_tokens=usage.output_tokens,
         cache_read_input_tokens=usage.cache_read_input_tokens,
         cache_creation_input_tokens=usage.cache_creation_input_tokens,
+        goal=bundle.engine.goal_status_payload(),
     )
 
 
@@ -993,11 +1030,17 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
     summary = ""
     for msg in bundle.engine.messages:
         if msg.role == "user" and msg.text.strip():
-            # 跳过后台任务完成通知（<task-notification>），避免通知成为会话摘要
-            if is_task_notification(msg.text):
+            # 跳过后台任务完成通知与 goal harness 注入消息（避免成为会话摘要）
+            if is_task_notification(msg.text) or is_goal_system_message(msg.text) or msg.text.strip().startswith("/"):
                 continue
             summary = msg.text.strip()[:80]
             break
+    # 回退：首条消息为 /goal 命令时（命令与 goal 注入消息均被排除）摘要为空，
+    # 用当前 goal 的 objective 兜底，避免会话列表标题为空
+    if not summary and bundle.engine.goal_manager is not None:
+        snap = bundle.engine.goal_manager.snapshot
+        if snap is not None:
+            summary = snap.objective.strip()[:80]
     # 计算 turn_count：按真正由用户输入的消息数计算（排除 tool_result 等）
     # 一轮对话 = 一个用户输入 + 一个或多个 assistant 回复（含工具调用的中间回复）
     from illusion.engine.messages import ToolResultBlock
@@ -1007,6 +1050,14 @@ def _update_session_meta(bundle: RuntimeBundle) -> None:
         and not any(isinstance(b, ToolResultBlock) for b in m.content)
         and m.text.strip()
         and not is_task_notification(m.text)
+        and not is_goal_system_message(m.text)
+        and not m.text.strip().startswith("/")
+    )
+    # goal 自动续跑轮次计入轮数（<goal_round> 注入消息本身在上面被排除；
+    # 按消息计数而非 manager.rounds_started，clear/恢复后历史轮次仍准确）
+    turn_count += sum(
+        1 for m in bundle.engine.messages
+        if m.role == "user" and m.text.strip().startswith("<goal_round>")
     )
     # 保留原始 created_at（首次调用时不存在则用当前时间）
     existing = read_meta_from(session_dir, session_id) or {}
@@ -1145,6 +1196,13 @@ async def handle_line(
                     await print_system(pending)
             # 更新会话 meta（替代旧 save_session_snapshot）
             _update_session_meta(bundle)
+        # 处理 goal 驱动标志（/goal 创建 / resume 后立即续跑 goal 轮次）
+        if result.drive_goal and bundle.engine.goal_manager is not None:
+            try:
+                async for event in bundle.engine.drive_goal_rounds():
+                    await render_event(event)
+            except MaxTurnsExceeded as exc:
+                await print_system(f"Stopped after {exc.max_turns} turns (max_turns).")
         sync_app_state(bundle)
         return not result.should_exit
 
@@ -1302,8 +1360,9 @@ async def _render_command_result(
 		replay_items: list[dict[str, Any]] = []
 		for msg in result.replay_messages:
 			if msg.role == "user":
-				# 跳过后台任务完成通知：仅注入 LLM，不参与前端重放渲染
-				if msg.text.strip() and not is_task_notification(msg.text):
+				# 跳过后台任务完成通知与 goal harness 注入消息：
+				# 仅注入 LLM，不参与前端重放渲染
+				if msg.text.strip() and not is_task_notification(msg.text) and not is_goal_system_message(msg.text):
 					replay_items.append({"role": "user", "text": msg.text})
 				for block in msg.content:
 					if isinstance(block, ToolResultBlock):
@@ -1368,8 +1427,9 @@ async def _render_command_result(
 			tool_uses_by_id2: dict[str, dict[str, Any]] = {}
 			for msg in result.replay_messages:
 				if msg.role == "user":
-					# 跳过后台任务完成通知：仅注入 LLM，不参与前端重放渲染
-					if msg.text.strip() and not is_task_notification(msg.text):
+					# 跳过后台任务完成通知与 goal harness 注入消息：
+					# 仅注入 LLM，不参与前端重放渲染
+					if msg.text.strip() and not is_task_notification(msg.text) and not is_goal_system_message(msg.text):
 						if replay_transcript_item is not None:
 							await replay_transcript_item({"role": "user", "text": msg.text})
 						else:
