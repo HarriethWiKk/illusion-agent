@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   BackendEvent,
+  GoalStatus,
   McpServerSnapshot,
   PendingToolCall,
   PluginSnapshot,
@@ -62,6 +63,7 @@ const SESSION_STATUS_FIELDS = [
   'context_cache_creation',
   'context_input',
   'context_output',
+  'goal',
 ] as const;
 
 /**
@@ -309,11 +311,20 @@ export interface WebSocketSessionState {
   deleteSessions: (sessionIds: string[], deleteAll?: boolean, cwd?: string) => void;
   clearModal: () => void;
   setBusyTrue: () => void;
+  /** 乐观提交用户文本：立即渲染 user 消息（后端回执按文本去重），杜绝消息被吞/卡住 */
+  optimisticSubmit: (line: string) => void;
   requestSelectCommand: (command: string) => void;
   setEffortValue: (value: string) => void;
   setModelValue: (value: string) => void;
   /** 发送请求（自动附带当前活跃会话 ID，无需调用方填写） */
   sendRequest: (payload: Record<string, unknown>) => void;
+  // ---- Goal 状态栏相关（活跃视图）----
+  /** goal_action 最近一次失败（GoalBar 行内显示；成功/新操作时清除） */
+  goalActionError: { code: string; message: string } | null;
+  /** 发送 GoalBar 操作（pause/resume/edit/clear）：CAS ref 从当前 goal 状态调用时读取 */
+  sendGoalAction: (action: 'pause' | 'resume' | 'edit' | 'clear', objective?: string) => void;
+  /** 清除 goal 操作错误（GoalBar 关闭错误提示时调用） */
+  clearGoalActionError: () => void;
   /** 停止请求已发送、等待后端确认（按钮旋转动画），line_complete 后清除 */
   stopping: boolean;
   /** 发送停止请求（针对活跃会话，自动管理 stopping 状态与超时兜底） */
@@ -374,6 +385,11 @@ function genRequestId(prefix: string): string {
 export function useWebSocketSession(url: string): WebSocketSessionState {
   // === 全局状态 ===
   const [status, setStatus] = useState<Record<string, unknown>>({});
+  // status 的 ref 镜像：handleEvent 闭包内读取最新语言等字段（不随状态重建监听）
+  const statusRef = useRef<Record<string, unknown>>({});
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   const [tasks, setTasks] = useState<TaskSnapshot[]>([]);
   const [commands, setCommands] = useState<string[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServerSnapshot[]>([]);
@@ -420,6 +436,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const [agentGenerateLoading, setAgentGenerateLoading] = useState(false);
   const [agentGenerateError, setAgentGenerateError] = useState<string | null>(null);
   const [agentWizardResult, setAgentWizardResult] = useState<{ success: boolean; path?: string; errors?: Record<string, string>; error?: string } | null>(null);
+  // GoalBar 操作结果（失败行内显示；成功/新操作时清除）
+  const [goalActionError, setGoalActionError] = useState<{ code: string; message: string } | null>(null);
   /** agent generate 请求 ID 的 ref：handleEvent 闭包中读取当前活跃 ID，避免过期响应覆盖新请求状态 */
   const agentGenerateRequestIdRef = useRef<string | null>(null);
 
@@ -433,6 +451,10 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
   const onUpdateAvailableRef = useRef<((latestVersion: string) => void) | null>(null);
   const suppressCommandResultCountRef = useRef(0);
   const suppressTranscriptRef = useRef(false);
+  // 乐观渲染的用户消息（按会话记录最近一次待确认文本，用于回执去重）。
+  // 前端提交普通文本时立即本地渲染该 user 消息，杜绝"用户消息被吞/卡住"偶发问题；
+  // 后端回执 transcript_item 时按文本精确去重，避免重复渲染。
+  const optimisticUserRef = useRef<Record<string, string | null>>({});
 
   const setOnSelectRequest = useCallback((fn: ((payload: SelectRequestPayload) => void) | null) => { onSelectRequestRef.current = fn; }, []);
   const setOnCommandResult = useCallback((fn: ((text: string, type: string) => void) | null) => { onCommandResultRef.current = fn; }, []);
@@ -556,6 +578,27 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     if (sid) patchView(sid, { busy: true });
   }, [patchView]);
 
+  /**
+   * 乐观提交用户文本：立即在活跃会话中渲染一条 user 消息。
+   *
+   * 后端会先回执 user transcript_item 再进入流式，正常路径下本方法仅承担
+   * "即时展示"角色；一旦回执在偶发竞态/丢包中丢失，该本地项仍保留，
+   * 保证用户消息绝不"被吞"或导致界面卡住。回执到达时按文本去重（见
+   * transcript_item 处理器），不会出现重复。仅处理普通文本（非斜杠指令）。
+   *
+   * @param line - 用户输入的原始文本
+   */
+  const optimisticSubmit = useCallback((line: string): void => {
+    const sid = activeSessionIdRef.current;
+    if (!sid) return;
+    const trimmed = line.trim();
+    // 斜杠指令由下拉/命令弹窗承载或走 web_query，不做乐观渲染
+    if (!trimmed || trimmed.startsWith('/')) return;
+    optimisticUserRef.current[sid] = trimmed;
+    ensureView(sid);
+    pushStatic(sid, { role: 'user', text: trimmed });
+  }, [ensureView, pushStatic]);
+
   const clearStaticItems = useCallback((): void => {
     const sid = activeSessionIdRef.current;
     if (!sid) return;
@@ -579,6 +622,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         delete next[sid];
         delete buffersRef.current[sid];
         delete pendingToolCallsRef.current[sid];
+        delete optimisticUserRef.current[sid]; // 同步清理乐观待确认标记
         const stopTimer = stopTimersRef.current[sid];
         if (stopTimer) {
           clearTimeout(stopTimer);
@@ -728,6 +772,34 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     if (sid) patchView(sid, { btwLoading: false, btwReply: null, btwError: null, btwRequestId: null });
   }, [patchView]);
 
+  /** 发送 GoalBar 操作（CAS ref 从当前会话 goal 状态调用时读取） */
+  const sendGoalAction = useCallback(
+    (action: 'pause' | 'resume' | 'edit' | 'clear', objective?: string): void => {
+      const sid = activeSessionIdRef.current;
+      if (!sid) return;
+      const view = viewsRef.current[sid];
+      const goal = view?.status?.goal as GoalStatus | null | undefined;
+      if (!goal) {
+        setGoalActionError({ code: 'no-current-goal', message: 'no current goal to mutate' });
+        return;
+      }
+      setGoalActionError(null);
+      sendRequest({
+        type: 'goal_action',
+        goal_action: action,
+        goal_id: goal.id,
+        revision: goal.revision,
+        ...(action === 'edit' && objective ? { objective } : {}),
+      });
+    },
+    [sendRequest],
+  );
+
+  /** 清除 goal 操作错误（GoalBar 关闭错误提示时调用） */
+  const clearGoalActionError = useCallback((): void => {
+    setGoalActionError(null);
+  }, []);
+
   /** 请求初始化 agent 向导（全局） */
   const sendAgentWizardInit = useCallback((): void => {
     sendRequest({ type: 'agent_wizard_init' });
@@ -798,8 +870,25 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         return;
       }
       if (evt.type === 'state_snapshot') {
-        // 全局状态快照：工具栏级字段（model/effort/language 等）
         const newState = evt.state ?? {};
+        // 会话级快照（goal_action 成功后按会话回推）：会话键合并进对应视图，
+        // 避免某会话的 goal/上下文数据污染全局 status（多会话张冠李戴）
+        if (evt.session_id) {
+          const sidState = evt.session_id;
+          ensureView(sidState);
+          const currentView = viewsRef.current[sidState];
+          if (currentView) {
+            const patch: Record<string, unknown> = {};
+            for (const key of Object.keys(newState)) {
+              if (SESSION_STATUS_KEYS.has(key)) patch[key] = newState[key];
+            }
+            if (Object.keys(patch).length > 0) {
+              patchView(sidState, { status: { ...currentView.status, ...patch } });
+            }
+          }
+          return;
+        }
+        // 全局状态快照：工具栏级字段（model/effort/language 等）
         setStatus(newState);
         const st = newState.show_thinking;
         if (typeof st === 'boolean') { setShowThinking(st); showThinkingRef.current = st; }
@@ -886,6 +975,14 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
           // 不应作为真实用户消息显示
           if (evt.item.role === 'user' && evt.item.text.startsWith('<task-notification>')) return;
           if (suppressTranscriptRef.current) return;
+          // 乐观渲染去重：仅当本 user 项与乐观提交文本**精确匹配**时才视为回执，
+          // 清除待确认标记并跳过（已在乐观阶段渲染）。若不匹配（乱序/丢包时先到达的
+          // 是其他项），标记保持，等真正的回执到达时再去重，避免重复渲染同一 user 消息。
+          const optimisticText = optimisticUserRef.current[sid];
+          if (optimisticText != null && evt.item.role === 'user' && evt.item.text === optimisticText) {
+            optimisticUserRef.current[sid] = null;
+            return;
+          }
           pushStatic(sid, evt.item);
           return;
         }
@@ -977,12 +1074,15 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
         // 转录管理
         if (evt.type === 'clear_transcript') {
+          optimisticUserRef.current[sid] = null;
           pendingToolCallsRef.current[sid] = [];
           clearAssistantDelta(sid);
           patchView(sid, { items: [], pendingToolCalls: [] });
           return;
         }
         if (evt.type === 'replace_transcript' && evt.items) {
+          // 转录整体替换（rewind/checkpoint 重建）：清空乐观待确认标记
+          optimisticUserRef.current[sid] = null;
           // 检查是否需要抑制显示（用于左侧栏操作解耦）
           if (suppressTranscriptRef.current) {
             suppressTranscriptRef.current = false;
@@ -1043,6 +1143,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         }
         if (evt.type === 'web_restore_completed') {
           pendingToolCallsRef.current[sid] = [];
+          optimisticUserRef.current[sid] = null;
           const items = stripReplayItems((evt.items ?? []).filter((i) => !(i.role === 'user' && i.text.startsWith('/'))));
           // 只合并会话专属键：全局键（model/effort 等）由 state_snapshot 权威驱动，
           // 避免恢复快照影子化后续全局设置变更
@@ -1088,6 +1189,7 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
 
         // rewind 被回退的 user 消息：回填输入框（转录已由 replace_transcript 刷新）
         if (evt.type === 'session_rewind' && evt.restored_text) {
+          optimisticUserRef.current[sid] = null;
           onRewindRestoredRef.current?.(evt.restored_text);
           return;
         }
@@ -1297,6 +1399,32 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
         }
         return;
       }
+      if (evt.type === 'goal_action_result') {
+        // GoalBar 操作回执：失败行内显示（成功时后端随 state_snapshot 推送新 goal）
+        if (evt.success === false && evt.goal_error) {
+          setGoalActionError(evt.goal_error);
+        } else if (evt.success === true) {
+          setGoalActionError(null);
+        }
+        return;
+      }
+      if (evt.type === 'goal_status' && evt.goal_status) {
+        // Goal 轮次生命周期：toast 文案完全由后端 i18n 生成（message），
+        // 前端直接展示，避免浏览器语言/前端字符串副本影响显示。
+        const gs = evt.goal_status;
+        // round 事件同时更新 status.goal.roundsStarted，使 GoalBar 轮次进度实时刷新
+        if (gs.kind === 'round' && gs.round != null) {
+          setStatus((prev) => {
+            const goal = (prev.goal as Record<string, unknown> | undefined);
+            if (!goal) return prev;
+            return { ...prev, goal: { ...goal, roundsStarted: gs.round } };
+          });
+        }
+        if (gs.message) {
+          onCommandResultRef.current?.(gs.message, 'info');
+        }
+        return;
+      }
       if (evt.type === 'swarm_status') {
         if (evt.swarm_teammates != null) setSwarmTeammates(evt.swarm_teammates);
         if (evt.swarm_notifications != null) setSwarmNotifications((prev) => [...prev, ...evt.swarm_notifications!].slice(-20));
@@ -1377,7 +1505,9 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
       deleteSessions, clearModal, setBusyTrue,
       requestSelectCommand, setEffortValue, setModelValue,
       sendRequest, stopping: view?.stopping ?? false, sendStop,
-      clearStaticItems,
+      clearStaticItems, optimisticSubmit,
+      // GoalBar（活跃视图）
+      goalActionError, sendGoalAction, clearGoalActionError,
       setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable, setOnRewindRestored,
     };
   }, [
@@ -1393,7 +1523,8 @@ export function useWebSocketSession(url: string): WebSocketSessionState {
     sendAgentWizardInit, sendAgentGenerateRequest, sendAgentWizardSubmit, clearAgentWizardState,
     clearFirstLogin, deleteSessions, clearModal, setBusyTrue,
     requestSelectCommand, setEffortValue, setModelValue,
-    sendRequest, sendStop, clearStaticItems,
+    sendRequest, sendStop, clearStaticItems, optimisticSubmit,
+    goalActionError, sendGoalAction, clearGoalActionError,
     setOnSelectRequest, setOnCommandResult, setOnUpdateAvailable, setOnRewindRestored,
     modelSwitching, setModelSwitching,
   ]);

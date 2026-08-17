@@ -17,11 +17,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeLanguage, t, type UiLanguage } from './i18n';
 import { settingsApi } from './api';
 import { useWebSocketSession } from './hooks/useWebSocketSession';
-import Sidebar from './components/Sidebar';
+import Sidebar, { SidebarControls } from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import PromptInput, { type PromptInputHandle } from './components/PromptInput';
 import Toolbar from './components/Toolbar';
-import RightPanel from './components/RightPanel';
+import RightPanel, { RightPanelControls } from './components/RightPanel';
 import TitleBar from './components/TitleBar';
 import ConnectingOverlay from './components/ConnectingOverlay';
 import ImagePreview from './components/ImagePreview';
@@ -29,6 +29,8 @@ import { CustomInputModal } from './components/CustomInputModal';
 import { BtwCard } from './components/BtwCard';
 import { AgentWizardForm } from './components/AgentWizardForm';
 import { SetupForm } from './components/SetupForm';
+import { GoalBar } from './components/GoalBar';
+import type { GoalStatus } from './types/protocol';
 import { FolderClosedIcon, FolderOpenIcon } from './components/icons';
 
 /** WebSocket 连接地址 */
@@ -67,7 +69,8 @@ export default function App() {
   // 输入框与工具栏展开的唯一下拉标识（plus/ws/mode/model/effort），null 表示全部收起；
   // 提升到 App 统一管理，保证点击其中一个时自动收起其他下拉
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  // 右栏默认折叠；折叠态下右栏整体隐藏，控制由顶部右侧按钮组（RightPanelControls）承载
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
   const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
@@ -270,7 +273,14 @@ export default function App() {
           });
           return;
         }
-        // /agent <id> → 走命令注册表处理
+      // /agent <id> → 走命令注册表处理
+      session.setBusyTrue();
+      session.sendRequest({ type: 'submit_line', line: trimmed });
+      return;
+      }
+      // /goal → 走命令注册表（A 通道，不带 treat_as_text）：后端执行 /goal 命令，
+      // drive_goal 轮次正常流式，命令结果以 toast 呈现（创建目标的长任务入口）
+      if (cmdName === 'goal') {
         session.setBusyTrue();
         session.sendRequest({ type: 'submit_line', line: trimmed });
         return;
@@ -290,6 +300,7 @@ export default function App() {
     // 通道 2：所有其他输入（含 /resume、/model 等非 B 类指令）→ 当 user 消息发给 LLM
     // treat_as_text=true 告诉后端跳过命令注册表，直接当文本提交给 LLM
     session.setBusyTrue();
+    session.optimisticSubmit(trimmed); // 乐观渲染 user 消息，后端回执按文本去重
     session.sendRequest({ type: 'submit_line', line: trimmed, treat_as_text: true });
     // 用户发送消息时清空持久化回退草稿，避免非欢迎态 rewind 残留影响后续
     setRewindDraft(null);
@@ -570,6 +581,12 @@ export default function App() {
     session.newSession(cwd);
   };
 
+  /** 切换右栏折叠/展开：展开时按需请求资源快照（缺省 = 活跃会话所在工作区） */
+  const toggleRightPanel = useCallback(() => {
+    if (rightPanelCollapsed) session.requestResources();
+    setRightPanelCollapsed((c) => !c);
+  }, [rightPanelCollapsed, session.requestResources]);
+
   /**
    * 处理选择会话（A 通道，零 suppress）
    *
@@ -763,7 +780,7 @@ export default function App() {
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('left', e)} />
       )}
-      <div className="flex flex-col flex-1 min-w-0 min-h-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 relative">
         <ChatArea lang={lang} staticItems={session.staticItems} assistantBuffer={session.assistantBuffer}
           streamingReasoning={session.streamingReasoning} pendingToolCalls={session.pendingToolCalls}
           reasoningStreaming={session.reasoningStreaming}
@@ -775,27 +792,48 @@ export default function App() {
           {welcomeVisible && composer}
         </ChatArea>
         {/* 非欢迎态或会话恢复中：输入框 + 工具栏恢复到底部；宽度比主聊天区每边宽 17px（--composer-card-max-width）。
-            恢复中 ChatArea 提前返回加载卡不渲染欢迎态 composer，故不会重复渲染 */}
+            恢复中 ChatArea 提前返回加载卡不渲染欢迎态 composer，故不会重复渲染。
+            GoalBar 停靠在输入框卡片上方 */}
         {(!welcomeVisible || session.restoringSessionId) && (
-          <div className="mx-auto max-w-[var(--composer-card-max-width)] w-full min-w-0 px-6 md:px-10 lg:px-16 pt-0 pb-4 shrink-0">
+          <div className="mx-auto max-w-[var(--composer-card-max-width)] w-full min-w-0 px-6 md:px-10 lg:px-16 pt-0 pb-4 shrink-0 flex flex-col gap-1.5">
+            <GoalBar lang={lang}
+              goal={(session.status?.goal as GoalStatus | null | undefined) ?? null}
+              actionError={session.goalActionError}
+              onEdit={(objective) => session.sendGoalAction('edit', objective)}
+              onPause={() => session.sendGoalAction('pause')}
+              onResume={() => session.sendGoalAction('resume')}
+              onClear={() => session.sendGoalAction('clear')}
+              onDismissError={session.clearGoalActionError} />
             {composer}
           </div>
+        )}
+        {/* 顶部右侧按钮组（展开右栏/主题/上下文占比）：仅右栏折叠态且非欢迎/非恢复中显示；
+            展开后不再显示，控制回归右栏面板头部；right=[16px] 对齐滚动条左侧留出间距 */}
+        {rightPanelCollapsed && !welcomeVisible && !session.restoringSessionId && (
+          <RightPanelControls lang={lang} status={session.status} onToggle={toggleRightPanel} />
+        )}
+        {/* 顶部左侧按钮组（Sidebar 折叠态承载）：侧栏折叠即显示（欢迎态也可用），
+            不与右栏显隐条件绑定 */}
+        {sidebarCollapsed && (
+          <SidebarControls lang={lang} connected={session.connected}
+            onExpand={() => setSidebarCollapsed(false)}
+            onNewSession={() => handleNewSession()}
+            onDeleteSessions={handleDeleteSessions}
+            onOpenSettings={() => { setSetupInitialTab('settings'); setShowSetupForm(true); }} />
         )}
       </div>
       {!rightPanelCollapsed && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('right', e)} />
       )}
+      {!rightPanelCollapsed && (
       <RightPanel lang={lang} status={session.status}
-        connected={session.connected} busy={session.busy}
-        collapsed={rightPanelCollapsed} onToggle={() => {
-          if (rightPanelCollapsed) session.requestResources();
-          setRightPanelCollapsed(!rightPanelCollapsed);
-        }}
+        collapsed={rightPanelCollapsed} onToggle={toggleRightPanel}
         onRefreshResources={() => session.requestResources()}
         todoItems={session.todoItems} skills={session.skills} plugins={session.plugins}
         rules={session.rules} mcpServers={session.mcpServers}
         width={rightPanelWidth} />
+      )}
       </div>
 
       {/* 删除会话弹窗（仅 sidebar 触发；按目录分组查看，支持整组删除） */}

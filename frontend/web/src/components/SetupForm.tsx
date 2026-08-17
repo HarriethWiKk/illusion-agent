@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t, type UiLanguage } from '../i18n';
+import { useTheme } from '../hooks/useTheme';
 import { GlassDropdown, type DropdownOption } from './GlassDropdown';
 import { CronTab } from './CronTab';
 import type { WebWorkspaceItem } from '../types/protocol';
@@ -212,6 +213,8 @@ export function SetupForm({ lang, firstLogin, initialTab, workspaces, onAddWorks
   const [permission, setPermission] = useState<PermissionRiskSettings | null>(null);
   /** 界面语言选择值（后端格式 zh-CN / en-US） */
   const [uiLang, setUiLang] = useState<'zh-CN' | 'en-US'>('zh-CN');
+  /** 主题：交由 useTheme 统一管理（即改即生效并持久化），此处仅取当前值 */
+  const { theme, setTheme } = useTheme();
   /** 新增环境草稿（首次模式 + 修改模式的新增分支共用） */
   const [draft, setDraft] = useState<EnvDraft>(makeInitialDraft);
   /** 修改模式是否展开新增环境表单 */
@@ -243,6 +246,7 @@ export function SetupForm({ lang, firstLogin, initialTab, workspaces, onAddWorks
         setPermission(s.permission ?? null);
         // 后端 ui_language 为 en-US / zh-CN / 空串；空串默认 zh-CN
         setUiLang(s.ui_language === 'en-US' ? 'en-US' : 'zh-CN');
+        // 主题由 useTheme 独立加载并校正，无需在此赋值
         setEnvs(e.envs);
         setActiveEnvKey(e.active_env_key);
         setChannels(c as unknown as ChannelsCfg);
@@ -463,6 +467,11 @@ export function SetupForm({ lang, firstLogin, initialTab, workspaces, onAddWorks
     onSetUiLanguage(val);
   }, [onSetUiLanguage]);
 
+  /** 选择主题：即改即生效（useTheme.setTheme 应用 DOM + 即时写 settings.json） */
+  const handlePickTheme = useCallback((val: 'light' | 'dark' | 'system') => {
+    setTheme(val);
+  }, [setTheme]);
+
   /** 是否可保存 */
   const canSave = !saving && !loading && (
     firstLogin ? draftValid(draft) : true
@@ -549,6 +558,8 @@ export function SetupForm({ lang, firstLogin, initialTab, workspaces, onAddWorks
               firstLogin={firstLogin}
               uiLang={uiLang}
               onPickUiLang={handlePickUiLang}
+              theme={theme}
+              onPickTheme={handlePickTheme}
               workDir={workDir}
               onWorkDirChange={setWorkDir}
               onManageWorkspaces={() => setTab('workspaces')}
@@ -774,6 +785,9 @@ interface SettingsTabProps {
   firstLogin: boolean;
   uiLang: 'zh-CN' | 'en-US';
   onPickUiLang: (v: 'zh-CN' | 'en-US') => void;
+  /** 主题选择值（light / dark / system） */
+  theme: 'light' | 'dark' | 'system';
+  onPickTheme: (v: 'light' | 'dark' | 'system') => void;
   workDir: string;
   onWorkDirChange: (v: string) => void;
   /** 跳转到目录空间管理页 */
@@ -946,7 +960,30 @@ function SettingsTab(p: SettingsTabProps) {
             </button>
           ))}
         </div>
-        <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldUiLanguageHint')}</div>
+      </div>
+
+      {/* 主题（风格与界面语言一致的三选一分段按钮） */}
+      <div>
+        <div className={labelClass}>{t(lang, 'setupFieldTheme')}</div>
+        <div className="flex gap-3">
+          {([
+            { value: 'light', label: t(lang, 'theme_light') },
+            { value: 'dark', label: t(lang, 'theme_dark') },
+            { value: 'system', label: t(lang, 'theme_system') },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => p.onPickTheme(opt.value)}
+              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-all cursor-pointer ${
+                p.theme === opt.value
+                  ? 'border-primary bg-primary-light text-primary'
+                  : 'border-border-light text-content-secondary hover:bg-surface-hover'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 环境选择器（修改模式）：触发器显示 base_url，点击展开下拉列表 */}
@@ -1011,7 +1048,6 @@ function SettingsTab(p: SettingsTabProps) {
             {t(lang, 'workspace_manage')}
           </button>
         </div>
-        <div className="text-[11px] text-content-disabled mt-1">{t(lang, 'setupFieldWorkingDirectoryHint')}</div>
       </div>
 
       {/* 记忆配置 */}

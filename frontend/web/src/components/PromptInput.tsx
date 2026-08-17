@@ -24,9 +24,11 @@ import type { WebWorkspaceItem } from '../types/protocol';
 // 自动补全列表：包含所有前端识别的斜杠指令
 // 注意：'/agent' 虽在此列表中，但在 App.tsx 的 handleSubmit 中有特殊分支处理（分支选择器/创建向导/查看摘要）
 // 因此 '/agent' 不在 B_COMMANDS 中，不会走 web_query 通道
+// '/goal' 同理：在 App.tsx 中走 submit_line（A 通道命令注册表），后端执行 /goal 命令并驱动 goal 轮次
 export const WEB_COMMANDS = [
   '/rewind', '/compact', '/context', '/export', '/init',
   '/agent', '/turns', '/output-style', '/language', '/max-tokens', '/rename',
+  '/goal',
 ];
 
 /**
@@ -167,6 +169,9 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   const btwInputRef = useRef<HTMLInputElement>(null);
   const btwLoadingActive = btwLoading === true;
   const btwEnabled = typeof onBtwSubmit === 'function';
+  // 欢迎界面目录为空：必须先在目录按钮中选定目录（新建会话）才能开始对话，
+  // 此时禁用发送，避免在未指定工作区时发空会话消息（handleKeyDown/发送按钮共用）
+  const noWorkspaceOnWelcome = welcomeVisible === true && !activeCwd;
 
   // 消息发送后输入框清空时，重置高度（onInput 不会因程序化赋值触发）
   useEffect(() => {
@@ -187,12 +192,18 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     return () => document.removeEventListener('mousedown', handler);
   }, [inlineOptions, onInlineClose]);
 
-  // 点击外部关闭命令补全（含 + 号菜单与目录弹层）
+  // 点击外部关闭命令补全（含 + 号菜单与目录弹层）；点击输入框同样收起
+  // plus/目录非输入型下拉（与 Toolbar 下拉一致），保持体验统一
   useEffect(() => {
     if (!showCommands && !plusOpen && !wsOpen) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (containerRef.current && !containerRef.current.contains(target)) {
         setShowCommands(false);
+        onMenuOpen(null);
+        setWsAddMode(false);
+      } else if (textareaRef.current && target === textareaRef.current) {
+        // 点击输入框（对焦）即收起 + 号与目录弹层
         onMenuOpen(null);
         setWsAddMode(false);
       }
@@ -228,11 +239,12 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
   }, [filteredCommands.length, inlineOptions, onMenuOpen]);
 
   const selectCommand = useCallback((cmd: string) => {
+    if (noWorkspaceOnWelcome) return; // 欢迎界面未选目录时禁止发送（含指令补全）
     setValue('');
     setShowCommands(false);
     onMenuOpen(null);
     onSubmit(cmd);
-  }, [onSubmit, onMenuOpen]);
+  }, [onSubmit, onMenuOpen, noWorkspaceOnWelcome]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -315,6 +327,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         if (busy || !connected) return;
         const line = value.trim();
         if (!line) return;
+        if (noWorkspaceOnWelcome) return; // 欢迎界面未选目录时禁止发送
         onSubmit(line);
         // 始终清空输入框（包括 B 指令触发 inline popup 的情况）
         setValue('');
@@ -322,7 +335,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
         onMenuOpen(null);
       }
     },
-    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose, onMenuOpen],
+    [value, busy, connected, onSubmit, showCommands, filteredCommands, selectedIndex, selectCommand, inlineOptions, onInlineSelect, onInlineClose, onMenuOpen, noWorkspaceOnWelcome],
   );
 
   const handleSend = () => {
@@ -334,6 +347,7 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
     if (!connected) return;
     const line = value.trim();
     if (!line) return;
+    if (noWorkspaceOnWelcome) return; // 欢迎界面未选目录时禁止发送
     onSubmit(line);
     setValue('');
     setShowCommands(false);
@@ -644,17 +658,19 @@ const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(function Pro
           )}
           <button
             onClick={handleSend}
-            disabled={(!connected && !busy) || stopping}
+            disabled={(!connected && !busy) || stopping || noWorkspaceOnWelcome}
             className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               stopping
                 ? 'bg-danger/10 text-danger hover:bg-danger/20'
-                : isStopState
-                  ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
-                  : isIdleEmpty
-                    ? 'bg-black/10 text-content-disabled cursor-not-allowed pointer-events-none'
-                    : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
+                : noWorkspaceOnWelcome
+                  ? 'bg-black/10 text-content-disabled cursor-not-allowed pointer-events-none'
+                  : isStopState
+                    ? 'bg-danger/10 text-danger hover:bg-danger/20 animate-pulse'
+                    : isIdleEmpty
+                      ? 'bg-black/10 text-content-disabled cursor-not-allowed pointer-events-none'
+                      : 'bg-primary text-white hover:bg-primary-hover hover:shadow-glow'
             }`}
-            title={stopping ? t(lang, 'task_stopping') : isStopState ? t(lang, 'task_stopped') : t(lang, 'send')}
+            title={stopping ? t(lang, 'task_stopping') : noWorkspaceOnWelcome ? t(lang, 'welcome_need_workspace') : isStopState ? t(lang, 'task_stopped') : t(lang, 'send')}
           >
             {stopping ? (
               // 停止请求已发出、等待后端确认：旋转圆圈缓冲动画（终止可能延迟 1-2s）

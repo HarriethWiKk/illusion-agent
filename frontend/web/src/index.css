@@ -61,6 +61,10 @@
   --text-secondary: #4a5068;
   --text-disabled: #8b92a8;
 
+  /* 滚动条滑块：浅色下比 --border-medium 更深一档，保证可见性 */
+  --scrollbar-thumb: #aab2c0;
+  --scrollbar-thumb-hover: #8c96a6;
+
   /* 粉彩色块 */
   --pastel-mint: #d4f5e0;
   --pastel-lilac: #e8dff5;
@@ -131,6 +135,10 @@
   --text-primary: #e8ebf0;
   --text-secondary: #a8b0c0;
   --text-disabled: #5a6275;
+
+  /* 滚动条滑块：深色下保持与边框相近但略亮，清晰可辨 */
+  --scrollbar-thumb: #3a4150;
+  --scrollbar-thumb-hover: #4a5264;
 
   /* 粉彩色块（深色模式下降低饱和度、提高亮度以适配深底） */
   --pastel-mint: #2a4a3a;
@@ -289,12 +297,12 @@ body {
   border-top: 0.5px solid var(--border-light);
 }
 .prose pre::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 .prose pre::-webkit-scrollbar-thumb {
-  background: var(--border-medium);
-  border-radius: 3px;
+  background: var(--scrollbar-thumb, var(--border-medium));
+  border-radius: 4px;
 }
 
 /* <pre> 内的 <code> — 继承容器背景，只负责排版 */
@@ -618,8 +626,8 @@ pre code.hljs,
 
 /* ========== 滚动条样式 ========== */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -627,12 +635,12 @@ pre code.hljs,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-medium);
-  border-radius: 3px;
+  background: var(--scrollbar-thumb, var(--border-medium));
+  border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-disabled);
+  background: var(--scrollbar-thumb-hover, var(--text-disabled));
 }
 
 /* ========== 选中文本样式 ========== */

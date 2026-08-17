@@ -67,6 +67,24 @@ function applyTheme(resolved: ResolvedTheme) {
 }
 
 /**
+ * 跨实例主题同步事件名
+ *
+ * 页面可能同时挂载多个 useTheme 实例（右栏 / 顶部按钮组 / 设置弹窗各自调用）。
+ * 为避免某实例 setTheme 后其他实例的 theme state 显示漂移，setTheme 统一派发
+ * 该自定义事件（detail 携带新主题模式），各实例监听后同步本地 state。
+ */
+const THEME_SYNC_EVENT = 'illusion:theme-change';
+
+/** 派发主题同步事件 */
+function broadcastTheme(next: Theme) {
+  try {
+    window.dispatchEvent(new CustomEvent(THEME_SYNC_EVENT, { detail: next }));
+  } catch {
+    // 非浏览器环境/事件派发失败时忽略，仅当前实例生效
+  }
+}
+
+/**
  * 主题管理 Hook
  *
  * @returns { theme, resolved, toggleTheme, setTheme }
@@ -127,10 +145,25 @@ export function useTheme() {
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
     setResolved(resolveTheme(next));
+    // 通知其他 useTheme 实例同步显示值（避免折叠态按钮/设置弹窗漂移）
+    broadcastTheme(next);
     // 同步到 settings.json（失败忽略，不阻塞 UI）
     settingsApi.updateTheme(next).catch(() => {
       // 写入失败时不回滚 UI 状态，下次加载会从 settings.json 重新读取
     });
+  }, []);
+
+  // 监听其他实例的主题变更事件：同步本地 state（resolved 由 applyTheme effect 统一落 DOM）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const next = (e as CustomEvent<Theme>).detail;
+      if (next === 'light' || next === 'dark' || next === 'system') {
+        setThemeState(next);
+        setResolved(resolveTheme(next));
+      }
+    };
+    window.addEventListener(THEME_SYNC_EVENT, handler);
+    return () => window.removeEventListener(THEME_SYNC_EVENT, handler);
   }, []);
 
   /** 三态循环切换：light → dark → system → light */

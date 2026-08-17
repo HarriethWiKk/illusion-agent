@@ -68,6 +68,11 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   cron: 'Cron',
   config: 'Config',
 
+  // Goal 工具
+  get_goal: 'GetGoal',
+  create_goal: 'CreateGoal',
+  update_goal: 'UpdateGoal',
+
   // MCP
   mcp: 'MCP',
   list_mcp_resources: 'ListMcpResources',

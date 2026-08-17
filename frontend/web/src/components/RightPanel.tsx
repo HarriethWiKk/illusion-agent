@@ -26,10 +26,6 @@ interface RightPanelProps {
   lang: UiLanguage;
   /** 后端状态 */
   status: Record<string, unknown>;
-  /** 是否已连接 */
-  connected: boolean;
-  /** 是否忙碌 */
-  busy: boolean;
   /** 是否折叠 */
   collapsed: boolean;
   /** 折叠/展开切换回调 */
@@ -59,12 +55,11 @@ interface RightPanelProps {
  * @returns 返回右侧面板的 JSX 元素
  */
 export default function RightPanel({
-  lang, status, connected, busy, collapsed, onToggle, todoItems,
+  lang, status, collapsed, onToggle, todoItems,
   skills, plugins, rules, mcpServers, width = 260, onRefreshResources,
 }: RightPanelProps) {
-  // 主题（浅色/深色/跟随系统）— 在折叠判断前调用以保证 hook 始终执行
+  // 主题（浅色/深色/跟随系统）— 展开态顶部 header 的主题切换按钮
   const { theme, toggleTheme } = useTheme();
-  // 主题按钮 title：查表获取当前主题模式对应名称
   const themeLabels: Record<Theme, string> = {
     light: t(lang, 'theme_light'),
     dark: t(lang, 'theme_dark'),
@@ -92,22 +87,9 @@ export default function RightPanel({
   const totalInputWithCache = contextCached + contextInput;
   const cacheHitRate = totalInputWithCache > 0 ? Math.round(contextCacheRead * 1000 / totalInputWithCache) / 10 : 0;
 
-  // 折叠态
-  if (collapsed) {
-    return (
-      <aside className="w-12 glass-panel border-l border-white/30 flex flex-col items-center py-4 shrink-0 select-none">
-        <button onClick={onToggle} title={t(lang, 'expand_panel')}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 3l-5 5 5 5" />
-          </svg>
-        </button>
-        <div className="mt-auto mb-2">
-          <span className={`block w-2.5 h-2.5 rounded-full ${connected ? (busy ? 'bg-warning animate-pulse' : 'bg-success') : 'bg-danger'}`} style={connected && !busy ? { boxShadow: '0 0 6px rgba(76, 175, 125, 0.5)' } : busy ? { boxShadow: '0 0 6px rgba(232, 168, 76, 0.5)' } : { boxShadow: '0 0 6px rgba(212, 91, 91, 0.4)' }} />
-        </div>
-      </aside>
-    );
-  }
+  // 折叠态：整个右栏（含侧边窄条）一并隐藏，展开/主题/上下文圆环由顶部右侧
+  // 按钮组（RightPanelControls，见文件底部导出）承载
+  if (collapsed) return null;
 
   // 分组统计
   const projectSkills = skills.filter((s) => s.source === 'project');
@@ -399,4 +381,102 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+/**
+ * 顶部右侧控制按钮组（右栏折叠态的替代承载）
+ *
+ * 原折叠态在右边缘显示一个 12px 窄条；现优化为在聊天区顶部右侧纵向排布三个按钮：
+ * - 展开按钮：点击展开/收起右栏
+ * - 主题按钮：循环切换浅色/深色/跟随系统
+ * - 上下文占比：以百分数展示上下文窗口使用量（点击展开右栏查看明细）
+ *
+ * 定位：absolute top，right 对齐滚动条左侧并留出 6px 间距（全局滚动条宽 10px），
+ * 避免被滚动条遮挡、也不随内容变化产生 UI 抖动（对应 scrollbarGutter: stable 预留位置）。
+ *
+ * @param props.lang - 当前 UI 语言
+ * @param props.status - 后端状态（读 context_window / context_tokens）
+ * @param props.onToggle - 折叠/展开切换回调
+ */
+export function RightPanelControls({
+  lang, status, onToggle,
+}: {
+  lang: UiLanguage;
+  status: Record<string, unknown>;
+  onToggle: () => void;
+}) {
+  const { theme, toggleTheme } = useTheme();
+  const themeLabels: Record<Theme, string> = {
+    light: t(lang, 'theme_light'),
+    dark: t(lang, 'theme_dark'),
+    system: t(lang, 'theme_system'),
+  };
+  const themeTitle = themeLabels[theme];
+  // 上下文使用量
+  const contextWindow = Number(status?.context_window ?? 0);
+  const contextTokens = Number(status?.context_tokens ?? 0);
+  const contextPercent = contextWindow > 0 ? Math.min(100, Math.round(contextTokens * 1000 / contextWindow) / 10) : 0;
+  // 占比文字颜色随用量变化（与右栏进度条的 bg-primary/bg-warning/bg-danger 色值一致）
+  const usageColor = contextPercent >= 95 ? '#d45b5b' : contextPercent >= 80 ? '#e8a84c' : '#2a9d99';
+  const usageTitle = contextWindow > 0
+    ? `${t(lang, 'context_window')}: ${contextPercent.toFixed(1)}% (${formatTokens(contextTokens)}/${formatTokens(contextWindow)})`
+    : t(lang, 'context_window');
+
+  return (
+    <div className="absolute top-3 right-[16px] z-20 flex flex-col items-center gap-2 select-none">
+      {/* 展开/收起右栏 */}
+      <button
+        onClick={onToggle}
+        title={t(lang, 'expand_panel')}
+        aria-label={t(lang, 'expand_panel')}
+        className="w-8 h-8 flex items-center justify-center rounded-full glass-surface text-content-secondary glass-option-hover hover:text-primary transition-colors cursor-pointer"
+      >
+        {/* 上级仅在折叠态渲染本按钮组，始终表示"展开右栏"（箭头朝左） */}
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 3l-5 5 5 5" />
+        </svg>
+      </button>
+
+      {/* 主题切换（三态循环：浅色→深色→跟随系统→浅色） */}
+      <button
+        onClick={toggleTheme}
+        title={`${t(lang, 'theme')}: ${themeTitle}`}
+        aria-label={themeTitle}
+        className="w-8 h-8 flex items-center justify-center rounded-full glass-surface text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer"
+      >
+        {theme === 'light' && (
+          /* 太阳图标（当前浅色，点击切换到深色） */
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="8" r="3" />
+            <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" />
+          </svg>
+        )}
+        {theme === 'dark' && (
+          /* 月亮图标（当前深色，点击切换到跟随系统） */
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13 8.5a5 5 0 0 1-5.5-5.5 5 5 0 1 0 5.5 5.5z" />
+          </svg>
+        )}
+        {theme === 'system' && (
+          /* 显示器图标（当前跟随系统，点击切换到浅色） */
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="12" height="8" rx="1" />
+            <path d="M6 13h4M8 11v2" />
+          </svg>
+        )}
+      </button>
+
+      {/* 上下文用量占比（以百分数展示，点击展开右栏查看明细） */}
+      <button
+        onClick={onToggle}
+        title={usageTitle}
+        aria-label={usageTitle}
+        className="w-9 h-9 flex items-center justify-center rounded-full glass-surface text-content-secondary glass-option-hover hover:text-content-primary transition-colors cursor-pointer"
+      >
+        <span className="text-[10px] font-semibold tabular-nums leading-none" style={{ color: usageColor }}>
+          {contextPercent.toFixed(0)}%
+        </span>
+      </button>
+    </div>
+  );
 }

@@ -257,7 +257,9 @@ export type FrontendRequest =
   | { type: 'agent_wizard_init' }
   | { type: 'agent_generate_request'; prompt: string; model: string; request_id: string; session_id?: string }
   | { type: 'agent_generate_cancel'; request_id: string }
-  | { type: 'agent_wizard_submit'; fields: Record<string, unknown>; scope: 'user' | 'project' };
+  | { type: 'agent_wizard_submit'; fields: Record<string, unknown>; scope: 'user' | 'project' }
+  // === Goal 状态栏操作（GoalBar 的 pause/resume/edit/clear）===
+  | { type: 'goal_action'; goal_action: 'pause' | 'resume' | 'edit' | 'clear'; goal_id?: string; revision?: number; objective?: string; session_id?: string };
 
 // ---- 后端事件 ----
 
@@ -386,6 +388,44 @@ export interface BackendEvent {
   prompt?: string;
   /** update_available 事件携带的最新版本号（可选） */
   latest_version?: string;
+  // === goal_action_result 专属字段 ===
+  /** goal_action_result 回执的操作名（可选） */
+  goal_action?: string;
+  /** goal_action_result 失败时的 {code, message}（可选） */
+  goal_error?: { code: string; message: string };
+  /** goal_status 携带的结构化轮次生命周期（round/wrapup/limit/disarmed） */
+  goal_status?: {
+    kind: string;
+    round?: number;
+    max_rounds?: number;
+    phase?: string;
+    /** 后端按 ui_language 本地化好的 toast 文案（前端直接展示，不再自行本地化） */
+    message?: string;
+  };
+}
+
+/**
+ * Goal 状态接口
+ *
+ * 后端 goal 域视图（goal/status_payload），随会话级状态推送。
+ */
+export interface GoalStatus {
+  /** goal ID（goal-<uuid>，CAS 标识） */
+  id: string;
+  /** CAS revision */
+  revision: number;
+  /** 完成目标文本 */
+  objective: string;
+  /** 相位：active | paused | blocked | complete */
+  phase: 'active' | 'paused' | 'blocked' | 'complete';
+  /** 已准入的 goal 轮数 */
+  roundsStarted: number;
+  /** 轮次上限 */
+  maxGoalRounds: number;
+  /** 进程内激活状态：armed | disarmed */
+  activation: 'armed' | 'disarmed';
+  /** 受阻原因（仅 blocked 时存在） */
+  blockedReason?: { code: string; message: string };
 }
 
 /**
@@ -436,6 +476,8 @@ export interface WebSessionItem {
   context_input?: number;
   /** 最后一次 API 调用的输出 tokens（可选） */
   context_output?: number;
+  /** 会话 goal 视图（可选，null 表示无目标；GoalBar 数据源） */
+  goal?: GoalStatus | null;
 }
 
 /**
@@ -511,4 +553,6 @@ export interface StatusPayload {
   max_tokens?: number;
   /** 活动 agent 数 */
   agent_count?: number;
+  /** 会话 goal 视图（可选，null 表示无目标；GoalBar 数据源） */
+  goal?: GoalStatus | null;
 }
