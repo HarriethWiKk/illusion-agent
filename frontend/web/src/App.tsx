@@ -799,11 +799,11 @@ export default function App() {
             onOpenSettings={() => { setSetupInitialTab('settings'); setShowSetupForm(true); }} />
         )}
       </div>
-      {!rightPanelCollapsed && (
+      {!rightPanelCollapsed && !welcomeVisible && (
         <div className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0"
           onMouseDown={(e) => handleResizeStart('right', e)} />
       )}
-      {!rightPanelCollapsed && (
+      {!rightPanelCollapsed && !welcomeVisible && (
       <RightPanel lang={lang} status={session.status}
         collapsed={rightPanelCollapsed} onToggle={toggleRightPanel}
         onRefreshResources={() => session.requestResources()}
